@@ -341,7 +341,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📈 Stock Scout — 2025")
+st.title("📈 Asaf's Stock Scout — 2025")
 
 # ===== סטטוס מקורות (6) =====
 openai_ok, openai_reason    = check_openai_verbose()
