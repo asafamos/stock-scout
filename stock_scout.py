@@ -1,21 +1,28 @@
 # -*- coding: utf-8 -*-
 """
-Asaf Stock Scout — סורק מניות 2025 (גרסה מלאה משופרת)
+Asaf Stock Scout — סורק מניות 2025 (גרסה מלאה משופרת+)
 ----------------------------------------------------
-• חיזוקים: Overextension, Pullback, Volatility (ATR/Price), Near-High Bell, Reward/Risk,
-  (אופציונלי) MACD/ADX, (אופציונלי) סינון ערך בסיסי.
-• שדרוגי סינון: מינ' ליקווידיות (דולר-ווליום), סף ATR/Price קשיח, סף Overextension קשיח,
-  בלוק-אאוט דו"חות (לטופ-K), פריסטי סיכון.
-• נשמרים: בדיקות API, ייקום Finnhub, yfinance + Cache, אימות מחירים חיצוני,
-  ניקוד/דירוג, הקצאת תקציב, כרטיסי קנייה, טבלאות/גרפים/CSV, צ'אט AI.
+שדרוגים בגרסה זו (ללא איבוד שום יכולת קיימת):
+• הורדת נתונים עמידה יותר מ-Yahoo (ריטריים + פולבאק פר-טיקר).
+• הוספת "טיקרים ידניים" (CSV) המצטרפים ליקום אוטומטי.
+• כפתור "ניקוי קאש" לכל @st.cache_data.
+• נירמול משקולות ניקוד בעת הזנה ידנית (סכום=1) + ברירות מחדל חסרות.
+• אימות מחירים חיצוני מהיר יותר עם ThreadPoolExecutor, כולל Throttle ל-Alpha Vantage.
+• KPI קצרים בראש התוצאות (יקום, תוצאות, תקציב מנוצל/עודף).
+• מיון דטרמיניסטי: Score↓, Ticker↑.
+• עוד הגנות: NaN/חלוקות באפס/מקרי קצה אחרי earnings blackout, הודעות ידידותיות.
 
+הפיצ'רים המקוריים נשמרו 1:1:
+- סטטוסי API, יקום Finnhub (או ברירת מחדל), ניקוד משולב (MA/Mom/RSI/Near-High Bell/Overext/Pullback/ATR/Price/RR),
+  אופציונלי MACD/ADX ו-Value (P/E,P/B) לטופ-K, סינונים קשיחים (דולר-ווליום/ATR/Overext), earnings blackout,
+  אימות מחירים חיצוני (Alpha/Finnhub/Polygon/Tiingo/FMP), הקצאת תקציב, כרטיסי קנייה, טבלת תוצאות/CSV, גרפים, צ'אט AI.
 הערה: אין באמור ייעוץ השקעות.
 """
 
 from __future__ import annotations
-import os, io, time
+import os, io, time, math
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -24,6 +31,7 @@ import yfinance as yf
 import streamlit as st
 import plotly.graph_objs as go
 from dotenv import load_dotenv, find_dotenv
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ========= טעינת ENV =========
 load_dotenv(find_dotenv(usecwd=True))
@@ -49,11 +57,12 @@ def http_get_retry(url: str, tries: int = 3, backoff: float = 1.7, timeout: int 
 
 _last_alpha_call = 0.0
 def alpha_throttle(min_gap_seconds: float = 12.0):
+    """Throttle פשוט ל-Alpha Vantage (מומלץ ~5 קריאות/דקה בחינם)."""
     global _last_alpha_call
     now = time.time()
     gap = now - _last_alpha_call
     if gap < min_gap_seconds:
-        time.sleep(min_gap_seconds - gap)
+        time.sleep(max(0.0, min_gap_seconds - gap))
     _last_alpha_call = time.time()
 
 # ========= סטטוסים (עם Cache) =========
@@ -313,40 +322,76 @@ def build_universe(limit: int = 350) -> List[str]:
     if not symbols:
         return ["AAPL","MSFT","NVDA","AMZN","GOOGL","META"]
     if len(symbols) > limit:
-        bins = {}
+        bins: Dict[str, List[str]] = {}
         for tkr in symbols:
             bins.setdefault(tkr[0], []).append(tkr)
         per = max(1, int(limit / max(1, len(bins))))
-        sampled = []
+        sampled: List[str] = []
         for k, arr in sorted(bins.items()):
-            sampled.extend(arr[:per])
+            arr_sorted = sorted(arr)
+            sampled.extend(arr_sorted[:per])
         if len(sampled) < limit:
-            sampled.extend([t for t in symbols if t not in sampled][: (limit - len(sampled))])
+            extra = [t for t in symbols if t not in sampled][: (limit - len(sampled))]
+            sampled.extend(extra)
         symbols = sampled
     return symbols[:limit]
 
 # ========= הורדת נתונים =========
+def safe_yf_download(tickers: List[str], start: datetime, end: datetime) -> Dict[str, pd.DataFrame]:
+    """
+    ניסיון הורדה מרובה-טיקרים; אם נכשל/חסר נתון — פולבאק להורדה פר-טיקר.
+    """
+    out: Dict[str, pd.DataFrame] = {}
+    if not tickers:
+        return out
+    try:
+        data_raw = yf.download(
+            tickers, start=start, end=end, auto_adjust=True,
+            progress=False, group_by='ticker', threads=True
+        )
+        if isinstance(data_raw.columns, pd.MultiIndex):
+            for t in tickers:
+                try:
+                    df = data_raw[t].dropna()
+                    if not df.empty:
+                        out[t] = df
+                except Exception:
+                    continue
+        else:
+            df = data_raw.dropna()
+            if not df.empty:
+                out[tickers[0]] = df
+    except Exception:
+        pass
+
+    # פולבאק: כל טיקר בנפרד אם חסרים
+    missing = [t for t in tickers if t not in out]
+    for t in missing:
+        try:
+            dfi = yf.download(t, start=start, end=end, auto_adjust=True, progress=False)
+            dfi = dfi.dropna()
+            if not dfi.empty:
+                out[t] = dfi
+        except Exception:
+            continue
+    return out
+
 @st.cache_data(show_spinner=True, ttl=60*15)
 def fetch_history_bulk(tickers: List[str], period_days: int, ma_long: int) -> Dict[str, pd.DataFrame]:
     if not tickers: return {}
     end = datetime.utcnow()
     start = end - timedelta(days=period_days)
-    data_raw = yf.download(tickers, start=start, end=end, auto_adjust=True, progress=False,
-                           group_by='ticker', threads=True)
-    data: Dict[str, pd.DataFrame] = {}
-    if isinstance(data_raw.columns, pd.MultiIndex):
-        for t in tickers:
-            try:
-                df = data_raw[t].dropna()
-                if len(df) >= max(60, int(ma_long) + 10):
-                    data[t] = df
-            except Exception:
-                continue
-    else:
-        df = data_raw.dropna()
-        if len(df) >= max(60, int(ma_long) + 10):
-            data[tickers[0]] = df
-    return data
+    data: Dict[str, pd.DataFrame] = safe_yf_download(tickers, start, end)
+    # דרישת מינימום אורך היסטוריה
+    out = {}
+    min_len = max(60, int(ma_long) + 10)
+    for t, df in data.items():
+        try:
+            if len(df) >= min_len:
+                out[t] = df
+        except Exception:
+            continue
+    return out
 
 # ========= עזרי זמן =========
 def t_start(): return time.perf_counter()
@@ -354,6 +399,14 @@ def t_end(t0): return time.perf_counter() - t0
 
 # ========= UI =========
 st.set_page_config(page_title="Asaf's Stock Scout — 2025", page_icon="📈", layout="wide")
+
+# כפתור ניקוי קאש
+col_clear, _ = st.columns([1,6])
+with col_clear:
+    if st.button("🧹 נקה קאש (Cache)"):
+        st.cache_data.clear()
+        st.success("נוקו כל המטמונים (cache).")
+
 st.markdown("""
 <style>
 :root{
@@ -431,7 +484,9 @@ with col_d:
 # ===== מתקדם =====
 with st.expander("מתקדם"):
     st.caption("למתקדמים בלבד — אפשר להשאיר כברירת מחדל.")
-    col_m1, col_m2, col_m3 = st.columns(3)
+    col_m0, col_m1, col_m2, col_m3 = st.columns([2,1,1,1])
+    with col_m0:
+        manual_tickers_raw = st.text_input("טיקרים ידניים (מופרדים בפסיקים, אופציונלי)", value="")
     with col_m1:
         min_price = st.number_input("מחיר מינ׳ $", 0.0, 5000.0, 3.0)
         ma_short  = st.number_input("MA קצר", 5, 100, 20)
@@ -477,10 +532,19 @@ with st.expander("מתקדם"):
     value_filter_enabled = st.toggle("סינון ערך בסיסי (P/E 5–40, P/B < 10) עבור Top-K בלבד", value=False)
     macd_adx_enabled = st.toggle("שקלול MACD/ADX", value=False)
 
+# קריאת JSON למשקולות + נירמול וביטחון במפתחות
+def _normalize_weights(d: Dict[str, float]) -> Dict[str, float]:
+    keys = ["ma","mom","rsi","near_high_bell","vol","overext","pullback","risk_reward","macd","adx"]
+    w = {k: float(d.get(k, default_weights.get(k, 0.0))) for k in keys}
+    s = sum(max(0.0, v) for v in w.values())
+    if s <= 0:
+        return default_weights
+    return {k: max(0.0, v)/s for k, v in w.items()}
+
 try:
-    SCORE_W = pd.Series(pd.read_json(io.StringIO(score_weights_raw), typ="series"))
+    SCORE_W = pd.Series(_normalize_weights(pd.read_json(io.StringIO(score_weights_raw), typ="series").to_dict()))
 except Exception:
-    SCORE_W = pd.Series(default_weights)
+    SCORE_W = pd.Series(_normalize_weights(default_weights))
 
 # ========= פונקציות עזר =========
 def get_next_earnings_date(ticker: str):
@@ -499,22 +563,33 @@ def get_next_earnings_date(ticker: str):
 
 # ========= צינור ריצה + מדדי זמן =========
 if "av_calls" not in st.session_state: st.session_state.av_calls = 0
-phase_times = {}
+phase_times: Dict[str, float] = {}
 
 # שלב 1: יקום
 t0 = t_start()
 universe = build_universe(limit=int(universe_limit)) if smart_scan else build_universe(limit=200)
+
+# הוספת טיקרים ידניים (אם הוזנו)
+manual_list = []
+if manual_tickers_raw.strip():
+    manual_list = [x.strip().upper() for x in manual_tickers_raw.split(",") if x.strip()]
+    manual_list = [t for t in manual_list if "." not in t]  # להסיר ADR/ניירות בעייתיים בסימון.
+if manual_list:
+    universe = sorted(list(pd.unique(pd.Series(universe + manual_list))))
+
+# חיתוך יקום לגודל יעד
 if len(universe) > universe_limit:
-    bins = {}
+    bins: Dict[str, List[str]] = {}
     for tkr in universe:
         bins.setdefault(tkr[0], []).append(tkr)
     per = max(1, int(universe_limit / max(1, len(bins))))
     sampled = []
     for k, arr in sorted(bins.items()):
-        sampled.extend(arr[:per])
+        sampled.extend(sorted(arr)[:per])
     if len(sampled) < universe_limit:
-        sampled.extend([t for t in universe if t not in sampled][: (universe_limit - len(sampled))])
+        sampled.extend([t for t in sorted(universe) if t not in sampled][: (universe_limit - len(sampled))])
     universe = sampled
+
 phase_times["בונה יקום"] = t_end(t0)
 
 # שלב 2: הורדת נתונים
@@ -680,8 +755,8 @@ if results.empty:
     st.warning("אין תוצאות אחרי הסינון. נסה להקל פרמטרים במתקדם.")
     st.stop()
 
-# מיון וחיתוך ראשוני
-results = results.sort_values(["Score","Price_Yahoo"], ascending=[False, True]).reset_index(drop=True)
+# מיון וחיתוך ראשוני (דטרמיניסטי)
+results = results.sort_values(["Score","Ticker"], ascending=[False, True]).reset_index(drop=True)
 
 # ---- Earnings blackout (Top-K) ----
 if earnings_blackout_days > 0:
@@ -698,34 +773,57 @@ if earnings_blackout_days > 0:
             keep_mask[idx] = False
             results.at[idx, "EarningsNote"] = f"Excluded: earnings within {gap_days}d"
     results = results[keep_mask].reset_index(drop=True)
+    if results.empty:
+        st.warning("כל המועמדות בטופ-K נפסלו עקב חלון דו\"חות. הקל ספים/הגדל K או נטרל blackout זמנית.")
+        st.stop()
 
-# שלב 4: אימות חיצוני (Top-K)
+# שלב 4: אימות חיצוני (Top-K) — עם ThreadPool (למעט Throttle ל-Alpha)
 t0 = t_start()
+def _fetch_external_for(tkr: str, py: float) -> Tuple[str, Dict[str, Optional[float]], List[str]]:
+    vals, srcs = {}, []
+    if not math.isnan(py):
+        vals["Yahoo"] = py; srcs.append("🟡Yahoo")
+    pa = pf = ppg = pti = pfmp = None
+    if alpha_ok:
+        pa = get_alpha_vantage_price(tkr)
+    if finnhub_ok:
+        pf = get_finnhub_price(tkr)
+    if os.getenv("POLYGON_API_KEY"):
+        ppg = get_polygon_price(tkr)
+    if os.getenv("TIINGO_API_KEY"):
+        pti = get_tiingo_price(tkr)
+    if os.getenv("FMP_API_KEY"):
+        pfmp = get_fmp_price(tkr)
+
+    if pa is not None:   vals["Alpha"]   = pa;   srcs.append("🟣Alpha")
+    if pf is not None:   vals["Finnhub"] = pf;   srcs.append("🔵Finnhub")
+    if ppg is not None:  vals["Polygon"] = ppg;  srcs.append("🟢Polygon")
+    if pti is not None:  vals["Tiingo"]  = pti;  srcs.append("🟠Tiingo")
+    if pfmp is not None: vals["FMP"]     = pfmp; srcs.append("🟤FMP")
+    return tkr, vals, srcs
+
 if use_external_prices and (alpha_ok or finnhub_ok or os.getenv("POLYGON_API_KEY") or os.getenv("TIINGO_API_KEY") or os.getenv("FMP_API_KEY")):
     subset_idx = list(results.head(int(top_validate_k)).index)
-    for idx in subset_idx:
-        r = results.loc[idx]
-        tkr = r["Ticker"]; py = r["Price_Yahoo"]
-        pa   = get_alpha_vantage_price(tkr) if alpha_ok else None
-        pf   = get_finnhub_price(tkr) if finnhub_ok else None
-        ppg  = get_polygon_price(tkr) if os.getenv("POLYGON_API_KEY") else None
-        pti  = get_tiingo_price(tkr)  if os.getenv("TIINGO_API_KEY")  else None
-        pfmp = get_fmp_price(tkr)     if os.getenv("FMP_API_KEY")     else None
-
-        prices, srcs = [], []
-        if py is not None and not np.isnan(py): prices.append(py);  srcs.append("🟡Yahoo")
-        if pa is not None: prices.append(pa);   srcs.append("🟣Alpha")
-        if pf is not None: prices.append(pf);   srcs.append("🔵Finnhub")
-        if ppg is not None:prices.append(ppg);  srcs.append("🟢Polygon")
-        if pti is not None:prices.append(pti);  srcs.append("🟠Tiingo")
-        if pfmp is not None:prices.append(pfmp);srcs.append("🟤FMP")
-
-        pmean  = float(np.mean(prices)) if prices else np.nan
-        pstd   = float(np.std(prices))  if len(prices) > 1 else np.nan
-        sources = len(prices)
-
-        results.loc[idx, ["Price_Alpha","Price_Finnhub","Price_Mean","Price_STD","Sources","Source_List"]] = \
-            [pa, pf, pmean, pstd, sources, " · ".join(srcs) if srcs else "—"]
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        futures = []
+        for idx in subset_idx:
+            r = results.loc[idx]
+            futures.append(ex.submit(_fetch_external_for, r["Ticker"], float(r["Price_Yahoo"])))
+        for f in as_completed(futures):
+            try:
+                tkr, vals, srcs = f.result()
+            except Exception:
+                continue
+            idx = results.index[results["Ticker"] == tkr][0]
+            py   = results.at[idx, "Price_Yahoo"]
+            pa   = vals.get("Alpha", np.nan)
+            pf   = vals.get("Finnhub", np.nan)
+            prices = [v for v in vals.values() if v is not None]
+            pmean  = float(np.mean(prices)) if prices else np.nan
+            pstd   = float(np.std(prices))  if len(prices) > 1 else np.nan
+            sources = len(prices)
+            results.loc[idx, ["Price_Alpha","Price_Finnhub","Price_Mean","Price_STD","Sources","Source_List"]] = \
+                [pa, pf, pmean, pstd, sources, " · ".join(srcs) if srcs else "—"]
 else:
     if use_external_prices:
         st.info("אימות חיצוני הופעל אך אין מפתחות תקינים (Alpha/Finnhub/Polygon/Tiingo/FMP). משתמש רק במחיר Yahoo.")
@@ -774,7 +872,7 @@ def allocate_budget(df: pd.DataFrame, total: float, min_pos: float) -> pd.DataFr
     df["סכום קנייה ($)"] = 0.0
     if total <= 0 or df.empty: return df
 
-    df = df.sort_values("Score", ascending=False).reset_index(drop=True)
+    df = df.sort_values(["Score","Ticker"], ascending=[False, True]).reset_index(drop=True)
     remaining = float(total); n = len(df)
     can_min = int(min(n, remaining // max(min_pos, 0.0))) if min_pos > 0 else 0
     if min_pos > 0 and can_min > 0:
@@ -819,6 +917,14 @@ results["Unit_Price"] = np.where(results["Price_Mean"].notna(), results["Price_M
 results["Unit_Price"] = pd.to_numeric(results["Unit_Price"], errors="coerce")
 results["מניות לקנייה"] = np.floor(np.where(results["Unit_Price"] > 0, results["סכום קנייה ($)"] / results["Unit_Price"], 0)).astype(int)
 results["עודף ($)"] = np.round(results["סכום קנייה ($)"] - results["מניות לקנייה"] * results["Unit_Price"], 2)
+
+# ===== KPI קצרים =====
+budget_used = float(results["מניות לקנייה"].to_numpy() @ results["Unit_Price"].fillna(0).to_numpy())
+kpi_cols = st.columns(4)
+kpi_cols[0].metric("גודל יקום לאחר סינון היסטוריה", len(data_map))
+kpi_cols[1].metric("כמות תוצאות אחרי סינון", len(results))
+kpi_cols[2].metric("תקציב מנוצל (≈$)", f"{budget_used:,.0f}")
+kpi_cols[3].metric("עודף תקציב (≈$)", f"{max(0.0, budget_total - budget_used):,.0f}")
 
 # ===== מדדי זמן + מונה Alpha =====
 st.subheader("⏱️ זמני ביצוע")
