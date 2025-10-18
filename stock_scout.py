@@ -8,6 +8,8 @@ Asaf Stock Scout — סורק מניות 2025 (גרסה מלאה משופרת)
   בלוק-אאוט דו"חות (לטופ-K), פריסטי סיכון.
 • נשמרים: בדיקות API, ייקום Finnhub, yfinance + Cache, אימות מחירים חיצוני,
   ניקוד/דירוג, הקצאת תקציב, כרטיסי קנייה, טבלאות/גרפים/CSV, צ'אט AI.
+
+הערה: אין באמור ייעוץ השקעות.
 """
 
 from __future__ import annotations
@@ -480,9 +482,9 @@ try:
 except Exception:
     SCORE_W = pd.Series(default_weights)
 
-# ========= פונקציות עזר נוספות =========
+# ========= פונקציות עזר =========
 def get_next_earnings_date(ticker: str):
-    """החזרה: datetime או None (yfinance לעיתים חסר נתון)."""
+    """החזרה: datetime או None (yfinance עשוי לא להחזיר)."""
     try:
         cal = yf.Ticker(ticker).calendar
         if isinstance(cal, pd.DataFrame) and "Earnings Date" in cal.index:
@@ -1008,4 +1010,3 @@ with st.expander("ℹ️ הערות ומתודולוגיה"):
 - סינוני איכות קשיחים: מינ׳ דולר-ווליום, מקס׳ ATR/Price, מקס׳ Overextension; **Earnings blackout** ל-Top-K.
 - ההמלצה כוללת הקצאת תקציב, מס' מניות לקנייה וטווח החזקה משוער. אין באמור ייעוץ השקעות.
 """)
-
