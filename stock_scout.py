@@ -402,16 +402,60 @@ def t_end(t0): return time.perf_counter() - t0
 st.set_page_config(page_title="Asaf's Stock Scout — 2025", page_icon="📈", layout="wide")
 st.markdown("""
 <style>
-  body{direction:rtl}
-  .block-container{padding-top:1rem;padding-bottom:2rem}
-  h1,h2,h3{ text-align:right }
-  [data-testid="stMarkdownContainer"], label{ text-align:right }
-  input, textarea{ direction:rtl; text-align:right }
-  thead tr th{ text-align:right }
-  .rtl-table table { direction: rtl; }
-  .rtl-table th, .rtl-table td { text-align: right !important; }
+/* בסיס – מצב בהיר */
+:root{
+  --badge-bg: #eef2ff;     /* רקע תכלכל בהיר */
+  --badge-bd: #c7d2fe;     /* מסגרת */
+  --badge-fg: #1e293b;     /* טקסט כהה */
+  --pill-bg:  #ecfdf5;
+  --pill-bd:  #34d399;
+  --pill-fg:  #065f46;
+}
+
+/* מצב כהה – ניגודיות גבוהה */
+@media (prefers-color-scheme: dark){
+  :root{
+    --badge-bg: #0b1220;   /* כחול-כהה כמעט שחור */
+    --badge-bd: #334155;   /* מסגרת אפורה-כחלחלה */
+    --badge-fg: #e2e8f0;   /* טקסט בהיר */
+    --pill-bg:  #064e3b;
+    --pill-bd:  #10b981;
+    --pill-fg:  #d1fae5;
+  }
+}
+
+.badge{
+  display:inline-block;
+  background:var(--badge-bg);
+  border:1px solid var(--badge-bd);
+  color:var(--badge-fg);
+  padding:2px 10px;
+  border-radius:999px;
+  font-weight:600;
+  letter-spacing:.2px;
+  text-shadow: 0 1px 0 rgba(0,0,0,.15); /* מוסיף חדות במצב כהה */
+}
+
+.status-buy{
+  background:var(--pill-bg);
+  border:1px solid var(--pill-bd);
+  color:var(--pill-fg);
+  padding:2px 10px;
+  border-radius:999px;
+  font-weight:600;
+}
+
+.recommend-card h3{
+  align-items:center; gap:10px;
+}
+
+/* שיהיה תמיד ניגודיות טובה גם על רקעים משובצים */
+.recommend-card{
+  backdrop-filter: saturate(1.1);
+}
 </style>
 """, unsafe_allow_html=True)
+
 
 st.title("📈 Stock Scout — 2025")
 
