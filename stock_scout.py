@@ -1,24 +1,29 @@
 # -*- coding: utf-8 -*-
 """
-Asaf Stock Scout — סורק מניות 2025 (מצומצם + מדדי זמן + מונה Alpha Vantage + כרטיסי קנייה + צ'אט)
-הרצה:
-    python3 -m pip install --upgrade pip
-    python3 -m pip install streamlit yfinance pandas numpy plotly openai python-dotenv requests
-    python3 -m streamlit run stock_scout.py --server.runOnSave true
+Asaf Stock Scout — סורק מניות 2025 (גרסה מלאה משופרת)
+----------------------------------------------------
+• שמירה על כל היכולות מהגרסה הקודמת + הוספת שיקולי כניסה/סיכון:
+  - Overextension: ענישה כשהמחיר "מתוח" מעל MA ארוך
+  - Pullback: בונוס כשהמחיר בתיקון מתון מתחת לשיא
+  - Volatility: עדיפות לתנודתיות נמוכה יחסית (ATR/Price)
+  - Near-High Bell: תגמול מירבי כשקרוב לשיא אך לא בקצה
+  - Risk/Reward: יחס hi52w-Price ל-ATR (מידע/שקלול קל)
+  - MACD/ADX: אינדיקטורים למגמה וחוזק מגמה (שקלול אופציונלי)
+  - (אופציונלי) סינון ערך בסיסי (P/E, P/B) עבור Top-K בלבד
 
-.env / .nev (אופציונלי):
-    OPENAI_API_KEY=...
-    ALPHA_VANTAGE_API_KEY=...
-    FINNHUB_API_KEY=...
-    POLYGON_API_KEY=...      # אופציונלי
-    TIINGO_API_KEY=...       # אופציונלי
-    FMP_API_KEY=...          # אופציונלי
+• נשמרים:
+  - בדיקות חיבור ל-OpenAI/Alpha/Finnhub/Polygon/Tiingo/FMP
+  - יקום סריקה דרך Finnhub (או Fallback קבוע)
+  - הורדת היסטוריה דרך yfinance + Cache
+  - ניקוד/דירוג + הקצאת תקציב + כרטיסי קנייה
+  - אימות מחירים חיצוני (ממוצע/סטיית תקן)
+  - צ'אט AI, גרפים, טבלאות, יצוא CSV
 
 הערה: אין באמור ייעוץ השקעות.
 """
 
 from __future__ import annotations
-import os, io, time
+import os, io, time, math
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 
@@ -44,17 +49,19 @@ def http_get_retry(url: str, tries: int = 3, backoff: float = 1.7, timeout: int 
     for i in range(tries):
         try:
             r = requests.get(url, timeout=timeout, headers=headers or {})
-            if r.headers.get("Content-Type", "").startswith("application/json"):
-                try:
-                    j = r.json()
-                    if isinstance(j, dict) and any(k in j for k in ("Note", "Information", "Error Message", "message", "status")):
-                        time.sleep(backoff**i); continue
-                except Exception:
-                    pass
+            # אם השרת החזיר תשובה – נחזיר אותה למעלה כמו שהיא.
+            # הפונקציות הקוראות (check_* / get_*) כבר מפרשות JSON/שגיאות/Rate-limit.
+            if r.status_code in (429, 500, 502, 503, 504):
+                # מצבים שבהם כן כדאי לנסות שוב (עומס/רייט־לימיט/שגיאת שרת)
+                time.sleep(backoff**i); 
+                continue
             return r
         except requests.RequestException:
+            # תקלה ברשת – ננסה שוב עם backoff
             time.sleep(backoff**i)
     return None
+
+
 
 _last_alpha_call = 0.0
 def alpha_throttle(min_gap_seconds: float = 12.0):
@@ -107,7 +114,6 @@ def check_finnhub_verbose():
     except Exception:
         return False, "Exception"
 
-# ---- מקורות חדשים: Polygon / Tiingo / FMP ----
 @st.cache_data(ttl=300)
 def check_polygon_verbose():
     key = os.getenv("POLYGON_API_KEY")
@@ -144,16 +150,24 @@ def check_fmp_verbose():
     if not key:
         return False, "Missing API key"
     try:
-        url = f"https://financialmodelingprep.com/api/v3/quote-short/AAPL?apikey={key}"
-        r = http_get_retry(url, tries=2, timeout=10)
-        if not r: return False, "Timeout/Network"
-        arr = r.json()
-        ok = isinstance(arr, list) and len(arr) > 0 and isinstance(arr[0], dict) and ("price" in arr[0])
-        return ok, ("OK" if ok else "Bad response")
+        url = f"https://financialmodelingprep.com/api/v3/quote/AAPL?apikey={key}"
+        r = http_get_retry(url, tries=3, timeout=16, headers={"User-Agent":"StockScout/1.0"})
+        if not r:
+            return False, "Timeout/Network"
+        j = r.json()
+        # אם השרת מחזיר הודעת שגיאה—נציג אותה ישירות ב"סיבה"
+        if isinstance(j, dict) and "Error Message" in j:
+            return False, j.get("Error Message", "Error")
+        # פורמט תקין: רשימה עם price
+        if isinstance(j, list) and j and isinstance(j[0], dict) and ("price" in j[0]):
+            return True, "OK"
+        return False, "Bad/Unknown response"
     except Exception:
         return False, "Exception"
 
+
 # ========= פונקציות טכניות =========
+
 def rsi(series: pd.Series, period: int = 14) -> pd.Series:
     if isinstance(series, pd.DataFrame): series = series.squeeze(axis=1)
     series = pd.to_numeric(series, errors="coerce")
@@ -170,7 +184,39 @@ def atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
     tr = pd.concat([high - low, (high - prev_close).abs(), (low - prev_close).abs()], axis=1).max(axis=1)
     return tr.rolling(period, min_periods=period).mean()
 
+# MACD (12,26,9)
+def macd_line(close: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9):
+    ema_fast = close.ewm(span=fast, adjust=False).mean()
+    ema_slow = close.ewm(span=slow, adjust=False).mean()
+    macd = ema_fast - ema_slow
+    macd_signal = macd.ewm(span=signal, adjust=False).mean()
+    macd_hist = macd - macd_signal
+    return macd, macd_signal, macd_hist
+
+# ADX (14) — חישוב פשוט
+ndefault = 14
+
+def adx(df: pd.DataFrame, period: int = ndefault) -> pd.Series:
+    high, low, close = df["High"], df["Low"], df["Close"]
+    plus_dm = (high.diff()).clip(lower=0)
+    minus_dm = (-low.diff()).clip(lower=0)
+    plus_dm[plus_dm < minus_dm] = 0
+    minus_dm[minus_dm <= plus_dm] = 0
+
+    tr1 = (high - low)
+    tr2 = (high - close.shift(1)).abs()
+    tr3 = (low - close.shift(1)).abs()
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+
+    atr14 = tr.rolling(period, min_periods=period).mean()
+    plus_di = 100 * (plus_dm.rolling(period, min_periods=period).mean() / (atr14 + 1e-9))
+    minus_di = 100 * (minus_dm.rolling(period, min_periods=period).mean() / (atr14 + 1e-9))
+    dx = (100 * (plus_di - minus_di).abs() / ((plus_di + minus_di) + 1e-9))
+    adx_val = dx.rolling(period, min_periods=period).mean()
+    return adx_val
+
 # ========= OpenAI =========
+
 def openai_client():
     try:
         from openai import OpenAI
@@ -202,6 +248,7 @@ def ai_recommend(df: pd.DataFrame) -> Optional[str]:
         return None
 
 # ========= מקורות מחיר =========
+
 def get_alpha_vantage_price(ticker: str) -> float | None:
     key = os.getenv("ALPHA_VANTAGE_API_KEY")
     if not key: return None
@@ -222,6 +269,7 @@ def get_alpha_vantage_price(ticker: str) -> float | None:
         return None
     return None
 
+
 def get_finnhub_price(ticker: str) -> float | None:
     key = os.getenv("FINNHUB_API_KEY")
     if not key: return None
@@ -232,6 +280,7 @@ def get_finnhub_price(ticker: str) -> float | None:
         return float(data["c"]) if "c" in data else None
     except Exception:
         return None
+
 
 def get_polygon_price(ticker: str) -> float | None:
     key = os.getenv("POLYGON_API_KEY")
@@ -247,6 +296,7 @@ def get_polygon_price(ticker: str) -> float | None:
         return None
     return None
 
+
 def get_tiingo_price(ticker: str) -> float | None:
     key = os.getenv("TIINGO_API_KEY")
     if not key: return None
@@ -261,25 +311,31 @@ def get_tiingo_price(ticker: str) -> float | None:
         return None
     return None
 
+
 def get_fmp_price(ticker: str) -> float | None:
     key = os.getenv("FMP_API_KEY")
     if not key: return None
-    url = f"https://financialmodelingprep.com/api/v3/quote-short/{ticker}?apikey={key}"
-    r = http_get_retry(url, tries=2, timeout=10)
+    url = f"https://financialmodelingprep.com/api/v3/quote/{ticker}?apikey={key}"
+    r = http_get_retry(url, tries=3, timeout=16, headers={"User-Agent":"StockScout/1.0"})
     if not r: return None
     try:
-        arr = r.json()
-        if isinstance(arr, list) and arr:
-            return float(arr[0].get("price", np.nan))
+        j = r.json()
+        if isinstance(j, list) and j:
+            return float(j[0].get("price", np.nan))
+        if isinstance(j, dict) and "Error Message" in j:
+            # מציגים הודעה ברורה בלוג, לא שוברים את הריצה
+            st.warning(f"FMP error: {j.get('Error Message')}")
+            return None
     except Exception:
         return None
     return None
 
+
 # ========= יקום סריקה =========
+
 def build_universe(limit: int = 350) -> List[str]:
     ok, _ = check_finnhub_verbose()
     if not ok:
-        # fallback קטן כדי שתהיה ריצה גם בלי Finnhub
         return ["AAPL","MSFT","NVDA","AMZN","GOOGL","META","TSLA","AVGO","AMD","QCOM","ADBE","CRM","NFLX","INTC","ORCL","PANW","SNPS","CDNS","MU","KLAC"]
     key = os.getenv("FINNHUB_API_KEY")
     symbols: List[str] = []
@@ -298,9 +354,22 @@ def build_universe(limit: int = 350) -> List[str]:
     symbols = sorted(pd.unique(pd.Series(symbols)))
     if not symbols:
         return ["AAPL","MSFT","NVDA","AMZN","GOOGL","META"]
-    return symbols[:max(100, limit)]
+    # דגימה דטרמיניסטית לפי אות ראשונה
+    if len(symbols) > limit:
+        bins = {}
+        for tkr in symbols:
+            bins.setdefault(tkr[0], []).append(tkr)
+        per = max(1, int(limit / max(1, len(bins))))
+        sampled = []
+        for k, arr in sorted(bins.items()):
+            sampled.extend(arr[:per])
+        if len(sampled) < limit:
+            sampled.extend([t for t in symbols if t not in sampled][: (limit - len(sampled))])
+        symbols = sampled
+    return symbols[:limit]
 
-# ========= הורדת נתונים מהירה =========
+# ========= הורדת נתונים =========
+
 @st.cache_data(show_spinner=True, ttl=60*15)
 def fetch_history_bulk(tickers: List[str], period_days: int, ma_long: int) -> Dict[str, pd.DataFrame]:
     if not tickers: return {}
@@ -323,10 +392,13 @@ def fetch_history_bulk(tickers: List[str], period_days: int, ma_long: int) -> Di
     return data
 
 # ========= עזרי זמן =========
+
 def t_start(): return time.perf_counter()
+
 def t_end(t0): return time.perf_counter() - t0
 
 # ========= UI =========
+
 st.set_page_config(page_title="Asaf's Stock Scout — 2025", page_icon="📈", layout="wide")
 st.markdown("""
 <style>
@@ -341,9 +413,9 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📈 Asaf's Stock Scout — 2025")
+st.title("📈 Stock Scout — 2025")
 
-# ===== סטטוס מקורות (6) =====
+# ===== סטטוס מקורות =====
 openai_ok, openai_reason    = check_openai_verbose()
 alpha_ok,  alpha_reason     = check_alpha_vantage_verbose()
 finnhub_ok, finnhub_reason  = check_finnhub_verbose()
@@ -392,20 +464,36 @@ with st.expander("מתקדם"):
     with col_m1:
         min_price = st.number_input("מחיר מינ׳ $", 0.0, 5000.0, 3.0)
         ma_short  = st.number_input("MA קצר", 5, 100, 20)
+        pullback_low, pullback_high = st.slider("טווח Pullback מהשיא", 0.70, 0.99, (0.85, 0.97))
     with col_m2:
         min_avg_volume = st.number_input("ממוצע נפח 20 ימים מינ׳", 0, 50_000_000, 500_000, step=50_000)
         ma_long   = st.number_input("MA ארוך", 20, 400, 50)
+        overext_threshold = st.number_input("Overextension יחס ל-MA ארוך (סף)", 0.05, 0.80, 0.20, step=0.05)
     with col_m3:
         rsi_bounds = st.slider("טווח RSI מועדף", 0, 100, (40, 75))
         top_validate_k = st.number_input("אימות חיצוני ל-Top K", 5, 50, 12)
         universe_limit = st.number_input("גודל יקום מקסימלי לסריקה", 50, 1500, 350, step=50)
         smart_scan = st.checkbox("סריקה חכמה (Finnhub)", value=True if finnhub_ok else False)
-    score_weights_raw = st.text_input("משקולות ניקוד (JSON)",
-        value='{"ma":0.25,"mom":0.35,"rsi":0.15,"near_high":0.15,"vol":0.10}')
+
+    st.markdown("**משקולות ניקוד (JSON) — כולל רכיבים חדשים**")
+    default_weights = {
+        "ma":0.22, "mom":0.30, "rsi":0.12,
+        "near_high_bell":0.10, "vol":0.08,
+        "overext":0.08, "pullback":0.05,
+        "risk_reward":0.03, "macd":0.01, "adx":0.01
+    }
+    score_weights_raw = st.text_input(
+        "משקולות",
+        value=pd.Series(default_weights).to_json(force_ascii=False)
+    )
+
+    value_filter_enabled = st.toggle("סינון ערך בסיסי (P/E 5–40, P/B < 10) עבור Top-K בלבד", value=False)
+    macd_adx_enabled = st.toggle("שקלול MACD/ADX", value=False)
+
 try:
     SCORE_W = pd.Series(pd.read_json(io.StringIO(score_weights_raw), typ="series"))
 except Exception:
-    SCORE_W = pd.Series({"ma":0.25,"mom":0.35,"rsi":0.15,"near_high":0.15,"vol":0.10})
+    SCORE_W = pd.Series(default_weights)
 
 # ========= צינור ריצה + מדדי זמן =========
 if "av_calls" not in st.session_state: st.session_state.av_calls = 0
@@ -414,7 +502,6 @@ phase_times = {}
 # שלב 1: יקום
 t0 = t_start()
 universe = build_universe(limit=int(universe_limit)) if smart_scan else build_universe(limit=200)
-# דגימה דטרמיניסטית לפי אלפבית לניהול גודל
 if len(universe) > universe_limit:
     bins = {}
     for tkr in universe:
@@ -436,6 +523,7 @@ phase_times["מוריד נתונים"] = t_end(t0)
 # שלב 3: ניקוד
 t0 = t_start()
 rows = []
+lo_rsi, hi_rsi = rsi_bounds
 for t, df in data_map.items():
     if df is None or df.empty: continue
     df = df.copy()
@@ -444,6 +532,11 @@ for t, df in data_map.items():
     df["RSI"]   = rsi(df["Close"], 14)
     df["ATR14"] = atr(df, 14)
     df["Vol20"] = df["Volume"].rolling(20).mean()
+
+    if macd_adx_enabled:
+        macd_line_v, macd_sig_v, macd_hist_v = macd_line(df["Close"])  # noqa: F841
+        df["MACD"], df["MACD_SIG"], df["MACD_HIST"] = macd_line_v, macd_sig_v, macd_hist_v
+        df["ADX14"] = adx(df, 14)
 
     try: price = float(df["Close"].iloc[-1])
     except Exception: price = np.nan
@@ -457,11 +550,10 @@ for t, df in data_map.items():
 
     try:  rsi_val = float(df["RSI"].iloc[-1])
     except Exception: rsi_val = np.nan
-    lo, hi = rsi_bounds
     if np.isfinite(rsi_val):
-        if rsi_val < lo:   rsi_score = max(0.0, 1 - (lo - rsi_val) / 20)
-        elif rsi_val > hi: rsi_score = max(0.0, 1 - (rsi_val - hi) / 20)
-        else:              rsi_score = 1.0
+        if rsi_val < lo_rsi:   rsi_score = max(0.0, 1 - (lo_rsi - rsi_val) / 20)
+        elif rsi_val > hi_rsi: rsi_score = max(0.0, 1 - (rsi_val - hi_rsi) / 20)
+        else:                  rsi_score = 1.0
     else:
         rsi_score = 0.0
 
@@ -479,18 +571,78 @@ for t, df in data_map.items():
 
     window_52w = min(len(df), 252)
     hi_52w = float(df["Close"].tail(window_52w).max()) if window_52w > 0 else np.nan
-    # תיקון קטן: max(0, (hi - price)/hi)
     if np.isfinite(hi_52w) and hi_52w > 0:
-        near_high = 1.0 - min(1.0, max(0.0, (hi_52w - price) / hi_52w))
+        near_high_raw = 1.0 - min(1.0, max(0.0, (hi_52w - price) / hi_52w))  # 0..1
+        # Near-high bell scoring: הכי טוב בטווח 0.7–0.9, ענישה קלה מעל 0.9
+        if near_high_raw > 0.9: near_high_score = 0.6
+        elif 0.7 <= near_high_raw <= 0.9: near_high_score = 1.0
+        else: near_high_score = near_high_raw
     else:
-        near_high = np.nan
+        near_high_raw, near_high_score = np.nan, 0.0
 
+    # Overextension מול MA_L
+    if np.isfinite(last_ma_l) and last_ma_l > 0:
+        overext_ratio = max(0.0, (price - last_ma_l) / last_ma_l)  # כמה מעל MA_L
+        # 0 → לא מתוח, 1 → מתוח מאוד (מעל הסף)
+        overext_score = 1.0 - min(1.0, overext_ratio / max(1e-6, overext_threshold))
+    else:
+        overext_ratio, overext_score = np.nan, 0.0
+
+    # Pullback — בונוס אם price בין 85%–97% מהשיא (ברירת מחדל)
+    if np.isfinite(hi_52w) and hi_52w > 0:
+        ratio_to_high = price / hi_52w
+        if pullback_low <= ratio_to_high <= pullback_high:
+            pullback_score = 1.0
+        else:
+            # דעיכה ליניארית מחוץ לטווח עד 0
+            dist = min(abs(ratio_to_high - pullback_low), abs(ratio_to_high - pullback_high))
+            pullback_score = max(0.0, 1.0 - dist * 10)
+    else:
+        pullback_score = 0.0
+
+    # תנודתיות יחסית
+    try: atr14 = float(df["ATR14"].iloc[-1])
+    except Exception: atr14 = np.nan
+    if np.isfinite(atr14) and price > 0:
+        vol_rel = atr14 / price
+        volatility_score = 1.0 - min(1.0, vol_rel / 0.05)  # עדיפות ל-ATR/Price < 5%
+    else:
+        vol_rel, volatility_score = np.nan, 0.0
+
+    # יחס תשואה/סיכון אינפורמטיבי
+    if np.isfinite(hi_52w) and np.isfinite(atr14) and atr14 > 0:
+        reward_risk = max(0.0, (hi_52w - price) / atr14)
+        # ניקוד קל — 0..1 עבור 0..4R
+        rr_score = min(1.0, reward_risk / 4.0)
+    else:
+        reward_risk, rr_score = np.nan, 0.0
+
+    # MACD/ADX (אופציונלי)
+    macd_score = adx_score = 0.0
+    if macd_adx_enabled and "MACD" in df.columns:
+        macd_v = float(df["MACD"].iloc[-1])
+        macd_sig = float(df["MACD_SIG"].iloc[-1])
+        macd_score = 1.0 if macd_v > macd_sig else 0.0
+    if macd_adx_enabled and "ADX14" in df.columns:
+        adx_v = float(df["ADX14"].iloc[-1])
+        # נורמליזציה: 20–40 טוב, מעל 40 לא בהכרח טוב יותר → חותכים
+        if np.isfinite(adx_v):
+            adx_score = np.clip((adx_v - 15) / 20.0, 0.0, 1.0)
+        else:
+            adx_score = 0.0
+
+    # ניקוד כולל
     score = (
-        float(SCORE_W.get("ma", 0.25)) * ma_ok
-        + float(SCORE_W.get("mom", 0.35)) * np.clip((momentum + 0.5), 0, 1)
-        + float(SCORE_W.get("rsi", 0.15)) * rsi_score
-        + float(SCORE_W.get("near_high", 0.15)) * (near_high if np.isfinite(near_high) else 0.0)
-        + float(SCORE_W.get("vol", 0.10)) * (vol_ok if np.isfinite(vol_ok) else 0.0)
+        float(SCORE_W.get("ma", 0.22)) * ma_ok +
+        float(SCORE_W.get("mom", 0.30)) * np.clip((momentum + 0.5), 0, 1) +
+        float(SCORE_W.get("rsi", 0.12)) * rsi_score +
+        float(SCORE_W.get("near_high_bell", 0.10)) * (near_high_score) +
+        float(SCORE_W.get("vol", 0.08)) * (vol_ok if np.isfinite(vol_ok) else 0.0) +
+        float(SCORE_W.get("overext", 0.08)) * overext_score +
+        float(SCORE_W.get("pullback", 0.05)) * pullback_score +
+        float(SCORE_W.get("risk_reward", 0.03)) * rr_score +
+        float(SCORE_W.get("macd", 0.01)) * macd_score +
+        float(SCORE_W.get("adx", 0.01)) * adx_score
     )
 
     rows.append({
@@ -500,14 +652,17 @@ for t, df in data_map.items():
         "Price_Finnhub": np.nan,
         "Price_Mean": np.nan,
         "Price_STD": np.nan,
-        "Sources": 1,                 # כרגע רק Yahoo (יעודכן אחרי אימות חיצוני)
-        "Source_List": "🟡Yahoo",     # תצוגת מקורות
+        "Sources": 1,
+        "Source_List": "🟡Yahoo",
         "Score": round(100 * float(score), 1),
         "RSI": round(rsi_val, 1) if np.isfinite(rsi_val) else np.nan,
         "Mom123": f"{ret_1m:.1%}/{ret_3m:.1%}/{ret_6m:.1%}",
         "MA_OK": ma_ok >= 0.5,
-        "Near52w": round(near_high * 100, 1) if np.isfinite(near_high) else np.nan,
+        "Near52w": round(near_high_raw * 100, 1) if np.isfinite(near_high_raw) else np.nan,
         "Volx20d": round(vol_today / vol20, 2) if (np.isfinite(vol_today) and np.isfinite(vol20) and vol20>0) else np.nan,
+        "OverextRatio": round(overext_ratio, 3) if np.isfinite(overext_ratio) else np.nan,
+        "ATR_Price": round(vol_rel, 4) if np.isfinite(vol_rel) else np.nan,
+        "RewardRisk": round(reward_risk, 2) if np.isfinite(reward_risk) else np.nan,
     })
 
 results = pd.DataFrame(rows)
@@ -520,14 +675,13 @@ if results.empty:
 # מיון וחיתוך ראשוני
 results = results.sort_values(["Score","Price_Yahoo"], ascending=[False, True]).reset_index(drop=True)
 
-# שלב 4: אימות חיצוני
+# שלב 4: אימות חיצוני (Top-K)
 t0 = t_start()
 if use_external_prices and (alpha_ok or finnhub_ok or os.getenv("POLYGON_API_KEY") or os.getenv("TIINGO_API_KEY") or os.getenv("FMP_API_KEY")):
-    subset = results.head(int(top_validate_k)).copy()
-    for idx, r in subset.iterrows():
-        tkr = r["Ticker"]
-        py = r["Price_Yahoo"]
-
+    subset_idx = list(results.head(int(top_validate_k)).index)
+    for idx in subset_idx:
+        r = results.loc[idx]
+        tkr = r["Ticker"]; py = r["Price_Yahoo"]
         pa   = get_alpha_vantage_price(tkr) if alpha_ok else None
         pf   = get_finnhub_price(tkr) if finnhub_ok else None
         ppg  = get_polygon_price(tkr) if os.getenv("POLYGON_API_KEY") else None
@@ -553,7 +707,32 @@ else:
         st.info("אימות חיצוני הופעל אך אין מפתחות תקינים (Alpha/Finnhub/Polygon/Tiingo/FMP). משתמש רק במחיר Yahoo.")
 phase_times["מאמת מחירים"] = t_end(t0)
 
+# ===== ערך בסיסי (אופציונלי): P/E ו-P/B ל-Top-K =====
+if value_filter_enabled:
+    t0 = t_start()
+    try:
+        for idx in results.head(int(top_validate_k)).index:
+            tkr = results.at[idx, "Ticker"]
+            try:
+                info = yf.Ticker(tkr).info  # עלול להיות עתיר-נטוורק; מופעל רק אם ביקשת
+            except Exception:
+                info = {}
+            pe = info.get("trailingPE", np.nan)
+            pb = info.get("priceToBook", np.nan)
+            results.loc[idx, "PE"] = pe
+            results.loc[idx, "PB"] = pb
+            # סמן חריגה
+            bad_val = (isinstance(pe, (int,float)) and (pe < 5 or pe > 40)) or (isinstance(pb, (int,float)) and pb >= 10)
+            results.loc[idx, "Value_OK"] = (not bad_val)
+            # השפעה קלה על ניקוד אם Value_OK=False
+            if bad_val:
+                results.loc[idx, "Score"] = max(0, results.loc[idx, "Score"] - 2.0)
+    except Exception:
+        pass
+    phase_times["Value Check"] = t_end(t0)
+
 # ===== טווח החזקה =====
+
 def infer_horizon(row) -> str:
     rsi_v = row.get("RSI", np.nan)
     near  = row.get("Near52w", np.nan)
@@ -569,12 +748,8 @@ def infer_horizon(row) -> str:
 results["טווח החזקה"] = results.apply(infer_horizon, axis=1)
 
 # ===== הקצאת תקציב =====
+
 def allocate_budget(df: pd.DataFrame, total: float, min_pos: float) -> pd.DataFrame:
-    """מחלק תקציב:
-    1) ממיין לפי Score ונותן לכל מועמדת חזקה min_pos כל עוד יש תקציב.
-    2) את היתרה מחלק פרופורציונלית לניקוד.
-    3) אפס מתחת לסף (אם הוגדר), איזון סכום כולל ועיגול.
-    """
     df = df.copy()
     df["סכום קנייה ($)"] = 0.0
     if total <= 0 or df.empty:
@@ -612,6 +787,7 @@ results = results.head(TOPN).reset_index(drop=True)
 results = allocate_budget(results, budget_total, min_position)
 
 # ===== תצוגת מקורות מחיר =====
+
 def source_badges(row):
     if isinstance(row.get("Source_List"), str) and row.get("Source_List"):
         return row["Source_List"]
@@ -638,9 +814,9 @@ st.table(times_df.style.set_properties(**{'text-align':'center','direction':'rtl
 if alpha_ok:
     st.caption(f"Alpha Vantage — קריאות בסשן זה: {int(st.session_state.av_calls)}  | טיפ: אל תחרוג מ~5 לדקה ו~500 ליום בגרסה החינמית.")
 
-# ===== המלצה (כרטיסים בלבד; רק מניות לקנייה) =====
+# ===== המלצה (כרטיסים) =====
 st.subheader("🤖 המלצה עכשיו")
-st.caption("הכרטיסים הבאים הם **המלצות קנייה** בלבד (הוקצה להן תקציב בפועל).")
+st.caption("הכרטיסים הבאים הם **המלצות קנייה** בלבד (הוקצה להן תקציב בפועל). אין באמור ייעוץ השקעות.")
 
 rec_df = results[results["סכום קנייה ($)"] > 0].copy()
 if rec_df.empty:
@@ -658,7 +834,7 @@ else:
       margin: 0 0 6px 0; font-size: 1.05rem; display:flex; align-items:center; gap:8px;
     }
     .recommend-grid{
-      display: grid; grid-template-columns: repeat(4,minmax(0,1fr));
+      display: grid; grid-template-columns: repeat(5,minmax(0,1fr));
       gap: 8px; margin-top: 6px;
     }
     .badge{display:inline-block;background:#eef2ff;border:1px solid #dbeafe;
@@ -683,18 +859,24 @@ else:
         unit_price = r.get("Unit_Price", np.nan)
         shares     = int(r.get("מניות לקנייה", 0))
         leftover   = r.get("עודף ($)", 0.0)
+        rr         = r.get("RewardRisk", np.nan)
+        atrp       = r.get("ATR_Price", np.nan)
+        overx      = r.get("OverextRatio", np.nan)
 
         show_mean_fmt  = f"{np.round(show_mean, 2)}" if not np.isnan(show_mean) else "—"
         unit_price_fmt = f"{np.round(unit_price, 2)}" if not np.isnan(unit_price) else "—"
+        rr_fmt = f"{rr:.2f}R" if np.isfinite(rr) else "—"
+        atrp_fmt = f"{atrp:.3f}" if np.isfinite(atrp) else "—"
+        overx_fmt = f"{overx:.3f}" if np.isfinite(overx) else "—"
 
         st.markdown(
             f"""
-            <div class="recommend-card">
+            <div class=\"recommend-card\"> 
               <h3>
-                <span class="badge">{r['Ticker']}</span>
-                <span class="status-buy">סטטוס: קנייה</span>
+                <span class=\"badge\">{r['Ticker']}</span>
+                <span class=\"status-buy\">סטטוס: קנייה</span>
               </h3>
-              <div class="recommend-grid small">
+              <div class=\"recommend-grid small\">
                 <div><b>מחיר ממוצע:</b> {show_mean_fmt}</div>
                 <div><b>סטיית תקן:</b> {show_std}</div>
                 <div><b>RSI:</b> {rsi_v if not np.isnan(rsi_v) else '—'}</div>
@@ -706,13 +888,18 @@ else:
                 <div><b>מחיר יחידה לחישוב:</b> {unit_price_fmt}</div>
                 <div><b>מניות לקנייה:</b> {shares}</div>
                 <div><b>עודף לא מנוצל:</b> ${leftover:,.2f}</div>
+                <div><b>ATR/Price:</b> {atrp_fmt}</div>
+                <div><b>Overextension (מעל MA_L):</b> {overx_fmt}</div>
+                <div><b>Reward/Risk (≈R):</b> {rr_fmt}</div>
+                {f'<div><b>P/E:</b> {r.get("PE", "—")}</div>' if value_filter_enabled else ''}
+                {f'<div><b>P/B:</b> {r.get("PB", "—")}</div>' if value_filter_enabled else ''}
               </div>
             </div>
             """,
             unsafe_allow_html=True
         )
 
-# ===== טבלה =====
+# ===== תוצאות וטבלת צפייה =====
 st.subheader("🎯 תוצאות מסוננות ומדורגות")
 view_df_source = rec_df if not rec_df.empty else results
 
@@ -727,21 +914,34 @@ hebrew_cols = {
     "RSI":"RSI",
     "Near52w":"קרבה לשיא 52ש׳ (%)",
     "Volx20d":"נפח/ממוצע 20 ימים",
+    "OverextRatio":"Overextension מול MA_L",
+    "ATR_Price":"ATR/Price",
+    "RewardRisk":"Reward/Risk (≈R)",
     "טווח החזקה":"טווח החזקה",
     "סכום קנייה ($)":"סכום קנייה ($)",
     "מניות לקנייה": "מניות לקנייה",
-    "עודף ($)": "עודף ($)"
+    "עודף ($)": "עודף ($)",
+    "PE":"P/E",
+    "PB":"P/B",
+    "Value_OK":"Value OK",
 }
 
 show_order = [
     "טיקר","מחיר (Yahoo)","מחיר ממוצע","מחיר יחידה (חישוב)","סטיית תקן","מקורות מחיר",
     "ניקוד","RSI","קרבה לשיא 52ש׳ (%)","נפח/ממוצע 20 ימים",
+    "Overextension מול MA_L","ATR/Price","Reward/Risk (≈R)",
     "טווח החזקה","סכום קנייה ($)","מניות לקנייה","עודף ($)"
 ]
+if value_filter_enabled:
+    show_order += ["P/E","P/B","Value OK"]
 
-df_view = view_df_source.rename(columns=hebrew_cols)
+# יצוא CSV
+csv_df = view_df_source.rename(columns=hebrew_cols)
+csv_bytes = csv_df[show_order].to_csv(index=False).encode("utf-8-sig")
+st.download_button("⬇️ הורדת תוצאות ל-CSV", data=csv_bytes, file_name="stock_scout_results.csv", mime="text/csv")
+
 st.markdown('<div class="rtl-table">', unsafe_allow_html=True)
-st.dataframe(df_view[show_order], use_container_width=True, hide_index=True)
+st.dataframe(csv_df[show_order], use_container_width=True, hide_index=True)
 st.markdown('</div>', unsafe_allow_html=True)
 
 # ===== גרף =====
@@ -772,7 +972,7 @@ with st.expander("💬 צ'אט עם ה-AI"):
         if "chat_history" not in st.session_state:
             st.session_state.chat_history = [
                 {"role":"system","content":"ענה בעברית, קצר ותמציתי, על המניות שבתוצאות והרציונל מאחוריהן."},
-                {"role":"user","content": f"הנה טבלת מניות: {df_view.head(5).to_dict(orient='records')}"}
+                {"role":"user","content": f"הנה טבלת מניות: {csv_df.head(5).to_dict(orient='records')}"}
             ]
         for msg in st.session_state.chat_history[2:]:
             if msg["role"] == "user":
@@ -802,7 +1002,7 @@ with st.expander("ℹ️ הערות ומתודולוגיה"):
     st.markdown("""
 - הנתונים ההיסטוריים מתקבלים מ-**Yahoo Finance** (`yfinance`) — ללא צורך במפתח.
 - אימות מחירים חיצוני (אם הופעל ויש מפתחות): **Alpha Vantage**, **Finnhub**, **Polygon**, **Tiingo**, **FMP** — מוצג כ״מקורות מחיר״ לכל מניה.
-- ניקוד משלב: MA, מומנטום (1/3/6 חודשים), RSI בתחום מועדף, קרבה לשיא 52ש׳, ונפח מול ממוצע 20 ימים.
+- ניקוד משולב לאחר שיפורים: MA, מומנטום (1/3/6 חודשים), RSI בתחום מועדף, **Near-High Bell**, **Overextension מול MA ארוך**, **Pullback**, **ATR/Price**, ו-**Reward/Risk** אינפורמטיבי. (אופציונלי: MACD/ADX, סינון ערך בסיסי ל-Top-K.)
 - ההמלצה כוללת **סכום קנייה**, **מס' מניות לקנייה** לכל מניה מתוך התקציב, ו**טווח החזקה** משוער. כל הכרטיסים שמוצגים הם **קנייה**.
 - מדדי זמן מציגים משך לכל שלב; מונה Alpha מציג כמה קריאות ביצעת בסשן זה.
 - אין באמור ייעוץ השקעות.
