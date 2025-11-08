@@ -1107,61 +1107,59 @@ if rec_df.empty:
 else:
     TOPK_RECOMMEND = min(5, len(rec_df))
     for _, r in rec_df.head(TOPK_RECOMMEND).iterrows():
-    mean = r.get("מחיר ממוצע", np.nan)
-    std  = r.get("סטיית תקן", np.nan)
-    show_mean = mean if not np.isnan(mean) else r["Price_Yahoo"]
-    show_std  = std if not np.isnan(std) else "—"
-    sources   = r.get("מקורות מחיר", "—")
-    buy_amt   = float(r.get("סכום קנייה ($)", 0.0))
-    horizon   = r.get("טווח החזקה", "—")
-    rsi_v     = r.get("RSI", np.nan)
-    near52    = r.get("Near52w", np.nan)
-    score     = r.get("Score", 0)
-    unit_price = r.get("Unit_Price", np.nan)
-    shares     = int(r.get("מניות לקנייה", 0))
-    leftover   = r.get("עודף ($)", 0.0)
-    rr         = r.get("RewardRisk", np.nan)
-    atrp       = r.get("ATR_Price", np.nan)
-    overx      = r.get("OverextRatio", np.nan)
+        mean = r.get("מחיר ממוצע", np.nan)
+        std  = r.get("סטיית תקן", np.nan)
+        show_mean = mean if not np.isnan(mean) else r["Price_Yahoo"]
+        show_std  = std if not np.isnan(std) else "—"
+        sources   = r.get("מקורות מחיר", "—")
+        buy_amt   = float(r.get("סכום קנייה ($)", 0.0))
+        horizon   = r.get("טווח החזקה", "—")
+        rsi_v     = r.get("RSI", np.nan)
+        near52    = r.get("Near52w", np.nan)
+        score     = r.get("Score", 0)
+        unit_price = r.get("Unit_Price", np.nan)
+        shares     = int(r.get("מניות לקנייה", 0))
+        leftover   = r.get("עודף ($)", 0.0)
+        rr         = r.get("RewardRisk", np.nan)
+        atrp       = r.get("ATR_Price", np.nan)
+        overx      = r.get("OverextRatio", np.nan)
 
-    show_mean_fmt  = f"{np.round(show_mean, 2)}" if not np.isnan(show_mean) else "—"
-    unit_price_fmt = f"{np.round(unit_price, 2)}" if not np.isnan(unit_price) else "—"
-    rr_fmt   = f"{rr:.2f}R" if np.isfinite(rr) else "—"
-    atrp_fmt = f"{atrp:.3f}" if np.isfinite(atrp) else "—"
-    overx_fmt= f"{overx:.3f}" if np.isfinite(overx) else "—"
+        show_mean_fmt  = f"{np.round(show_mean, 2)}" if not np.isnan(show_mean) else "—"
+        unit_price_fmt = f"{np.round(unit_price, 2)}" if not np.isnan(unit_price) else "—"
+        rr_fmt   = f"{rr:.2f}R" if np.isfinite(rr) else "—"
+        atrp_fmt = f"{atrp:.3f}" if np.isfinite(atrp) else "—"
+        overx_fmt= f"{overx:.3f}" if np.isfinite(overx) else "—"
 
-    # מניעת הזרקת HTML בשדות דינמיים
-    esc = html_escape.escape
-    ticker = esc(str(r['Ticker']))
-    sources = esc(str(sources))
-    horizon = esc(str(horizon))
+        esc = html_escape.escape
+        ticker  = esc(str(r['Ticker']))
+        sources = esc(str(sources))
+        horizon = esc(str(horizon))
 
-    card_html = f"""
-    <div class="recommend-card" dir="rtl" style="text-align:right;background:#f9fafb;border:1px solid #e5e7eb;border-radius:14px;padding:14px 16px;margin:10px 0;box-shadow:0 1px 3px rgba(0,0,0,.04)">
-      <h3 style="display:flex;align-items:center;gap:10px;margin:0 0 6px 0">
-        <span class="badge" style="display:inline-block;background:#eef2ff;border:1px solid #c7d2fe;color:#1e293b;padding:2px 10px;border-radius:999px;font-weight:600">{ticker}</span>
-        <span class="status-buy" style="background:#ecfdf5;border:1px solid #34d399;color:#065f46;padding:2px 10px;border-radius:999px;font-weight:600">סטטוס: קנייה</span>
-      </h3>
-      <div class="recommend-grid" style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin-top:6px;font-size:.9rem;color:#222">
-        <div><b>מחיר ממוצע:</b> {show_mean_fmt}</div>
-        <div><b>סטיית תקן:</b> {show_std}</div>
-        <div><b>RSI:</b> {rsi_v if not np.isnan(rsi_v) else '—'}</div>
-        <div><b>קרבה לשיא 52ש׳:</b> {near52 if not np.isnan(near52) else '—'}%</div>
-        <div><b>ניקוד:</b> {score}</div>
-        <div><b>מקורות:</b> {sources}</div>
-        <div><b>סכום קנייה מומלץ:</b> ${buy_amt:,.0f}</div>
-        <div><b>טווח החזקה מומלץ:</b> {horizon}</div>
-        <div><b>מחיר יחידה לחישוב:</b> {unit_price_fmt}</div>
-        <div><b>מניות לקנייה:</b> {shares}</div>
-        <div><b>עודף לא מנוצל:</b> ${leftover:,.2f}</div>
-        <div><b>ATR/Price:</b> {atrp_fmt}</div>
-        <div><b>Overextension (מעל MA_L):</b> {overx_fmt}</div>
-        <div><b>Reward/Risk (≈R):</b> {rr_fmt}</div>
-      </div>
-    </div>
-    """
-    # גובה דינמי סביר; אפשר לכוון לפי צורך
-    st_html(card_html, height=190, scrolling=False)
+        card_html = f"""
+        <div class="recommend-card" dir="rtl" style="text-align:right;background:#f9fafb;border:1px solid #e5e7eb;border-radius:14px;padding:14px 16px;margin:10px 0;box-shadow:0 1px 3px rgba(0,0,0,.04)">
+          <h3 style="display:flex;align-items:center;gap:10px;margin:0 0 6px 0">
+            <span class="badge" style="display:inline-block;background:#eef2ff;border:1px solid #c7d2fe;color:#1e293b;padding:2px 10px;border-radius:999px;font-weight:600">{ticker}</span>
+            <span class="status-buy" style="background:#ecfdf5;border:1px solid #34d399;color:#065f46;padding:2px 10px;border-radius:999px;font-weight:600">סטטוס: קנייה</span>
+          </h3>
+          <div class="recommend-grid" style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin-top:6px;font-size:.9rem;color:#222">
+            <div><b>מחיר ממוצע:</b> {show_mean_fmt}</div>
+            <div><b>סטיית תקן:</b> {show_std}</div>
+            <div><b>RSI:</b> {rsi_v if not np.isnan(rsi_v) else '—'}</div>
+            <div><b>קרבה לשיא 52ש׳:</b> {near52 if not np.isnan(near52) else '—'}%</div>
+            <div><b>ניקוד:</b> {score}</div>
+            <div><b>מקורות:</b> {sources}</div>
+            <div><b>סכום קנייה מומלץ:</b> ${buy_amt:,.0f}</div>
+            <div><b>טווח החזקה מומלץ:</b> {horizon}</div>
+            <div><b>מחיר יחידה לחישוב:</b> {unit_price_fmt}</div>
+            <div><b>מניות לקנייה:</b> {shares}</div>
+            <div><b>עודף לא מנוצל:</b> ${leftover:,.2f}</div>
+            <div><b>ATR/Price:</b> {atrp_fmt}</div>
+            <div><b>Overextension (מעל MA_L):</b> {overx_fmt}</div>
+            <div><b>Reward/Risk (≈R):</b> {rr_fmt}</div>
+          </div>
+        </div>
+        """
+        st_html(card_html, height=190, scrolling=False)
 
 
 # ===== טבלה/CSV =====
