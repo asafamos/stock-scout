@@ -580,9 +580,25 @@ for t, df in data_map.items():
     df["Vol20"] = df["Volume"].rolling(20).mean()
 
     if CONFIG["USE_MACD_ADX"]:
-        m, ms, mh = macd_line(df["Close"])
-        df["MACD"], df["MACD_SIG"], df["MACD_HIST"] = m, ms, mh
-        df["ADX14"] = adx(df, 14)
+    # MACD
+    m, ms, mh = macd_line(df["Close"])
+    df["MACD"], df["MACD_SIG"], df["MACD_HIST"] = m, ms, mh
+
+    # ADX — חוסן נגד מקרים קיצוניים
+    try:
+        adx_val = adx(df, 14)
+
+        # במקרים נדירים adx(...) עשוי להחזיר DataFrame; נוריד לעמודה ראשונה
+        if isinstance(adx_val, pd.DataFrame):
+            adx_val = adx_val.iloc[:, 0]
+
+        # נבצע מיונומרי, וניישר לאינדקס של df, ואז השמה בטוחה
+        adx_val = pd.to_numeric(adx_val, errors="coerce").reindex(df.index)
+        df.loc[:, "ADX14"] = adx_val.values
+    except Exception:
+        # אם משהו נשבר – נמשיך בלי ADX כדי שהסריקה לא תיעצר
+        df["ADX14"] = np.nan
+
 
     price = float(df["Close"].iloc[-1])
     if (not np.isfinite(price)) or (price < CONFIG["MIN_PRICE"]): continue
@@ -653,12 +669,14 @@ for t, df in data_map.items():
         reward_risk, rr_score = np.nan, 0.0
 
     macd_score = adx_score = 0.0
-    if CONFIG["USE_MACD_ADX"] and "MACD" in df.columns:
-        macd_v = float(df["MACD"].iloc[-1]); macd_sig = float(df["MACD_SIG"].iloc[-1])
-        macd_score = 1.0 if macd_v > macd_sig else 0.0
-    if CONFIG["USE_MACD_ADX"] and "ADX14" in df.columns:
-        adx_v = float(df["ADX14"].iloc[-1])
-        adx_score = np.clip((adx_v - 15) / 20.0, 0.0, 1.0) if np.isfinite(adx_v) else 0.0
+if CONFIG["USE_MACD_ADX"] and "MACD" in df.columns:
+    macd_v = float(df["MACD"].iloc[-1]); macd_sig = float(df["MACD_SIG"].iloc[-1])
+    macd_score = 1.0 if macd_v > macd_sig else 0.0
+
+if CONFIG["USE_MACD_ADX"] and "ADX14" in df.columns:
+    adx_v = float(df["ADX14"].iloc[-1]) if pd.notna(df["ADX14"].iloc[-1]) else np.nan
+    adx_score = np.clip((adx_v - 15) / 20.0, 0.0, 1.0) if np.isfinite(adx_v) else 0.0
+
 
     score = (
         W["ma"] * ma_ok +
