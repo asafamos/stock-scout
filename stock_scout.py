@@ -890,7 +890,7 @@ def allocate_budget(df: pd.DataFrame, total: float, min_pos: float, max_pos_pct:
     if remaining > 0:
         weights = df["Score"].clip(lower=0).to_numpy()
         extras = (remaining / n) * np.ones(n) if weights.sum() == 0 else remaining * (weights / weights.sum())
-        df["סכום קנייה ($)"] = (df["סכום קנייה ($)"].to_numpy() + extras).clip(upper=max_pos_abs)
+        df["סכום קנייה ($)"] = (df["סכום קנייה ($)"] + extras).clip(upper=max_pos_abs)
 
     s = df["סכום קנייה ($)"].sum()
     if s > 0 and abs(s - total)/max(total,1) > 1e-6:
