@@ -8,13 +8,14 @@ Asaf Stock Scout — 2025 (Auto Mode, Zero-Input)
   Debt/Equity penalty, bonus for positive earnings surprise.
 • Risk rules: earnings blackout window, sector cap, beta filter vs SPY/QQQ, min dollar-volume,
   ATR/Price hard cap, Overextension hard cap, position size cap (% of budget).
-• External price verification (AlphaVantage/Finnhub/Polygon/Tiingo/FMP; נלקח הממוצע אם קיים).
+• External price verification (AlphaVantage/Finnhub/Polygon/Tiingo/FMP; ממוצע כשזמין, אחרת Yahoo בלבד).
 • Allocation: min position per pick + ceiling per position (% of total).
-• RTL UI, recommendation cards with ATR/Price, Overextension, ≈Reward/Risk (אין באמור ייעוץ השקעות).
+• RTL UI, recommendation cards with ATR/Price, Overextension, ≈Reward/Risk, targets/stops (לפי ATR).
+הערה: אין באמור ייעוץ השקעות.
 """
 
 from __future__ import annotations
-import os, io, time, math, warnings
+import os, time, math, warnings
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Tuple
 
@@ -63,7 +64,7 @@ CONFIG = dict(
 
     # Fundamentals (FMP)
     FUNDAMENTAL_ENABLED=True,
-    FUNDAMENTAL_WEIGHT=0.15,        # תרומת פונדמנטלי לציון הסופי (0–0.35 מומלץ)
+    FUNDAMENTAL_WEIGHT=0.15,        # תרומת פונדמנטלי לציון הסופי
     FUNDAMENTAL_TOP_K=50,
     SURPRISE_BONUS_ON=True,
 
@@ -96,7 +97,7 @@ def _env(key: str, default: Optional[str] = None) -> Optional[str]:
     return os.getenv(key, default)
 
 load_dotenv(find_dotenv(usecwd=True))
-for _extra in ["nev", "stock_scout.nev", ".env.local", ".env.production"]:
+for _extra in ["nev", "stock_scout.nev", ".env.local", ".env.production", ".env"]:
     try:
         if os.path.exists(_extra):
             load_dotenv(_extra)
@@ -418,7 +419,8 @@ def fundamental_score(d: dict) -> float:
         surprise = d.get("surprise", np.nan)
         comp += (0.05 if (isinstance(surprise,(int,float)) and surprise >= 2.0) else 0.0)
 
-    return float(np.clip(comp, 0.0, 1.0))
+    comp = float(np.clip(comp - penalty, 0.0, 1.0))
+    return comp
 
 @st.cache_data(ttl=60*60)
 def fetch_beta_vs_benchmark(ticker: str, bench: str = "SPY", days: int = 252) -> float:
@@ -514,8 +516,17 @@ thead tr th{ text-align:right } .rtl-table table{ direction:rtl }
 .badge{display:inline-block;background:#eef2ff;border:1px solid #c7d2fe;color:#1e293b;
   padding:2px 10px;border-radius:999px;font-weight:600}
 .status-buy{background:#ecfdf5;border:1px solid #34d399;color:#065f46;padding:2px 10px;border-radius:999px;font-weight:600}
-.recommend-card{direction: rtl; text-align: right;background:#f9fafb;border:1px solid #e5e7eb;border-radius:14px;padding:14px 16px;margin:10px 0;box-shadow:0 1px 3px rgba(0,0,0,.04)}
-.recommend-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin-top:6px}
+.recommend-card{
+  direction: rtl; text-align: right;background:#f9fafb;border:1px solid #e5e7eb;border-radius:14px;
+  padding:14px 16px;margin:10px 0;box-shadow:0 1px 3px rgba(0,0,0,.04);
+  font-feature-settings: "tnum" 1;
+}
+.recommend-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(170px,1fr));
+  gap:10px;
+}
+.recommend-grid b{ white-space:nowrap }
 .small{color:#444;font-size:.9rem}
 </style>
 """, unsafe_allow_html=True)
@@ -523,11 +534,11 @@ thead tr th{ text-align:right } .rtl-table table{ direction:rtl }
 st.title("📈 Stock Scout — 2025 (Auto)")
 
 # Status of sources
-alpha_ok, alpha_reason = _check_alpha()
-finn_ok,  finn_reason  = _check_finnhub()
-poly_ok,  poly_reason  = _check_polygon()
-tiin_ok,  tiin_reason  = _check_tiingo()
-fmp_ok,   fmp_reason   = _check_fmp()
+alpha_ok, alpha_reason   = _check_alpha()
+finn_ok, finnh_reason    = _check_finnhub()
+poly_ok,  poly_reason    = _check_polygon()
+tiin_ok,  tiin_reason    = _check_tiingo()
+fmp_ok,   fmp_reason     = _check_fmp()
 
 status_df = pd.DataFrame({
     "מקור":   ["Alpha Vantage","Finnhub","Polygon","Tiingo","FMP"],
@@ -536,7 +547,7 @@ status_df = pd.DataFrame({
                "🟢" if poly_ok  else "🔴",
                "🟢" if tiin_ok  else "🔴",
                "🟢" if fmp_ok   else "🔴"],
-    "סיבה":   [alpha_reason, finn_reason, poly_reason, tiin_reason, fmp_reason],
+    "סיבה":   [alpha_reason, finnh_reason, poly_reason, tiin_reason, fmp_reason],
 })
 st.table(status_df.style.set_properties(**{'text-align':'center','direction':'rtl'}))
 
@@ -559,22 +570,18 @@ phase_times["מוריד נתונים"] = t_end(t0)
 # 3) Technical score + hard filters
 t0 = t_start()
 W = CONFIG["WEIGHTS"]
-
 def _normalize_weights(d: Dict[str, float]) -> Dict[str, float]:
     keys = ["ma","mom","rsi","near_high_bell","vol","overext","pullback","risk_reward","macd","adx"]
     w = {k: float(d.get(k, 0.0)) for k in keys}
     s = sum(max(0.0, v) for v in w.values())
     if s <= 0: s = 1.0
     return {k: max(0.0, v)/s for k, v in w.items()}
-
 W = _normalize_weights(W)
 
 rows = []
 lo_rsi, hi_rsi = CONFIG["RSI_BOUNDS"]
-
-for t, df in data_map.items():
-    if df is None or df.empty:
-        continue
+for tkr, df in data_map.items():
+    if df is None or df.empty: continue
     df = df.copy()
     df["MA_S"]  = df["Close"].rolling(int(CONFIG["MA_SHORT"])).mean()
     df["MA_L"]  = df["Close"].rolling(int(CONFIG["MA_LONG"])).mean()
@@ -587,31 +594,23 @@ for t, df in data_map.items():
         m, ms, mh = macd_line(df["Close"])
         df["MACD"], df["MACD_SIG"], df["MACD_HIST"] = m, ms, mh
 
-        # ADX — עמיד לשונות
+        # ADX — חוסן נגד מקרים קיצוניים
         try:
             adx_val = adx(df, 14)
-            if isinstance(adx_val, pd.DataFrame):  # מקרה נדיר
+            if isinstance(adx_val, pd.DataFrame):
                 adx_val = adx_val.iloc[:, 0]
             adx_val = pd.to_numeric(adx_val, errors="coerce").reindex(df.index)
             df.loc[:, "ADX14"] = adx_val.values
         except Exception:
             df["ADX14"] = np.nan
 
-    # מחיר נוכחי
-    try:
-        price = float(df["Close"].iloc[-1])
-    except Exception:
-        price = np.nan
-    if (not np.isfinite(price)) or (price < CONFIG["MIN_PRICE"]):
-        continue
+    price = float(df["Close"].iloc[-1])
+    if (not np.isfinite(price)) or (price < CONFIG["MIN_PRICE"]): continue
 
-    # MA
-    last_ma_s = float(df["MA_S"].iloc[-1]) if pd.notna(df["MA_S"].iloc[-1]) else np.nan
-    last_ma_l = float(df["MA_L"].iloc[-1]) if pd.notna(df["MA_L"].iloc[-1]) else np.nan
+    last_ma_s = float(df["MA_S"].iloc[-1]); last_ma_l = float(df["MA_L"].iloc[-1])
     ma_ok = (float(price > last_ma_s) + float(last_ma_s > last_ma_l)) / 2.0 if (np.isfinite(last_ma_s) and np.isfinite(last_ma_l)) else 0.0
 
-    # RSI band
-    rsi_val = float(df["RSI"].iloc[-1]) if pd.notna(df["RSI"].iloc[-1]) else np.nan
+    rsi_val = float(df["RSI"].iloc[-1])
     if np.isfinite(rsi_val):
         if rsi_val < lo_rsi:   rsi_score = max(0.0, 1 - (lo_rsi - rsi_val) / 20)
         elif rsi_val > hi_rsi: rsi_score = max(0.0, 1 - (rsi_val - hi_rsi) / 20)
@@ -619,22 +618,17 @@ for t, df in data_map.items():
     else:
         rsi_score = 0.0
 
-    # Volume
-    vol20 = float(df["Vol20"].iloc[-1]) if pd.notna(df["Vol20"].iloc[-1]) else np.nan
-    vol_today = float(df["Volume"].iloc[-1]) if pd.notna(df["Volume"].iloc[-1]) else np.nan
-    if np.isfinite(vol20) and vol20 < CONFIG["MIN_AVG_VOLUME"]:
-        continue
+    vol20 = float(df["Vol20"].iloc[-1]); vol_today = float(df["Volume"].iloc[-1])
+    if np.isfinite(vol20) and vol20 < CONFIG["MIN_AVG_VOLUME"]: continue
     vol_ok = (min(2.0, vol_today / vol20) / 2.0) if (np.isfinite(vol20) and vol20 > 0 and np.isfinite(vol_today)) else 0.0
 
-    # Momentum 1/3/6m
     ret_1m = float(df["Close"].pct_change(21).iloc[-1])
     ret_3m = float(df["Close"].pct_change(63).iloc[-1])
     ret_6m = float(df["Close"].pct_change(126).iloc[-1])
     mom_score = float(_sigmoid(np.nanmean([ret_1m, ret_3m, ret_6m])))
 
-    # Near-high & pullback
     window_52w = min(len(df), 252)
-    hi_52w = float(df["Close"].tail(window_52w).max()) if window_52w > 0 else np.nan
+    hi_52w = float(df["Close"].tail(window_52w).max())
     if np.isfinite(hi_52w) and hi_52w > 0:
         near_high_raw = 1.0 - min(1.0, max(0.0, (hi_52w - price) / hi_52w))
         if near_high_raw >= 0.95: near_high_score = 0.45
@@ -644,27 +638,23 @@ for t, df in data_map.items():
     else:
         near_high_raw, near_high_score = np.nan, 0.0
 
-    # Overextension vs MA_L
     if np.isfinite(last_ma_l) and last_ma_l > 0:
         overext_ratio = max(0.0, (price - last_ma_l) / last_ma_l)
         overext_score = 1.0 - min(1.0, overext_ratio / max(1e-6, CONFIG["OVEREXT_SOFT"]))
     else:
         overext_ratio, overext_score = np.nan, 0.0
 
-    # Pullback window
     ratio_to_high = price / hi_52w if (np.isfinite(hi_52w) and hi_52w > 0) else np.nan
     if np.isfinite(ratio_to_high):
-        lo_pb, hi_pb = CONFIG["PULLBACK_RANGE"]
-        if lo_pb <= ratio_to_high <= hi_pb:
-            pullback_score = 1.0
+        lo, hi = CONFIG["PULLBACK_RANGE"]
+        if lo <= ratio_to_high <= hi: pullback_score = 1.0
         else:
-            dist = min(abs(ratio_to_high - lo_pb), abs(ratio_to_high - hi_pb))
+            dist = min(abs(ratio_to_high - lo), abs(ratio_to_high - hi))
             pullback_score = max(0.0, 1.0 - dist * 10)
     else:
         pullback_score = 0.0
 
-    # ATR/Price & Reward/Risk
-    atr14 = float(df["ATR14"].iloc[-1]) if pd.notna(df["ATR14"].iloc[-1]) else np.nan
+    atr14 = float(df["ATR14"].iloc[-1])
     if np.isfinite(atr14) and price > 0:
         vol_rel = atr14 / price
         volatility_score = 1.0 - min(1.0, vol_rel / 0.05)
@@ -672,12 +662,9 @@ for t, df in data_map.items():
         vol_rel, volatility_score = np.nan, 0.0
 
     dollar_vol = (price * vol20) if (np.isfinite(price) and np.isfinite(vol20)) else 0.0
-    if dollar_vol < CONFIG["MIN_DOLLAR_VOLUME"]:
-        continue
-    if np.isfinite(vol_rel) and vol_rel > CONFIG["ATR_PRICE_HARD"]:
-        continue
-    if np.isfinite(overext_ratio) and overext_ratio > CONFIG["OVEREXT_HARD"]:
-        continue
+    if dollar_vol < CONFIG["MIN_DOLLAR_VOLUME"]: continue
+    if np.isfinite(vol_rel) and vol_rel > CONFIG["ATR_PRICE_HARD"]: continue
+    if np.isfinite(overext_ratio) and overext_ratio > CONFIG["OVEREXT_HARD"]: continue
 
     if np.isfinite(hi_52w) and np.isfinite(atr14) and atr14 > 0:
         reward_risk = max(0.0, (hi_52w - price) / atr14)
@@ -685,18 +672,15 @@ for t, df in data_map.items():
     else:
         reward_risk, rr_score = np.nan, 0.0
 
-    # MACD / ADX scores
     macd_score = adx_score = 0.0
     if CONFIG["USE_MACD_ADX"] and "MACD" in df.columns:
         macd_v = float(df["MACD"].iloc[-1]); macd_sig = float(df["MACD_SIG"].iloc[-1])
         macd_score = 1.0 if macd_v > macd_sig else 0.0
 
     if CONFIG["USE_MACD_ADX"] and "ADX14" in df.columns:
-        adx_last = df["ADX14"].iloc[-1]
-        adx_v = float(adx_last) if pd.notna(adx_last) else np.nan
+        adx_v = float(df["ADX14"].iloc[-1]) if pd.notna(df["ADX14"].iloc[-1]) else np.nan
         adx_score = np.clip((adx_v - 15) / 20.0, 0.0, 1.0) if np.isfinite(adx_v) else 0.0
 
-    # Composite technical score
     score = (
         W["ma"] * ma_ok +
         W["mom"] * mom_score +
@@ -711,7 +695,7 @@ for t, df in data_map.items():
     )
 
     rows.append({
-        "Ticker": t,
+        "Ticker": tkr,
         "Price_Yahoo": price,
         "Score_Tech": round(100 * float(score), 1),
         "RSI": round(rsi_val, 1) if np.isfinite(rsi_val) else np.nan,
@@ -751,7 +735,6 @@ if CONFIG["FUNDAMENTAL_ENABLED"] and fmp_ok:
         results.loc[idx,"GM_f"]          = d.get("gm", np.nan)
         results.loc[idx,"DE_f"]          = d.get("de", np.nan)
         results.loc[idx,"Sector"]        = (d.get("sector") or "Unknown")
-
     results["Score"] = results["Score_Tech"]
     results.loc[results.head(take_k).index, "Score"] = (
         (1 - float(CONFIG["FUNDAMENTAL_WEIGHT"])) * results.loc[results.head(take_k).index, "Score_Tech"] +
@@ -792,7 +775,32 @@ if CONFIG["BETA_FILTER_ENABLED"]:
     results = results[~((results["Beta"].notna()) & (results["Beta"] > float(CONFIG["BETA_MAX_ALLOWED"])))].reset_index(drop=True)
     phase_times["מסנן בטא"] = t_end(t0)
 
-# External price verification (Top-K)
+# ---------- External price verification (robust gating) ----------
+providers_ok = {
+    "alpha":  alpha_ok and bool(_env("ALPHA_VANTAGE_API_KEY")),
+    "finnhub":finn_ok  and bool(_env("FINNHUB_API_KEY")),
+    "polygon":poly_ok  and bool(_env("POLYGON_API_KEY")),
+    "tiingo": tiin_ok  and bool(_env("TIINGO_API_KEY")),
+    "fmp":    fmp_ok   and bool(_env("FMP_API_KEY")),
+}
+
+def _fetch_external_for(tkr: str, py: float, providers: dict) -> tuple[str, dict, list[str]]:
+    vals, srcs = {}, []
+    if not math.isnan(py):
+        vals["Yahoo"] = py; srcs.append("🟡Yahoo")
+    if providers.get("alpha"):
+        p = get_alpha_price(tkr);   (vals.setdefault("Alpha", p), srcs.append("🟣Alpha")) if p is not None else None
+        st.session_state.av_calls = st.session_state.get("av_calls", 0) + (1 if p is not None else 0)
+    if providers.get("finnhub"):
+        p = get_finnhub_price(tkr); (vals.setdefault("Finnhub", p), srcs.append("🔵Finnhub")) if p is not None else None
+    if providers.get("polygon"):
+        p = get_polygon_price(tkr); (vals.setdefault("Polygon", p), srcs.append("🟢Polygon")) if p is not None else None
+    if providers.get("tiingo"):
+        p = get_tiingo_price(tkr);  (vals.setdefault("Tiingo", p), srcs.append("🟠Tiingo")) if p is not None else None
+    if providers.get("fmp"):
+        p = get_fmp_price(tkr);     (vals.setdefault("FMP", p), srcs.append("🟤FMP")) if p is not None else None
+    return tkr, vals, srcs
+
 t0 = t_start()
 results["Price_Alpha"] = np.nan
 results["Price_Finnhub"] = np.nan
@@ -800,33 +808,19 @@ results["Price_Mean"] = np.nan
 results["Price_STD"] = np.nan
 results["Source_List"] = "🟡Yahoo"
 
-def _fetch_external_for(tkr: str, py: float) -> Tuple[str, Dict[str, Optional[float]], List[str]]:
-    vals, srcs = {}, []
-    if not math.isnan(py):
-        vals["Yahoo"] = py; srcs.append("🟡Yahoo")
-    if alpha_ok:
-        p = get_alpha_price(tkr);   (vals.setdefault("Alpha", p), srcs.append("🟣Alpha")) if p is not None else None
-        st.session_state.av_calls = st.session_state.get("av_calls", 0) + (1 if p is not None else 0)
-    if finn_ok:
-        p = get_finnhub_price(tkr); (vals.setdefault("Finnhub", p), srcs.append("🔵Finnhub")) if p is not None else None
-    if _env("POLYGON_API_KEY"):
-        p = get_polygon_price(tkr); (vals.setdefault("Polygon", p), srcs.append("🟢Polygon")) if p is not None else None
-    if _env("TIINGO_API_KEY"):
-        p = get_tiingo_price(tkr);  (vals.setdefault("Tiingo", p), srcs.append("🟠Tiingo")) if p is not None else None
-    if _env("FMP_API_KEY"):
-        p = get_fmp_price(tkr);     (vals.setdefault("FMP", p), srcs.append("🟤FMP")) if p is not None else None
-    return tkr, vals, srcs
-
-if CONFIG["EXTERNAL_PRICE_VERIFY"] and (alpha_ok or finn_ok or _env("POLYGON_API_KEY") or _env("TIINGO_API_KEY") or _env("FMP_API_KEY")):
+can_verify = CONFIG["EXTERNAL_PRICE_VERIFY"] and any(providers_ok.values())
+if can_verify:
     subset_idx = list(results.head(int(CONFIG["TOP_VALIDATE_K"])).index)
-    with ThreadPoolExecutor(max_workers=4) as ex:
-        futures = []
-        for idx in subset_idx:
-            r = results.loc[idx]
-            futures.append(ex.submit(_fetch_external_for, r["Ticker"], float(r["Price_Yahoo"])))
-        for f in as_completed(futures):
-            try: tkr, vals, srcs = f.result()
-            except Exception: continue
+    # אם רק Alpha זמין – לצמצם מקבילות כדי לא להיעצר ברייט-לימיט
+    max_workers = 1 if (providers_ok["alpha"] and sum(providers_ok.values()) == 1) else 4
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        futs = [ex.submit(_fetch_external_for, results.at[i, "Ticker"], float(results.at[i, "Price_Yahoo"]), providers_ok)
+                for i in subset_idx]
+        for f in as_completed(futs):
+            try:
+                tkr, vals, srcs = f.result()
+            except Exception:
+                continue
             idx = results.index[results["Ticker"] == tkr][0]
             prices = [v for v in vals.values() if v is not None]
             pmean  = float(np.mean(prices)) if prices else np.nan
@@ -871,7 +865,7 @@ results["סטיית תקן"]    = results["Price_STD"].round(4)
 results["Unit_Price"]   = np.where(results["מחיר ממוצע"].notna(), results["מחיר ממוצע"], results["Price_Yahoo"])
 results["Unit_Price"]   = pd.to_numeric(results["Unit_Price"], errors="coerce")
 
-# Allocation with max position cap
+# Allocation with max position cap (robust)
 def allocate_budget(df: pd.DataFrame, total: float, min_pos: float, max_pos_pct: float) -> pd.DataFrame:
     df = df.copy()
     df["סכום קנייה ($)"] = 0.0
@@ -884,15 +878,20 @@ def allocate_budget(df: pd.DataFrame, total: float, min_pos: float, max_pos_pct:
     # allocate guaranteed minimum to top names if possible
     can_min = int(min(n, remaining // max(min_pos, 0.0))) if min_pos > 0 else 0
     if min_pos > 0 and can_min > 0:
-        df.loc[:can_min-1, "סכום קנייה ($)"] = np.minimum(float(min_pos), max_pos_abs)
+        base = np.minimum(float(min_pos), max_pos_abs)
+        df.loc[:can_min-1, "סכום קנייה ($)"] = base
         remaining -= float(df.loc[:can_min-1, "סכום קנייה ($)"].sum())
 
     if remaining > 0:
-        weights = df["Score"].clip(lower=0).to_numpy()
-        extras = (remaining / n) * np.ones(n) if weights.sum() == 0 else remaining * (weights / weights.sum())
-        df["סכום קנייה ($)"] = (df["סכום קנייה ($)"] + extras).clip(upper=max_pos_abs)
+        weights = df["Score"].clip(lower=0).to_numpy(dtype=float)
+        if weights.sum() == 0:
+            extras = np.full(n, remaining / n, dtype=float)
+        else:
+            extras = remaining * (weights / weights.sum())
+        current = df["סכום קנייה ($)"].to_numpy(dtype=float)
+        df["סכום קנייה ($)"] = np.clip(current + extras, a_min=0.0, a_max=max_pos_abs)
 
-    s = df["סכום קנייה ($)"].sum()
+    s = float(df["סכום קנייה ($)"].sum())
     if s > 0 and abs(s - total)/max(total,1) > 1e-6:
         df["סכום קנייה ($)"] = df["סכום קנייה ($)"] * (total / s)
 
@@ -954,8 +953,8 @@ else:
 
         esc = html_escape.escape
         ticker = esc(str(r['Ticker']))
-        sources = esc(str(sources))
-        horizon = esc(str(horizon))
+        sources_txt = esc(str(sources))
+        horizon_txt = esc(str(horizon))
 
         card_html = f"""
         <div class="recommend-card">
@@ -969,9 +968,9 @@ else:
             <div><b>RSI:</b> {rsi_v if not np.isnan(rsi_v) else '—'}</div>
             <div><b>קרבה לשיא 52ש׳:</b> {near52 if not np.isnan(near52) else '—'}%</div>
             <div><b>ניקוד:</b> {score}</div>
-            <div><b>מקורות:</b> {sources}</div>
+            <div><b>מקורות:</b> {sources_txt}</div>
             <div><b>סכום קנייה מומלץ:</b> ${buy_amt:,.0f}</div>
-            <div><b>טווח החזקה מומלץ:</b> {horizon}</div>
+            <div><b>טווח החזקה מומלץ:</b> {horizon_txt}</div>
             <div><b>מחיר יחידה לחישוב:</b> {unit_price_fmt}</div>
             <div><b>מניות לקנייה:</b> {shares}</div>
             <div><b>עודף לא מנוצל:</b> ${leftover:,.2f}</div>
@@ -981,7 +980,16 @@ else:
           </div>
         </div>
         """
-        st_html(card_html, height=190, scrolling=False)
+        try:
+            st_html(card_html, height=230, scrolling=False)
+        except Exception:
+            c1,c2,c3,c4,c5 = st.columns(5)
+            c1.metric("מחיר ממוצע", show_mean_fmt)
+            c2.metric("RSI", rsi_v if not np.isnan(rsi_v) else "—")
+            c3.metric("קרבה לשיא 52ש׳", f"{near52:.1f}%" if not np.isnan(near52) else "—")
+            c4.metric("ATR/Price", atrp_fmt)
+            c5.metric("≈Reward/Risk", rr_fmt)
+            st.write(f"**{ticker}** — מקורות: {sources_txt} | סכום קנייה: **${buy_amt:,.0f}** | מניות: **{shares}** | טווח: {horizon_txt}")
 
 # ==================== Results table + CSV ====================
 st.subheader("🎯 תוצאות מסוננות ומדורגות")
@@ -1037,7 +1045,7 @@ if choice and choice != "(בחר)" and choice in data_map:
 # ==================== Notes ====================
 with st.expander("ℹ️ מתודולוגיה (תקציר)"):
     st.markdown("""
-- היסטוריה: **Yahoo Finance** (`yfinance`). אימות מחירים (אם יש מפתחות): **Alpha Vantage**, **Finnhub**, **Polygon**, **Tiingo**, **FMP**.
+- היסטוריה: **Yahoo Finance** (`yfinance`). אימות מחירים (אם יש מפתחות/זמינות): **Alpha Vantage**, **Finnhub**, **Polygon**, **Tiingo**, **FMP**.
 - ניקוד טכני: MA, מומנטום (1/3/6 חו׳, Sigmoid), RSI בטווח מועדף, **Near-High bell**, **Overextension מול MA_L**, **Pullback**,
   **ATR/Price**, **Reward/Risk** אינפורמטיבי; **MACD/ADX** פעיל.
 - פונדמנטלי (FMP): Growth/Quality/Valuation + בונוס הפתעת רווח; נשקלל לציון הסופי.
