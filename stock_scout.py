@@ -1,21 +1,19 @@
 # -*- coding: utf-8 -*-
 """
-Asaf Stock Scout — סורק מניות 2025 (גרסה מלאה משופרת+)
-----------------------------------------------------
-שדרוגים בגרסה זו (ללא איבוד שום יכולת קיימת):
+Asaf Stock Scout — סורק מניות 2025 (גרסה מלאה משופרת++)
+-------------------------------------------------------
+שדרוגים בגרסה זו (שימור מלא של כל הפיצ'רים הקיימים 1:1):
 • הורדת נתונים עמידה יותר מ-Yahoo (ריטריים + פולבאק פר-טיקר).
-• הוספת "טיקרים ידניים" (CSV) המצטרפים ליקום אוטומטי.
+• הוספת "טיקרים ידניים" (CSV/טקסט) המצטרפים ליקום האוטומטי.
 • כפתור "ניקוי קאש" לכל @st.cache_data.
 • נירמול משקולות ניקוד בעת הזנה ידנית (סכום=1) + ברירות מחדל חסרות.
-• אימות מחירים חיצוני מהיר יותר עם ThreadPoolExecutor, כולל Throttle ל-Alpha Vantage.
-• KPI קצרים בראש התוצאות (יקום, תוצאות, תקציב מנוצל/עודף).
+• אימות מחירים חיצוני מהיר יותר (ThreadPool) + Throttle בטוח (Alpha Vantage).
+• KPI קצרים בראש: יקום, תוצאות, תקציב מנוצל/עודף.
 • מיון דטרמיניסטי: Score↓, Ticker↑.
-• עוד הגנות: NaN/חלוקות באפס/מקרי קצה אחרי earnings blackout, הודעות ידידותיות.
-
-הפיצ'רים המקוריים נשמרו 1:1:
-- סטטוסי API, יקום Finnhub (או ברירת מחדל), ניקוד משולב (MA/Mom/RSI/Near-High Bell/Overext/Pullback/ATR/Price/RR),
-  אופציונלי MACD/ADX ו-Value (P/E,P/B) לטופ-K, סינונים קשיחים (דולר-ווליום/ATR/Overext), earnings blackout,
-  אימות מחירים חיצוני (Alpha/Finnhub/Polygon/Tiingo/FMP), הקצאת תקציב, כרטיסי קנייה, טבלת תוצאות/CSV, גרפים, צ'אט AI.
+• הגנות נוספות: NaN/חלוקות באפס/מקרי קצה אחרי earnings blackout, הודעות ידידותיות.
+• Earnings: מקור יציב עם Cache (Finnhub→yfinance.get_earnings_dates→calendar).
+• Value (P/E,P/B) בלי Ticker.info (דרך FMP) + Cache.
+• QoL: איפוס מהיר למשקולות, Cache Batch ל-earnings.
 הערה: אין באמור ייעוץ השקעות.
 """
 
@@ -33,9 +31,18 @@ import plotly.graph_objs as go
 from dotenv import load_dotenv, find_dotenv
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# ========= טעינת ENV =========
+# ========= טעינת ENV/Secrets =========
+def _env(key: str, default: Optional[str] = None) -> Optional[str]:
+    # קדימות ל-st.secrets אם קיימים (פרודקשן), אחרת .env
+    try:
+        if "secrets" in dir(st) and key in st.secrets:
+            return st.secrets[key]
+    except Exception:
+        pass
+    return os.getenv(key, default)
+
 load_dotenv(find_dotenv(usecwd=True))
-for _extra in ["nev", "stock_scout.nev"]:
+for _extra in ["nev", "stock_scout.nev", ".env.local", ".env.production"]:
     try:
         if os.path.exists(_extra):
             load_dotenv(_extra)
@@ -55,20 +62,20 @@ def http_get_retry(url: str, tries: int = 3, backoff: float = 1.7, timeout: int 
             time.sleep(backoff**i)
     return None
 
-_last_alpha_call = 0.0
 def alpha_throttle(min_gap_seconds: float = 12.0):
-    """Throttle פשוט ל-Alpha Vantage (מומלץ ~5 קריאות/דקה בחינם)."""
-    global _last_alpha_call
-    now = time.time()
-    gap = now - _last_alpha_call
+    """Throttle בטוח לריראנים (session_state, לא גלובלי). ~5 קריאות/דקה בחינם."""
+    ts_key = "_alpha_last_call_ts"
+    last = st.session_state.get(ts_key, 0.0)
+    now  = time.time()
+    gap  = now - last
     if gap < min_gap_seconds:
-        time.sleep(max(0.0, min_gap_seconds - gap))
-    _last_alpha_call = time.time()
+        time.sleep(min_gap_seconds - gap)
+    st.session_state[ts_key] = time.time()
 
 # ========= סטטוסים (עם Cache) =========
 @st.cache_data(ttl=300)
 def check_openai_verbose():
-    key = os.getenv("OPENAI_API_KEY")
+    key = _env("OPENAI_API_KEY")
     if not key: return False, "Missing API key"
     try:
         from openai import OpenAI
@@ -80,7 +87,7 @@ def check_openai_verbose():
 
 @st.cache_data(ttl=300)
 def check_alpha_vantage_verbose():
-    key = os.getenv("ALPHA_VANTAGE_API_KEY")
+    key = _env("ALPHA_VANTAGE_API_KEY")
     if not key: return False, "Missing API key"
     try:
         url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=MSFT&apikey={key}"
@@ -96,7 +103,7 @@ def check_alpha_vantage_verbose():
 
 @st.cache_data(ttl=300)
 def check_finnhub_verbose():
-    key = os.getenv("FINNHUB_API_KEY")
+    key = _env("FINNHUB_API_KEY")
     if not key: return False, "Missing API key"
     try:
         url = f"https://finnhub.io/api/v1/quote?symbol=AAPL&token={key}"
@@ -109,7 +116,7 @@ def check_finnhub_verbose():
 
 @st.cache_data(ttl=300)
 def check_polygon_verbose():
-    key = os.getenv("POLYGON_API_KEY")
+    key = _env("POLYGON_API_KEY")
     if not key: return False, "Missing API key"
     try:
         url = f"https://api.polygon.io/v2/aggs/ticker/AAPL/prev?adjusted=true&apiKey={key}"
@@ -123,7 +130,7 @@ def check_polygon_verbose():
 
 @st.cache_data(ttl=300)
 def check_tiingo_verbose():
-    key = os.getenv("TIINGO_API_KEY")
+    key = _env("TIINGO_API_KEY")
     if not key: return False, "Missing API key"
     try:
         url = f"https://api.tiingo.com/tiingo/daily/AAPL/prices?token={key}&resampleFreq=daily"
@@ -137,7 +144,7 @@ def check_tiingo_verbose():
 
 @st.cache_data(ttl=300)
 def check_fmp_verbose():
-    key = os.getenv("FMP_API_KEY")
+    key = _env("FMP_API_KEY")
     if not key: return False, "Missing API key"
     try:
         url = f"https://financialmodelingprep.com/api/v3/quote/AAPL?apikey={key}"
@@ -190,11 +197,18 @@ def adx(df: pd.DataFrame, period: int = 14) -> pd.Series:
     dx = (100 * (plus_di - minus_di).abs() / ((plus_di + minus_di) + 1e-9))
     return dx.rolling(period, min_periods=period).mean()
 
-# ========= OpenAI =========
+def _sigmoid(x, k=3.0):
+    # מיפוי החזרי מומנטום לסולם 0..1 באופן חלק (פחות "משונן")
+    try:
+        return 1.0 / (1.0 + np.exp(-k * x))
+    except Exception:
+        return 0.5
+
+# ========= OpenAI (לא חובה להרצה) =========
 def openai_client():
     try:
         from openai import OpenAI
-        key = os.getenv("OPENAI_API_KEY")
+        key = _env("OPENAI_API_KEY")
         if not key: return None
         return OpenAI(api_key=key)
     except Exception:
@@ -223,7 +237,7 @@ def ai_recommend(df: pd.DataFrame) -> Optional[str]:
 
 # ========= מקורות מחיר =========
 def get_alpha_vantage_price(ticker: str) -> float | None:
-    key = os.getenv("ALPHA_VANTAGE_API_KEY")
+    key = _env("ALPHA_VANTAGE_API_KEY")
     if not key: return None
     if "av_calls" not in st.session_state: st.session_state.av_calls = 0
     alpha_throttle()
@@ -243,7 +257,7 @@ def get_alpha_vantage_price(ticker: str) -> float | None:
     return None
 
 def get_finnhub_price(ticker: str) -> float | None:
-    key = os.getenv("FINNHUB_API_KEY")
+    key = _env("FINNHUB_API_KEY")
     if not key: return None
     r = http_get_retry(f"https://finnhub.io/api/v1/quote?symbol={ticker}&token={key}", tries=2, timeout=12)
     if not r: return None
@@ -254,7 +268,7 @@ def get_finnhub_price(ticker: str) -> float | None:
         return None
 
 def get_polygon_price(ticker: str) -> float | None:
-    key = os.getenv("POLYGON_API_KEY")
+    key = _env("POLYGON_API_KEY")
     if not key: return None
     url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/prev?adjusted=true&apiKey={key}"
     r = http_get_retry(url, tries=2, timeout=10)
@@ -268,7 +282,7 @@ def get_polygon_price(ticker: str) -> float | None:
     return None
 
 def get_tiingo_price(ticker: str) -> float | None:
-    key = os.getenv("TIINGO_API_KEY")
+    key = _env("TIINGO_API_KEY")
     if not key: return None
     url = f"https://api.tiingo.com/tiingo/daily/{ticker}/prices?token={key}&resampleFreq=daily"
     r = http_get_retry(url, tries=2, timeout=10)
@@ -282,7 +296,7 @@ def get_tiingo_price(ticker: str) -> float | None:
     return None
 
 def get_fmp_price(ticker: str) -> float | None:
-    key = os.getenv("FMP_API_KEY")
+    key = _env("FMP_API_KEY")
     if not key: return None
     url = f"https://financialmodelingprep.com/api/v3/quote/{ticker}?apikey={key}"
     r = http_get_retry(url, tries=3, timeout=16, headers={"User-Agent":"StockScout/1.0"})
@@ -304,7 +318,7 @@ def build_universe(limit: int = 350) -> List[str]:
     if not ok:
         return ["AAPL","MSFT","NVDA","AMZN","GOOGL","META","TSLA","AVGO","AMD","QCOM","ADBE","CRM",
                 "NFLX","INTC","ORCL","PANW","SNPS","CDNS","MU","KLAC"]
-    key = os.getenv("FINNHUB_API_KEY")
+    key = _env("FINNHUB_API_KEY")
     symbols: List[str] = []
     for mic in ("XNAS","XNYS"):
         r = http_get_retry(f"https://finnhub.io/api/v1/stock/symbol?exchange=US&mic={mic}&token={key}", tries=2, timeout=15)
@@ -338,9 +352,7 @@ def build_universe(limit: int = 350) -> List[str]:
 
 # ========= הורדת נתונים =========
 def safe_yf_download(tickers: List[str], start: datetime, end: datetime) -> Dict[str, pd.DataFrame]:
-    """
-    ניסיון הורדה מרובה-טיקרים; אם נכשל/חסר נתון — פולבאק להורדה פר-טיקר.
-    """
+    """ניסיון הורדה מרובה-טיקרים; אם נכשל/חסר נתון — פולבאק פר-טיקר."""
     out: Dict[str, pd.DataFrame] = {}
     if not tickers:
         return out
@@ -397,8 +409,88 @@ def fetch_history_bulk(tickers: List[str], period_days: int, ma_long: int) -> Di
 def t_start(): return time.perf_counter()
 def t_end(t0): return time.perf_counter() - t0
 
+# ========= Earnings (יציב + Cache) =========
+@st.cache_data(ttl=60*60)
+def get_next_earnings_date(ticker: str) -> Optional[datetime]:
+    # 1) Finnhub (אם יש מפתח)
+    try:
+        key = _env("FINNHUB_API_KEY")
+        if key:
+            today = datetime.utcnow().date()
+            url = (
+                "https://finnhub.io/api/v1/calendar/earnings"
+                f"?from={today.isoformat()}&to={(today + timedelta(days=180)).isoformat()}"
+                f"&symbol={ticker}&token={key}"
+            )
+            r = http_get_retry(url, tries=2, timeout=12)
+            if r:
+                data = r.json()
+                for row in data.get("earningsCalendar", []):
+                    if row.get("symbol") == ticker and row.get("date"):
+                        return datetime.fromisoformat(row["date"])
+    except Exception:
+        pass
+    # 2) yfinance.get_earnings_dates
+    try:
+        yft = yf.Ticker(ticker)
+        ed = yft.get_earnings_dates(limit=4)
+        if isinstance(ed, pd.DataFrame) and not ed.empty:
+            now = pd.Timestamp.utcnow()
+            future = ed[ed.index >= now]
+            dt = (future.index.min() if not future.empty else ed.index.max())
+            if pd.notna(dt):
+                return dt.to_pydatetime()
+    except Exception:
+        pass
+    # 3) calendar (פולבאק ישן)
+    try:
+        cal = yf.Ticker(ticker).calendar
+        if isinstance(cal, pd.DataFrame) and "Earnings Date" in cal.index:
+            vals = cal.loc["Earnings Date"].values
+            if len(vals) > 0:
+                dt = pd.to_datetime(str(vals[0]))
+                if pd.notna(dt):
+                    return dt.to_pydatetime()
+    except Exception:
+        pass
+    return None
+
+@st.cache_data(ttl=60*30)
+def _earnings_batch(symbols: List[str]) -> Dict[str, Optional[datetime]]:
+    out = {}
+    if not symbols: return out
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        futs = {ex.submit(get_next_earnings_date, s): s for s in symbols}
+        for f in as_completed(futs):
+            s = futs[f]
+            try: out[s] = f.result()
+            except Exception: out[s] = None
+    return out
+
+# ========= Value (P/E,P/B) מ-FMP =========
+@st.cache_data(ttl=60*30)
+def fetch_basic_value_fmp(ticker: str) -> Tuple[float, float]:
+    """מחזיר (PE, PB) או (nan, nan) בלי להשתמש ב-Ticker.info האיטי."""
+    try:
+        key = _env("FMP_API_KEY")
+        if not key:
+            return (np.nan, np.nan)
+        url = f"https://financialmodelingprep.com/api/v3/ratios/{ticker}?limit=1&apikey={key}"
+        r = http_get_retry(url, tries=2, timeout=12, headers={"User-Agent":"StockScout/1.0"})
+        if not r: return (np.nan, np.nan)
+        arr = r.json()
+        if isinstance(arr, list) and arr:
+            d = arr[0]
+            pe = float(d.get("priceEarningsRatio", np.nan))
+            pb = float(d.get("priceToBookRatio", np.nan))
+            return pe, pb
+    except Exception:
+        pass
+    return (np.nan, np.nan)
+
 # ========= UI =========
 st.set_page_config(page_title="Asaf's Stock Scout — 2025", page_icon="📈", layout="wide")
+# st.set_option('client.showErrorDetails', False)  # הפעלה בפרודקשן אם תרצה
 
 # כפתור ניקוי קאש
 col_clear, _ = st.columns([1,6])
@@ -459,12 +551,12 @@ status_df = pd.DataFrame({
     ],
     "סיבה":   [openai_reason, alpha_reason, finnhub_reason, polygon_reason, tiingo_reason, fmp_reason],
     "מפתח מזוהה": [
-        "✅" if os.getenv("OPENAI_API_KEY") else "—",
-        "✅" if os.getenv("ALPHA_VANTAGE_API_KEY") else "—",
-        "✅" if os.getenv("FINNHUB_API_KEY") else "—",
-        "✅" if os.getenv("POLYGON_API_KEY") else "—",
-        "✅" if os.getenv("TIINGO_API_KEY") else "—",
-        "✅" if os.getenv("FMP_API_KEY") else "—",
+        "✅" if _env("OPENAI_API_KEY") else "—",
+        "✅" if _env("ALPHA_VANTAGE_API_KEY") else "—",
+        "✅" if _env("FINNHUB_API_KEY") else "—",
+        "✅" if _env("POLYGON_API_KEY") else "—",
+        "✅" if _env("TIINGO_API_KEY") else "—",
+        "✅" if _env("FMP_API_KEY") else "—",
     ],
 })
 st.table(status_df.style.set_properties(**{'text-align':'center','direction':'rtl'}))
@@ -523,11 +615,21 @@ with st.expander("מתקדם"):
     earnings_blackout_days = st.number_input("בלוק-אאוט דו״חות (ימים לפני/אחרי) – 0=כבוי", 0, 30, 7)
     earnings_check_topk    = st.number_input("בדיקת דו״חות ל-Top-K", 3, 50, 12)
 
+    # --- משקולות JSON + איפוס ---
     st.markdown("**משקולות ניקוד (JSON) — אפשר לשנות ידנית**")
-    score_weights_raw = st.text_input(
-        "משקולות",
-        value=pd.Series(default_weights).to_json(force_ascii=False)
-    )
+    c1, c2 = st.columns([3,1])
+    with c1:
+        score_weights_raw = st.text_input(
+            "משקולות",
+            value=pd.Series(default_weights).to_json(force_ascii=False)
+        )
+    with c2:
+        if st.button("איפוס משקולות"):
+            st.session_state["reset_weights"] = True
+    if st.session_state.get("reset_weights"):
+        st.session_state["reset_weights"] = False
+        score_weights_raw = pd.Series(default_weights).to_json(force_ascii=False)
+        st.experimental_rerun()
 
     value_filter_enabled = st.toggle("סינון ערך בסיסי (P/E 5–40, P/B < 10) עבור Top-K בלבד", value=False)
     macd_adx_enabled = st.toggle("שקלול MACD/ADX", value=False)
@@ -547,19 +649,12 @@ except Exception:
     SCORE_W = pd.Series(_normalize_weights(default_weights))
 
 # ========= פונקציות עזר =========
-def get_next_earnings_date(ticker: str):
-    """החזרה: datetime או None (yfinance עשוי לא להחזיר)."""
+@st.cache_data(ttl=60*30)
+def _yf_calendar_safe(ticker: str):
     try:
-        cal = yf.Ticker(ticker).calendar
-        if isinstance(cal, pd.DataFrame) and "Earnings Date" in cal.index:
-            vals = cal.loc["Earnings Date"].values
-            if len(vals) > 0:
-                dt = pd.to_datetime(str(vals[0]))
-                if pd.notna(dt):
-                    return dt.to_pydatetime()
+        return yf.Ticker(ticker).calendar
     except Exception:
-        pass
-    return None
+        return None
 
 # ========= צינור ריצה + מדדי זמן =========
 if "av_calls" not in st.session_state: st.session_state.av_calls = 0
@@ -644,7 +739,8 @@ for t, df in data_map.items():
     ret_1m = float(df["Close"].pct_change(21).iloc[-1])
     ret_3m = float(df["Close"].pct_change(63).iloc[-1])
     ret_6m = float(df["Close"].pct_change(126).iloc[-1])
-    momentum = float(np.nanmean([ret_1m, ret_3m, ret_6m]))
+    mom_raw = float(np.nanmean([ret_1m, ret_3m, ret_6m]))
+    mom_score = float(_sigmoid(mom_raw))  # שדרוג: סיגמואיד רך במקום קליפ לינארי
 
     window_52w = min(len(df), 252)
     hi_52w = float(df["Close"].tail(window_52w).max()) if window_52w > 0 else np.nan
@@ -717,7 +813,7 @@ for t, df in data_map.items():
     # ניקוד כולל
     score = (
         float(SCORE_W.get("ma", 0.22)) * ma_ok +
-        float(SCORE_W.get("mom", 0.30)) * np.clip((momentum + 0.5), 0, 1) +
+        float(SCORE_W.get("mom", 0.30)) * mom_score +
         float(SCORE_W.get("rsi", 0.12)) * rsi_score +
         float(SCORE_W.get("near_high_bell", 0.10)) * (near_high_score) +
         float(SCORE_W.get("vol", 0.08)) * (vol_ok if np.isfinite(vol_ok) else 0.0) +
@@ -761,11 +857,13 @@ results = results.sort_values(["Score","Ticker"], ascending=[False, True]).reset
 # ---- Earnings blackout (Top-K) ----
 if earnings_blackout_days > 0:
     to_check_idx = list(results.head(int(earnings_check_topk)).index)
-    now_utc = pd.Timestamp.utcnow().to_pydatetime()
+    symbols = [results.at[i,"Ticker"] for i in to_check_idx]
+    ed_map = _earnings_batch(symbols)
+    now_utc = datetime.utcnow()
     keep_mask = np.ones(len(results), dtype=bool)
     for idx in to_check_idx:
         tkr = results.at[idx, "Ticker"]
-        dt_earn = get_next_earnings_date(tkr)
+        dt_earn = ed_map.get(tkr)
         if dt_earn is None:
             continue
         gap_days = abs((dt_earn - now_utc).days)
@@ -788,11 +886,11 @@ def _fetch_external_for(tkr: str, py: float) -> Tuple[str, Dict[str, Optional[fl
         pa = get_alpha_vantage_price(tkr)
     if finnhub_ok:
         pf = get_finnhub_price(tkr)
-    if os.getenv("POLYGON_API_KEY"):
+    if _env("POLYGON_API_KEY"):
         ppg = get_polygon_price(tkr)
-    if os.getenv("TIINGO_API_KEY"):
+    if _env("TIINGO_API_KEY"):
         pti = get_tiingo_price(tkr)
-    if os.getenv("FMP_API_KEY"):
+    if _env("FMP_API_KEY"):
         pfmp = get_fmp_price(tkr)
 
     if pa is not None:   vals["Alpha"]   = pa;   srcs.append("🟣Alpha")
@@ -802,7 +900,7 @@ def _fetch_external_for(tkr: str, py: float) -> Tuple[str, Dict[str, Optional[fl
     if pfmp is not None: vals["FMP"]     = pfmp; srcs.append("🟤FMP")
     return tkr, vals, srcs
 
-if use_external_prices and (alpha_ok or finnhub_ok or os.getenv("POLYGON_API_KEY") or os.getenv("TIINGO_API_KEY") or os.getenv("FMP_API_KEY")):
+if use_external_prices and (alpha_ok or finnhub_ok or _env("POLYGON_API_KEY") or _env("TIINGO_API_KEY") or _env("FMP_API_KEY")):
     subset_idx = list(results.head(int(top_validate_k)).index)
     with ThreadPoolExecutor(max_workers=4) as ex:
         futures = []
@@ -815,13 +913,12 @@ if use_external_prices and (alpha_ok or finnhub_ok or os.getenv("POLYGON_API_KEY
             except Exception:
                 continue
             idx = results.index[results["Ticker"] == tkr][0]
-            py   = results.at[idx, "Price_Yahoo"]
-            pa   = vals.get("Alpha", np.nan)
-            pf   = vals.get("Finnhub", np.nan)
             prices = [v for v in vals.values() if v is not None]
             pmean  = float(np.mean(prices)) if prices else np.nan
             pstd   = float(np.std(prices))  if len(prices) > 1 else np.nan
             sources = len(prices)
+            pa = vals.get("Alpha", np.nan)
+            pf = vals.get("Finnhub", np.nan)
             results.loc[idx, ["Price_Alpha","Price_Finnhub","Price_Mean","Price_STD","Sources","Source_List"]] = \
                 [pa, pf, pmean, pstd, sources, " · ".join(srcs) if srcs else "—"]
 else:
@@ -835,17 +932,15 @@ if value_filter_enabled:
     try:
         for idx in results.head(int(top_validate_k)).index:
             tkr = results.at[idx, "Ticker"]
-            try:
-                info = yf.Ticker(tkr).info
-            except Exception:
-                info = {}
-            pe = info.get("trailingPE", np.nan)
-            pb = info.get("priceToBook", np.nan)
+            pe, pb = fetch_basic_value_fmp(tkr)
             results.loc[idx, "PE"] = pe
             results.loc[idx, "PB"] = pb
-            bad_val = (isinstance(pe, (int,float)) and (pe < 5 or pe > 40)) or (isinstance(pb, (int,float)) and pb >= 10)
+            bad_val = (
+                (isinstance(pe,(int,float)) and (pe < 5 or pe > 40)) or
+                (isinstance(pb,(int,float)) and pb >= 10)
+            )
             results.loc[idx, "Value_OK"] = (not bad_val)
-            if bad_val:
+            if bad_val and np.isfinite(results.loc[idx, "Score"]):
                 results.loc[idx, "Score"] = max(0, results.loc[idx, "Score"] - 2.0)
     except Exception:
         pass
@@ -913,7 +1008,7 @@ results["מחיר ממוצע"]  = results["Price_Mean"].round(2)
 results["סטיית תקן"]    = results["Price_STD"].round(4)
 
 # ===== חישוב כמויות =====
-results["Unit_Price"] = np.where(results["Price_Mean"].notna(), results["Price_Mean"], results["Price_Yahoo"])
+results["Unit_Price"] = np.where(results["מחיר ממוצע"].notna(), results["מחיר ממוצע"], results["Price_Yahoo"])
 results["Unit_Price"] = pd.to_numeric(results["Unit_Price"], errors="coerce")
 results["מניות לקנייה"] = np.floor(np.where(results["Unit_Price"] > 0, results["סכום קנייה ($)"] / results["Unit_Price"], 0)).astype(int)
 results["עודף ($)"] = np.round(results["סכום קנייה ($)"] - results["מניות לקנייה"] * results["Unit_Price"], 2)
@@ -1106,13 +1201,25 @@ with st.expander("💬 צ'אט עם ה-AI"):
     else:
         st.info("AI לא מחובר (חסר OPENAI_API_KEY).")
 
-# ===== הערות =====
+# ===== הערות ומתודולוגיה =====
 with st.expander("ℹ️ הערות ומתודולוגיה"):
     st.markdown("""
 - נתונים היסטוריים: **Yahoo Finance** (`yfinance`) — ללא צורך במפתח.
 - אימות מחירים (אם הופעל ויש מפתחות): **Alpha Vantage**, **Finnhub**, **Polygon**, **Tiingo**, **FMP**.
-- ניקוד משולב: MA, מומנטום (1/3/6 חו׳), RSI, **Near-High Bell**, **Overextension מול MA ארוך**, **Pullback**,
+- ניקוד משולב: MA, מומנטום (1/3/6 חו׳) בסיגמואיד, RSI, **Near-High Bell**, **Overextension מול MA ארוך**, **Pullback**,
   **ATR/Price**, **Reward/Risk** (אינפורמטיבי). אופציונלי: **MACD/ADX**; אופציונלי: **Value** ל-Top-K.
 - סינוני איכות קשיחים: מינ׳ דולר-ווליום, מקס׳ ATR/Price, מקס׳ Overextension; **Earnings blackout** ל-Top-K.
+- Earnings: Finnhub→`yfinance.get_earnings_dates`→`calendar` (עם Cache).
+- Value: מ-FMP ratios (עם Cache). אין שימוש ב-`Ticker.info`.
 - ההמלצה כוללת הקצאת תקציב, מס' מניות לקנייה וטווח החזקה משוער. אין באמור ייעוץ השקעות.
 """)
+
+# ===== הערות הפעלה / דרישות =====
+# מומלץ requirements.txt:
+# streamlit>=1.38
+# yfinance>=0.2.50
+# pandas>=2.2
+# numpy>=1.26
+# plotly>=5.22
+# python-dotenv>=1.0
+# requests>=2.32
