@@ -3,15 +3,14 @@
 Asaf Stock Scout — 2025 (Auto Mode, Zero-Input)
 ------------------------------------------------
 • Technical score (MA, Momentum 1/3/6m, RSI band, Near-High bell, Overextension vs MA_L,
-  Pullback window, ATR/Price, Reward/Risk, optional MACD/ADX — מופעל ברירת־מחדל).
+  Pullback window, ATR/Price, Reward/Risk, MACD/ADX).
 • Fundamental layer (FMP): Growth (Rev/EPS YoY), Quality (ROE/ROIC/GM), Valuation (P/E,P/S),
   Debt/Equity penalty, bonus for positive earnings surprise.
 • Risk rules: earnings blackout window, sector cap, beta filter vs SPY/QQQ, min dollar-volume,
   ATR/Price hard cap, Overextension hard cap, position size cap (% of budget).
 • External price verification (AlphaVantage/Finnhub/Polygon/Tiingo/FMP; נלקח הממוצע אם קיים).
 • Allocation: min position per pick + ceiling per position (% of total).
-• RTL UI, recommendation cards with ATR/Price, Overextension, ≈Reward/Risk, targets/stops (לפי ATR).
-הערה: אין באמור ייעוץ השקעות.
+• RTL UI, recommendation cards with ATR/Price, Overextension, ≈Reward/Risk (אין באמור ייעוץ השקעות).
 """
 
 from __future__ import annotations
@@ -127,7 +126,7 @@ def alpha_throttle(min_gap_seconds: float = 12.0):
 # ==================== Connectivity checks (status bar) ====================
 @st.cache_data(ttl=300)
 def _check_alpha():  # Alpha Vantage
-    k = _env("ALPHA_VANTAGE_API_KEY"); 
+    k = _env("ALPHA_VANTAGE_API_KEY")
     if not k: return False, "Missing API key"
     r = http_get_retry(f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=MSFT&apikey={k}", tries=2, timeout=12)
     if not r: return False, "Timeout"
@@ -137,7 +136,7 @@ def _check_alpha():  # Alpha Vantage
 
 @st.cache_data(ttl=300)
 def _check_finnhub():
-    k = _env("FINNHUB_API_KEY"); 
+    k = _env("FINNHUB_API_KEY")
     if not k: return False, "Missing API key"
     r = http_get_retry(f"https://finnhub.io/api/v1/quote?symbol=AAPL&token={k}", tries=2, timeout=10)
     if not r: return False, "Timeout"
@@ -146,7 +145,7 @@ def _check_finnhub():
 
 @st.cache_data(ttl=300)
 def _check_polygon():
-    k = _env("POLYGON_API_KEY"); 
+    k = _env("POLYGON_API_KEY")
     if not k: return False, "Missing API key"
     r = http_get_retry(f"https://api.polygon.io/v2/aggs/ticker/AAPL/prev?adjusted=true&apiKey={k}", tries=2, timeout=10)
     if not r: return False, "Timeout"
@@ -156,7 +155,7 @@ def _check_polygon():
 
 @st.cache_data(ttl=300)
 def _check_tiingo():
-    k = _env("TIINGO_API_KEY"); 
+    k = _env("TIINGO_API_KEY")
     if not k: return False, "Missing API key"
     r = http_get_retry(f"https://api.tiingo.com/tiingo/daily/AAPL/prices?token={k}&resampleFreq=daily", tries=2, timeout=10)
     if not r: return False, "Timeout"
@@ -166,7 +165,7 @@ def _check_tiingo():
 
 @st.cache_data(ttl=300)
 def _check_fmp():
-    k = _env("FMP_API_KEY"); 
+    k = _env("FMP_API_KEY")
     if not k: return False, "Missing API key"
     r = http_get_retry(f"https://financialmodelingprep.com/api/v3/quote/AAPL?apikey={k}", tries=3, timeout=16, headers={"User-Agent":"StockScout/1.0"})
     if not r: return False, "Timeout"
@@ -524,11 +523,11 @@ thead tr th{ text-align:right } .rtl-table table{ direction:rtl }
 st.title("📈 Stock Scout — 2025 (Auto)")
 
 # Status of sources
-alpha_ok, alpha_reason   = _check_alpha()
-finn_ok, finnh_reason    = _check_finnhub()
-poly_ok,  poly_reason    = _check_polygon()
-tiin_ok,  tiin_reason    = _check_tiingo()
-fmp_ok,   fmp_reason     = _check_fmp()
+alpha_ok, alpha_reason = _check_alpha()
+finn_ok,  finn_reason  = _check_finnhub()
+poly_ok,  poly_reason  = _check_polygon()
+tiin_ok,  tiin_reason  = _check_tiingo()
+fmp_ok,   fmp_reason   = _check_fmp()
 
 status_df = pd.DataFrame({
     "מקור":   ["Alpha Vantage","Finnhub","Polygon","Tiingo","FMP"],
@@ -537,7 +536,7 @@ status_df = pd.DataFrame({
                "🟢" if poly_ok  else "🔴",
                "🟢" if tiin_ok  else "🔴",
                "🟢" if fmp_ok   else "🔴"],
-    "סיבה":   [alpha_reason, finnh_reason, poly_reason, tiin_reason, fmp_reason],
+    "סיבה":   [alpha_reason, finn_reason, poly_reason, tiin_reason, fmp_reason],
 })
 st.table(status_df.style.set_properties(**{'text-align':'center','direction':'rtl'}))
 
@@ -559,19 +558,23 @@ phase_times["מוריד נתונים"] = t_end(t0)
 
 # 3) Technical score + hard filters
 t0 = t_start()
-W = CONFIG["WEIGHTS"];  # normalized later
+W = CONFIG["WEIGHTS"]
+
 def _normalize_weights(d: Dict[str, float]) -> Dict[str, float]:
     keys = ["ma","mom","rsi","near_high_bell","vol","overext","pullback","risk_reward","macd","adx"]
     w = {k: float(d.get(k, 0.0)) for k in keys}
     s = sum(max(0.0, v) for v in w.values())
     if s <= 0: s = 1.0
     return {k: max(0.0, v)/s for k, v in w.items()}
+
 W = _normalize_weights(W)
 
 rows = []
 lo_rsi, hi_rsi = CONFIG["RSI_BOUNDS"]
+
 for t, df in data_map.items():
-    if df is None or df.empty: continue
+    if df is None or df.empty:
+        continue
     df = df.copy()
     df["MA_S"]  = df["Close"].rolling(int(CONFIG["MA_SHORT"])).mean()
     df["MA_L"]  = df["Close"].rolling(int(CONFIG["MA_LONG"])).mean()
@@ -579,7 +582,7 @@ for t, df in data_map.items():
     df["ATR14"] = atr(df, 14)
     df["Vol20"] = df["Volume"].rolling(20).mean()
 
-       if CONFIG["USE_MACD_ADX"]:
+    if CONFIG["USE_MACD_ADX"]:
         # MACD
         m, ms, mh = macd_line(df["Close"])
         df["MACD"], df["MACD_SIG"], df["MACD_HIST"] = m, ms, mh
@@ -594,14 +597,21 @@ for t, df in data_map.items():
         except Exception:
             df["ADX14"] = np.nan
 
+    # מחיר נוכחי
+    try:
+        price = float(df["Close"].iloc[-1])
+    except Exception:
+        price = np.nan
+    if (not np.isfinite(price)) or (price < CONFIG["MIN_PRICE"]):
+        continue
 
-    price = float(df["Close"].iloc[-1])
-    if (not np.isfinite(price)) or (price < CONFIG["MIN_PRICE"]): continue
-
-    last_ma_s = float(df["MA_S"].iloc[-1]); last_ma_l = float(df["MA_L"].iloc[-1])
+    # MA
+    last_ma_s = float(df["MA_S"].iloc[-1]) if pd.notna(df["MA_S"].iloc[-1]) else np.nan
+    last_ma_l = float(df["MA_L"].iloc[-1]) if pd.notna(df["MA_L"].iloc[-1]) else np.nan
     ma_ok = (float(price > last_ma_s) + float(last_ma_s > last_ma_l)) / 2.0 if (np.isfinite(last_ma_s) and np.isfinite(last_ma_l)) else 0.0
 
-    rsi_val = float(df["RSI"].iloc[-1])
+    # RSI band
+    rsi_val = float(df["RSI"].iloc[-1]) if pd.notna(df["RSI"].iloc[-1]) else np.nan
     if np.isfinite(rsi_val):
         if rsi_val < lo_rsi:   rsi_score = max(0.0, 1 - (lo_rsi - rsi_val) / 20)
         elif rsi_val > hi_rsi: rsi_score = max(0.0, 1 - (rsi_val - hi_rsi) / 20)
@@ -609,17 +619,22 @@ for t, df in data_map.items():
     else:
         rsi_score = 0.0
 
-    vol20 = float(df["Vol20"].iloc[-1]); vol_today = float(df["Volume"].iloc[-1])
-    if np.isfinite(vol20) and vol20 < CONFIG["MIN_AVG_VOLUME"]: continue
+    # Volume
+    vol20 = float(df["Vol20"].iloc[-1]) if pd.notna(df["Vol20"].iloc[-1]) else np.nan
+    vol_today = float(df["Volume"].iloc[-1]) if pd.notna(df["Volume"].iloc[-1]) else np.nan
+    if np.isfinite(vol20) and vol20 < CONFIG["MIN_AVG_VOLUME"]:
+        continue
     vol_ok = (min(2.0, vol_today / vol20) / 2.0) if (np.isfinite(vol20) and vol20 > 0 and np.isfinite(vol_today)) else 0.0
 
+    # Momentum 1/3/6m
     ret_1m = float(df["Close"].pct_change(21).iloc[-1])
     ret_3m = float(df["Close"].pct_change(63).iloc[-1])
     ret_6m = float(df["Close"].pct_change(126).iloc[-1])
     mom_score = float(_sigmoid(np.nanmean([ret_1m, ret_3m, ret_6m])))
 
+    # Near-high & pullback
     window_52w = min(len(df), 252)
-    hi_52w = float(df["Close"].tail(window_52w).max())
+    hi_52w = float(df["Close"].tail(window_52w).max()) if window_52w > 0 else np.nan
     if np.isfinite(hi_52w) and hi_52w > 0:
         near_high_raw = 1.0 - min(1.0, max(0.0, (hi_52w - price) / hi_52w))
         if near_high_raw >= 0.95: near_high_score = 0.45
@@ -629,23 +644,27 @@ for t, df in data_map.items():
     else:
         near_high_raw, near_high_score = np.nan, 0.0
 
+    # Overextension vs MA_L
     if np.isfinite(last_ma_l) and last_ma_l > 0:
         overext_ratio = max(0.0, (price - last_ma_l) / last_ma_l)
         overext_score = 1.0 - min(1.0, overext_ratio / max(1e-6, CONFIG["OVEREXT_SOFT"]))
     else:
         overext_ratio, overext_score = np.nan, 0.0
 
+    # Pullback window
     ratio_to_high = price / hi_52w if (np.isfinite(hi_52w) and hi_52w > 0) else np.nan
     if np.isfinite(ratio_to_high):
-        lo, hi = CONFIG["PULLBACK_RANGE"]
-        if lo <= ratio_to_high <= hi: pullback_score = 1.0
+        lo_pb, hi_pb = CONFIG["PULLBACK_RANGE"]
+        if lo_pb <= ratio_to_high <= hi_pb:
+            pullback_score = 1.0
         else:
-            dist = min(abs(ratio_to_high - lo), abs(ratio_to_high - hi))
+            dist = min(abs(ratio_to_high - lo_pb), abs(ratio_to_high - hi_pb))
             pullback_score = max(0.0, 1.0 - dist * 10)
     else:
         pullback_score = 0.0
 
-    atr14 = float(df["ATR14"].iloc[-1])
+    # ATR/Price & Reward/Risk
+    atr14 = float(df["ATR14"].iloc[-1]) if pd.notna(df["ATR14"].iloc[-1]) else np.nan
     if np.isfinite(atr14) and price > 0:
         vol_rel = atr14 / price
         volatility_score = 1.0 - min(1.0, vol_rel / 0.05)
@@ -653,9 +672,12 @@ for t, df in data_map.items():
         vol_rel, volatility_score = np.nan, 0.0
 
     dollar_vol = (price * vol20) if (np.isfinite(price) and np.isfinite(vol20)) else 0.0
-    if dollar_vol < CONFIG["MIN_DOLLAR_VOLUME"]: continue
-    if np.isfinite(vol_rel) and vol_rel > CONFIG["ATR_PRICE_HARD"]: continue
-    if np.isfinite(overext_ratio) and overext_ratio > CONFIG["OVEREXT_HARD"]: continue
+    if dollar_vol < CONFIG["MIN_DOLLAR_VOLUME"]:
+        continue
+    if np.isfinite(vol_rel) and vol_rel > CONFIG["ATR_PRICE_HARD"]:
+        continue
+    if np.isfinite(overext_ratio) and overext_ratio > CONFIG["OVEREXT_HARD"]:
+        continue
 
     if np.isfinite(hi_52w) and np.isfinite(atr14) and atr14 > 0:
         reward_risk = max(0.0, (hi_52w - price) / atr14)
@@ -663,7 +685,8 @@ for t, df in data_map.items():
     else:
         reward_risk, rr_score = np.nan, 0.0
 
-        macd_score = adx_score = 0.0
+    # MACD / ADX scores
+    macd_score = adx_score = 0.0
     if CONFIG["USE_MACD_ADX"] and "MACD" in df.columns:
         macd_v = float(df["MACD"].iloc[-1]); macd_sig = float(df["MACD_SIG"].iloc[-1])
         macd_score = 1.0 if macd_v > macd_sig else 0.0
@@ -673,6 +696,7 @@ for t, df in data_map.items():
         adx_v = float(adx_last) if pd.notna(adx_last) else np.nan
         adx_score = np.clip((adx_v - 15) / 20.0, 0.0, 1.0) if np.isfinite(adx_v) else 0.0
 
+    # Composite technical score
     score = (
         W["ma"] * ma_ok +
         W["mom"] * mom_score +
@@ -698,7 +722,6 @@ for t, df in data_map.items():
         "RewardRisk": round(reward_risk, 2) if np.isfinite(reward_risk) else np.nan,
         "ATR14": atr14
     })
-
 
 results = pd.DataFrame(rows)
 phase_times["מחשב ניקוד (טכני)"] = t_end(t0)
