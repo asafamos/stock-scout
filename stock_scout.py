@@ -579,25 +579,20 @@ for t, df in data_map.items():
     df["ATR14"] = atr(df, 14)
     df["Vol20"] = df["Volume"].rolling(20).mean()
 
-    if CONFIG["USE_MACD_ADX"]:
-    # MACD
-    m, ms, mh = macd_line(df["Close"])
-    df["MACD"], df["MACD_SIG"], df["MACD_HIST"] = m, ms, mh
+       if CONFIG["USE_MACD_ADX"]:
+        # MACD
+        m, ms, mh = macd_line(df["Close"])
+        df["MACD"], df["MACD_SIG"], df["MACD_HIST"] = m, ms, mh
 
-    # ADX — חוסן נגד מקרים קיצוניים
-    try:
-        adx_val = adx(df, 14)
-
-        # במקרים נדירים adx(...) עשוי להחזיר DataFrame; נוריד לעמודה ראשונה
-        if isinstance(adx_val, pd.DataFrame):
-            adx_val = adx_val.iloc[:, 0]
-
-        # נבצע מיונומרי, וניישר לאינדקס של df, ואז השמה בטוחה
-        adx_val = pd.to_numeric(adx_val, errors="coerce").reindex(df.index)
-        df.loc[:, "ADX14"] = adx_val.values
-    except Exception:
-        # אם משהו נשבר – נמשיך בלי ADX כדי שהסריקה לא תיעצר
-        df["ADX14"] = np.nan
+        # ADX — עמיד לשונות
+        try:
+            adx_val = adx(df, 14)
+            if isinstance(adx_val, pd.DataFrame):  # מקרה נדיר
+                adx_val = adx_val.iloc[:, 0]
+            adx_val = pd.to_numeric(adx_val, errors="coerce").reindex(df.index)
+            df.loc[:, "ADX14"] = adx_val.values
+        except Exception:
+            df["ADX14"] = np.nan
 
 
     price = float(df["Close"].iloc[-1])
@@ -668,15 +663,15 @@ for t, df in data_map.items():
     else:
         reward_risk, rr_score = np.nan, 0.0
 
-    macd_score = adx_score = 0.0
-if CONFIG["USE_MACD_ADX"] and "MACD" in df.columns:
-    macd_v = float(df["MACD"].iloc[-1]); macd_sig = float(df["MACD_SIG"].iloc[-1])
-    macd_score = 1.0 if macd_v > macd_sig else 0.0
+        macd_score = adx_score = 0.0
+    if CONFIG["USE_MACD_ADX"] and "MACD" in df.columns:
+        macd_v = float(df["MACD"].iloc[-1]); macd_sig = float(df["MACD_SIG"].iloc[-1])
+        macd_score = 1.0 if macd_v > macd_sig else 0.0
 
-if CONFIG["USE_MACD_ADX"] and "ADX14" in df.columns:
-    adx_v = float(df["ADX14"].iloc[-1]) if pd.notna(df["ADX14"].iloc[-1]) else np.nan
-    adx_score = np.clip((adx_v - 15) / 20.0, 0.0, 1.0) if np.isfinite(adx_v) else 0.0
-
+    if CONFIG["USE_MACD_ADX"] and "ADX14" in df.columns:
+        adx_last = df["ADX14"].iloc[-1]
+        adx_v = float(adx_last) if pd.notna(adx_last) else np.nan
+        adx_score = np.clip((adx_v - 15) / 20.0, 0.0, 1.0) if np.isfinite(adx_v) else 0.0
 
     score = (
         W["ma"] * ma_ok +
@@ -703,6 +698,7 @@ if CONFIG["USE_MACD_ADX"] and "ADX14" in df.columns:
         "RewardRisk": round(reward_risk, 2) if np.isfinite(reward_risk) else np.nan,
         "ATR14": atr14
     })
+
 
 results = pd.DataFrame(rows)
 phase_times["מחשב ניקוד (טכני)"] = t_end(t0)
