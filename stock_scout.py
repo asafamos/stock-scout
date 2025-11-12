@@ -760,13 +760,36 @@ for tkr, df in data_map.items():
         m, ms, mh = macd_line(df["Close"])
         df["MACD"], df["MACD_SIG"], df["MACD_HIST"] = m, ms, mh
         try:
-            adx_val = adx(df, 14)
-            if isinstance(adx_val, pd.DataFrame):
-                adx_val = adx_val.iloc[:, 0]
-            adx_val = pd.to_numeric(adx_val, errors="coerce").reindex(df.index)
-            df.loc[:, "ADX14"] = adx_val.values
+            adx_out = adx(df, 14)
+            # adx() may return a DataFrame with columns ['ADX','PLUS_DI','MINUS_DI']
+            if isinstance(adx_out, pd.DataFrame):
+                # use named columns when available, fallback to positional
+                if "ADX" in adx_out.columns:
+                    adx_series = pd.to_numeric(adx_out["ADX"], errors="coerce").reindex(df.index)
+                else:
+                    adx_series = pd.to_numeric(adx_out.iloc[:, 0], errors="coerce").reindex(df.index)
+
+                if "PLUS_DI" in adx_out.columns:
+                    plus_di = pd.to_numeric(adx_out["PLUS_DI"], errors="coerce").reindex(df.index)
+                else:
+                    plus_di = pd.to_numeric(adx_out.iloc[:, 1] if adx_out.shape[1] > 1 else pd.Series(np.nan, index=df.index), errors="coerce").reindex(df.index)
+
+                if "MINUS_DI" in adx_out.columns:
+                    minus_di = pd.to_numeric(adx_out["MINUS_DI"], errors="coerce").reindex(df.index)
+                else:
+                    minus_di = pd.to_numeric(adx_out.iloc[:, 2] if adx_out.shape[1] > 2 else pd.Series(np.nan, index=df.index), errors="coerce").reindex(df.index)
+            else:
+                adx_series = pd.to_numeric(adx_out, errors="coerce").reindex(df.index)
+                plus_di = pd.Series(np.nan, index=df.index)
+                minus_di = pd.Series(np.nan, index=df.index)
+
+            df.loc[:, "ADX14"] = adx_series.values
+            df.loc[:, "PLUS_DI14"] = plus_di.values
+            df.loc[:, "MINUS_DI14"] = minus_di.values
         except Exception:
             df["ADX14"] = np.nan
+            df["PLUS_DI14"] = np.nan
+            df["MINUS_DI14"] = np.nan
 
     price = float(df["Close"].iloc[-1])
     if (not np.isfinite(price)) or (price < CONFIG["MIN_PRICE"]):

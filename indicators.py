@@ -30,25 +30,44 @@ def macd_line(close: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9)
     return macd, macd_signal, macd_hist
 
 
-def adx(df: pd.DataFrame, period: int = 14) -> pd.Series:
+def adx(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
+    """Compute ADX with Wilder smoothing and return ADX, +DI and -DI as a DataFrame.
+
+    Returns a DataFrame with columns: ['ADX', 'PLUS_DI', 'MINUS_DI'] where 'ADX' is
+    the smoothed average of DX using Wilder's smoothing (EMA with alpha=1/period).
+    This keeps compatibility when callers expect a Series (they can take the first
+    column which is ADX).
+    """
     high, low, close = df["High"], df["Low"], df["Close"]
-    plus_dm = (high.diff()).clip(lower=0)
-    minus_dm = (-low.diff()).clip(lower=0)
-    plus_dm[plus_dm < minus_dm] = 0
-    minus_dm[minus_dm <= plus_dm] = 0
+
+    # True Range
+    prev_close = close.shift(1)
     tr = pd.concat(
-        [(high - low), (high - close.shift(1)).abs(), (low - close.shift(1)).abs()],
+        [(high - low).abs(), (high - prev_close).abs(), (low - prev_close).abs()],
         axis=1,
     ).max(axis=1)
-    atr14 = tr.rolling(period, min_periods=period).mean()
-    plus_di = 100 * (
-        plus_dm.rolling(period, min_periods=period).mean() / (atr14 + 1e-9)
-    )
-    minus_di = 100 * (
-        minus_dm.rolling(period, min_periods=period).mean() / (atr14 + 1e-9)
-    )
-    dx = 100 * (plus_di - minus_di).abs() / ((plus_di + minus_di) + 1e-9)
-    return dx.rolling(period, min_periods=period).mean()
+
+    # Directional movements
+    up_move = high.diff()
+    down_move = -low.diff()
+    plus_dm = up_move.where((up_move > 0) & (up_move > down_move), 0.0)
+    minus_dm = down_move.where((down_move > 0) & (down_move > up_move), 0.0)
+
+    # Wilder's smoothing (equivalent to EMA with alpha=1/period, adjust=False)
+    atr = tr.ewm(alpha=1.0 / period, adjust=False, min_periods=period).mean()
+    plus_dm_sm = plus_dm.ewm(alpha=1.0 / period, adjust=False, min_periods=period).mean()
+    minus_dm_sm = minus_dm.ewm(alpha=1.0 / period, adjust=False, min_periods=period).mean()
+
+    # Directional indicators
+    plus_di = 100.0 * (plus_dm_sm / (atr + 1e-9))
+    minus_di = 100.0 * (minus_dm_sm / (atr + 1e-9))
+
+    # DX and ADX
+    dx = 100.0 * (plus_di - minus_di).abs() / (plus_di + minus_di + 1e-9)
+    adx_series = dx.ewm(alpha=1.0 / period, adjust=False, min_periods=period).mean()
+
+    out = pd.DataFrame({"ADX": adx_series, "PLUS_DI": plus_di, "MINUS_DI": minus_di})
+    return out
 
 
 def _sigmoid(x, k: float = 3.0) -> float:
