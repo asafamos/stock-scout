@@ -274,13 +274,15 @@ def fetch_fundamentals_bundle(ticker: str) -> dict:
 
     # Alpha OVERVIEW (אם יש מפתח)
     ak = _env("ALPHA_VANTAGE_API_KEY")
-    if ak:
-        try:
-            alpha_throttle(10.0)
-            r = http_get_retry(
-                f"https://www.alphavantage.co/query?function=OVERVIEW&symbol={ticker}&apikey={ak}",
-                tries=1, timeout=10
-            )
+use_alpha = bool(st.session_state.get("_alpha_ok")) and bool(ak)  # נשתמש ב-Alpha רק אם הסטטוס ירוק
+if use_alpha:
+    try:
+        alpha_throttle(2.0)  # להקטין השהיה
+        r = http_get_retry(
+            f"https://www.alphavantage.co/query?function=OVERVIEW&symbol={ticker}&apikey={ak}",
+            tries=1, timeout=6
+        )
+
             if r:
                 j = r.json()
                 if isinstance(j, dict) and j.get("Symbol"):
