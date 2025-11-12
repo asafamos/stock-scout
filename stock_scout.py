@@ -418,6 +418,7 @@ def get_next_earnings_date(ticker: str) -> Optional[datetime]:
                         return datetime.fromisoformat(row["date"])
     except Exception:
         pass
+
     try:
         ed = yf.Ticker(ticker).get_earnings_dates(limit=4)
         if isinstance(ed, pd.DataFrame) and not ed.empty:
@@ -428,6 +429,7 @@ def get_next_earnings_date(ticker: str) -> Optional[datetime]:
                 return dt.to_pydatetime()
     except Exception:
         pass
+
     try:
         cal = yf.Ticker(ticker).calendar
         if isinstance(cal, pd.DataFrame) and "Earnings Date" in cal.index:
@@ -438,6 +440,7 @@ def get_next_earnings_date(ticker: str) -> Optional[datetime]:
                     return dt.to_pydatetime()
     except Exception:
         pass
+
     return None
 
 
