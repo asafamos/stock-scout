@@ -272,17 +272,16 @@ def _to_01(x, low, high):
 def fetch_fundamentals_bundle(ticker: str) -> dict:
     out = {}
 
-    # Alpha OVERVIEW (אם יש מפתח)
+    # Alpha OVERVIEW – נשתמש רק אם ה־check יצא ירוק
     ak = _env("ALPHA_VANTAGE_API_KEY")
-use_alpha = bool(st.session_state.get("_alpha_ok")) and bool(ak)  # נשתמש ב-Alpha רק אם הסטטוס ירוק
-if use_alpha:
-    try:
-        alpha_throttle(2.0)  # להקטין השהיה
-        r = http_get_retry(
-            f"https://www.alphavantage.co/query?function=OVERVIEW&symbol={ticker}&apikey={ak}",
-            tries=1, timeout=6
-        )
-
+    use_alpha = bool(st.session_state.get("_alpha_ok")) and bool(ak)
+    if use_alpha:
+        try:
+            alpha_throttle(2.0)
+            r = http_get_retry(
+                f"https://www.alphavantage.co/query?function=OVERVIEW&symbol={ticker}&apikey={ak}",
+                tries=1, timeout=6
+            )
             if r:
                 j = r.json()
                 if isinstance(j, dict) and j.get("Symbol"):
@@ -290,26 +289,21 @@ if use_alpha:
                         try:
                             v = float(j.get(k, np.nan))
                             return v if np.isfinite(v) else np.nan
-                        except:
+                        except Exception:
                             return np.nan
 
-                    # איכות / צמיחה / שווי
                     out["roe"]  = fnum("ReturnOnEquityTTM")
-                    out["roic"] = np.nan  # Alpha לא נותן ROIC ישיר
-
-                    # נסיון להעריך GM מ-GrossProfit/TotalRevenue; אחרת נשתמש ב-ProfitMargin
-                    gp      = fnum("GrossProfitTTM")
-                    tr      = fnum("TotalRevenueTTM")
+                    out["roic"] = np.nan
+                    gp = fnum("GrossProfitTTM"); tr = fnum("TotalRevenueTTM")
                     gm_calc = (gp / tr) if (np.isfinite(gp) and np.isfinite(tr) and tr > 0) else np.nan
-                    pm      = fnum("ProfitMargin")
+                    pm = fnum("ProfitMargin")
                     out["gm"] = gm_calc if np.isfinite(gm_calc) else pm
-
-                    out["ps"]       = fnum("PriceToSalesTTM")
-                    out["pe"]       = fnum("PERatio")
-                    out["de"]       = fnum("DebtToEquityTTM")
-                    out["rev_g_yoy"]= fnum("QuarterlyRevenueGrowthYOY")
-                    out["eps_g_yoy"]= fnum("QuarterlyEarningsGrowthYOY")
-                    out["sector"]   = j.get("Sector") or "Unknown"
+                    out["ps"] = fnum("PriceToSalesTTM")
+                    out["pe"] = fnum("PERatio")
+                    out["de"] = fnum("DebtToEquityTTM")
+                    out["rev_g_yoy"] = fnum("QuarterlyRevenueGrowthYOY")
+                    out["eps_g_yoy"] = fnum("QuarterlyEarningsGrowthYOY")
+                    out["sector"] = j.get("Sector") or "Unknown"
                     return out
         except Exception:
             pass
@@ -345,12 +339,13 @@ if use_alpha:
                     total_equity = fget("totalEquity")
                     if np.isfinite(total_debt) and np.isfinite(total_equity) and total_equity != 0:
                         de = total_debt / total_equity
-                except:
+                except Exception:
                     pass
                 out["de"]        = de
                 out["rev_g_yoy"] = fget("revenueGrowthTTMYoy", "revenueGrowthQuarterlyYoy")
                 out["eps_g_yoy"] = fget("epsGrowthTTMYoy", "epsGrowthQuarterlyYoy")
                 out["sector"]    = _finnhub_sector(ticker, fk)
+                return out
         except Exception:
             pass
 
