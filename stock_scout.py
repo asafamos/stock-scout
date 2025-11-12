@@ -473,6 +473,31 @@ def fundamental_score(d: dict) -> float:
 
     comp = float(np.clip(comp - penalty, 0.0, 1.0))
     return comp
+@st.cache_data(ttl=60*60)
+def fetch_beta_vs_benchmark(ticker: str, bench: str = "SPY", days: int = 252) -> float:
+    """
+    מחשב בטא מול מדד בסיס (SPY/QQQ) מהיסטוריית yfinance.
+    מחזיר NaN אם אין מספיק נתונים.
+    """
+    try:
+        end = datetime.utcnow()
+        start = end - timedelta(days=days + 30)  # ריפוד קטן לחגים/חוסרים
+        df_t = yf.download(ticker, start=start, end=end, auto_adjust=True, progress=False)
+        df_b = yf.download(bench,  start=start, end=end, auto_adjust=True, progress=False)
+        if df_t.empty or df_b.empty:
+            return np.nan
+        j = pd.concat(
+            [df_t["Close"].pct_change().dropna(),
+             df_b["Close"].pct_change().dropna()],
+            axis=1
+        ).dropna()
+        j.columns = ["rt", "rb"]
+        if len(j) < 40:
+            return np.nan
+        slope = np.polyfit(j["rb"].to_numpy(), j["rt"].to_numpy(), 1)[0]
+        return float(slope)
+    except Exception:
+        return np.nan
 
 # ==================== External Prices ====================
 def get_alpha_price(ticker: str) -> float | None:
