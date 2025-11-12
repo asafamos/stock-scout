@@ -354,36 +354,6 @@ def fetch_fundamentals_bundle(ticker: str) -> dict:
 
     return out
 
-  # Finnhub fallback
-    fk=_env("FINNHUB_API_KEY")
-    if fk:
-        try:
-            r=http_get_retry(f"https://finnhub.io/api/v1/stock/metric?symbol={ticker}&metric=all&token={fk}", tries=1, timeout=10)
-            if r:
-                j=r.json(); m=j.get("metric",{})
-                def fget(*keys):
-                    for k in keys:
-                        v=m.get(k)
-                        if isinstance(v,(int,float)) and np.isfinite(v): return float(v)
-                    return np.nan
-                out["roe"]=fget("roeTtm","roeAnnual")
-                out["roic"]=np.nan
-                out["gm"]=fget("grossMarginTTM","grossMarginAnnual")
-                out["ps"]=fget("psTTM","priceToSalesTTM")
-                out["pe"]=fget("peBasicExclExtraTTM","peNormalizedAnnual","peTTM")
-                de=np.nan
-                try:
-                    total_debt=fget("totalDebt"); total_equity=fget("totalEquity")
-                    if np.isfinite(total_debt) and np.isfinite(total_equity) and total_equity!=0:
-                        de=total_debt/total_equity
-                except: pass
-                out["de"]=de
-                out["rev_g_yoy"]=fget("revenueGrowthTTMYoy","revenueGrowthQuarterlyYoy")
-                out["eps_g_yoy"]=fget("epsGrowthTTMYoy","epsGrowthQuarterlyYoy")
-                out["sector"] = _finnhub_sector(ticker, fk)
-        except Exception: pass
-    return out
-
 def fundamental_score(d: dict) -> float:
     g_rev=_to_01(d.get("rev_g_yoy",np.nan), 0.00, 0.30)
     g_eps=_to_01(d.get("eps_g_yoy",np.nan), 0.00, 0.30)
