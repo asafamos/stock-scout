@@ -271,85 +271,93 @@ def _to_01(x, low, high):
 @st.cache_data(ttl=60*60)
 def fetch_fundamentals_bundle(ticker: str) -> dict:
     out = {}
+    # נסה Alpha; אם הצליח — החזר
+    if bool(st.session_state.get("_alpha_ok")) and bool(_env("ALPHA_VANTAGE_API_KEY")):
+        d = _alpha_overview_fetch(ticker)
+        if d:
+            return d
+    # אחרת Finnhub
+    d = _finnhub_metrics_fetch(ticker)
+    return d or out
 
-    # Alpha OVERVIEW – נשתמש רק אם הסטטוס ירוק
+
+def _alpha_overview_fetch(ticker: str) -> dict:
+    """משיכה מ-Alpha OVERVIEW (פשוט, בלי קינונים מיותרים)."""
     ak = _env("ALPHA_VANTAGE_API_KEY")
-    use_alpha = bool(st.session_state.get("_alpha_ok")) and bool(ak)
-    if use_alpha:
-        try:
-            alpha_throttle(2.0)
-            r = http_get_retry(
-                f"https://www.alphavantage.co/query?function=OVERVIEW&symbol={ticker}&apikey={ak}",
-                tries=1, timeout=6
-            )
-            if r:
-                j = r.json()
-                if isinstance(j, dict) and j.get("Symbol"):
-                    def fnum(k):
-                        try:
-                            v = float(j.get(k, np.nan))
-                            return v if np.isfinite(v) else np.nan
-                        except Exception:
-                            return np.nan
+    if not ak:
+        return {}
+    try:
+        alpha_throttle(2.0)
+        url = f"https://www.alphavantage.co/query?function=OVERVIEW&symbol={ticker}&apikey={ak}"
+        r = http_get_retry(url, tries=1, timeout=6)
+        if not r:
+            return {}
+        j = r.json()
+        if not (isinstance(j, dict) and j.get("Symbol")):
+            return {}
+        def fnum(k):
+            try:
+                v = float(j.get(k, np.nan))
+                return v if np.isfinite(v) else np.nan
+            except Exception:
+                return np.nan
+        gp = fnum("GrossProfitTTM"); tr = fnum("TotalRevenueTTM")
+        gm_calc = (gp / tr) if (np.isfinite(gp) and np.isfinite(tr) and tr > 0) else np.nan
+        pm = fnum("ProfitMargin")
+        return {
+            "roe":  fnum("ReturnOnEquityTTM"),
+            "roic": np.nan,
+            "gm":   gm_calc if np.isfinite(gm_calc) else pm,
+            "ps":   fnum("PriceToSalesTTM"),
+            "pe":   fnum("PERatio"),
+            "de":   fnum("DebtToEquityTTM"),
+            "rev_g_yoy": fnum("QuarterlyRevenueGrowthYOY"),
+            "eps_g_yoy": fnum("QuarterlyEarningsGrowthYOY"),
+            "sector": j.get("Sector") or "Unknown",
+        }
+    except Exception:
+        return {}
 
-                    out["roe"]  = fnum("ReturnOnEquityTTM")
-                    out["roic"] = np.nan
-                    gp = fnum("GrossProfitTTM"); tr = fnum("TotalRevenueTTM")
-                    gm_calc = (gp / tr) if (np.isfinite(gp) and np.isfinite(tr) and tr > 0) else np.nan
-                    pm = fnum("ProfitMargin")
-                    out["gm"] = gm_calc if np.isfinite(gm_calc) else pm
-                    out["ps"] = fnum("PriceToSalesTTM")
-                    out["pe"] = fnum("PERatio")
-                    out["de"] = fnum("DebtToEquityTTM")
-                    out["rev_g_yoy"] = fnum("QuarterlyRevenueGrowthYOY")
-                    out["eps_g_yoy"] = fnum("QuarterlyEarningsGrowthYOY")
-                    out["sector"] = j.get("Sector") or "Unknown"
-                    return out
-        except Exception:
-            pass
 
-    # Finnhub fallback
+def _finnhub_metrics_fetch(ticker: str) -> dict:
+    """Fallback ל-Finnhub metrics+sector."""
     fk = _env("FINNHUB_API_KEY")
-    if fk:
+    if not fk:
+        return {}
+    try:
+        url = f"https://finnhub.io/api/v1/stock/metric?symbol={ticker}&metric=all&token={fk}"
+        r = http_get_retry(url, tries=1, timeout=10)
+        if not r:
+            return {}
+        j = r.json()
+        m = j.get("metric", {})
+        def fget(*keys):
+            for k in keys:
+                v = m.get(k)
+                if isinstance(v, (int, float)) and np.isfinite(v):
+                    return float(v)
+            return np.nan
+        de = np.nan
         try:
-            r = http_get_retry(
-                f"https://finnhub.io/api/v1/stock/metric?symbol={ticker}&metric=all&token={fk}",
-                tries=1, timeout=10
-            )
-            if r:
-                j = r.json()
-                m = j.get("metric", {})
-
-                def fget(*keys):
-                    for k in keys:
-                        v = m.get(k)
-                        if isinstance(v, (int, float)) and np.isfinite(v):
-                            return float(v)
-                    return np.nan
-
-                out["roe"]  = fget("roeTtm", "roeAnnual")
-                out["roic"] = np.nan
-                out["gm"]   = fget("grossMarginTTM", "grossMarginAnnual")
-                out["ps"]   = fget("psTTM", "priceToSalesTTM")
-                out["pe"]   = fget("peBasicExclExtraTTM", "peNormalizedAnnual", "peTTM")
-
-                de = np.nan
-                try:
-                    total_debt   = fget("totalDebt")
-                    total_equity = fget("totalEquity")
-                    if np.isfinite(total_debt) and np.isfinite(total_equity) and total_equity != 0:
-                        de = total_debt / total_equity
-                except Exception:
-                    pass
-                out["de"]        = de
-                out["rev_g_yoy"] = fget("revenueGrowthTTMYoy", "revenueGrowthQuarterlyYoy")
-                out["eps_g_yoy"] = fget("epsGrowthTTMYoy", "epsGrowthQuarterlyYoy")
-                out["sector"]    = _finnhub_sector(ticker, fk)
-                return out
+            total_debt   = fget("totalDebt")
+            total_equity = fget("totalEquity")
+            if np.isfinite(total_debt) and np.isfinite(total_equity) and total_equity != 0:
+                de = total_debt / total_equity
         except Exception:
             pass
-
-    return out
+        return {
+            "roe":  fget("roeTtm", "roeAnnual"),
+            "roic": np.nan,
+            "gm":   fget("grossMarginTTM", "grossMarginAnnual"),
+            "ps":   fget("psTTM", "priceToSalesTTM"),
+            "pe":   fget("peBasicExclExtraTTM", "peNormalizedAnnual", "peTTM"),
+            "de":   de,
+            "rev_g_yoy": fget("revenueGrowthTTMYoy", "revenueGrowthQuarterlyYoy"),
+            "eps_g_yoy": fget("epsGrowthTTMYoy", "epsGrowthQuarterlyYoy"),
+            "sector": _finnhub_sector(ticker, fk),
+        }
+    except Exception:
+        return {}
 
 def fundamental_score(d: dict) -> float:
     g_rev=_to_01(d.get("rev_g_yoy",np.nan), 0.00, 0.30)
