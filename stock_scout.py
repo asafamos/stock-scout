@@ -455,31 +455,46 @@ def get_alpha_price(ticker: str) -> float | None:
     return None
 
 def get_finnhub_price(ticker: str) -> float | None:
-    k=_env("FINNHUB_API_KEY"); if not k: return None
-    r=http_get_retry(f"https://finnhub.io/api/v1/quote?symbol={ticker}&token={k}", tries=1, timeout=8)
-    if not r: return None
+    k = _env("FINNHUB_API_KEY")
+    if not k:
+        return None
+    r = http_get_retry(f"https://finnhub.io/api/v1/quote?symbol={ticker}&token={k}", tries=1, timeout=8)
+    if not r:
+        return None
     try:
-        j=r.json(); return float(j["c"]) if "c" in j else None
-    except Exception: return None
+        j = r.json()
+        return float(j["c"]) if "c" in j else None
+    except Exception:
+        return None
 
 def get_polygon_price(ticker: str) -> float | None:
-    k=_env("POLYGON_API_KEY"); if not k: return None
-    r=http_get_retry(f"https://api.polygon.io/v2/aggs/ticker/{ticker}/prev?adjusted=true&apiKey={k}", tries=1, timeout=8)
-    if not r: return None
+    k = _env("POLYGON_API_KEY")
+    if not k:
+        return None
+    r = http_get_retry(f"https://api.polygon.io/v2/aggs/ticker/{ticker}/prev?adjusted=true&apiKey={k}", tries=1, timeout=8)
+    if not r:
+        return None
     try:
-        j=r.json()
-        if j.get("resultsCount",0)>0 and "results" in j: return float(j["results"][0]["c"])
-    except Exception: return None
+        j = r.json()
+        if j.get("resultsCount", 0) > 0 and "results" in j:
+            return float(j["results"][0]["c"])
+    except Exception:
+        return None
     return None
 
 def get_tiingo_price(ticker: str) -> float | None:
-    k=_env("TIINGO_API_KEY"); if not k: return None
-    r=http_get_retry(f"https://api.tiingo.com/tiingo/daily/{ticker}/prices?token={k}&resampleFreq=daily", tries=1, timeout=8)
-    if not r: return None
+    k = _env("TIINGO_API_KEY")
+    if not k:
+        return None
+    r = http_get_retry(f"https://api.tiingo.com/tiingo/daily/{ticker}/prices?token={k}&resampleFreq=daily", tries=1, timeout=8)
+    if not r:
+        return None
     try:
-        arr=r.json()
-        if isinstance(arr,list) and arr: return float(arr[-1].get("close", np.nan))
-    except Exception: return None
+        arr = r.json()
+        if isinstance(arr, list) and arr:
+            return float(arr[-1].get("close", np.nan))
+    except Exception:
+        return None
     return None
 
 # ==================== UI ====================
