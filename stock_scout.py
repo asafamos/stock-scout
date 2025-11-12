@@ -272,32 +272,44 @@ def _to_01(x, low, high):
 def fetch_fundamentals_bundle(ticker: str) -> dict:
     out={}
     # Alpha OVERVIEW
-    ak=_env("ALPHA_VANTAGE_API_KEY")
-    if ak:
-        try:
-            alpha_throttle(10.0)
-            r=http_get_retry(f"https://www.alphavantage.co/query?function=OVERVIEW&symbol={ticker}&apikey={ak}", tries=1, timeout=10)
-            if r:
-                j=r.json()
-                if isinstance(j,dict) and j.get("Symbol"):
-                    def fnum(k):
-                        try:
-                            v=float(j.get(k, np.nan))
-                            return v if np.isfinite(v) else np.nan
-                        except: return np.nan
-                    out["roe"]=fnum("ReturnOnEquityTTM")
-                    out["roic"]=np.nan
-                    pm=j.get("ProfitMargin")
-                    try: out["gm"]=float(pm) if pm not in (None,"") else np.nan
-                    except: out["gm"]=np.nan
-                    out["ps"]=fnum("PriceToSalesTTM")
-                    out["pe"]=fnum("PERatio")
-                    out["de"]=fnum("DebtToEquityTTM")
-                    out["rev_g_yoy"]=fnum("QuarterlyRevenueGrowthYOY")
-                    out["eps_g_yoy"]=fnum("QuarterlyEarningsGrowthYOY")
-                    out["sector"]=j.get("Sector") or "Unknown"
-                    return out
-        except Exception: pass
+ak=_env("ALPHA_VANTAGE_API_KEY")
+if ak:
+    try:
+        alpha_throttle(10.0)
+        r=http_get_retry(
+            f"https://www.alphavantage.co/query?function=OVERVIEW&symbol={ticker}&apikey={ak}",
+            tries=1, timeout=10
+        )
+        if r:
+            j=r.json()
+            if isinstance(j,dict) and j.get("Symbol"):
+                def fnum(k):
+                    try:
+                        v=float(j.get(k, np.nan))
+                        return v if np.isfinite(v) else np.nan
+                    except: 
+                        return np.nan
+
+                # איכות / צמיחה / שווי
+                out["roe"] = fnum("ReturnOnEquityTTM")
+                out["roic"] = np.nan  # Alpha לא נותן ROIC ישיר
+
+                # נסה לחשב Gross Margin אם יש נתוני TTM; אחרת נפול ל- ProfitMargin
+                gp = fnum("GrossProfitTTM")
+                tr = fnum("TotalRevenueTTM")
+                gm_calc = (gp/tr) if (np.isfinite(gp) and np.isfinite(tr) and tr>0) else np.nan
+                pm = fnum("ProfitMargin")  # זה בעצם Net Margin
+                out["gm"] = gm_calc if np.isfinite(gm_calc) else pm
+
+                out["ps"]  = fnum("PriceToSalesTTM")
+                out["pe"]  = fnum("PERatio")
+                out["de"]  = fnum("DebtToEquityTTM")
+                out["rev_g_yoy"] = fnum("QuarterlyRevenueGrowthYOY")
+                out["eps_g_yoy"] = fnum("QuarterlyEarningsGrowthYOY")
+                out["sector"] = j.get("Sector") or "Unknown"
+                return out
+    except Exception:
+        pass
     # Finnhub fallback
     fk=_env("FINNHUB_API_KEY")
     if fk:
@@ -324,7 +336,7 @@ def fetch_fundamentals_bundle(ticker: str) -> dict:
                 out["de"]=de
                 out["rev_g_yoy"]=fget("revenueGrowthTTMYoy","revenueGrowthQuarterlyYoy")
                 out["eps_g_yoy"]=fget("epsGrowthTTMYoy","epsGrowthQuarterlyYoy")
-                out["sector"]=j.get("metricType") or "Unknown"
+                out["sector"] = _finnhub_sector(ticker, fk)
         except Exception: pass
     return out
 
@@ -348,6 +360,20 @@ def fundamental_score(d: dict) -> float:
         surprise=d.get("surprise",np.nan); comp+= (0.05 if (isinstance(surprise,(int,float)) and surprise>=2.0) else 0.0)
     comp-=penalty
     return float(np.clip(comp,0.0,1.0))
+  
+def _finnhub_sector(ticker: str, token: str) -> str:
+    """משיכת סקטור אמיתי מ-Finnhub (profile2), לא metricType הכללי."""
+    r = http_get_retry(
+        f"https://finnhub.io/api/v1/stock/profile2?symbol={ticker}&token={token}",
+        tries=1, timeout=8
+    )
+    if not r:
+        return "Unknown"
+    try:
+        j = r.json()
+        return j.get("finnhubIndustry") or j.get("sector") or "Unknown"
+    except Exception:
+        return "Unknown"
 
 @st.cache_data(ttl=60*60)
 def fetch_beta_vs_benchmark(ticker: str, bench: str = "SPY", days: int = 252) -> float:
