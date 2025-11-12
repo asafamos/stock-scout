@@ -3,6 +3,26 @@ import pandas as pd
 from typing import Dict
 
 
+# Default scoring weights (can be overridden by CONFIG in stock_scout.py)
+WEIGHTS: Dict[str, float] = {"momentum": 0.4, "trend": 0.3, "fundamental": 0.3}
+
+
+def normalize_series(s: pd.Series) -> pd.Series:
+    """Normalize a pandas Series to 0..1 range.
+
+    Returns a series with same index. If values are all NaN or constant,
+    returns a series of zeros (to avoid division by zero).
+    """
+    s = pd.to_numeric(s, errors="coerce")
+    if s.dropna().empty:
+        return pd.Series(0.0, index=s.index)
+    mn = s.min()
+    mx = s.max()
+    if not np.isfinite(mn) or not np.isfinite(mx) or mx == mn:
+        return pd.Series(0.0, index=s.index)
+    return (s - mn) / (mx - mn)
+
+
 def _normalize_weights(d: Dict[str, float]) -> Dict[str, float]:
     keys = [
         "ma",
@@ -29,34 +49,84 @@ def allocate_budget(
     df["סכום קנייה ($)"] = 0.0
     if total <= 0 or df.empty:
         return df
+
+    # Sort by Score desc, ticker asc for deterministic ordering
     df = df.sort_values(["Score", "Ticker"], ascending=[False, True]).reset_index(
         drop=True
     )
-    remaining = float(total)
+
     n = len(df)
     max_pos_abs = (max_pos_pct / 100.0) * total if max_pos_pct > 0 else float("inf")
+
+    # Ensure min_pos is not greater than max_pos_abs
+    if np.isfinite(max_pos_abs) and min_pos > max_pos_abs:
+        min_pos = float(max_pos_abs)
+
+    # Establish raw weights
+    weights = df.get("Score", pd.Series(0.0, index=df.index)).clip(lower=0).to_numpy(dtype=float)
+    if np.nansum(weights) <= 0:
+        weights = np.ones(n, dtype=float)
+
+    # Initial proportional allocation
+    prop = weights / float(np.nansum(weights))
+    proposed = prop * float(total)
+
+    # Enforce per-position bounds [min_pos, max_pos_abs]
+    if np.isfinite(max_pos_abs):
+        proposed = np.minimum(proposed, max_pos_abs)
     if min_pos > 0:
-        can_min = int(min(n, remaining // min_pos))
-        if can_min > 0:
-            base = np.full(can_min, min(min_pos, max_pos_abs), dtype=float)
-            df.loc[: can_min - 1, "סכום קנייה ($)"] = base
-            remaining -= float(base.sum())
-    if remaining > 0:
-        weights = df["Score"].clip(lower=0).to_numpy(dtype=float)
-        extras = (
-            np.full(n, remaining / n, dtype=float)
-            if np.nansum(weights) <= 0
-            else remaining * (np.nan_to_num(weights, nan=0.0) / np.nansum(weights))
-        )
-        current = df["סכום קנייה ($)"].to_numpy(dtype=float)
-        proposed = current + extras
-        if np.isfinite(max_pos_abs):
-            proposed = np.minimum(proposed, max_pos_abs)
-        df["סכום קנייה ($)"] = proposed
-    s = float(df["סכום קנייה ($)"].sum())
+        proposed = np.maximum(proposed, min_pos)
+
+    # Iteratively adjust to match total while respecting bounds
+    for _ in range(10):
+        s = float(np.nansum(proposed))
+        diff = float(total - s)
+        if abs(diff) <= 1e-6:
+            break
+
+        if diff > 0:
+            # distribute extra to positions not at max
+            capacity_mask = ~np.isfinite(max_pos_abs) | (proposed < max_pos_abs - 1e-9)
+            capacity = np.where(capacity_mask, (max_pos_abs - proposed), 0.0)
+            total_capacity = float(np.nansum(np.where(capacity_mask, capacity, 0.0)))
+            if total_capacity <= 1e-9:
+                break
+            # distribute proportionally to available capacity
+            add = capacity * (diff / total_capacity)
+            proposed = proposed + add
+            if min_pos > 0:
+                proposed = np.maximum(proposed, min_pos)
+        else:
+            # remove excess from positions above min_pos
+            reducible_mask = proposed > min_pos + 1e-9
+            reducible = np.where(reducible_mask, (proposed - min_pos), 0.0)
+            total_reducible = float(np.nansum(reducible))
+            if total_reducible <= 1e-9:
+                break
+            remove = reducible * ((-diff) / total_reducible)
+            proposed = proposed - remove
+
+    # Final clipping and rounding
+    if np.isfinite(max_pos_abs):
+        proposed = np.minimum(proposed, max_pos_abs)
+    if min_pos > 0:
+        proposed = np.maximum(proposed, min_pos)
+
+    # If sum still differs from total due to rounding or bound constraints, scale proportionally among free positions
+    s = float(np.nansum(proposed))
     if s > 0 and abs(s - total) / max(total, 1) > 1e-6:
-        df["סכום קנייה ($)"] = df["סכום קנייה ($)"].to_numpy(dtype=float) * (total / s)
-    df["סכום קנייה ($)"] = df["סכום קנייה ($)"].round(2)
+        free_mask = (proposed > min_pos + 1e-9) & (~(np.isfinite(max_pos_abs) & (proposed >= max_pos_abs - 1e-9)))
+        if np.any(free_mask):
+            scale = (total - np.nansum(np.where(~free_mask, proposed, 0.0))) / float(np.nansum(np.where(free_mask, proposed, 0.0)))
+            proposed = np.where(free_mask, proposed * scale, proposed)
+
+    df["סכום קנייה ($)"] = np.round(proposed, 2)
+    # Final safety: ensure total does not exceed budget (rounding may push it over by cents)
+    total_assigned = float(df["סכום קנייה ($)"].sum())
+    if total_assigned > total:
+        # scale down proportionally
+        df["סכום קנייה ($)"] = np.round(df["סכום קנייה ($)"].to_numpy(dtype=float) * (total / total_assigned), 2)
+
     return df
 
 
