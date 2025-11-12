@@ -270,47 +270,91 @@ def _to_01(x, low, high):
 
 @st.cache_data(ttl=60*60)
 def fetch_fundamentals_bundle(ticker: str) -> dict:
-    out={}
-    # Alpha OVERVIEW
-ak=_env("ALPHA_VANTAGE_API_KEY")
-if ak:
-    try:
-        alpha_throttle(10.0)
-        r=http_get_retry(
-            f"https://www.alphavantage.co/query?function=OVERVIEW&symbol={ticker}&apikey={ak}",
-            tries=1, timeout=10
-        )
-        if r:
-            j=r.json()
-            if isinstance(j,dict) and j.get("Symbol"):
-                def fnum(k):
-                    try:
-                        v=float(j.get(k, np.nan))
-                        return v if np.isfinite(v) else np.nan
-                    except: 
-                        return np.nan
+    out = {}
 
-                # איכות / צמיחה / שווי
-                out["roe"] = fnum("ReturnOnEquityTTM")
-                out["roic"] = np.nan  # Alpha לא נותן ROIC ישיר
+    # Alpha OVERVIEW (אם יש מפתח)
+    ak = _env("ALPHA_VANTAGE_API_KEY")
+    if ak:
+        try:
+            alpha_throttle(10.0)
+            r = http_get_retry(
+                f"https://www.alphavantage.co/query?function=OVERVIEW&symbol={ticker}&apikey={ak}",
+                tries=1, timeout=10
+            )
+            if r:
+                j = r.json()
+                if isinstance(j, dict) and j.get("Symbol"):
+                    def fnum(k):
+                        try:
+                            v = float(j.get(k, np.nan))
+                            return v if np.isfinite(v) else np.nan
+                        except:
+                            return np.nan
 
-                # נסה לחשב Gross Margin אם יש נתוני TTM; אחרת נפול ל- ProfitMargin
-                gp = fnum("GrossProfitTTM")
-                tr = fnum("TotalRevenueTTM")
-                gm_calc = (gp/tr) if (np.isfinite(gp) and np.isfinite(tr) and tr>0) else np.nan
-                pm = fnum("ProfitMargin")  # זה בעצם Net Margin
-                out["gm"] = gm_calc if np.isfinite(gm_calc) else pm
+                    # איכות / צמיחה / שווי
+                    out["roe"]  = fnum("ReturnOnEquityTTM")
+                    out["roic"] = np.nan  # Alpha לא נותן ROIC ישיר
 
-                out["ps"]  = fnum("PriceToSalesTTM")
-                out["pe"]  = fnum("PERatio")
-                out["de"]  = fnum("DebtToEquityTTM")
-                out["rev_g_yoy"] = fnum("QuarterlyRevenueGrowthYOY")
-                out["eps_g_yoy"] = fnum("QuarterlyEarningsGrowthYOY")
-                out["sector"] = j.get("Sector") or "Unknown"
-                return out
-    except Exception:
-        pass
+                    # נסיון להעריך GM מ-GrossProfit/TotalRevenue; אחרת נשתמש ב-ProfitMargin
+                    gp      = fnum("GrossProfitTTM")
+                    tr      = fnum("TotalRevenueTTM")
+                    gm_calc = (gp / tr) if (np.isfinite(gp) and np.isfinite(tr) and tr > 0) else np.nan
+                    pm      = fnum("ProfitMargin")
+                    out["gm"] = gm_calc if np.isfinite(gm_calc) else pm
+
+                    out["ps"]       = fnum("PriceToSalesTTM")
+                    out["pe"]       = fnum("PERatio")
+                    out["de"]       = fnum("DebtToEquityTTM")
+                    out["rev_g_yoy"]= fnum("QuarterlyRevenueGrowthYOY")
+                    out["eps_g_yoy"]= fnum("QuarterlyEarningsGrowthYOY")
+                    out["sector"]   = j.get("Sector") or "Unknown"
+                    return out
+        except Exception:
+            pass
+
     # Finnhub fallback
+    fk = _env("FINNHUB_API_KEY")
+    if fk:
+        try:
+            r = http_get_retry(
+                f"https://finnhub.io/api/v1/stock/metric?symbol={ticker}&metric=all&token={fk}",
+                tries=1, timeout=10
+            )
+            if r:
+                j = r.json()
+                m = j.get("metric", {})
+
+                def fget(*keys):
+                    for k in keys:
+                        v = m.get(k)
+                        if isinstance(v, (int, float)) and np.isfinite(v):
+                            return float(v)
+                    return np.nan
+
+                out["roe"]  = fget("roeTtm", "roeAnnual")
+                out["roic"] = np.nan
+                out["gm"]   = fget("grossMarginTTM", "grossMarginAnnual")
+                out["ps"]   = fget("psTTM", "priceToSalesTTM")
+                out["pe"]   = fget("peBasicExclExtraTTM", "peNormalizedAnnual", "peTTM")
+
+                de = np.nan
+                try:
+                    total_debt   = fget("totalDebt")
+                    total_equity = fget("totalEquity")
+                    if np.isfinite(total_debt) and np.isfinite(total_equity) and total_equity != 0:
+                        de = total_debt / total_equity
+                except:
+                    pass
+                out["de"]        = de
+                out["rev_g_yoy"] = fget("revenueGrowthTTMYoy", "revenueGrowthQuarterlyYoy")
+                out["eps_g_yoy"] = fget("epsGrowthTTMYoy", "epsGrowthQuarterlyYoy")
+                out["sector"]    = _finnhub_sector(ticker, fk)
+        except Exception:
+            pass
+
+    return out
+
+  # Finnhub fallback
     fk=_env("FINNHUB_API_KEY")
     if fk:
         try:
@@ -393,9 +437,15 @@ def fetch_beta_vs_benchmark(ticker: str, bench: str = "SPY", days: int = 252) ->
 
 # ==================== External Prices ====================
 def get_alpha_price(ticker: str) -> float | None:
-    k=_env("ALPHA_VANTAGE_API_KEY"); if not k: return None
-    if st.session_state.get("_alpha_ok", False): alpha_throttle()
-    r=http_get_retry(f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={ticker}&apikey={k}", tries=1, timeout=10)
+    k = _env("ALPHA_VANTAGE_API_KEY")
+    if not k:
+        return None
+    if st.session_state.get("_alpha_ok", False):
+        alpha_throttle()
+    r = http_get_retry(
+        f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={ticker}&apikey={k}",
+        tries=1, timeout=10
+    )
     if not r: return None
     try:
         j=r.json()
