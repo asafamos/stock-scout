@@ -1,21 +1,22 @@
 # -*- coding: utf-8 -*-
 """
-Asaf Stock Scout — 2025 (Auto Mode, Zero-Input) — FMP Removed, Fundamentals via Finnhub/AlphaVantage
----------------------------------------------------------------------------------------------------
+Asaf Stock Scout — 2025 (Auto Mode, Zero-Input) — FMP Removed + Secrets Check
+-------------------------------------------------------------------------------
 • Technical score (MA, Momentum 1/3/6m, RSI band, Near-High bell, Overextension vs MA_L,
   Pullback window, ATR/Price, Reward/Risk, MACD/ADX).
-• Fundamental layer (API): Growth (Rev/EPS YoY/TTM), Quality (ROE/GM), Valuation (P/E,P/S),
-  Debt/Equity penalty, bonus for positive earnings surprise (Finnhub if קיים).
+• Fundamental layer (API): Finnhub + Alpha Vantage OVERVIEW (fallback/merge)
+  Growth (Rev/EPS YoY/TTM), Quality (ROE/GM), Valuation (P/E,P/S),
+  Debt/Equity penalty, bonus for positive earnings surprise.
 • Risk rules: earnings blackout window, sector cap, beta filter vs SPY/QQQ, min dollar-volume,
   ATR/Price hard cap, Overextension hard cap, position size cap (% of budget).
 • External price verification (AlphaVantage/Finnhub/Polygon/Tiingo; ממוצע אם קיים).
 • Allocation: min position per pick + ceiling per position (% of total).
-• RTL UI, recommendation cards עם ATR/Price, Overextension, ≈Reward/Risk, targets/stops (לפי ATR).
+• RTL UI, recommendation cards.
 הערה: אין באמור ייעוץ השקעות.
 """
 
 from __future__ import annotations
-import os, io, time, math, warnings
+import os, time, warnings
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Tuple
 
@@ -343,12 +344,31 @@ def _earnings_batch(symbols: List[str]) -> Dict[str, Optional[datetime]]:
             except Exception: out[s] = None
     return out
 
-# ==================== Fundamentals (Finnhub + AlphaVantage) ====================
+# ==================== Numeric helpers ====================
+def _to_float(x):
+    try:
+        if x in (None, "", "None", "null", "NaN"):
+            return np.nan
+        return float(x)
+    except Exception:
+        return np.nan
+
+def _num(x):
+    """החזר מספר תקין או NaN (מונע TypeError ב-isfinite/clip)."""
+    x = _to_float(x)
+    return x if (isinstance(x, (int, float)) and np.isfinite(x)) else np.nan
+
+def _to_01(x, low, high):
+    if not isinstance(x,(int,float)) or not np.isfinite(x): return np.nan
+    return np.clip((x - low) / (high - low), 0, 1)
+
+# ==================== Fundamentals (Finnhub + Alpha Vantage) ====================
 @st.cache_data(ttl=60*60)
 def fetch_fundamentals_bundle(ticker: str) -> dict:
     """אוסף מדדים בסיסיים מפין־האב ואם אין – מ-Alpha Vantage (OVERVIEW)."""
-    out = {}
-    # Finnhub metrics (עדיף)
+    out: Dict[str, float] = {}
+
+    # Finnhub metrics
     fk = _env("FINNHUB_API_KEY")
     if fk:
         r = http_get_retry(f"https://finnhub.io/api/v1/stock/metric?symbol={ticker}&metric=all&token={fk}",
@@ -362,7 +382,7 @@ def fetch_fundamentals_bundle(ticker: str) -> dict:
                 out["roe"] = m.get("roeTTM")
                 out["gm"]  = m.get("grossMarginTTM")
                 out["de"]  = m.get("debtToEquityQuarterly") or m.get("totalDebt/totalEquityQuarterly")
-                out["rev_g_yoy"] = m.get("revenueGrowthTTM")  # approximation
+                out["rev_g_yoy"] = m.get("revenueGrowthTTM")
                 out["eps_g_yoy"] = m.get("epsGrowthTTM")
             except Exception:
                 pass
@@ -408,64 +428,51 @@ def fetch_fundamentals_bundle(ticker: str) -> dict:
             except Exception:
                 pass
 
+    # normalize numeric outputs
+    for k in ["pe","ps","roe","gm","de","rev_g_yoy","eps_g_yoy","surprise"]:
+        if k in out: out[k] = _to_float(out[k])
     return out
 
-def _to_float(x):
-    try:
-        if x in (None, "", "None"): return np.nan
-        return float(x)
-    except Exception:
-        return np.nan
-
-def _to_01(x, low, high):
-    if not isinstance(x,(int,float)) or not np.isfinite(x): return np.nan
-    return np.clip((x - low) / (high - low), 0, 1)
-
 def fundamental_score(d: dict) -> float:
-    g_rev = _to_01(d.get("rev_g_yoy", np.nan), 0.00, 0.30)
-    g_eps = _to_01(d.get("eps_g_yoy", np.nan), 0.00, 0.30)
+    # safe numbers
+    rev_g = _num(d.get("rev_g_yoy"))
+    eps_g = _num(d.get("eps_g_yoy"))
+    roe   = _num(d.get("roe"))
+    gm    = _num(d.get("gm"))
+    pe    = _num(d.get("pe"))
+    ps    = _num(d.get("ps"))
+    de    = _num(d.get("de"))
+    surprise = _num(d.get("surprise"))
+
+    # Growth
+    g_rev = _to_01(rev_g, 0.00, 0.30)
+    g_eps = _to_01(eps_g, 0.00, 0.30)
     growth = np.nanmean([g_rev, g_eps])
 
-    q_roe  = _to_01(d.get("roe", np.nan), 0.05, 0.25)
-    q_gm   = _to_01(d.get("gm", np.nan), 0.20, 0.60)
+    # Quality
+    q_roe = _to_01(roe, 0.05, 0.25)
+    q_gm  = _to_01(gm,  0.20, 0.60)
     quality = np.nanmean([q_roe, q_gm])
 
-    pe     = d.get("pe", np.nan); ps = d.get("ps", np.nan)
+    # Valuation
     val_pe = np.nan if not np.isfinite(pe) else _to_01(40 - np.clip(pe, 0, 40), 0, 40)
     val_ps = np.nan if not np.isfinite(ps) else _to_01(10 - np.clip(ps, 0, 10), 0, 10)
     valuation = np.nanmean([val_pe, val_ps])
 
+    # Penalties/bonuses
     penalty = 0.0
-    de = d.get("de", np.nan)
-    if isinstance(de,(int,float)) and np.isfinite(de) and de > 2.0:
+    if np.isfinite(de) and de > 2.0:
         penalty += 0.15
 
     comp = np.nanmean([growth, quality, valuation])
-    if not np.isfinite(comp): comp = 0.0
+    if not np.isfinite(comp): 
+        comp = 0.0
 
-    if CONFIG["SURPRISE_BONUS_ON"]:
-        surprise = d.get("surprise", np.nan)
-        comp += (0.05 if (isinstance(surprise,(int,float)) and surprise >= 2.0) else 0.0)
+    if CONFIG["SURPRISE_BONUS_ON"] and np.isfinite(surprise) and surprise >= 2.0:
+        comp += 0.05
 
-    comp = float(np.clip(comp, 0.0, 1.0))
-    comp -= penalty
-    return float(np.clip(comp, 0.0, 1.0))
-
-@st.cache_data(ttl=60*60)
-def fetch_beta_vs_benchmark(ticker: str, bench: str = "SPY", days: int = 252) -> float:
-    try:
-        end = datetime.utcnow(); start = end - timedelta(days=days+30)
-        df_t = yf.download(ticker, start=start, end=end, auto_adjust=True, progress=False)
-        df_b = yf.download(bench,  start=start, end=end, auto_adjust=True, progress=False)
-        if df_t.empty or df_b.empty: return np.nan
-        j = pd.concat([df_t["Close"].pct_change().dropna(),
-                       df_b["Close"].pct_change().dropna()], axis=1).dropna()
-        j.columns = ["rt","rb"]
-        if len(j) < 40: return np.nan
-        slope = np.polyfit(j["rb"].to_numpy(), j["rt"].to_numpy(), 1)[0]
-        return float(slope)
-    except Exception:
-        return np.nan
+    comp = float(np.clip(comp - penalty, 0.0, 1.0))
+    return comp
 
 # ==================== External Prices ====================
 def get_alpha_price(ticker: str) -> float | None:
@@ -537,6 +544,19 @@ thead tr th{ text-align:right } .rtl-table table{ direction:rtl }
 """, unsafe_allow_html=True)
 
 st.title("📈 Stock Scout — 2025 (Auto)")
+
+# --- Secrets quick check button (לא חושף ערכים) ---
+with st.columns([1,1,6,2])[3]:
+    if st.button("🔐 בדיקת Secrets", use_container_width=True):
+        keys = ["FINNHUB_API_KEY","ALPHA_VANTAGE_API_KEY","POLYGON_API_KEY","TIINGO_API_KEY"]
+        def has(k): 
+            try:
+                return (k in getattr(st, "secrets", {})) or bool(os.getenv(k))
+            except Exception:
+                return bool(os.getenv(k))
+        present = {k: bool(has(k)) for k in keys}
+        st.success("תוצאות בדיקה (True=קיים, False=חסר):")
+        st.json(present)
 
 # Status of sources
 alpha_ok, alpha_reason   = _check_alpha()
