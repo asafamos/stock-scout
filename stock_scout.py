@@ -272,7 +272,7 @@ def _to_01(x, low, high):
 def fetch_fundamentals_bundle(ticker: str) -> dict:
     out = {}
 
-    # Alpha OVERVIEW – נשתמש רק אם ה־check יצא ירוק
+    # Alpha OVERVIEW – נשתמש רק אם הסטטוס ירוק
     ak = _env("ALPHA_VANTAGE_API_KEY")
     use_alpha = bool(st.session_state.get("_alpha_ok")) and bool(ak)
     if use_alpha:
