@@ -384,8 +384,8 @@ def fetch_beta_vs_benchmark(ticker: str, bench: str = "SPY", days: int = 252) ->
         if df_t.empty or df_b.empty: return np.nan
         j=pd.concat([df_t["Close"].pct_change().dropna(), df_b["Close"].pct_change().dropna()], axis=1).dropna()
         j.columns = ["rt", "rb"]
-if len(j) < 40:
-    return np.nan
+        if len(j) < 40:
+            return np.nan
 
         slope=np.polyfit(j["rb"].to_numpy(), j["rt"].to_numpy(), 1)[0]
         return float(slope)
