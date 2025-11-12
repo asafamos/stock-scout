@@ -30,8 +30,14 @@ from dotenv import load_dotenv, find_dotenv
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from streamlit.components.v1 import html as st_html
 import html as html_escape
+from scoring import _normalize_weights, allocate_budget, fundamental_score
+import logging
 
 warnings.filterwarnings("ignore")
+
+# basic logging for debugging during development
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # ==================== CONFIG ====================
 CONFIG = dict(
@@ -81,8 +87,6 @@ CONFIG = dict(
     TOPN_RESULTS=15,
     TOPK_RECOMMEND=5,
 )
-
-# ==================== ENV/Secrets ====================
 def _env(key: str, default: Optional[str] = None) -> Optional[str]:
     try:
         if "secrets" in dir(st) and key in st.secrets:
@@ -112,10 +116,14 @@ def http_get_retry(
         try:
             r = requests.get(url, timeout=timeout, headers=headers or {})
             if r.status_code in (429, 500, 502, 503, 504):
+                logger.warning("HTTP transient error %s for %s (try %d)", r.status_code, url, i + 1)
                 time.sleep(min(6, backoff**i))
                 continue
+            if r.status_code >= 400:
+                logger.error("HTTP error %s for %s", r.status_code, url)
             return r
         except requests.RequestException:
+            logger.exception("RequestException for %s (try %d)", url, i + 1)
             time.sleep(min(6, backoff**i))
     return None
 
@@ -214,60 +222,7 @@ def _check_tiingo():
 
 
 # ==================== Indicators ====================
-def rsi(series: pd.Series, period: int = 14) -> pd.Series:
-    series = pd.to_numeric(series.squeeze(), errors="coerce")
-    delta = series.diff()
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
-    avg_gain = gain.rolling(period, min_periods=period).mean()
-    avg_loss = loss.rolling(period, min_periods=period).mean()
-    rs = avg_gain / (avg_loss + 1e-9)
-    return 100 - (100 / (1 + rs))
-
-
-def atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
-    high, low, prev_close = df["High"], df["Low"], df["Close"].shift(1)
-    tr = pd.concat(
-        [high - low, (high - prev_close).abs(), (low - prev_close).abs()], axis=1
-    ).max(axis=1)
-    return tr.rolling(period, min_periods=period).mean()
-
-
-def macd_line(close: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9):
-    ema_fast = close.ewm(span=fast, adjust=False).mean()
-    ema_slow = close.ewm(span=slow, adjust=False).mean()
-    macd = ema_fast - ema_slow
-    macd_signal = macd.ewm(span=signal, adjust=False).mean()
-    macd_hist = macd - macd_signal
-    return macd, macd_signal, macd_hist
-
-
-def adx(df: pd.DataFrame, period: int = 14) -> pd.Series:
-    high, low, close = df["High"], df["Low"], df["Close"]
-    plus_dm = (high.diff()).clip(lower=0)
-    minus_dm = (-low.diff()).clip(lower=0)
-    plus_dm[plus_dm < minus_dm] = 0
-    minus_dm[minus_dm <= plus_dm] = 0
-    tr = pd.concat(
-        [(high - low), (high - close.shift(1)).abs(), (low - close.shift(1)).abs()],
-        axis=1,
-    ).max(axis=1)
-    atr14 = tr.rolling(period, min_periods=period).mean()
-    plus_di = 100 * (
-        plus_dm.rolling(period, min_periods=period).mean() / (atr14 + 1e-9)
-    )
-    minus_di = 100 * (
-        minus_dm.rolling(period, min_periods=period).mean() / (atr14 + 1e-9)
-    )
-    dx = 100 * (plus_di - minus_di).abs() / ((plus_di + minus_di) + 1e-9)
-    return dx.rolling(period, min_periods=period).mean()
-
-
-def _sigmoid(x, k: float = 3.0) -> float:
-    try:
-        return 1.0 / (1.0 + np.exp(-k * x))
-    except Exception:
-        return 0.5
+from indicators import rsi, atr, macd_line, adx, _sigmoid
 
 
 # ==================== Universe & data ====================
@@ -570,38 +525,7 @@ def _finnhub_metrics_fetch(ticker: str) -> dict:
         return {}
 
 
-def fundamental_score(d: dict) -> float:
-    g_rev = _to_01(d.get("rev_g_yoy", np.nan), 0.00, 0.30)
-    g_eps = _to_01(d.get("eps_g_yoy", np.nan), 0.00, 0.30)
-    growth = np.nanmean([g_rev, g_eps])
 
-    q_roe = _to_01(d.get("roe", np.nan), 0.05, 0.25)
-    q_roic = _to_01(d.get("roic", np.nan), 0.05, 0.20)
-    q_gm = _to_01(d.get("gm", np.nan), 0.10, 0.60)
-    quality = np.nanmean([q_roe, q_roic, q_gm])
-
-    pe = d.get("pe", np.nan)
-    ps = d.get("ps", np.nan)
-    val_pe = np.nan if not np.isfinite(pe) else _to_01(40 - np.clip(pe, 0, 40), 0, 40)
-    val_ps = np.nan if not np.isfinite(ps) else _to_01(10 - np.clip(ps, 0, 10), 0, 10)
-    valuation = np.nanmean([val_pe, val_ps])
-
-    penalty = 0.0
-    de = d.get("de", np.nan)
-    if isinstance(de, (int, float)) and np.isfinite(de) and de > 2.0:
-        penalty += 0.15
-
-    comp = np.nanmean([growth, quality, valuation])
-    comp = 0.0 if not np.isfinite(comp) else float(np.clip(comp, 0.0, 1.0))
-
-    if CONFIG["SURPRISE_BONUS_ON"]:
-        surprise = d.get("surprise", np.nan)
-        comp += (
-            0.05 if (isinstance(surprise, (int, float)) and surprise >= 2.0) else 0.0
-        )
-
-    comp -= penalty
-    return float(np.clip(comp, 0.0, 1.0))
 
 
 def _finnhub_sector(ticker: str, token: str) -> str:
@@ -817,25 +741,6 @@ t0 = t_start()
 W = CONFIG["WEIGHTS"]
 
 
-def _normalize_weights(d: Dict[str, float]) -> Dict[str, float]:
-    keys = [
-        "ma",
-        "mom",
-        "rsi",
-        "near_high_bell",
-        "vol",
-        "overext",
-        "pullback",
-        "risk_reward",
-        "macd",
-        "adx",
-    ]
-    w = {k: float(d.get(k, 0.0)) for k in keys}
-    s = sum(max(0.0, v) for v in w.values())
-    s = 1.0 if s <= 0 else s
-    return {k: max(0.0, v) / s for k, v in w.items()}
-
-
 W = _normalize_weights(W)
 
 rows: List[dict] = []
@@ -1034,7 +939,7 @@ if CONFIG["FUNDAMENTAL_ENABLED"] and (alpha_ok or finn_ok):
     for idx in results.head(take_k).index:
         tkr = results.at[idx, "Ticker"]
         d = fetch_fundamentals_bundle(tkr)
-        fs = fundamental_score(d)
+        fs = fundamental_score(d, surprise_bonus_on=CONFIG.get("SURPRISE_BONUS_ON", False))
         results.loc[idx, "Fundamental_S"] = round(100 * fs, 1)
         results.loc[idx, "PE_f"] = d.get("pe", np.nan)
         results.loc[idx, "PS_f"] = d.get("ps", np.nan)
