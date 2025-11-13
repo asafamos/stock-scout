@@ -42,6 +42,7 @@ from advanced_filters import (
 from core.logging_config import setup_logging, get_logger
 from core.config import get_config as get_core_config, get_api_keys
 from core.scoring.fundamental import compute_fundamental_score_with_breakdown
+from core.classification import apply_classification
 
 warnings.filterwarnings("ignore")
 
@@ -1140,6 +1141,24 @@ if results.empty:
     st.warning("כל המניות נפסלו בסינונים המתקדמים. נסה להקל על הקריטריונים.")
     st.stop()
 
+# 3d) Apply risk classification and data quality evaluation
+t0 = t_start()
+st.info("🔍 מסווג מניות לפי רמת סיכון ואיכות נתונים...")
+results = apply_classification(results)
+
+# Filter out stocks that shouldn't be displayed (very low quality)
+displayable = results[results["Should_Display"]].copy()
+hidden_count = len(results) - len(displayable)
+if hidden_count > 0:
+    logger.info(f"Hidden {hidden_count} stocks due to very low data quality")
+
+results = displayable.reset_index(drop=True)
+phase_times["סיווג סיכון ואיכות"] = t_end(t0)
+
+if results.empty:
+    st.warning("כל המניות נפסלו בשלב סיווג הסיכון ואיכות הנתונים.")
+    st.stop()
+
 st.success(f"✅ {len(results)} מניות עברו את כל הסינונים!")
 
 # External price verification (Top-K)
@@ -1546,12 +1565,18 @@ hebrew_cols = {
     "RR_Ratio": "סיכון/תשואה",
     "Momentum_Consistency": "עקביות מומנטום (%)",
     "High_Confidence": "ביטחון גבוה",
+    "Risk_Level": "רמת סיכון",
+    "Data_Quality": "איכות נתונים",
+    "Confidence_Level": "רמת ביטחון",
+    "Classification_Warnings": "אזהרות"
 }
 show_order = [
     "טיקר",
     "סקטור",
+    "רמת סיכון",
+    "איכות נתונים",
+    "רמת ביטחון",
     "ניקוד",
-    "ביטחון גבוה",
     "ציון איכות",
     "מחיר ממוצע",
     "מחיר יחידה (חישוב)",
