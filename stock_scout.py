@@ -164,7 +164,7 @@ def http_get_retry(
     return None
 
 
-def alpha_throttle(min_gap_seconds: float = 12.0):
+def alpha_throttle(min_gap_seconds: float = 12.0) -> None:
     ts_key = "_alpha_last_call_ts"
     last = st.session_state.get(ts_key, 0.0)
     now = time.time()
@@ -175,7 +175,7 @@ def alpha_throttle(min_gap_seconds: float = 12.0):
 
 # ==================== Connectivity checks ====================
 @st.cache_data(ttl=300)
-def _check_alpha():
+def _check_alpha() -> Tuple[bool, str]:
     k = _env("ALPHA_VANTAGE_API_KEY")
     if not k:
         return False, "Missing API key"
@@ -196,7 +196,7 @@ def _check_alpha():
 
 
 @st.cache_data(ttl=300)
-def _check_finnhub():
+def _check_finnhub() -> Tuple[bool, str]:
     k = _env("FINNHUB_API_KEY")
     if not k:
         return False, "Missing API key"
@@ -213,7 +213,7 @@ def _check_finnhub():
 
 
 @st.cache_data(ttl=300)
-def _check_polygon():
+def _check_polygon() -> Tuple[bool, str]:
     k = _env("POLYGON_API_KEY")
     if not k:
         return False, "Missing API key"
@@ -233,7 +233,7 @@ def _check_polygon():
 
 
 @st.cache_data(ttl=300)
-def _check_tiingo():
+def _check_tiingo() -> Tuple[bool, str]:
     k = _env("TIINGO_API_KEY")
     if not k:
         return False, "Missing API key"
@@ -452,7 +452,7 @@ def _earnings_batch(symbols: List[str]) -> Dict[str, Optional[datetime]]:
 
 
 # ==================== Fundamentals (Alpha → Finnhub) ====================
-def _to_01(x, low, high):
+def _to_01(x: float, low: float, high: float) -> float:
     if not isinstance(x, (int, float)) or not np.isfinite(x):
         return np.nan
     return np.clip((x - low) / (high - low), 0, 1)
@@ -471,7 +471,7 @@ def fetch_fundamentals_bundle(ticker: str) -> dict:
     return d or out
 
 
-def _alpha_overview_fetch(ticker: str) -> dict:
+def _alpha_overview_fetch(ticker: str) -> Dict[str, any]:
     """משיכה מ-Alpha OVERVIEW (פשוט ולעניין)."""
     ak = _env("ALPHA_VANTAGE_API_KEY")
     if not ak:
@@ -514,7 +514,7 @@ def _alpha_overview_fetch(ticker: str) -> dict:
         return {}
 
 
-def _finnhub_metrics_fetch(ticker: str) -> dict:
+def _finnhub_metrics_fetch(ticker: str) -> Dict[str, any]:
     """Fallback ל-Finnhub metrics + sector."""
     fk = _env("FINNHUB_API_KEY")
     if not fk:
@@ -1227,7 +1227,7 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and (
 phase_times["מאמת מחירים"] = t_end(t0)
 
 # Horizon heuristic
-def infer_horizon(row) -> str:
+def infer_horizon(row: pd.Series) -> str:
     rsi_v = row.get("RSI", np.nan)
     near = row.get("Near52w", np.nan)
     score = row.get("Score", 0)
@@ -1270,7 +1270,7 @@ results = apply_sector_cap(
 )
 
 # Source badges & unit price
-def source_badges(row):
+def source_badges(row: pd.Series) -> str:
     s = row.get("Source_List")
     return s if isinstance(s, str) and s else "🟡Yahoo"
 
