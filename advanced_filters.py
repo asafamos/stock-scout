@@ -134,15 +134,24 @@ def find_support_resistance(df: pd.DataFrame, window: int = 20) -> Dict[str, flo
     if len(df) < window * 2:
         return {"distance_to_support": np.nan, "distance_to_resistance": np.nan}
     
-    # Find local highs and lows
-    highs = df["High"].rolling(window, center=True).max()
-    lows = df["Low"].rolling(window, center=True).min()
+    # Ensure single Series even if duplicate column names exist
+    high_col = df["High"] if "High" in df.columns else df.iloc[:, 0]
+    if isinstance(high_col, pd.DataFrame):  # duplicate column labels case
+        high_col = high_col.iloc[:, 0]
+    low_col = df["Low"] if "Low" in df.columns else df.iloc[:, 0]
+    if isinstance(low_col, pd.DataFrame):
+        low_col = low_col.iloc[:, 0]
+
+    highs = high_col.rolling(window, center=True).max()
+    lows = low_col.rolling(window, center=True).min()
     
     current_price = float(df["Close"].iloc[-1])
     
-    # Recent swing levels
-    recent_highs = highs.tail(window * 3).dropna().unique()
-    recent_lows = lows.tail(window * 3).dropna().unique()
+    # Recent swing levels (robust unique extraction)
+    recent_highs_series = highs.tail(window * 3).dropna()
+    recent_lows_series = lows.tail(window * 3).dropna()
+    recent_highs = pd.unique(recent_highs_series.to_numpy()) if len(recent_highs_series) else []
+    recent_lows = pd.unique(recent_lows_series.to_numpy()) if len(recent_lows_series) else []
     
     # Find nearest support (below current price)
     supports = [l for l in recent_lows if l < current_price]
