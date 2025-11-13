@@ -237,9 +237,10 @@ def compute_advanced_score(
     rs_scores = compute_relative_strength(df, benchmark_df)
     signals.update(rs_scores)
     rs_boost = 0.0
-    if np.isfinite(rs_scores.get("rs_63d", 0)):
+    rs_63d_val = rs_scores.get("rs_63d", np.nan)
+    if np.isfinite(rs_63d_val):
         # Boost if outperforming in medium term
-        rs_boost = 10.0 if rs_scores["rs_63d"] > 0.05 else 5.0 if rs_scores["rs_63d"] > 0 else 0.0
+        rs_boost = 10.0 if rs_63d_val > 0.05 else 5.0 if rs_63d_val > 0 else 0.0
     
     # 2. Volume Analysis
     vol_data = detect_volume_surge(df)
@@ -287,13 +288,13 @@ def compute_advanced_score(
     rr_data = calculate_risk_reward_ratio(df)
     signals.update(rr_data)
     rr_boost = 0.0
-    rr = rr_data.get("risk_reward_ratio", 0)
-    if np.isfinite(rr):
-        if rr > 3.0:
+    rr_val = rr_data.get("risk_reward_ratio", np.nan)
+    if np.isfinite(rr_val):
+        if rr_val > 3.0:
             rr_boost = 10.0
-        elif rr > 2.0:
+        elif rr_val > 2.0:
             rr_boost = 6.0
-        elif rr > 1.5:
+        elif rr_val > 1.5:
             rr_boost = 3.0
     
     # Calculate total boost (max 50 points)
@@ -311,7 +312,7 @@ def compute_advanced_score(
         ma_data["ma_aligned"] and 
         vol_data["volume_surge"] > 1.2 and
         mom_data["momentum_consistency"] > 0.6 and
-        np.isfinite(rr) and rr > 1.5
+        np.isfinite(rr_val) and rr_val > 1.5
     )
     
     return enhanced_score, signals
@@ -323,22 +324,22 @@ def should_reject_ticker(signals: Dict[str, any]) -> Tuple[bool, str]:
     Returns (should_reject, reason)
     """
     # Reject if underperforming market significantly
-    rs_63d = signals.get("rs_63d", 0)
+    rs_63d = signals.get("rs_63d", np.nan)
     if np.isfinite(rs_63d) and rs_63d < -0.10:
         return True, "Underperforming market by >10%"
     
     # Reject if weak momentum consistency
-    mom_consistency = signals.get("momentum_consistency", 0)
+    mom_consistency = signals.get("momentum_consistency", 0.0)
     if mom_consistency < 0.3:
         return True, "Weak momentum consistency"
     
     # Reject if poor risk/reward
-    rr = signals.get("risk_reward_ratio", 0)
+    rr = signals.get("risk_reward_ratio", np.nan)
     if np.isfinite(rr) and rr < 1.0:
         return True, "Risk/Reward < 1.0"
     
     # Reject if MA trend is bearish
-    alignment_score = signals.get("alignment_score", 0)
+    alignment_score = signals.get("alignment_score", 0.0)
     if alignment_score < 0.3:
         return True, "Bearish MA alignment"
     
