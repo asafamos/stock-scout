@@ -110,6 +110,7 @@ CONFIG = dict(
     TARGET_RECOMMENDATIONS_MAX=7,     # Show only top N if more than this pass filters
     ENABLE_SIMFIN=True,               # Attempt SimFin fundamentals if API key present
     COVERAGE_WARN_THRESHOLD=0.4,      # Warn if <40% of tickers have ≥3 fundamental fields
+    ENABLE_IEX=True,                  # Attempt IEX Cloud fundamentals & price if API key present
 )
 def _env(key: str, default: Optional[str] = None) -> Optional[str]:
     try:
@@ -561,7 +562,52 @@ def fetch_fundamentals_bundle(ticker: str) -> dict:
         else:
             logger.debug(f"Fundamentals(SimFin) skipped {ticker} — no API key")
 
-    # Alpha Vantage fallback (after FMP & SimFin)
+    # IEX Cloud fundamentals (advanced-stats) before Alpha/Finnhub
+    if CONFIG.get("ENABLE_IEX"):
+        iex_key = _env("IEX_API_KEY") or _env("IEX_TOKEN")
+        if iex_key:
+            r_iex = http_get_retry(
+                f"https://cloud.iexapis.com/stable/stock/{ticker}/advanced-stats?token={iex_key}",
+                tries=1,
+                timeout=8,
+            )
+            if r_iex:
+                try:
+                    stats = r_iex.json()
+                    def g(k):
+                        v = stats.get(k)
+                        return float(v) if isinstance(v,(int,float)) and np.isfinite(v) else np.nan
+                    gp = g("grossProfit")
+                    rev = g("totalRevenue")
+                    gm_calc = (gp/rev) if (np.isfinite(gp) and np.isfinite(rev) and rev>0) else np.nan
+                    iex_dict = {
+                        "roe": g("returnOnEquity"),
+                        "roic": np.nan,
+                        "gm": gm_calc,
+                        "ps": g("priceToSales"),
+                        "pe": g("peRatio"),
+                        "de": g("debtToEquity"),
+                        "rev_g_yoy": g("revenueGrowth"),
+                        "eps_g_yoy": g("epsGrowth"),
+                        "sector": stats.get("sector") or "Unknown",
+                    }
+                    has_core_fields = any(np.isfinite(iex_dict.get(k,np.nan)) for k in ["roe","pe","ps","gm"])
+                    if has_core_fields:
+                        iex_dict["from_iex"] = True
+                        cov_fields = [iex_dict.get(k) for k in ["roe","roic","gm","ps","pe","de","rev_g_yoy","eps_g_yoy"]]
+                        iex_dict["Fund_Coverage_Pct"] = float(sum(isinstance(v,(int,float)) and np.isfinite(v) for v in cov_fields))/float(len(cov_fields))
+                        logger.debug(f"Fundamentals(IEX) ✓ {ticker} — roe={iex_dict.get('roe')} pe={iex_dict.get('pe')} ps={iex_dict.get('ps')} gm={iex_dict.get('gm')}")
+                        return iex_dict
+                    else:
+                        logger.debug(f"Fundamentals(IEX) ✗ {ticker} — missing core fields")
+                except Exception:
+                    logger.debug(f"Fundamentals(IEX) ✗ {ticker} — parse error")
+            else:
+                logger.debug(f"Fundamentals(IEX) ✗ {ticker} — request failed")
+        else:
+            logger.debug(f"Fundamentals(IEX) skipped {ticker} — no API key")
+
+    # Alpha Vantage fallback (after FMP, SimFin, IEX)
     if bool(st.session_state.get("_alpha_ok")) and bool(_env("ALPHA_VANTAGE_API_KEY")):
         d = _alpha_overview_fetch(ticker)
         if d:
@@ -956,6 +1002,27 @@ def get_polygon_price(ticker: str) -> Optional[float]:
         j = r.json()
         if j.get("resultsCount", 0) > 0 and "results" in j:
             return float(j["results"][0]["c"])
+    except Exception:
+        return None
+    return None
+
+def get_iex_price(ticker: str) -> Optional[float]:
+    """Fetch latest price from IEX Cloud stable quote endpoint."""
+    token = _env("IEX_API_KEY") or _env("IEX_TOKEN")
+    if not token or not CONFIG.get("ENABLE_IEX"):
+        return None
+    r = http_get_retry(
+        f"https://cloud.iexapis.com/stable/stock/{ticker}/quote?token={token}",
+        tries=1,
+        timeout=8,
+    )
+    if not r:
+        return None
+    try:
+        j = r.json()
+        lp = j.get("latestPrice") or j.get("iexRealtimePrice") or j.get("delayedPrice")
+        if isinstance(lp, (int, float)) and np.isfinite(lp):
+            return float(lp)
     except Exception:
         return None
     return None
@@ -1594,6 +1661,11 @@ def _fetch_external_for(
         if p is not None:
             vals.setdefault("Tiingo", p)
             srcs.append("🟠Tiingo")
+    if CONFIG.get("ENABLE_IEX") and _env("IEX_API_KEY") or _env("IEX_TOKEN"):
+        p = get_iex_price(tkr)
+        if p is not None:
+            vals.setdefault("IEX", p)
+            srcs.append("🟤IEX")
     return tkr, vals, srcs
 
 
@@ -1602,6 +1674,7 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and (
     or finn_ok
     or (poly_ok and _env("POLYGON_API_KEY"))
     or (tiin_ok and _env("TIINGO_API_KEY"))
+    or (CONFIG.get("ENABLE_IEX") and (_env("IEX_API_KEY") or _env("IEX_TOKEN")))
 ):
     subset_idx = list(results.head(int(CONFIG["TOP_VALIDATE_K"])).index)
     with ThreadPoolExecutor(max_workers=4) as ex:
