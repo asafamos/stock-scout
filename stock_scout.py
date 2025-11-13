@@ -111,6 +111,9 @@ CONFIG = dict(
     ENABLE_SIMFIN=True,               # Attempt SimFin fundamentals if API key present
     COVERAGE_WARN_THRESHOLD=0.4,      # Warn if <40% of tickers have ≥3 fundamental fields
     ENABLE_IEX=True,                  # Attempt IEX Cloud fundamentals & price if API key present
+    ENABLE_MARKETSTACK=True,          # Marketstack price source (EOD latest)
+    ENABLE_NASDAQ_DL=True,            # Nasdaq Data Link price source (experimental)
+    ENABLE_EODHD=True,                # EODHD price + fundamentals source
 )
 def _env(key: str, default: Optional[str] = None) -> Optional[str]:
     try:
@@ -622,6 +625,48 @@ def fetch_fundamentals_bundle(ticker: str) -> dict:
     else:
         logger.debug(f"Fundamentals merge: Finnhub ✗ {ticker}")
 
+    # EODHD fundamentals merge (after others to fill gaps)
+    if CONFIG.get("ENABLE_EODHD"):
+        ek = _env("EODHD_API_KEY") or _env("EODHD_TOKEN")
+        if ek:
+            r_eod = http_get_retry(
+                f"https://eodhistoricaldata.com/api/fundamentals/{ticker}.US?api_token={ek}&fmt=json",
+                tries=1,
+                timeout=10,
+            )
+            if r_eod:
+                try:
+                    fj = r_eod.json()
+                    highlights = fj.get("Highlights", {}) if isinstance(fj, dict) else {}
+                    valuation = fj.get("Valuation", {}) if isinstance(fj, dict) else {}
+                    ratios = fj.get("Ratios", {}) if isinstance(fj, dict) else {}
+                    growth = fj.get("Growth", {}) if isinstance(fj, dict) else {}
+                    def finum(*keys):
+                        for k in keys:
+                            v = highlights.get(k) or valuation.get(k) or ratios.get(k) or growth.get(k)
+                            if isinstance(v, (int, float)) and np.isfinite(v):
+                                return float(v)
+                        return np.nan
+                    eod_dict = {
+                        "roe": finum("ReturnOnEquityTTM", "ROE"),
+                        "roic": np.nan,
+                        "gm": finum("GrossMarginTTM", "GrossMargin"),
+                        "ps": finum("PriceToSalesTTM", "PriceToSales"),
+                        "pe": finum("PERatio", "PE"),
+                        "de": finum("DebtToEquity", "DebtEquityRatio"),
+                        "rev_g_yoy": finum("RevenueGrowthTTMYoy", "RevenueGrowth"),
+                        "eps_g_yoy": finum("EPSGrowthTTMYoy", "EPSGrowth"),
+                        "sector": fj.get("General", {}).get("Sector", "Unknown") if isinstance(fj.get("General"), dict) else "Unknown",
+                    }
+                    _merge(eod_dict, "from_eodhd")
+                    logger.debug(f"Fundamentals merge: EODHD ✓ {ticker}")
+                except Exception:
+                    logger.debug(f"Fundamentals merge: EODHD ✗ {ticker} parse error")
+            else:
+                logger.debug(f"Fundamentals merge: EODHD ✗ {ticker} request failed")
+        else:
+            logger.debug(f"Fundamentals merge: EODHD skipped {ticker} — no API key")
+
     cov_fields = [merged.get(k) for k in ["roe","roic","gm","ps","pe","de","rev_g_yoy","eps_g_yoy"]]
     merged["Fund_Coverage_Pct"] = float(sum(isinstance(v,(int,float)) and np.isfinite(v) for v in cov_fields))/float(len(cov_fields))
     return merged
@@ -1033,6 +1078,83 @@ def get_tiingo_price(ticker: str) -> Optional[float]:
         arr = r.json()
         if isinstance(arr, list) and arr:
             return float(arr[-1].get("close", np.nan))
+    except Exception:
+        return None
+    return None
+
+def get_marketstack_price(ticker: str) -> Optional[float]:
+    """Fetch latest end-of-day price from Marketstack."""
+    if not CONFIG.get("ENABLE_MARKETSTACK"):
+        return None
+    mk = _env("MARKETSTACK_API_KEY")
+    if not mk:
+        return None
+    try:
+        r = http_get_retry(
+            f"http://api.marketstack.com/v1/eod/latest?access_key={mk}&symbols={ticker}",
+            tries=1,
+            timeout=6,
+        )
+        if not r:
+            return None
+        j = r.json()
+        data = j.get("data") if isinstance(j, dict) else None
+        if isinstance(data, list) and data:
+            last = data[0]
+            c = last.get("close")
+            if isinstance(c, (int, float)) and np.isfinite(c):
+                return float(c)
+    except Exception:
+        return None
+    return None
+
+def get_nasdaq_price(ticker: str) -> Optional[float]:
+    """Attempt price via Nasdaq Data Link dataset (WIKI legacy). Returns None on failure."""
+    if not CONFIG.get("ENABLE_NASDAQ_DL"):
+        return None
+    nk = _env("NASDAQ_API_KEY") or _env("NASDAQ_DL_API_KEY")
+    if not nk:
+        return None
+    try:
+        r = http_get_retry(
+            f"https://data.nasdaq.com/api/v3/datasets/WIKI/{ticker}.json?api_key={nk}",
+            tries=1,
+            timeout=6,
+        )
+        if not r:
+            return None
+        j = r.json()
+        ds = j.get("dataset", {})
+        data = ds.get("data")
+        if isinstance(data, list) and data:
+            row = data[0]
+            if len(row) >= 5:
+                c = row[4]
+                if isinstance(c, (int, float)) and np.isfinite(c):
+                    return float(c)
+    except Exception:
+        return None
+    return None
+
+def get_eodhd_price(ticker: str) -> Optional[float]:
+    """Fetch real-time (delayed) price from EODHD."""
+    if not CONFIG.get("ENABLE_EODHD"):
+        return None
+    ek = _env("EODHD_API_KEY") or _env("EODHD_TOKEN")
+    if not ek:
+        return None
+    try:
+        r = http_get_retry(
+            f"https://eodhistoricaldata.com/api/real-time/{ticker}.US?api_token={ek}&fmt=json",
+            tries=1,
+            timeout=6,
+        )
+        if not r:
+            return None
+        j = r.json()
+        c = j.get("close") or j.get("Close")
+        if isinstance(c, (int, float)) and np.isfinite(c):
+            return float(c)
     except Exception:
         return None
     return None
@@ -1651,6 +1773,21 @@ def _fetch_external_for(
         if p is not None:
             vals.setdefault("Tiingo", p)
             srcs.append("🟠Tiingo")
+    if CONFIG.get("ENABLE_MARKETSTACK") and _env("MARKETSTACK_API_KEY"):
+        p = get_marketstack_price(tkr)
+        if p is not None:
+            vals.setdefault("Marketstack", p)
+            srcs.append("🧩Marketstack")
+    if CONFIG.get("ENABLE_NASDAQ_DL") and (_env("NASDAQ_API_KEY") or _env("NASDAQ_DL_API_KEY")):
+        p = get_nasdaq_price(tkr)
+        if p is not None:
+            vals.setdefault("NasdaqDL", p)
+            srcs.append("🏛NasdaqDL")
+    if CONFIG.get("ENABLE_EODHD") and (_env("EODHD_API_KEY") or _env("EODHD_TOKEN")):
+        p = get_eodhd_price(tkr)
+        if p is not None:
+            vals.setdefault("EODHD", p)
+            srcs.append("📘EODHD")
     if CONFIG.get("ENABLE_IEX") and _env("IEX_API_KEY") or _env("IEX_TOKEN"):
         p = get_iex_price(tkr)
         if p is not None:
@@ -1664,6 +1801,9 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and (
     or finn_ok
     or (poly_ok and _env("POLYGON_API_KEY"))
     or (tiin_ok and _env("TIINGO_API_KEY"))
+    or (CONFIG.get("ENABLE_MARKETSTACK") and _env("MARKETSTACK_API_KEY"))
+    or (CONFIG.get("ENABLE_NASDAQ_DL") and (_env("NASDAQ_API_KEY") or _env("NASDAQ_DL_API_KEY")))
+    or (CONFIG.get("ENABLE_EODHD") and (_env("EODHD_API_KEY") or _env("EODHD_TOKEN")))
     or (CONFIG.get("ENABLE_IEX") and (_env("IEX_API_KEY") or _env("IEX_TOKEN")))
 ):
     subset_idx = list(results.head(int(CONFIG["TOP_VALIDATE_K"])).index)
