@@ -122,6 +122,8 @@ def classify_stock(row: pd.Series) -> StockClassification:
     Returns:
         StockClassification with risk level, data quality, and confidence
     """
+    ticker = row.get("Ticker", "UNKNOWN")
+    
     # Evaluate data quality
     data_quality, valid_count, data_warnings = evaluate_data_quality(row)
     
@@ -130,6 +132,12 @@ def classify_stock(row: pd.Series) -> StockClassification:
     
     # Combine all warnings
     all_warnings = data_warnings + risk_warnings
+    
+    # Debug logging for first few stocks
+    import random
+    if random.random() < 0.05:  # Log ~5% of stocks
+        logger.debug(f"🔍 {ticker}: DataQuality={data_quality}, ValidFields={valid_count}/6, "
+                    f"RiskWarnings={len(risk_warnings)}, Warnings={all_warnings[:2]}")
     
     # Initial classification based on data quality
     if data_quality == "low":
@@ -262,10 +270,25 @@ def filter_core_recommendations(
     initial_count = len(df)
     filtered = df.copy()
     
+    # Debug: Show initial distribution
+    if "Risk_Level" in filtered.columns:
+        core_count = (filtered["Risk_Level"] == "core").sum()
+        spec_count = (filtered["Risk_Level"] == "speculative").sum()
+        logger.info(f"📊 Initial distribution: {core_count} Core, {spec_count} Speculative (total: {initial_count})")
+    
     # Filter 1: Only Core stocks
     if "Risk_Level" in filtered.columns:
         filtered = filtered[filtered["Risk_Level"] == "core"]
         logger.info(f"After Core filter: {len(filtered)}/{initial_count}")
+        
+        # Debug: If no Core stocks, show why
+        if len(filtered) == 0:
+            logger.warning("⚠️ NO CORE STOCKS FOUND - All stocks classified as Speculative!")
+            logger.info("Checking first 3 stocks for classification reasons...")
+            for idx, row in df.head(3).iterrows():
+                logger.info(f"  {row.get('Ticker', '?')}: Quality={row.get('Quality_Score', 'N/A')}, "
+                          f"Data_Complete={row.get('Data_Complete_Pct', 'N/A')}%, "
+                          f"Risk={row.get('Risk_Level', 'N/A')}")
     
     # Filter 2: Minimum quality score (fundamental)
     if "Quality_Score" in filtered.columns:

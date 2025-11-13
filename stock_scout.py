@@ -1279,10 +1279,21 @@ t0 = t_start()
 st.info("🔍 מסווג מניות לפי רמת סיכון ואיכות נתונים...")
 results = apply_classification(results)
 
+# Show classification statistics
+core_count = len(results[results["Risk_Level"] == "core"])
+spec_count = len(results[results["Risk_Level"] == "speculative"])
+high_qual = len(results[results["Data_Quality"] == "high"])
+med_qual = len(results[results["Data_Quality"] == "medium"])
+low_qual = len(results[results["Data_Quality"] == "low"])
+
+st.write(f"**סיווג ראשוני:** {core_count} Core, {spec_count} Speculative | "
+         f"**איכות:** {high_qual} גבוהה, {med_qual} בינונית, {low_qual} נמוכה")
+
 # Filter out stocks that shouldn't be displayed (very low quality)
 displayable = results[results["Should_Display"]].copy()
 hidden_count = len(results) - len(displayable)
 if hidden_count > 0:
+    st.write(f"🔻 הוסתרו {hidden_count} מניות עם איכות נתונים נמוכה מאוד")
     logger.info(f"Hidden {hidden_count} stocks due to very low data quality")
 
 results = displayable.reset_index(drop=True)
@@ -1292,10 +1303,19 @@ core_before_filter = len(results[results["Risk_Level"] == "core"])
 results = filter_core_recommendations(results, CONFIG)
 core_after_filter = len(results)
 
+if core_before_filter > 0:
+    st.write(f"🎯 **סינון Core:** {core_before_filter} → {core_after_filter} מניות עברו את הפילטרים המחמירים")
+
 phase_times["סיווג סיכון ואיכות"] = t_end(t0)
 
 if results.empty:
-    st.warning("כל המניות נפסלו בשלב סיווג הסיכון ואיכות הנתונים.")
+    st.error("❌ **כל המניות נפסלו!**")
+    st.write("**סיבות אפשריות:**")
+    st.write("- 🔴 אף מניה לא סווגה כ-Core (כולן Speculative)")
+    st.write("- 🔴 מניות Core לא עמדו בפילטרים הטכניים (RSI, ATR, Overextension)")
+    st.write("- 🔴 איכות נתונים נמוכה מדי (חסרים מחירים/פונדמנטלים)")
+    st.write(f"- 🔴 ניתן להקל על הגדרות ב-CONFIG: MIN_QUALITY_SCORE_CORE={CONFIG['MIN_QUALITY_SCORE_CORE']}, "
+             f"MAX_ATR_PRICE_CORE={CONFIG['MAX_ATR_PRICE_CORE']}")
     st.stop()
 
 # Show results count with guidance
