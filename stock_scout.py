@@ -52,7 +52,7 @@ logger = get_logger("stock_scout")
 
 # ==================== CONFIG ====================
 CONFIG = dict(
-    BUDGET_TOTAL=5000.0,
+    BUDGET_TOTAL=1000.0,
     MIN_POSITION=500.0,
     MAX_POSITION_PCT=15.0,
     UNIVERSE_LIMIT=350,
@@ -1457,7 +1457,8 @@ fundamental_available = (
 )
 if CONFIG["FUNDAMENTAL_ENABLED"] and fundamental_available:
     t0 = t_start()
-    take_k = int(min(CONFIG["FUNDAMENTAL_TOP_K"], len(results)))
+    broaden = max(int(CONFIG.get("FUNDAMENTAL_TOP_K", 15)), int(CONFIG.get("TOPN_RESULTS", 20)) * 3, int(CONFIG.get("TARGET_RECOMMENDATIONS_MAX", 7)) * 3)
+    take_k = int(min(max(10, broaden), len(results)))
     for c in [
         "Fundamental_S",
         "Sector",
@@ -1972,13 +1973,13 @@ results["Unit_Price"] = pd.to_numeric(results["Unit_Price"], errors="coerce")
 
 # Allocation
 def allocate_budget(
-    df: pd.DataFrame, total: float, min_pos: float, max_pos_pct: float
+    df: pd.DataFrame, total: float, min_pos: float, max_pos_pct: float, *, score_col: str = "Score"
 ) -> pd.DataFrame:
     df = df.copy()
     df["סכום קנייה ($)"] = 0.0
     if total <= 0 or df.empty:
         return df
-    df = df.sort_values(["Score", "Ticker"], ascending=[False, True]).reset_index(
+    df = df.sort_values([score_col, "Ticker"], ascending=[False, True]).reset_index(
         drop=True
     )
     remaining = float(total)
@@ -1991,7 +1992,7 @@ def allocate_budget(
             df.loc[: can_min - 1, "סכום קנייה ($)"] = base
             remaining -= float(base.sum())
     if remaining > 0:
-        weights = df["Score"].clip(lower=0).to_numpy(dtype=float)
+        weights = df[score_col].clip(lower=0).to_numpy(dtype=float)
         extras = (
             np.full(n, remaining / n, dtype=float)
             if np.nansum(weights) <= 0
@@ -2010,11 +2011,30 @@ def allocate_budget(
 
 
 TOPN = min(CONFIG["TOPN_RESULTS"], len(results))
+alloc_df = results.head(TOPN).reset_index(drop=True).copy()
+# Build allocation score with risk/reliability tilt
+risk_mult_core, risk_mult_spec = 1.2, 0.8
+if st.session_state.get("alloc_style_idx", 0) == 1:  # Conservative
+    risk_mult_core, risk_mult_spec = 1.5, 0.5
+elif st.session_state.get("alloc_style_idx", 0) == 2:  # Aggressive
+    risk_mult_core, risk_mult_spec = 1.0, 1.2
+if "Risk_Level" in alloc_df.columns:
+    alloc_df["_risk_mult"] = np.where(alloc_df["Risk_Level"] == "core", risk_mult_core, risk_mult_spec)
+else:
+    alloc_df["_risk_mult"] = 1.0
+if "Reliability_Score" in alloc_df.columns:
+    rel = alloc_df["Reliability_Score"].fillna(0.5).clip(0, 1)
+    alloc_df["_rel_mult"] = 0.6 + 0.6 * rel
+else:
+    alloc_df["_rel_mult"] = 1.0
+alloc_df["AllocScore"] = alloc_df["Score"].clip(lower=0) * alloc_df["_risk_mult"] * alloc_df["_rel_mult"]
+
 results = allocate_budget(
-    results.head(TOPN).reset_index(drop=True),
-    CONFIG["BUDGET_TOTAL"],
-    CONFIG["MIN_POSITION"],
-    float(CONFIG["MAX_POSITION_PCT"]),
+    alloc_df,
+    float(st.session_state.get("total_budget", CONFIG["BUDGET_TOTAL"])),
+    float(st.session_state.get("min_position", CONFIG["MIN_POSITION"])),
+    float(st.session_state.get("max_position_pct", CONFIG["MAX_POSITION_PCT"])),
+    score_col="AllocScore",
 )
 results["מניות לקנייה"] = np.floor(
     np.where(
@@ -2033,7 +2053,7 @@ k0, k1, k2, k3 = st.columns(4)
 k0.metric("גודל יקום לאחר סינון היסטוריה", len(data_map))
 k1.metric("כמות תוצאות אחרי סינון", len(results))
 k2.metric("תקציב מנוצל (≈$)", f"{budget_used:,.0f}")
-k3.metric("עודף תקציב (≈$)", f"{max(0.0, CONFIG['BUDGET_TOTAL'] - budget_used):,.0f}")
+k3.metric("עודף תקציב (≈$)", f"{max(0.0, float(st.session_state.get('total_budget', CONFIG['BUDGET_TOTAL'])) - budget_used):,.0f}")
 
 # Timings
 st.subheader("⏱️ זמני ביצוע")
@@ -2054,6 +2074,19 @@ st.caption("הכרטיסים הבאים הם **המלצות קנייה** בלב�
 with st.sidebar:
     st.header("🎛️ פילטרים")
     st.caption("התאם אישית את תוצאות הסריקה")
+
+    st.markdown("---")
+    st.subheader("💰 Allocation")
+    total_budget = st.number_input("Total investment ($)", min_value=0.0, value=float(st.session_state.get("total_budget", CONFIG["BUDGET_TOTAL"])), step=100.0)
+    st.session_state["total_budget"] = float(total_budget)
+    min_position = st.number_input("Min position ($)", min_value=0.0, value=float(st.session_state.get("min_position", max(50.0, round(float(total_budget) * 0.10)))), step=50.0)
+    st.session_state["min_position"] = float(min_position)
+    max_position_pct = st.slider("Max position (% of total)", min_value=5.0, max_value=60.0, value=float(st.session_state.get("max_position_pct", CONFIG["MAX_POSITION_PCT"])), step=1.0)
+    st.session_state["max_position_pct"] = float(max_position_pct)
+    alloc_style = st.selectbox("Allocation style", ["Balanced (core tilt)", "Conservative", "Aggressive"], index=int(st.session_state.get("alloc_style_idx", 0)))
+    st.session_state["alloc_style_idx"] = ["Balanced (core tilt)", "Conservative", "Aggressive"].index(alloc_style)
+
+    st.markdown("---")
     
     # Risk level filter
     risk_filter = st.multiselect(
