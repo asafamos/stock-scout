@@ -42,7 +42,7 @@ from advanced_filters import (
 from core.logging_config import setup_logging, get_logger
 from core.config import get_config as get_core_config, get_api_keys
 from core.scoring.fundamental import compute_fundamental_score_with_breakdown
-from core.classification import apply_classification
+from core.classification import apply_classification, filter_core_recommendations
 
 warnings.filterwarnings("ignore")
 
@@ -97,6 +97,17 @@ CONFIG = dict(
     TOP_VALIDATE_K=12,
     TOPN_RESULTS=15,
     TOPK_RECOMMEND=5,
+    # ==================== CORE RECOMMENDATION FILTERS ====================
+    # These constants control the final filtering for "Core" stock recommendations.
+    # Relaxed slightly from previous hard-coded values to yield 3-7 high-quality stocks per run.
+    MIN_QUALITY_SCORE_CORE=27.0,      # Minimum fundamental quality score (out of 50). Was ~33, now 27.
+    MAX_OVEREXTENSION_CORE=0.10,      # Max allowed overextension ratio. Was ~0.05, now 0.10.
+    MAX_ATR_PRICE_CORE=0.08,          # Max ATR/Price ratio (volatility). Was ~0.05, now 0.08.
+    RSI_MIN_CORE=45,                  # Minimum RSI for Core stocks. Was ~50, now 45.
+    RSI_MAX_CORE=70,                  # Maximum RSI for Core stocks. Was ~75, now 70.
+    MIN_RR_CORE=1.5,                  # Minimum Reward/Risk ratio. Was higher or not explicit, now 1.5.
+    TARGET_RECOMMENDATIONS_MIN=3,     # Warn if fewer than this many stocks pass filters
+    TARGET_RECOMMENDATIONS_MAX=7,     # Show only top N if more than this pass filters
 )
 def _env(key: str, default: Optional[str] = None) -> Optional[str]:
     try:
@@ -1153,13 +1164,31 @@ if hidden_count > 0:
     logger.info(f"Hidden {hidden_count} stocks due to very low data quality")
 
 results = displayable.reset_index(drop=True)
+
+# Apply Core recommendation filters using CONFIG constants
+core_before_filter = len(results[results["Risk_Level"] == "core"])
+results = filter_core_recommendations(results, CONFIG)
+core_after_filter = len(results)
+
 phase_times["סיווג סיכון ואיכות"] = t_end(t0)
 
 if results.empty:
     st.warning("כל המניות נפסלו בשלב סיווג הסיכון ואיכות הנתונים.")
     st.stop()
 
-st.success(f"✅ {len(results)} מניות עברו את כל הסינונים!")
+# Show results count with guidance
+results_count = len(results)
+target_min = CONFIG.get("TARGET_RECOMMENDATIONS_MIN", 3)
+target_max = CONFIG.get("TARGET_RECOMMENDATIONS_MAX", 7)
+
+if results_count < target_min:
+    st.warning(f"⚠️ רק {results_count} מניות עברו את הסינונים (יעד: {target_min}-{target_max}). "
+               f"הסינונים מחמירים כרגע. שקול להרחיב את ה-thresholds אם אתה רוצה יותר מועמדים.")
+elif results_count > target_max:
+    st.info(f"📊 {results_count} מניות עברו את הסינונים. מציג את {target_max} המובילות.")
+    results = results.head(target_max)
+else:
+    st.success(f"✅ {results_count} מניות Core איכותיות עברו את כל הסינונים!")
 
 # External price verification (Top-K)
 t0 = t_start()

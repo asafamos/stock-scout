@@ -2,7 +2,7 @@
 Risk classification and data quality evaluation for stock recommendations.
 """
 from __future__ import annotations
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Optional
 from dataclasses import dataclass
 import numpy as np
 import pandas as pd
@@ -219,3 +219,100 @@ def apply_classification(df: pd.DataFrame) -> pd.DataFrame:
                 f"Hidden={sum(~df['Should_Display'])}")
     
     return df
+
+
+def filter_core_recommendations(
+    df: pd.DataFrame,
+    config: Optional[Dict] = None
+) -> pd.DataFrame:
+    """
+    Filter DataFrame to keep only high-quality "Core" stocks that pass conservative thresholds.
+    
+    Uses CONFIG constants for filtering:
+    - MIN_QUALITY_SCORE_CORE: minimum fundamental quality score (default 27/50)
+    - MAX_OVEREXTENSION_CORE: maximum overextension ratio (default 0.10)
+    - MAX_ATR_PRICE_CORE: maximum ATR/Price ratio (default 0.08)
+    - RSI_MIN_CORE, RSI_MAX_CORE: RSI bounds (default 45-70)
+    - MIN_RR_CORE: minimum reward/risk ratio (default 1.5)
+    
+    All existing safety checks (earnings blackout, beta, liquidity, etc.) 
+    are preserved upstream in the pipeline.
+    
+    Args:
+        df: DataFrame with classified stocks
+        config: Optional config dict with threshold constants
+        
+    Returns:
+        Filtered DataFrame with only Core stocks that pass all filters
+    """
+    if df.empty:
+        return df
+    
+    # Default config if not provided
+    if config is None:
+        config = {
+            "MIN_QUALITY_SCORE_CORE": 27.0,
+            "MAX_OVEREXTENSION_CORE": 0.10,
+            "MAX_ATR_PRICE_CORE": 0.08,
+            "RSI_MIN_CORE": 45,
+            "RSI_MAX_CORE": 70,
+            "MIN_RR_CORE": 1.5,
+        }
+    
+    initial_count = len(df)
+    filtered = df.copy()
+    
+    # Filter 1: Only Core stocks
+    if "Risk_Level" in filtered.columns:
+        filtered = filtered[filtered["Risk_Level"] == "core"]
+        logger.info(f"After Core filter: {len(filtered)}/{initial_count}")
+    
+    # Filter 2: Minimum quality score (fundamental)
+    if "Quality_Score" in filtered.columns:
+        min_qual = config.get("MIN_QUALITY_SCORE_CORE", 27.0)
+        filtered = filtered[
+            (filtered["Quality_Score"].isna()) | 
+            (filtered["Quality_Score"] >= min_qual)
+        ]
+        logger.info(f"After quality score >= {min_qual}: {len(filtered)}/{initial_count}")
+    
+    # Filter 3: Maximum overextension
+    if "OverextRatio" in filtered.columns:
+        max_overext = config.get("MAX_OVEREXTENSION_CORE", 0.10)
+        filtered = filtered[
+            (filtered["OverextRatio"].isna()) | 
+            (filtered["OverextRatio"] <= max_overext)
+        ]
+        logger.info(f"After overextension <= {max_overext}: {len(filtered)}/{initial_count}")
+    
+    # Filter 4: Maximum ATR/Price (volatility)
+    if "ATR_Price" in filtered.columns:
+        max_atr = config.get("MAX_ATR_PRICE_CORE", 0.08)
+        filtered = filtered[
+            (filtered["ATR_Price"].isna()) | 
+            (filtered["ATR_Price"] <= max_atr)
+        ]
+        logger.info(f"After ATR/Price <= {max_atr}: {len(filtered)}/{initial_count}")
+    
+    # Filter 5: RSI bounds
+    if "RSI" in filtered.columns:
+        rsi_min = config.get("RSI_MIN_CORE", 45)
+        rsi_max = config.get("RSI_MAX_CORE", 70)
+        filtered = filtered[
+            (filtered["RSI"].isna()) | 
+            ((filtered["RSI"] >= rsi_min) & (filtered["RSI"] <= rsi_max))
+        ]
+        logger.info(f"After RSI in [{rsi_min}, {rsi_max}]: {len(filtered)}/{initial_count}")
+    
+    # Filter 6: Minimum reward/risk ratio
+    if "RR_Ratio" in filtered.columns:
+        min_rr = config.get("MIN_RR_CORE", 1.5)
+        filtered = filtered[
+            (filtered["RR_Ratio"].isna()) | 
+            (filtered["RR_Ratio"] >= min_rr)
+        ]
+        logger.info(f"After RR_Ratio >= {min_rr}: {len(filtered)}/{initial_count}")
+    
+    logger.info(f"Final Core recommendations: {len(filtered)}/{initial_count} stocks passed all filters")
+    
+    return filtered.reset_index(drop=True)
