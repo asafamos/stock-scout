@@ -472,15 +472,97 @@ def _to_01(x: float, low: float, high: float) -> float:
 
 @st.cache_data(ttl=60 * 60)
 def fetch_fundamentals_bundle(ticker: str) -> dict:
-    out: dict = {}
+    """
+    Fetch fundamental metrics from available providers.
+    
+    Returns dict with metrics + provider metadata:
+    - from_fmp: True if FMP provided data
+    - from_alpha: True if Alpha Vantage provided data  
+    - from_finnhub: True if Finnhub provided data
+    """
+    out: dict = {"from_fmp": False, "from_alpha": False, "from_finnhub": False}
+    
+    # Try FMP first if available
+    fmp_key = _env("FMP_API_KEY")
+    if fmp_key:
+        d = _fmp_metrics_fetch(ticker, fmp_key)
+        if d and any(np.isfinite(d.get(k, np.nan)) for k in ["roe", "pe", "ps", "gm"]):
+            d["from_fmp"] = True
+            d["from_alpha"] = False
+            d["from_finnhub"] = False
+            return d
+    
     # קודם Alpha (אם מותר לפי בדיקת קישוריות)
     if bool(st.session_state.get("_alpha_ok")) and bool(_env("ALPHA_VANTAGE_API_KEY")):
         d = _alpha_overview_fetch(ticker)
-        if d:
+        if d and any(np.isfinite(d.get(k, np.nan)) for k in ["roe", "pe", "ps"]):
+            d["from_fmp"] = False
+            d["from_alpha"] = True
+            d["from_finnhub"] = False
             return d
+    
     # אחרת Finnhub
     d = _finnhub_metrics_fetch(ticker)
+    if d:
+        d["from_fmp"] = False
+        d["from_alpha"] = False
+        d["from_finnhub"] = True
     return d or out
+
+
+def _fmp_metrics_fetch(ticker: str, api_key: str) -> Dict[str, any]:
+    """
+    Fetch fundamental metrics from Financial Modeling Prep (FMP).
+    Primary data provider with comprehensive fundamental data.
+    """
+    try:
+        # FMP key-metrics endpoint provides comprehensive ratios
+        url = f"https://financialmodelingprep.com/api/v3/key-metrics/{ticker}?apikey={api_key}"
+        r = http_get_retry(url, tries=2, timeout=8)
+        if not r:
+            return {}
+        
+        data = r.json()
+        if not data or not isinstance(data, list) or len(data) == 0:
+            return {}
+        
+        # Get most recent metrics
+        metrics = data[0]
+        
+        def fget(key, default=np.nan):
+            val = metrics.get(key)
+            if val is None or val == "None":
+                return default
+            try:
+                return float(val)
+            except:
+                return default
+        
+        # Get sector from profile endpoint
+        profile_url = f"https://financialmodelingprep.com/api/v3/profile/{ticker}?apikey={api_key}"
+        sector = "Unknown"
+        try:
+            profile_r = http_get_retry(profile_url, tries=1, timeout=6)
+            if profile_r:
+                profile_data = profile_r.json()
+                if profile_data and isinstance(profile_data, list) and len(profile_data) > 0:
+                    sector = profile_data[0].get("sector", "Unknown")
+        except:
+            pass
+        
+        return {
+            "roe": fget("roe"),
+            "roic": fget("roic"),
+            "gm": fget("grossProfitMargin"),
+            "ps": fget("priceToSalesRatio"),
+            "pe": fget("peRatio"),
+            "de": fget("debtToEquity"),
+            "rev_g_yoy": fget("revenuePerShareGrowth"),
+            "eps_g_yoy": fget("netIncomePerShareGrowth"),
+            "sector": sector,
+        }
+    except Exception as e:
+        return {}
 
 
 def _alpha_overview_fetch(ticker: str) -> Dict[str, any]:
@@ -1007,9 +1089,19 @@ if CONFIG["FUNDAMENTAL_ENABLED"] and (alpha_ok or finn_ok):
         "EPSG_f",
     ]:
         results[c] = np.nan
+    # Add provider flag columns
+    results["Fund_from_FMP"] = False
+    results["Fund_from_Alpha"] = False
+    results["Fund_from_Finnhub"] = False
+    
     for idx in results.head(take_k).index:
         tkr = results.at[idx, "Ticker"]
         d = fetch_fundamentals_bundle(tkr)
+        
+        # Store provider metadata
+        results.loc[idx, "Fund_from_FMP"] = d.get("from_fmp", False)
+        results.loc[idx, "Fund_from_Alpha"] = d.get("from_alpha", False)
+        results.loc[idx, "Fund_from_Finnhub"] = d.get("from_finnhub", False)
         
         # Get detailed breakdown using new function
         fund_result = compute_fundamental_score_with_breakdown(d)
@@ -1319,8 +1411,28 @@ results = apply_sector_cap(
 
 # Source badges & unit price
 def source_badges(row: pd.Series) -> str:
-    s = row.get("Source_List")
-    return s if isinstance(s, str) and s else "🟡Yahoo"
+    """Build provider badges showing both price and fundamentals providers."""
+    badges = []
+    
+    # Fundamentals providers (show first)
+    if row.get("Fund_from_FMP", False):
+        badges.append("🟣FMP")
+    elif row.get("Fund_from_Alpha", False):
+        badges.append("🟣Alpha")
+    elif row.get("Fund_from_Finnhub", False):
+        badges.append("🔵Finnhub")
+    
+    # Price providers (from Source_List)
+    price_sources = row.get("Source_List")
+    if isinstance(price_sources, str) and price_sources:
+        # Parse existing price providers and add if not already in badges
+        for provider in price_sources.split(" · "):
+            if provider not in badges:
+                badges.append(provider)
+    elif not badges:  # No price sources and no fundamental sources
+        badges.append("🟡Yahoo")
+    
+    return " · ".join(badges)
 
 
 results["מקורות מחיר"] = results.apply(source_badges, axis=1)
