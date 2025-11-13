@@ -2422,7 +2422,7 @@ else:
             next_earnings = r.get("NextEarnings", "לא ידוע")
             warnings_esc = esc(warnings) if warnings else ""
             
-                        card_html = f"""{CARD_CSS}
+            card_html = f"""{CARD_CSS}
 <div class="card card-speculative">
     <h3 class="flex-wrap" style="margin:0 0 6px 0">
         <span class="badge">{ticker}</span>
@@ -2438,9 +2438,9 @@ else:
     <div class="item"><b>קרבה לשיא 52ש׳:</b> {near52 if not np.isnan(near52) else 'לא זמין'}%</div>
     <div class="item"><b>ניקוד:</b> {int(round(score))}</div>
     <div class="item"><b>מקורות:</b> {sources_esc.replace(' · ','&nbsp;•&nbsp;')}</div>
-        <div class="item"><b>מהימנות מחיר:</b> {r.get('Price_Reliability', np.nan)}</div>
-        <div class="item"><b>מהימנות פונד׳:</b> {r.get('Fundamental_Reliability', np.nan)}</div>
-        <div class="item"><b>ציון מהימנות:</b> {r.get('Reliability_Score', np.nan)}</div>
+    <div class="item"><b>מהימנות מחיר:</b> {r.get('Price_Reliability', np.nan)}</div>
+    <div class="item"><b>מהימנות פונד׳:</b> {r.get('Fundamental_Reliability', np.nan)}</div>
+    <div class="item"><b>ציון מהימנות:</b> {r.get('Reliability_Score', np.nan)}</div>
     <div class="item"><b>סכום קנייה מומלץ:</b> ${buy_amt:,.0f}</div>
     <div class="item"><b>טווח החזקה:</b> {horizon}</div>
     <div class="item"><b>מחיר יחידה:</b> {unit_price_fmt}</div>
