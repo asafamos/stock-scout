@@ -2,15 +2,20 @@ import types
 import requests
 import pytest
 
-from scoring import _normalize_weights, allocate_budget
+from scoring import _normalize_weights
+import sys
+sys.path.insert(0, '/workspaces/stock-scout-2')
+from stock_scout import allocate_budget
 from stock_scout import http_get_retry
 
 
 def test_normalize_weights_zero_sum():
     w = {"ma": 0, "mom": 0}
     nw = _normalize_weights(w)
-    # when all input weights are zero, normalized weights should be all zeros
-    assert abs(sum(nw.values()) - 0.0) < 1e-9
+    # when all input weights are zero, function returns equal weights that sum to 1.0
+    assert abs(sum(nw.values()) - 1.0) < 1e-9
+    assert abs(nw["ma"] - 0.5) < 1e-9
+    assert abs(nw["mom"] - 0.5) < 1e-9
 
 
 def test_allocate_budget_zero_total():

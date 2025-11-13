@@ -2,7 +2,10 @@ import numpy as np
 import pandas as pd
 
 from indicators import rsi, atr, macd_line
-from scoring import _normalize_weights, allocate_budget, fundamental_score
+from scoring import _normalize_weights, fundamental_score
+import sys
+sys.path.insert(0, '/workspaces/stock-scout-2')
+from stock_scout import allocate_budget
 
 
 def test_rsi_basic():

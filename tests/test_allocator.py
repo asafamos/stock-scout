@@ -13,6 +13,6 @@ def test_allocator_respects_budget_and_caps():
     alloc = allocate_budget(scores, prices, atr_pct, sector, dvol, budget, max_pos_pct=0.5, max_sector_pct=0.7)
     total_cost = alloc["cost"].sum()
     assert total_cost <= budget + 1e-6
-    merged = alloc.join(pd.DataFrame({"sector": sector}))
-    per_sector = merged.groupby("sector")["cost"].sum()
+    # sector column is already in alloc from the function
+    per_sector = alloc.groupby("sector")["cost"].sum()
     assert per_sector.max() <= budget * 0.7 + 1e-6
