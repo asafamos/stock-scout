@@ -48,6 +48,16 @@ def evaluate_data_quality(row: pd.Series) -> Tuple[str, int, list[str]]:
             valid_count += 1
         else:
             warnings.append(f"Missing: {metric_name}")
+
+    # Fundamentals coverage enforcement
+    fundamental_total = row.get("Fundamental_S")
+    fundamental_quality = row.get("Quality_Score_F")
+    fundamentals_missing = (
+        fundamental_total is None or (isinstance(fundamental_total, float) and np.isnan(fundamental_total)) or
+        fundamental_quality is None or (isinstance(fundamental_quality, float) and np.isnan(fundamental_quality))
+    )
+    if fundamentals_missing:
+        warnings.append("Missing: Fundamental_S/Quality_Score_F")
     
     # Check technical metrics
     rsi = row.get("RSI")
@@ -60,12 +70,15 @@ def evaluate_data_quality(row: pd.Series) -> Tuple[str, int, list[str]]:
     
     # Determine quality level
     total_critical = len(critical_metrics)
-    if valid_count >= total_critical * 0.85:  # 85%+ metrics valid
-        quality = "high"
-    elif valid_count >= total_critical * 0.60:  # 60-85% metrics valid
-        quality = "medium"
-    else:
+    if fundamentals_missing:
         quality = "low"
+    else:
+        if valid_count >= total_critical * 0.85:  # 85%+ metrics valid
+            quality = "high"
+        elif valid_count >= total_critical * 0.60:  # 60-85% metrics valid
+            quality = "medium"
+        else:
+            quality = "low"
     
     return quality, valid_count, warnings
 
@@ -139,11 +152,20 @@ def classify_stock(row: pd.Series) -> StockClassification:
         logger.debug(f"🔍 {ticker}: DataQuality={data_quality}, ValidFields={valid_count}/6, "
                     f"RiskWarnings={len(risk_warnings)}, Warnings={all_warnings[:2]}")
     
-    # Initial classification based on data quality
+    # Force speculative if fundamentals missing
+    fundamentals_missing = (
+        row.get("Fundamental_S") is None or (isinstance(row.get("Fundamental_S"), float) and np.isnan(row.get("Fundamental_S"))) or
+        row.get("Quality_Score_F") is None or (isinstance(row.get("Quality_Score_F"), float) and np.isnan(row.get("Quality_Score_F")))
+    )
+    if fundamentals_missing and data_quality != "low":
+        data_quality = "low"
+        all_warnings.append("Fundamentals missing → forced low quality")
+
+    # Initial classification based on (possibly adjusted) data quality
     if data_quality == "low":
         risk_level = "speculative"
         confidence_level = "none"
-        should_display = False  # Don't show low-quality stocks
+        should_display = False  # Don't show low-quality / missing-fundamentals stocks
     elif data_quality == "medium" and len(risk_warnings) >= 3:
         risk_level = "speculative"
         confidence_level = "low"
@@ -291,13 +313,13 @@ def filter_core_recommendations(
                           f"Risk={row.get('Risk_Level', 'N/A')}")
     
     # Filter 2: Minimum quality score (fundamental)
-    if "Quality_Score" in filtered.columns:
+    if "Quality_Score_F" in filtered.columns:
         min_qual = config.get("MIN_QUALITY_SCORE_CORE", 27.0)
         filtered = filtered[
-            (filtered["Quality_Score"].isna()) | 
-            (filtered["Quality_Score"] >= min_qual)
+            (filtered["Quality_Score_F"].isna()) | 
+            (filtered["Quality_Score_F"] >= min_qual)
         ]
-        logger.info(f"After quality score >= {min_qual}: {len(filtered)}/{initial_count}")
+        logger.info(f"After fundamental quality score >= {min_qual}: {len(filtered)}/{initial_count}")
     
     # Filter 3: Maximum overextension
     if "OverextRatio" in filtered.columns:
@@ -328,13 +350,13 @@ def filter_core_recommendations(
         logger.info(f"After RSI in [{rsi_min}, {rsi_max}]: {len(filtered)}/{initial_count}")
     
     # Filter 6: Minimum reward/risk ratio
-    if "RR_Ratio" in filtered.columns:
+    if "RewardRisk" in filtered.columns:
         min_rr = config.get("MIN_RR_CORE", 1.5)
         filtered = filtered[
-            (filtered["RR_Ratio"].isna()) | 
-            (filtered["RR_Ratio"] >= min_rr)
+            (filtered["RewardRisk"].isna()) | 
+            (filtered["RewardRisk"] >= min_rr)
         ]
-        logger.info(f"After RR_Ratio >= {min_rr}: {len(filtered)}/{initial_count}")
+        logger.info(f"After RewardRisk >= {min_rr}: {len(filtered)}/{initial_count}")
     
     logger.info(f"Final Core recommendations: {len(filtered)}/{initial_count} stocks passed all filters")
     

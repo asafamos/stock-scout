@@ -507,33 +507,48 @@ def fetch_fundamentals_bundle(ticker: str) -> dict:
     - from_finnhub: True if Finnhub provided data
     """
     out: dict = {"from_fmp": False, "from_alpha": False, "from_finnhub": False}
-    
-    # Try FMP first if available
+
+    # FMP first
     fmp_key = _env("FMP_API_KEY")
     if fmp_key:
         d = _fmp_metrics_fetch(ticker, fmp_key)
-        if d and any(np.isfinite(d.get(k, np.nan)) for k in ["roe", "pe", "ps", "gm"]):
-            d["from_fmp"] = True
-            d["from_alpha"] = False
-            d["from_finnhub"] = False
-            return d
-    
-    # קודם Alpha (אם מותר לפי בדיקת קישוריות)
+        if d:
+            has_core_fields = any(np.isfinite(d.get(k, np.nan)) for k in ["roe", "pe", "ps", "gm"])
+            if has_core_fields:
+                d["from_fmp"] = True
+                logger.debug(f"Fundamentals(FMP) ✓ {ticker} — roe={d.get('roe')} pe={d.get('pe')} ps={d.get('ps')} gm={d.get('gm')}")
+                return d
+            else:
+                logger.debug(f"Fundamentals(FMP) ✗ {ticker} — missing core fields")
+        else:
+            logger.debug(f"Fundamentals(FMP) ✗ {ticker} — empty response")
+    else:
+        logger.debug(f"Fundamentals(FMP) skipped {ticker} — no API key")
+
+    # Alpha Vantage fallback
     if bool(st.session_state.get("_alpha_ok")) and bool(_env("ALPHA_VANTAGE_API_KEY")):
         d = _alpha_overview_fetch(ticker)
-        if d and any(np.isfinite(d.get(k, np.nan)) for k in ["roe", "pe", "ps"]):
-            d["from_fmp"] = False
-            d["from_alpha"] = True
-            d["from_finnhub"] = False
-            return d
-    
-    # אחרת Finnhub
+        if d:
+            has_core_fields = any(np.isfinite(d.get(k, np.nan)) for k in ["roe", "pe", "ps"])
+            if has_core_fields:
+                d["from_alpha"] = True
+                logger.debug(f"Fundamentals(Alpha) ✓ {ticker} — roe={d.get('roe')} pe={d.get('pe')} ps={d.get('ps')}")
+                return d
+            else:
+                logger.debug(f"Fundamentals(Alpha) ✗ {ticker} — missing core fields")
+        else:
+            logger.debug(f"Fundamentals(Alpha) ✗ {ticker} — empty / rate limited")
+    else:
+        logger.debug(f"Fundamentals(Alpha) skipped {ticker} — connectivity or key missing")
+
+    # Finnhub last
     d = _finnhub_metrics_fetch(ticker)
     if d:
-        d["from_fmp"] = False
-        d["from_alpha"] = False
         d["from_finnhub"] = True
-    return d or out
+        logger.debug(f"Fundamentals(Finnhub) ✓ {ticker}")
+        return d
+    logger.debug(f"Fundamentals(Finnhub) ✗ {ticker} — empty response")
+    return out
 
 
 def _fmp_metrics_fetch(ticker: str, api_key: str) -> Dict[str, any]:
@@ -1225,9 +1240,10 @@ for col in ["RS_63d", "Volume_Surge", "MA_Aligned", "Quality_Score",
     results[col] = np.nan
 
 advanced_keep_mask = []
-take_k_advanced = min(CONFIG["BETA_TOP_K"], len(results))
+logger.info(f"🔬 Running advanced filters on full set ({len(results)} stocks)...")
+rejection_reasons = {}
 
-for idx in results.head(take_k_advanced).index:
+for idx in results.index:
     tkr = results.at[idx, "Ticker"]
     if tkr not in data_map or benchmark_df.empty:
         advanced_keep_mask.append(True)
@@ -1241,6 +1257,11 @@ for idx in results.head(take_k_advanced).index:
     
     # Check rejection criteria
     should_reject, reason = should_reject_ticker(signals)
+    
+    # Debug: Log rejections
+    if should_reject:
+        logger.debug(f"{tkr} rejected: {reason} | signals: {signals}")
+        rejection_reasons[reason] = rejection_reasons.get(reason, 0) + 1
     
     if should_reject:
         advanced_keep_mask.append(False)
@@ -1263,6 +1284,11 @@ for idx in results.head(take_k_advanced).index:
 while len(advanced_keep_mask) < len(results):
     advanced_keep_mask.append(True)
 
+# Log rejection statistics
+logger.info(f"📊 Advanced filter results: {sum(advanced_keep_mask)}/{len(advanced_keep_mask)} stocks kept (after rejections)")
+if rejection_reasons:
+    logger.info(f"Rejection breakdown: {rejection_reasons}")
+
 results = results[advanced_keep_mask].reset_index(drop=True)
 
 # Re-sort by enhanced score
@@ -1277,6 +1303,16 @@ if results.empty:
 # 3d) Apply risk classification and data quality evaluation
 t0 = t_start()
 st.info("🔍 מסווג מניות לפי רמת סיכון ואיכות נתונים...")
+
+# Debug: Check what data we have
+logger.info(f"Columns available: {results.columns.tolist()}")
+logger.info(f"Sample RS_63d values: {results['RS_63d'].head().tolist() if 'RS_63d' in results.columns else 'MISSING'}")
+logger.info(f"Sample Volume_Surge values: {results['Volume_Surge'].head().tolist() if 'Volume_Surge' in results.columns else 'MISSING'}")
+logger.info(f"Sample RR_Ratio values: {results['RR_Ratio'].head().tolist() if 'RR_Ratio' in results.columns else 'MISSING'}")
+logger.info(f"Sample Quality_Score values: {results['Quality_Score'].head().tolist() if 'Quality_Score' in results.columns else 'MISSING'}")
+logger.info(f"Sample Fundamental_S values: {results['Fundamental_S'].head().tolist() if 'Fundamental_S' in results.columns else 'MISSING'}")
+logger.info(f"Sample Momentum_Consistency values: {results['Momentum_Consistency'].head().tolist() if 'Momentum_Consistency' in results.columns else 'MISSING'}")
+
 results = apply_classification(results)
 
 # Show classification statistics
