@@ -1493,8 +1493,13 @@ if rec_df.empty:
     st.info("אין כרגע מניות שעוברות את הסף עם סכום קנייה חיובי.")
 else:
     # Split into Core and Speculative
-    core_df = rec_df[rec_df.get("Risk_Level", "core") == "core"].head(CONFIG["TOPK_RECOMMEND"])
-    spec_df = rec_df[rec_df.get("Risk_Level", "speculative") == "speculative"].head(CONFIG["TOPK_RECOMMEND"])
+    if "Risk_Level" in rec_df.columns:
+        core_df = rec_df[rec_df["Risk_Level"] == "core"].head(CONFIG["TOPK_RECOMMEND"])
+        spec_df = rec_df[rec_df["Risk_Level"] == "speculative"].head(CONFIG["TOPK_RECOMMEND"])
+    else:
+        # Fallback if Risk_Level column doesn't exist
+        core_df = rec_df.head(CONFIG["TOPK_RECOMMEND"])
+        spec_df = pd.DataFrame()
     
     # Display Core recommendations first
     if not core_df.empty:
