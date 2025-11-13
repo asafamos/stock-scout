@@ -2283,6 +2283,9 @@ else:
     <div class="item"><b>קרבה לשיא 52ש׳:</b> {near52 if not np.isnan(near52) else 'לא זמין'}%</div>
     <div class="item"><b>ניקוד:</b> {int(round(score))}</div>
     <div class="item"><b>מקורות:</b> {sources_esc.replace(' · ','&nbsp;•&nbsp;')}</div>
+    <div class="item"><b>מהימנות מחיר:</b> {r.get('Price_Reliability', np.nan)}</div>
+    <div class="item"><b>מהימנות פונד׳:</b> {r.get('Fundamental_Reliability', np.nan)}</div>
+    <div class="item"><b>ציון מהימנות:</b> {r.get('Reliability_Score', np.nan)}</div>
     <div class="item"><b>סכום קנייה מומלץ:</b> ${buy_amt:,.0f}</div>
     <div class="item"><b>טווח החזקה:</b> {horizon}</div>
     <div class="item"><b>מחיר יחידה:</b> {unit_price_fmt}</div>
@@ -2458,10 +2461,10 @@ if "Reliability_Score" in view_df_source.columns and "Source_List" in view_df_so
 hebrew_cols = {
     "Ticker": "טיקר",
     "Price_Yahoo": "מחיר (Yahoo)",
-    "מחיר ממוצע": "מחיר ממוצע",
+    "Price_Mean": "מחיר ממוצע",
     "Unit_Price": "מחיר יחידה (חישוב)",
-    "סטיית תקן": "סטיית תקן",
-    "מקורות מחיר": "מקורות מחיר",
+    "Price_STD": "סטיית תקן",
+    "Source_List": "מקורות מחיר",
     "Price_Reliability": "מהימנות מחיר",
     "Fundamental_Reliability": "מהימנות פונד׳",
     "Reliability_Score": "ציון מהימנות",
