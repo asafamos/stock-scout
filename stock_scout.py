@@ -94,7 +94,7 @@ CONFIG = dict(
     BETA_MAX_ALLOWED=2.0,
     BETA_TOP_K=60,
     EXTERNAL_PRICE_VERIFY=True,
-    TOP_VALIDATE_K=12,
+    TOP_VALIDATE_K=30,
     TOPN_RESULTS=15,
     TOPK_RECOMMEND=5,
     # ==================== CORE RECOMMENDATION FILTERS ====================
@@ -110,7 +110,7 @@ CONFIG = dict(
     TARGET_RECOMMENDATIONS_MAX=7,     # Show only top N if more than this pass filters
     ENABLE_SIMFIN=True,               # Attempt SimFin fundamentals if API key present
     COVERAGE_WARN_THRESHOLD=0.4,      # Warn if <40% of tickers have ≥3 fundamental fields
-    ENABLE_IEX=True,                  # Attempt IEX Cloud fundamentals & price if API key present
+    # ENABLE_IEX removed (IEX service no longer available)
     ENABLE_MARKETSTACK=True,          # Marketstack price source (EOD latest)
     ENABLE_NASDAQ_DL=True,            # Nasdaq Data Link price source (experimental)
     ENABLE_EODHD=True,                # EODHD price + fundamentals source
@@ -507,7 +507,7 @@ def fetch_fundamentals_bundle(ticker: str) -> dict:
     """משיכת פונדמנטלים ממספר מקורות ומיזוג לקובץ אחד.
 
     במקום לחזור מוקדם על המקור הראשון שיש בו מעט שדות, אנו מנסים למלא חוסרים
-    דרך מקורות נוספים (FMP Full → FMP Legacy → SimFin → IEX → Alpha → Finnhub).
+    דרך מקורות נוספים (FMP Full → FMP Legacy → SimFin → Alpha → Finnhub → EODHD).
     כל מקור יכול להשלים שדות שחסרים או NaN במילון המאוחד.
 
     החזר: dict עם השדות הרלוונטיים + דגלי מקור ו-Fund_Coverage_Pct.
@@ -527,7 +527,7 @@ def fetch_fundamentals_bundle(ticker: str) -> dict:
         "from_alpha": False,
         "from_finnhub": False,
         "from_simfin": False,
-        "from_iex": False,
+        # "from_iex" removed
         "_sources_used": []
     }
 
@@ -571,42 +571,6 @@ def fetch_fundamentals_bundle(ticker: str) -> dict:
         else:
             logger.debug(f"Fundamentals merge: SimFin skipped {ticker} — no API key")
 
-    if CONFIG.get("ENABLE_IEX"):
-        iex_key = _env("IEX_API_KEY") or _env("IEX_TOKEN")
-        if iex_key:
-            r_iex = http_get_retry(
-                f"https://cloud.iexapis.com/stable/stock/{ticker}/advanced-stats?token={iex_key}",
-                tries=1,
-                timeout=8,
-            )
-            if r_iex:
-                try:
-                    stats = r_iex.json()
-                    def g(k):
-                        v = stats.get(k)
-                        return float(v) if isinstance(v,(int,float)) and np.isfinite(v) else np.nan
-                    gp = g("grossProfit")
-                    rev = g("totalRevenue")
-                    gm_calc = (gp/rev) if (np.isfinite(gp) and np.isfinite(rev) and rev>0) else np.nan
-                    iex_dict = {
-                        "roe": g("returnOnEquity"),
-                        "roic": np.nan,
-                        "gm": gm_calc,
-                        "ps": g("priceToSales"),
-                        "pe": g("peRatio"),
-                        "de": g("debtToEquity"),
-                        "rev_g_yoy": g("revenueGrowth"),
-                        "eps_g_yoy": g("epsGrowth"),
-                        "sector": stats.get("sector") or "Unknown",
-                    }
-                    _merge(iex_dict, "from_iex")
-                    logger.debug(f"Fundamentals merge: IEX ✓ {ticker}")
-                except Exception:
-                    logger.debug(f"Fundamentals merge: IEX ✗ {ticker} parse error")
-            else:
-                logger.debug(f"Fundamentals merge: IEX ✗ {ticker} request failed")
-        else:
-            logger.debug(f"Fundamentals merge: IEX skipped {ticker} — no API key")
 
     if bool(st.session_state.get("_alpha_ok")) and bool(_env("ALPHA_VANTAGE_API_KEY")):
         alpha = _alpha_overview_fetch(ticker)
@@ -1041,26 +1005,6 @@ def get_polygon_price(ticker: str) -> Optional[float]:
         return None
     return None
 
-def get_iex_price(ticker: str) -> Optional[float]:
-    """Fetch latest price from IEX Cloud stable quote endpoint."""
-    token = _env("IEX_API_KEY") or _env("IEX_TOKEN")
-    if not token or not CONFIG.get("ENABLE_IEX"):
-        return None
-    r = http_get_retry(
-        f"https://cloud.iexapis.com/stable/stock/{ticker}/quote?token={token}",
-        tries=1,
-        timeout=8,
-    )
-    if not r:
-        return None
-    try:
-        j = r.json()
-        lp = j.get("latestPrice") or j.get("iexRealtimePrice") or j.get("delayedPrice")
-        if isinstance(lp, (int, float)) and np.isfinite(lp):
-            return float(lp)
-    except Exception:
-        return None
-    return None
 
 
 def get_tiingo_price(ticker: str) -> Optional[float]:
@@ -1208,21 +1152,42 @@ poly_ok, poly_reason = _check_polygon()
 tiin_ok, tiin_reason = _check_tiingo()
 fmp_ok, fmp_reason = _check_fmp()
 st.session_state["_alpha_ok"] = bool(alpha_ok)
-status_df = pd.DataFrame(
-    {
-        "מקור": ["FMP", "Alpha Vantage", "Finnhub", "Polygon", "Tiingo"],
-        "סטטוס": [
-            "🟢" if fmp_ok else "🔴",
-            "🟢" if alpha_ok else "🔴",
-            "🟢" if finn_ok else "🔴",
-            "🟢" if poly_ok else "🔴",
-            "🟢" if tiin_ok else "🔴",
-        ],
-        "סיבה": [fmp_reason, alpha_reason, finnh_reason, poly_reason, tiin_reason],
-    },
-    index=range(1, 6)
-)
+simfin_key = _env("SIMFIN_API_KEY") if CONFIG.get("ENABLE_SIMFIN") else None
+marketstack_key = _env("MARKETSTACK_API_KEY") if CONFIG.get("ENABLE_MARKETSTACK") else None
+nasdaq_key = (_env("NASDAQ_API_KEY") or _env("NASDAQ_DL_API_KEY")) if CONFIG.get("ENABLE_NASDAQ_DL") else None
+eodhd_key = (_env("EODHD_API_KEY") or _env("EODHD_TOKEN")) if CONFIG.get("ENABLE_EODHD") else None
+
+providers_status = []
+def add_provider(name, price_ok, fund_ok, reason):
+    providers_status.append({
+        "מקור": name,
+        "מחיר": "🟢" if price_ok else "🔴",
+        "פונדמנטלים": "🟢" if fund_ok else "🔴",
+        "סיבה": reason
+    })
+
+# Yahoo baseline always price only
+add_provider("Yahoo", True, False, "בסיס")
+add_provider("FMP", False, fmp_ok, fmp_reason)
+add_provider("Alpha Vantage", alpha_ok, alpha_ok, alpha_reason)
+add_provider("Finnhub", finn_ok, finn_ok, finnh_reason)
+add_provider("Polygon", poly_ok, False, poly_reason)
+add_provider("Tiingo", tiin_ok, False, tiin_reason)
+add_provider("SimFin", False, bool(simfin_key), "Key" if simfin_key else "אין מפתח")
+add_provider("Marketstack", bool(marketstack_key), False, "Key" if marketstack_key else "אין מפתח")
+add_provider("NasdaqDL", bool(nasdaq_key), False, "Key" if nasdaq_key else "אין מפתח")
+add_provider("EODHD", bool(eodhd_key), bool(eodhd_key), "Key" if eodhd_key else "אין מפתח")
+
+status_df = pd.DataFrame(providers_status)
+st.markdown("### 🔌 סטטוס מקורות")
 st.table(status_df.style.set_properties(**{"text-align": "center", "direction": "rtl"}))
+
+# Cache reset button
+col_cache, _ = st.columns([1,4])
+with col_cache:
+    if st.button("🔄 איפוס Cache וטעינה מחדש"):
+        st.cache_data.clear()
+        st.experimental_rerun()
 
 # timers
 def t_start() -> float:
@@ -1739,7 +1704,7 @@ else:
 t0 = t_start()
 results["Price_Alpha"] = np.nan
 results["Price_Finnhub"] = np.nan
-results["Price_IEX"] = np.nan
+ # IEX price column removed
 results["Price_Marketstack"] = np.nan
 results["Price_NasdaqDL"] = np.nan
 results["Price_EODHD"] = np.nan
@@ -1792,13 +1757,6 @@ def _fetch_external_for(
         if p is not None:
             vals.setdefault("EODHD", p)
             srcs.append("📘EODHD")
-    if CONFIG.get("ENABLE_IEX") and _env("IEX_API_KEY") or _env("IEX_TOKEN"):
-        p = get_iex_price(tkr)
-        if p is not None:
-            vals.setdefault("IEX", p)
-            srcs.append("🟤IEX")
-    return tkr, vals, srcs
-
 
 if CONFIG["EXTERNAL_PRICE_VERIFY"] and (
     alpha_ok
@@ -1808,7 +1766,6 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and (
     or (CONFIG.get("ENABLE_MARKETSTACK") and _env("MARKETSTACK_API_KEY"))
     or (CONFIG.get("ENABLE_NASDAQ_DL") and (_env("NASDAQ_API_KEY") or _env("NASDAQ_DL_API_KEY")))
     or (CONFIG.get("ENABLE_EODHD") and (_env("EODHD_API_KEY") or _env("EODHD_TOKEN")))
-    or (CONFIG.get("ENABLE_IEX") and (_env("IEX_API_KEY") or _env("IEX_TOKEN")))
 ):
     subset_idx = list(results.head(int(CONFIG["TOP_VALIDATE_K"])).index)
     with ThreadPoolExecutor(max_workers=4) as ex:
@@ -1834,7 +1791,6 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and (
                 [
                     "Price_Alpha",
                     "Price_Finnhub",
-                    "Price_IEX",
                     "Price_Marketstack",
                     "Price_NasdaqDL",
                     "Price_EODHD",
@@ -1845,7 +1801,7 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and (
             ] = [
                 vals.get("Alpha", np.nan),
                 vals.get("Finnhub", np.nan),
-                vals.get("IEX", np.nan),
+                # IEX removed
                 vals.get("Marketstack", np.nan),
                 vals.get("NasdaqDL", np.nan),
                 vals.get("EODHD", np.nan),
@@ -1880,10 +1836,10 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and (
             boost = 0.0
             if bool(row.get("from_fmp_full")):
                 boost += 0.05
-            if bool(row.get("from_iex")):
+            # IEX removed
                 boost += 0.05
-            results.at[i, "Fundamental_Reliability"] = round(min(1.0, cov + boost), 4)
-    else:
+            # IEX boost removed
+            # IEX boost removed
         results["Fundamental_Reliability"] = np.nan
 
     # Combined reliability score
@@ -1942,7 +1898,7 @@ results = apply_sector_cap(
 def source_badges(row: pd.Series) -> str:
     """Build badges for all fundamental + price providers present on the row.
 
-    Fundamental flags (merged dict) use: from_fmp_full, from_fmp, from_simfin, from_iex, from_eodhd, from_alpha, from_finnhub.
+    Fundamental flags (merged dict) use: from_fmp_full, from_fmp, from_simfin, from_eodhd, from_alpha, from_finnhub.
     Price providers parsed from Source_List.
     """
     badges: list[str] = []
@@ -1951,8 +1907,7 @@ def source_badges(row: pd.Series) -> str:
         badges.append("🟣FMP")
     if row.get("from_simfin"):
         badges.append("🧪SimFin")
-    if row.get("from_iex"):
-        badges.append("🟤IEX")
+    # IEX removed
     if row.get("from_eodhd"):
         badges.append("📘EODHD")
     if row.get("from_alpha"):
@@ -2488,7 +2443,7 @@ hebrew_cols = {
     "Fundamental_Reliability": "מהימנות פונד׳",
     "Reliability_Score": "ציון מהימנות",
     "Sources_Count": "מספר מקורות",
-    "Price_IEX": "מחיר IEX",
+    # "Price_IEX" removed
     "Price_Marketstack": "מחיר Marketstack",
     "Price_NasdaqDL": "מחיר NasdaqDL",
     "Price_EODHD": "מחיר EODHD",
@@ -2553,7 +2508,6 @@ show_order = [
     "מניות לקנייה",
     "עודף ($)",
     "מקורות מחיר",
-    "מחיר IEX",
     "מחיר Marketstack",
     "מחיר NasdaqDL",
     "מחיר EODHD",
