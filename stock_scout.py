@@ -275,9 +275,9 @@ def _check_fmp() -> Tuple[bool, str]:
     if not k:
         return False, "Missing API key"
     r = http_get_retry(
-        f"https://financialmodelingprep.com/api/v3/profile/AAPL?apikey={k}",
-        tries=1,
-        timeout=6,
+        f"https://financialmodelingprep.com/stable/profile?symbol=AAPL&apikey={k}",
+        tries=3,
+        timeout=12.0,
     )
     if not r:
         return False, "Timeout"
@@ -285,6 +285,12 @@ def _check_fmp() -> Tuple[bool, str]:
         j = r.json()
     except Exception:
         return False, "Bad JSON"
+    # Check for FMP error responses
+    if isinstance(j, dict):
+        if "Error Message" in j:
+            return False, j["Error Message"]
+        if "error" in j:
+            return False, str(j.get("error", "Unknown error"))
     ok = isinstance(j, list) and j and isinstance(j[0], dict) and "symbol" in j[0]
     return ok, ("OK" if ok else "Bad response")
 
@@ -537,7 +543,7 @@ def _fmp_metrics_fetch(ticker: str, api_key: str) -> Dict[str, any]:
     """
     try:
         # FMP key-metrics endpoint provides comprehensive ratios
-        url = f"https://financialmodelingprep.com/api/v3/key-metrics/{ticker}?apikey={api_key}"
+        url = f"https://financialmodelingprep.com/stable/key-metrics?symbol={ticker}&apikey={api_key}"
         r = http_get_retry(url, tries=2, timeout=8)
         if not r:
             return {}
@@ -559,7 +565,7 @@ def _fmp_metrics_fetch(ticker: str, api_key: str) -> Dict[str, any]:
                 return default
         
         # Get sector from profile endpoint
-        profile_url = f"https://financialmodelingprep.com/api/v3/profile/{ticker}?apikey={api_key}"
+        profile_url = f"https://financialmodelingprep.com/stable/profile?symbol={ticker}&apikey={api_key}"
         sector = "Unknown"
         try:
             profile_r = http_get_retry(profile_url, tries=1, timeout=6)
