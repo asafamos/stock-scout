@@ -344,9 +344,9 @@ def should_reject_ticker(signals: Dict[str, any]) -> Tuple[bool, str]:
     if np.isfinite(rs_63d) and rs_63d < -0.10:
         return True, "Underperforming market by >10%"
     
-    # Reject if weak momentum consistency (relaxed threshold)
+    # Reject if weak momentum consistency
     mom_consistency = signals.get("momentum_consistency", 0.0)
-    if mom_consistency < 0.15:  # Relaxed from 0.3 to 0.15
+    if mom_consistency < 0.30:  # Restore original stricter threshold expected by tests
         return True, "Weak momentum consistency"
     
     # Reject if poor risk/reward

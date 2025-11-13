@@ -501,68 +501,73 @@ def _to_01(x: float, low: float, high: float) -> float:
 
 @st.cache_data(ttl=60 * 60)
 def fetch_fundamentals_bundle(ticker: str) -> dict:
-    """
-    Fetch fundamental metrics from available providers.
-    
-    Returns dict with metrics + provider metadata:
-    - from_fmp: True if FMP provided data
-    - from_alpha: True if Alpha Vantage provided data  
-    - from_finnhub: True if Finnhub provided data
-    """
-    out: dict = {"from_fmp": False, "from_alpha": False, "from_finnhub": False, "from_simfin": False}
+    """משיכת פונדמנטלים ממספר מקורות ומיזוג לקובץ אחד.
 
-    # FMP first (full bundle, then legacy fallback)
+    במקום לחזור מוקדם על המקור הראשון שיש בו מעט שדות, אנו מנסים למלא חוסרים
+    דרך מקורות נוספים (FMP Full → FMP Legacy → SimFin → IEX → Alpha → Finnhub).
+    כל מקור יכול להשלים שדות שחסרים או NaN במילון המאוחד.
+
+    החזר: dict עם השדות הרלוונטיים + דגלי מקור ו-Fund_Coverage_Pct.
+    """
+    merged: dict = {
+        "roe": np.nan,
+        "roic": np.nan,
+        "gm": np.nan,
+        "ps": np.nan,
+        "pe": np.nan,
+        "de": np.nan,
+        "rev_g_yoy": np.nan,
+        "eps_g_yoy": np.nan,
+        "sector": "Unknown",
+        "from_fmp": False,
+        "from_fmp_full": False,
+        "from_alpha": False,
+        "from_finnhub": False,
+        "from_simfin": False,
+        "from_iex": False,
+        "_sources_used": []
+    }
+
+    def _merge(src: dict, flag: str):
+        if not src:
+            return
+        for k in ["roe","roic","gm","ps","pe","de","rev_g_yoy","eps_g_yoy"]:
+            v_cur = merged.get(k, np.nan)
+            v_new = src.get(k, np.nan)
+            if (not np.isfinite(v_cur)) and isinstance(v_new, (int,float)) and np.isfinite(v_new):
+                merged[k] = float(v_new)
+        # sector preference: keep first non-Unknown
+        if merged.get("sector", "Unknown") == "Unknown":
+            sec = src.get("sector", "Unknown")
+            if isinstance(sec, str) and sec:
+                merged["sector"] = sec
+        merged[flag] = True
+        merged["_sources_used"].append(flag)
+
     fmp_key = _env("FMP_API_KEY")
     if fmp_key:
-        d_full = _fmp_full_bundle_fetch(ticker, fmp_key)
-        if d_full:
-            has_core_fields = any(np.isfinite(d_full.get(k, np.nan)) for k in ["roe", "pe", "ps", "gm"])
-            if has_core_fields:
-                d_full["from_fmp"] = True
-                logger.debug(
-                    f"Fundamentals(FMP/full) ✓ {ticker} — valid={d_full.get('_fmp_field_count')} roe={d_full.get('roe')} pe={d_full.get('pe')} ps={d_full.get('ps')} gm={d_full.get('gm')}"
-                )
-                # annotate coverage
-                cov_fields = [d_full.get(k) for k in ["roe","roic","gm","ps","pe","de","rev_g_yoy","eps_g_yoy"]]
-                d_full["Fund_Coverage_Pct"] = float(sum(isinstance(v,(int,float)) and np.isfinite(v) for v in cov_fields))/float(len(cov_fields))
-                return d_full
-            else:
-                logger.debug(f"Fundamentals(FMP/full) ✗ {ticker} — missing core fields")
-        # Legacy fallback
-        d_legacy = _fmp_metrics_fetch(ticker, fmp_key)
-        if d_legacy:
-            has_core_fields = any(np.isfinite(d_legacy.get(k, np.nan)) for k in ["roe", "pe", "ps", "gm"])
-            if has_core_fields:
-                d_legacy["from_fmp"] = True
-                logger.debug(
-                    f"Fundamentals(FMP/legacy) ✓ {ticker} — roe={d_legacy.get('roe')} pe={d_legacy.get('pe')} ps={d_legacy.get('ps')} gm={d_legacy.get('gm')}"
-                )
-                cov_fields = [d_legacy.get(k) for k in ["roe","roic","gm","ps","pe","de","rev_g_yoy","eps_g_yoy"]]
-                d_legacy["Fund_Coverage_Pct"] = float(sum(isinstance(v,(int,float)) and np.isfinite(v) for v in cov_fields))/float(len(cov_fields))
-                return d_legacy
-            else:
-                logger.debug(f"Fundamentals(FMP/legacy) ✗ {ticker} — missing core fields")
-        else:
-            logger.debug(f"Fundamentals(FMP/legacy) ✗ {ticker} — empty response")
+        full = _fmp_full_bundle_fetch(ticker, fmp_key)
+        if full:
+            _merge(full, "from_fmp_full")
+            merged["from_fmp"] = True  # treat full as fmp presence
+            logger.debug(f"Fundamentals merge: FMP/full ✓ {ticker} fields={full.get('_fmp_field_count')}")
+        legacy = _fmp_metrics_fetch(ticker, fmp_key)
+        if legacy:
+            _merge(legacy, "from_fmp")
+            logger.debug(f"Fundamentals merge: FMP/legacy ✓ {ticker}")
     else:
-        logger.debug(f"Fundamentals(FMP) skipped {ticker} — no API key")
+        logger.debug(f"Fundamentals merge: FMP skipped {ticker} — no API key")
 
-    # SimFin optional (before Alpha)
     if CONFIG.get("ENABLE_SIMFIN"):
         sim_key = _env("SIMFIN_API_KEY")
         if sim_key:
-            d_sim = _simfin_fetch(ticker, sim_key)
-            if d_sim:
-                logger.debug(f"Fundamentals(SimFin) ✓ {ticker} — fields={d_sim.get('_simfin_field_count')}")
-                cov_fields = [d_sim.get(k) for k in ["roe","roic","gm","ps","pe","de","rev_g_yoy","eps_g_yoy"]]
-                d_sim["Fund_Coverage_Pct"] = float(sum(isinstance(v,(int,float)) and np.isfinite(v) for v in cov_fields))/float(len(cov_fields))
-                return d_sim
-            else:
-                logger.debug(f"Fundamentals(SimFin) ✗ {ticker} — insufficient fields")
+            sim = _simfin_fetch(ticker, sim_key)
+            if sim:
+                _merge(sim, "from_simfin")
+                logger.debug(f"Fundamentals merge: SimFin ✓ {ticker}")
         else:
-            logger.debug(f"Fundamentals(SimFin) skipped {ticker} — no API key")
+            logger.debug(f"Fundamentals merge: SimFin skipped {ticker} — no API key")
 
-    # IEX Cloud fundamentals (advanced-stats) before Alpha/Finnhub
     if CONFIG.get("ENABLE_IEX"):
         iex_key = _env("IEX_API_KEY") or _env("IEX_TOKEN")
         if iex_key:
@@ -591,50 +596,35 @@ def fetch_fundamentals_bundle(ticker: str) -> dict:
                         "eps_g_yoy": g("epsGrowth"),
                         "sector": stats.get("sector") or "Unknown",
                     }
-                    has_core_fields = any(np.isfinite(iex_dict.get(k,np.nan)) for k in ["roe","pe","ps","gm"])
-                    if has_core_fields:
-                        iex_dict["from_iex"] = True
-                        cov_fields = [iex_dict.get(k) for k in ["roe","roic","gm","ps","pe","de","rev_g_yoy","eps_g_yoy"]]
-                        iex_dict["Fund_Coverage_Pct"] = float(sum(isinstance(v,(int,float)) and np.isfinite(v) for v in cov_fields))/float(len(cov_fields))
-                        logger.debug(f"Fundamentals(IEX) ✓ {ticker} — roe={iex_dict.get('roe')} pe={iex_dict.get('pe')} ps={iex_dict.get('ps')} gm={iex_dict.get('gm')}")
-                        return iex_dict
-                    else:
-                        logger.debug(f"Fundamentals(IEX) ✗ {ticker} — missing core fields")
+                    _merge(iex_dict, "from_iex")
+                    logger.debug(f"Fundamentals merge: IEX ✓ {ticker}")
                 except Exception:
-                    logger.debug(f"Fundamentals(IEX) ✗ {ticker} — parse error")
+                    logger.debug(f"Fundamentals merge: IEX ✗ {ticker} parse error")
             else:
-                logger.debug(f"Fundamentals(IEX) ✗ {ticker} — request failed")
+                logger.debug(f"Fundamentals merge: IEX ✗ {ticker} request failed")
         else:
-            logger.debug(f"Fundamentals(IEX) skipped {ticker} — no API key")
+            logger.debug(f"Fundamentals merge: IEX skipped {ticker} — no API key")
 
-    # Alpha Vantage fallback (after FMP, SimFin, IEX)
     if bool(st.session_state.get("_alpha_ok")) and bool(_env("ALPHA_VANTAGE_API_KEY")):
-        d = _alpha_overview_fetch(ticker)
-        if d:
-            has_core_fields = any(np.isfinite(d.get(k, np.nan)) for k in ["roe", "pe", "ps"])
-            if has_core_fields:
-                d["from_alpha"] = True
-                logger.debug(f"Fundamentals(Alpha) ✓ {ticker} — roe={d.get('roe')} pe={d.get('pe')} ps={d.get('ps')}")
-                cov_fields = [d.get(k) for k in ["roe","roic","gm","ps","pe","de","rev_g_yoy","eps_g_yoy"]]
-                d["Fund_Coverage_Pct"] = float(sum(isinstance(v,(int,float)) and np.isfinite(v) for v in cov_fields))/float(len(cov_fields))
-                return d
-            else:
-                logger.debug(f"Fundamentals(Alpha) ✗ {ticker} — missing core fields")
+        alpha = _alpha_overview_fetch(ticker)
+        if alpha:
+            _merge(alpha, "from_alpha")
+            logger.debug(f"Fundamentals merge: Alpha ✓ {ticker}")
         else:
-            logger.debug(f"Fundamentals(Alpha) ✗ {ticker} — empty / rate limited")
+            logger.debug(f"Fundamentals merge: Alpha ✗ {ticker}")
     else:
-        logger.debug(f"Fundamentals(Alpha) skipped {ticker} — connectivity or key missing")
+        logger.debug(f"Fundamentals merge: Alpha skipped {ticker}")
 
-    # Finnhub last
-    d = _finnhub_metrics_fetch(ticker)
-    if d:
-        d["from_finnhub"] = True
-        logger.debug(f"Fundamentals(Finnhub) ✓ {ticker}")
-        cov_fields = [d.get(k) for k in ["roe","roic","gm","ps","pe","de","rev_g_yoy","eps_g_yoy"]]
-        d["Fund_Coverage_Pct"] = float(sum(isinstance(v,(int,float)) and np.isfinite(v) for v in cov_fields))/float(len(cov_fields))
-        return d
-    logger.debug(f"Fundamentals(Finnhub) ✗ {ticker} — empty response")
-    return out
+    finnhub = _finnhub_metrics_fetch(ticker)
+    if finnhub:
+        _merge(finnhub, "from_finnhub")
+        logger.debug(f"Fundamentals merge: Finnhub ✓ {ticker}")
+    else:
+        logger.debug(f"Fundamentals merge: Finnhub ✗ {ticker}")
+
+    cov_fields = [merged.get(k) for k in ["roe","roic","gm","ps","pe","de","rev_g_yoy","eps_g_yoy"]]
+    merged["Fund_Coverage_Pct"] = float(sum(isinstance(v,(int,float)) and np.isfinite(v) for v in cov_fields))/float(len(cov_fields))
+    return merged
 
 
 def _fmp_metrics_fetch(ticker: str, api_key: str) -> Dict[str, any]:
@@ -1711,6 +1701,46 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and (
                 pstd,
                 " · ".join(srcs),
             ]
+    # Price reliability metric
+    results["Price_Reliability"] = np.nan
+    for i, row in results.iterrows():
+        pmean = row.get("Price_Mean", np.nan)
+        pstd = row.get("Price_STD", np.nan)
+        providers = str(row.get("Source_List", "")).split(" · ") if isinstance(row.get("Source_List"), str) else []
+        providers = [p for p in providers if p]
+        count = len(providers)
+        if np.isfinite(pmean) and pmean > 0 and np.isfinite(pstd):
+            pct_std = pstd / pmean
+            base = min(1.0, count / 5.0)
+            disp = 1.0 / (1.0 + (pct_std / 2.0))  # lower dispersion → higher reliability
+            results.at[i, "Price_Reliability"] = round(base * disp, 4)
+        else:
+            # fallback: minimal reliability if only Yahoo present
+            results.at[i, "Price_Reliability"] = min(1.0, count / 8.0)
+
+    # Fundamental reliability metric
+    if "Fund_Coverage_Pct" in results.columns:
+        results["Fundamental_Reliability"] = np.nan
+        for i, row in results.iterrows():
+            cov = row.get("Fund_Coverage_Pct", np.nan)
+            if not isinstance(cov, (int, float)) or not np.isfinite(cov):
+                continue
+            boost = 0.0
+            if bool(row.get("from_fmp_full")):
+                boost += 0.05
+            if bool(row.get("from_iex")):
+                boost += 0.05
+            results.at[i, "Fundamental_Reliability"] = round(min(1.0, cov + boost), 4)
+    else:
+        results["Fundamental_Reliability"] = np.nan
+
+    # Combined reliability score
+    if "Price_Reliability" in results.columns and "Fundamental_Reliability" in results.columns:
+        results["Reliability_Score"] = (
+            0.4 * results["Price_Reliability"].fillna(0) + 0.6 * results["Fundamental_Reliability"].fillna(0)
+        ).round(4)
+    else:
+        results["Reliability_Score"] = np.nan
 phase_times["מאמת מחירים"] = t_end(t0)
 
 # Horizon heuristic
