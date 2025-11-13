@@ -508,20 +508,34 @@ def fetch_fundamentals_bundle(ticker: str) -> dict:
     """
     out: dict = {"from_fmp": False, "from_alpha": False, "from_finnhub": False}
 
-    # FMP first
+    # FMP first (full bundle, then legacy fallback)
     fmp_key = _env("FMP_API_KEY")
     if fmp_key:
-        d = _fmp_metrics_fetch(ticker, fmp_key)
-        if d:
-            has_core_fields = any(np.isfinite(d.get(k, np.nan)) for k in ["roe", "pe", "ps", "gm"])
+        d_full = _fmp_full_bundle_fetch(ticker, fmp_key)
+        if d_full:
+            has_core_fields = any(np.isfinite(d_full.get(k, np.nan)) for k in ["roe", "pe", "ps", "gm"])
             if has_core_fields:
-                d["from_fmp"] = True
-                logger.debug(f"Fundamentals(FMP) ✓ {ticker} — roe={d.get('roe')} pe={d.get('pe')} ps={d.get('ps')} gm={d.get('gm')}")
-                return d
+                d_full["from_fmp"] = True
+                logger.debug(
+                    f"Fundamentals(FMP/full) ✓ {ticker} — valid={d_full.get('_fmp_field_count')} roe={d_full.get('roe')} pe={d_full.get('pe')} ps={d_full.get('ps')} gm={d_full.get('gm')}"
+                )
+                return d_full
             else:
-                logger.debug(f"Fundamentals(FMP) ✗ {ticker} — missing core fields")
+                logger.debug(f"Fundamentals(FMP/full) ✗ {ticker} — missing core fields")
+        # Legacy fallback
+        d_legacy = _fmp_metrics_fetch(ticker, fmp_key)
+        if d_legacy:
+            has_core_fields = any(np.isfinite(d_legacy.get(k, np.nan)) for k in ["roe", "pe", "ps", "gm"])
+            if has_core_fields:
+                d_legacy["from_fmp"] = True
+                logger.debug(
+                    f"Fundamentals(FMP/legacy) ✓ {ticker} — roe={d_legacy.get('roe')} pe={d_legacy.get('pe')} ps={d_legacy.get('ps')} gm={d_legacy.get('gm')}"
+                )
+                return d_legacy
+            else:
+                logger.debug(f"Fundamentals(FMP/legacy) ✗ {ticker} — missing core fields")
         else:
-            logger.debug(f"Fundamentals(FMP) ✗ {ticker} — empty response")
+            logger.debug(f"Fundamentals(FMP/legacy) ✗ {ticker} — empty response")
     else:
         logger.debug(f"Fundamentals(FMP) skipped {ticker} — no API key")
 
@@ -603,6 +617,77 @@ def _fmp_metrics_fetch(ticker: str, api_key: str) -> Dict[str, any]:
             "sector": sector,
         }
     except Exception as e:
+        return {}
+
+@st.cache_data(ttl=60*60)
+def _fmp_full_bundle_fetch(ticker: str, api_key: str) -> Dict[str, any]:
+    """Fetch a richer fundamental bundle from FMP using multiple endpoints (profile, key-metrics, ratios-ttm, financial-growth).
+
+    Returns a dict with unified fields similar to other providers. Falls back silently if endpoints fail.
+    """
+    try:
+        base = "https://financialmodelingprep.com/api/v3"
+        endpoints = {
+            "profile": f"{base}/profile/{ticker}?apikey={api_key}",
+            "key_metrics": f"{base}/key-metrics/{ticker}?period=annual&limit=1&apikey={api_key}",
+            "ratios_ttm": f"{base}/ratios-ttm/{ticker}?apikey={api_key}",
+            "growth": f"{base}/financial-growth/{ticker}?period=annual&limit=1&apikey={api_key}",
+        }
+
+        fetched: Dict[str, any] = {}
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            fut_map = {ex.submit(http_get_retry, url, 2, 8): name for name, url in endpoints.items()}
+            for fut in as_completed(fut_map):
+                name = fut_map[fut]
+                try:
+                    resp = fut.result()
+                    if resp and resp.status_code == 200:
+                        j = resp.json()
+                        fetched[name] = j
+                except Exception:
+                    fetched[name] = None
+
+        def pick_first(obj):
+            return obj[0] if isinstance(obj, list) and obj else {}
+
+        profile = pick_first(fetched.get("profile"))
+        key_metrics = pick_first(fetched.get("key_metrics"))
+        ratios = pick_first(fetched.get("ratios_ttm"))
+        growth = pick_first(fetched.get("growth"))
+
+        def ffloat(src, key):
+            try:
+                v = src.get(key)
+                v = float(v)
+                return v if np.isfinite(v) else np.nan
+            except Exception:
+                return np.nan
+
+        out = {
+            "roe": ffloat(key_metrics, "roe"),
+            "roic": ffloat(key_metrics, "roic"),
+            "gm": ffloat(key_metrics, "grossProfitMargin"),
+            "ps": ffloat(ratios, "priceToSalesRatioTTM"),
+            "pe": ffloat(ratios, "priceEarningsRatioTTM"),
+            "de": ffloat(ratios, "debtEquityRatioTTM"),
+            "rev_g_yoy": ffloat(growth, "revenueGrowth"),
+            "eps_g_yoy": ffloat(growth, "epsGrowth"),
+            "sector": profile.get("sector", "Unknown") if isinstance(profile, dict) else "Unknown",
+        }
+
+        # Alternate gross margin if missing
+        if not np.isfinite(out.get("gm", np.nan)):
+            alt_gm = ffloat(ratios, "grossProfitMarginTTM")
+            if np.isfinite(alt_gm):
+                out["gm"] = alt_gm
+
+        valid_fields = sum(
+            1 for k, v in out.items() if k not in ("sector",) and isinstance(v, (int, float)) and np.isfinite(v)
+        )
+        out["_fmp_field_count"] = valid_fields
+        out["from_fmp_full"] = valid_fields >= 3
+        return out if valid_fields > 0 else {}
+    except Exception:
         return {}
 
 
