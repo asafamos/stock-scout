@@ -1216,7 +1216,7 @@ col_cache, _ = st.columns([1,4])
 with col_cache:
     if st.button("🔄 איפוס Cache וטעינה מחדש"):
         st.cache_data.clear()
-        st.experimental_rerun()
+        st.rerun()
 
 # timers
 def t_start() -> float:
