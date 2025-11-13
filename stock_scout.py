@@ -16,6 +16,7 @@ Asaf Stock Scout — 2025 (Auto Mode, Zero-Input) — FMP-free
 from __future__ import annotations
 import os
 import time
+import logging
 import warnings
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Tuple
@@ -36,13 +37,17 @@ from advanced_filters import (
     should_reject_ticker, 
     fetch_benchmark_data
 )
-import logging
+
+# Core modules
+from core.logging_config import setup_logging, get_logger
+from core.config import get_config as get_core_config, get_api_keys
+from core.scoring.fundamental import compute_fundamental_score_with_breakdown
 
 warnings.filterwarnings("ignore")
 
-# basic logging for debugging during development
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Setup logging
+setup_logging(level=logging.INFO)
+logger = get_logger("stock_scout")
 
 # ==================== CONFIG ====================
 CONFIG = dict(
@@ -993,8 +998,22 @@ if CONFIG["FUNDAMENTAL_ENABLED"] and (alpha_ok or finn_ok):
     for idx in results.head(take_k).index:
         tkr = results.at[idx, "Ticker"]
         d = fetch_fundamentals_bundle(tkr)
-        fs = fundamental_score(d, surprise_bonus_on=CONFIG.get("SURPRISE_BONUS_ON", False))
-        results.loc[idx, "Fundamental_S"] = round(100 * fs, 1)
+        
+        # Get detailed breakdown using new function
+        fund_result = compute_fundamental_score_with_breakdown(d)
+        results.loc[idx, "Fundamental_S"] = round(fund_result.total, 1)
+        
+        # Store breakdown scores and labels
+        results.loc[idx, "Quality_Score_F"] = round(fund_result.breakdown.quality_score, 1)
+        results.loc[idx, "Quality_Label"] = fund_result.breakdown.quality_label
+        results.loc[idx, "Growth_Score_F"] = round(fund_result.breakdown.growth_score, 1)
+        results.loc[idx, "Growth_Label"] = fund_result.breakdown.growth_label
+        results.loc[idx, "Valuation_Score_F"] = round(fund_result.breakdown.valuation_score, 1)
+        results.loc[idx, "Valuation_Label"] = fund_result.breakdown.valuation_label
+        results.loc[idx, "Leverage_Score_F"] = round(fund_result.breakdown.leverage_score, 1)
+        results.loc[idx, "Leverage_Label"] = fund_result.breakdown.leverage_label
+        
+        # Store raw metrics
         results.loc[idx, "PE_f"] = d.get("pe", np.nan)
         results.loc[idx, "PS_f"] = d.get("ps", np.nan)
         results.loc[idx, "ROE_f"] = d.get("roe", np.nan)
@@ -1398,11 +1417,41 @@ else:
         # Format new signals
         rs_fmt = f"{rs_63d*100:+.1f}%" if np.isfinite(rs_63d) else "—"
         vol_surge_fmt = f"{vol_surge:.2f}x" if np.isfinite(vol_surge) else "—"
-        ma_status = "✅ מיושר" if ma_aligned else "⚠️ לא מיושר"
+        ma_status = "✅ מיושר" if ma_aligned else "⚠️ לא מיישר"
         quality_fmt = f"{quality_score:.0f}/50"
         rr_ratio_fmt = f"{rr_ratio:.2f}" if np.isfinite(rr_ratio) else "—"
         mom_fmt = f"{mom_consistency*100:.0f}%"
         confidence_badge = "🔥 ביטחון גבוה" if high_confidence else ""
+        
+        # Fundamental breakdown
+        qual_score_f = r.get("Quality_Score_F", np.nan)
+        qual_label = r.get("Quality_Label", "—")
+        growth_score_f = r.get("Growth_Score_F", np.nan)
+        growth_label = r.get("Growth_Label", "—")
+        val_score_f = r.get("Valuation_Score_F", np.nan)
+        val_label = r.get("Valuation_Label", "—")
+        lev_score_f = r.get("Leverage_Score_F", np.nan)
+        lev_label = r.get("Leverage_Label", "—")
+        
+        # Format fundamental scores with labels
+        qual_fmt = f"{qual_score_f:.0f} ({qual_label})" if np.isfinite(qual_score_f) else "—"
+        growth_fmt = f"{growth_score_f:.0f} ({growth_label})" if np.isfinite(growth_score_f) else "—"
+        val_fmt = f"{val_score_f:.0f} ({val_label})" if np.isfinite(val_score_f) else "—"
+        lev_fmt = f"{lev_score_f:.0f} ({lev_label})" if np.isfinite(lev_score_f) else "—"
+        
+        # Color coding for labels
+        def label_color(label, good_vals):
+            if label in good_vals:
+                return '#16a34a'  # green
+            elif label in ['Medium', 'Fair', 'Moderate']:
+                return '#f59e0b'  # orange
+            else:
+                return '#dc2626'  # red
+        
+        qual_color = label_color(qual_label, ['High'])
+        growth_color = label_color(growth_label, ['Fast', 'Moderate'])
+        val_color = label_color(val_label, ['Cheap', 'Fair'])
+        lev_color = label_color(lev_label, ['Low', 'Medium'])
 
         esc = html_escape.escape
         ticker = esc(str(r["Ticker"]))
@@ -1438,6 +1487,11 @@ else:
     <div class="item"><b>עקביות מומנטום:</b> {mom_fmt}</div>
     <div class="item"><b>ATR/Price:</b> {atrp_fmt}</div>
     <div class="item"><b>Overextension:</b> {overx_fmt}</div>
+    <div class="item" style="grid-column:span 5;border-top:1px solid #e5e7eb;padding-top:8px;margin-top:4px"><b>💎 פירוט פונדמנטלי:</b></div>
+    <div class="item"><b>איכות:</b> <span style="color:{qual_color};font-weight:600">{qual_fmt}</span></div>
+    <div class="item"><b>צמיחה:</b> <span style="color:{growth_color};font-weight:600">{growth_fmt}</span></div>
+    <div class="item"><b>שווי:</b> <span style="color:{val_color};font-weight:600">{val_fmt}</span></div>
+    <div class="item"><b>מינוף:</b> <span style="color:{lev_color};font-weight:600">{lev_fmt}</span></div>
   </div>
 </div>
 """
@@ -1457,6 +1511,14 @@ hebrew_cols = {
     "Score": "ניקוד",
     "Score_Tech": "ניקוד טכני",
     "Fundamental_S": "ציון פונדמנטלי",
+    "Quality_Score_F": "ציון איכות פונד׳",
+    "Quality_Label": "תווית איכות",
+    "Growth_Score_F": "ציון צמיחה פונד׳",
+    "Growth_Label": "תווית צמיחה",
+    "Valuation_Score_F": "ציון שווי פונד׳",
+    "Valuation_Label": "תווית שווי",
+    "Leverage_Score_F": "ציון מינוף פונד׳",
+    "Leverage_Label": "תווית מינוף",
     "Sector": "סקטור",
     "RSI": "RSI",
     "Near52w": "קרבה לשיא 52ש׳ (%)",
