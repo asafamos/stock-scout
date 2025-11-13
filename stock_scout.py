@@ -2147,17 +2147,22 @@ rec_df = rec_df.copy()
 CARD_CSS = """
 <style>
 .card{direction:rtl;text-align:right;background:#f9fafb;border:1px solid #e5e7eb;border-radius:14px;
-      padding:14px 16px;margin:10px 0;box-shadow:0 1px 3px rgba(0,0,0,.05);font-family:system-ui,-apple-system}
+    padding:14px 16px;margin:12px 0;box-shadow:0 1px 3px rgba(0,0,0,.05);font-family:system-ui,-apple-system;
+    width:100%;box-sizing:border-box}
 .card-core{background:#f0fdf4;border:2px solid #86efac}
 .card-speculative{background:#fef3c7;border:2px solid #fbbf24}
-.badge{display:inline-block;background:#eef2ff;border:1px solid #c7d2fe;color:#1e293b;padding:2px 10px;border-radius:999px;font-weight:700}
+.badge{display:inline-block;background:#eef2ff;border:1px solid #c7d2fe;color:#1e293b;padding:2px 10px;border-radius:999px;font-weight:700;white-space:nowrap}
 .badge-quality-high{background:#dcfce7;border:1px solid #22c55e;color:#166534}
 .badge-quality-medium{background:#fef3c7;border:1px solid #fbbf24;color:#92400e}
 .badge-quality-low{background:#fee2e2;border:1px solid #f87171;color:#991b1b}
-.status-buy{display:inline-block;background:#ecfdf5;border:1px solid #34d399;color:#065f46;padding:2px 10px;border-radius:999px;font-weight:700}
-.grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin-top:6px;font-size:.92rem;color:#222}
+.status-buy{display:inline-block;background:#ecfdf5;border:1px solid #34d399;color:#065f46;padding:2px 10px;border-radius:999px;font-weight:700;white-space:nowrap}
+.grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin-top:6px;font-size:.9rem;color:#222}
 .item b{color:#111}
-@media(max-width:1100px){ .grid{grid-template-columns:repeat(2,minmax(0,1fr));} }
+@media(max-width:1200px){ .grid{grid-template-columns:repeat(3,minmax(0,1fr));} }
+@media(max-width:900px){ .grid{grid-template-columns:repeat(2,minmax(0,1fr));font-size:.85rem} .card h3{font-size:1rem} }
+@media(max-width:520px){ .grid{grid-template-columns:repeat(1,minmax(0,1fr));gap:6px} .card{padding:12px 12px} .badge,.status-buy{padding:2px 8px;font-size:.75rem} }
+.flex-wrap{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.section-divider{grid-column:1/-1;border-top:1px solid #e5e7eb;padding-top:8px;margin-top:4px;font-weight:600}
 .warning-box{background:#fef3c7;border-left:4px solid #f59e0b;padding:10px;margin:10px 0;border-radius:6px;font-size:0.9em}
 </style>
 """
@@ -2278,15 +2283,15 @@ else:
             # Next earnings date
             next_earnings = r.get("NextEarnings", "לא ידוע")
             
-            card_html = f"""{CARD_CSS}
+                        card_html = f"""{CARD_CSS}
 <div class="card card-core">
-  <h3 style="display:flex;align-items:center;gap:10px;margin:0 0 6px 0;flex-wrap:wrap">
-    <span class="badge">{ticker}</span>
-    <span class="status-buy">🛡️ ליבה</span>
-    <span class="{quality_badge_class}">{quality_icon} איכות: {quality_pct}</span>
-    <span style="background:#3b82f6;color:white;padding:2px 10px;border-radius:999px;font-size:0.85em">רמת ביטחון: {confidence_badge}</span>
-  </h3>
-  <div class="grid">
+    <h3 class="flex-wrap" style="margin:0 0 6px 0">
+        <span class="badge">{ticker}</span>
+        <span class="status-buy">🛡️ ליבה</span>
+        <span class="{quality_badge_class}">{quality_icon} איכות: {quality_pct}</span>
+        <span style="background:#3b82f6;color:white;padding:2px 10px;border-radius:999px;font-size:0.8em;white-space:nowrap">רמת ביטחון: {confidence_badge}</span>
+    </h3>
+    <div class="grid">
     <div class="item"><b>מחיר ממוצע:</b> {show_mean_fmt}</div>
     <div class="item"><b>סטיית תקן:</b> {show_std}</div>
     <div class="item"><b>RSI:</b> {rsi_v if not np.isnan(rsi_v) else 'לא זמין'}</div>
@@ -2302,7 +2307,7 @@ else:
     <div class="item"><b>מניות לקנייה:</b> {shares}</div>
     <div class="item"><b>עודף לא מנוצל:</b> ${leftover:,.2f}</div>
     <div class="item"><b>📅 Earnings הבא:</b> {next_earnings}</div>
-    <div class="item" style="grid-column:span 5;border-top:1px solid #e5e7eb;padding-top:8px;margin-top:4px"><b>🔬 אינדיקטורים מתקדמים:</b></div>
+    <div class="section-divider">🔬 אינדיקטורים מתקדמים:</div>
     <div class="item"><b>יחס לשוק (3M):</b> <span style="color:{'#16a34a' if np.isfinite(rs_63d) and rs_63d > 0 else '#dc2626'}">{rs_fmt}</span></div>
     <div class="item"><b>עליית נפח:</b> {vol_surge_fmt}</div>
     <div class="item"><b>יישור ממוצעים:</b> {ma_status}</div>
@@ -2311,7 +2316,7 @@ else:
     <div class="item"><b>עקביות מומנטום:</b> {mom_fmt}</div>
     <div class="item"><b>ATR/Price:</b> {atrp_fmt}</div>
     <div class="item"><b>Overextension:</b> {overx_fmt}</div>
-    <div class="item" style="grid-column:span 5;border-top:1px solid #e5e7eb;padding-top:8px;margin-top:4px"><b>💎 פירוט פונדמנטלי:</b></div>
+    <div class="section-divider">💎 פירוט פונדמנטלי:</div>
     <div class="item"><b>איכות:</b> <span style="color:{qual_color};font-weight:600">{qual_fmt}</span></div>
     <div class="item"><b>צמיחה:</b> <span style="color:{growth_color};font-weight:600">{growth_fmt}</span></div>
     <div class="item"><b>שווי:</b> <span style="color:{val_color};font-weight:600">{val_fmt}</span></div>
@@ -2319,7 +2324,7 @@ else:
   </div>
 </div>
 """
-            st_html(card_html, height=480, scrolling=False)
+            st_html(card_html, height=0, scrolling=False)
     
     # Display Speculative recommendations
     if not spec_df.empty:
