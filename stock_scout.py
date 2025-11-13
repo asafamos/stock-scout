@@ -31,22 +31,14 @@ from dotenv import load_dotenv, find_dotenv
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from streamlit.components.v1 import html as st_html
 import html as html_escape
-from core.portfolio import _normalize_weights
-from advanced_filters import (
-    compute_advanced_score, 
-    should_reject_ticker, 
-    fetch_benchmark_data
-)
-
-# Core modules
+from core.portfolio import _normalize_weights, allocate_budget
+from advanced_filters import compute_advanced_score, should_reject_ticker, fetch_benchmark_data
 from core.logging_config import setup_logging, get_logger
 from core.config import get_config as get_core_config, get_api_keys
 from core.scoring.fundamental import compute_fundamental_score_with_breakdown
 from core.classification import apply_classification, filter_core_recommendations
 
 warnings.filterwarnings("ignore")
-
-# Setup logging
 setup_logging(level=logging.INFO)
 logger = get_logger("stock_scout")
 
@@ -135,10 +127,6 @@ for _extra in ["nev", "stock_scout.nev", ".env.local", ".env.production"]:
 # ==================== HTTP helpers ====================
 import time
 import random
-import logging
-import requests
-from typing import Optional
-
 _log = logging.getLogger(__name__)
 
 def http_get_retry(
@@ -1239,20 +1227,10 @@ def get_eodhd_price(ticker: str) -> Optional[float]:
 
 
 # ==================== UI ====================
+from design_system import get_modern_css
+
 st.set_page_config(page_title="Asaf's Stock Scout — 2025", page_icon="📈", layout="wide")
-st.markdown(
-    """
-<style>
-body{direction:rtl}.block-container{padding-top:1rem;padding-bottom:2rem}
-h1,h2,h3{text-align:right}[data-testid="stMarkdownContainer"], label{ text-align:right }
-thead tr th{ text-align:right } .rtl-table table{ direction:rtl }
-.rtl-table th,.rtl-table td{ text-align:right !important }
-.badge{display:inline-block;background:#eef2ff;border:1px solid #c7d2fe;color:#1e293b;padding:2px 10px;border-radius:999px;font-weight:600}
-.status-buy{background:#ecfdf5;border:1px solid #34d399;color:#065f46;padding:2px 10px;border-radius:999px;font-weight:600}
-</style>
-""",
-    unsafe_allow_html=True,
-)
+st.markdown(get_modern_css(), unsafe_allow_html=True)
 
 # Secrets button
 def _mask(s: Optional[str], show_last: int = 4) -> str:
@@ -1332,6 +1310,18 @@ _provider_css = """
 @media (max-width:600px){
     .provider-table-container th, .provider-table-container td {padding:4px 6px; font-size:12px;}
     .provider-table-container th:nth-child(1), .provider-table-container td:nth-child(1){min-width:140px;}
+}
+@media (max-width:480px){
+    /* Stack rows into cards, hide header and Reason column */
+    .provider-table-container table, .provider-table-container thead, .provider-table-container tbody, .provider-table-container th, .provider-table-container td, .provider-table-container tr {display:block;}
+    .provider-table-container tr {margin:0 0 10px 0; border:1px solid #e5e7eb; border-radius:8px; padding:6px; background:#ffffff;}
+    .provider-table-container th {display:none;}
+    .provider-table-container td {text-align:right; padding:4px 8px; font-size:13px; border:none;}
+    .provider-table-container td:nth-child(4){display:none;} /* hide Reason for compact view */
+    .provider-table-container td::before {font-weight:600; display:inline-block; margin-left:4px;}
+    .provider-table-container td:nth-child(1)::before {content:'מקור: ';}
+    .provider-table-container td:nth-child(2)::before {content:'מחיר: ';}
+    .provider-table-container td:nth-child(3)::before {content:'פונד׳: ';}
 }
 </style>
 """
@@ -1888,6 +1878,8 @@ t0 = t_start()
 results["Price_Alpha"] = np.nan
 results["Price_Finnhub"] = np.nan
  # IEX price column removed
+results["Price_Polygon"] = np.nan
+results["Price_Tiingo"] = np.nan
 results["Price_Marketstack"] = np.nan
 results["Price_NasdaqDL"] = np.nan
 results["Price_EODHD"] = np.nan
@@ -1940,6 +1932,8 @@ def _fetch_external_for(
         if p is not None:
             vals.setdefault("EODHD", p)
             srcs.append("📘EODHD")
+    # Return collected prices and source badges
+    return tkr, vals, srcs
 
 # External price verification - run if ANY provider is available
 any_price_provider = (
@@ -1975,6 +1969,8 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and any_price_provider:
                 [
                     "Price_Alpha",
                     "Price_Finnhub",
+                    "Price_Polygon",
+                    "Price_Tiingo",
                     "Price_Marketstack",
                     "Price_NasdaqDL",
                     "Price_EODHD",
@@ -1985,6 +1981,8 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and any_price_provider:
             ] = [
                 vals.get("Alpha", np.nan),
                 vals.get("Finnhub", np.nan),
+                vals.get("Polygon", np.nan),
+                vals.get("Tiingo", np.nan),
                 # IEX removed
                 vals.get("Marketstack", np.nan),
                 vals.get("NasdaqDL", np.nan),
@@ -2009,6 +2007,9 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and any_price_provider:
         else:
             # fallback: minimal reliability if only Yahoo present
             results.at[i, "Price_Reliability"] = min(1.0, count / 8.0)
+
+    # Price sources count column
+    results["Price_Sources_Count"] = results["Source_List"].apply(lambda s: len(str(s).split(" · ")) if isinstance(s, str) and s else 0)
 
     # Fundamental reliability metric
     if "Fund_Coverage_Pct" in results.columns:
@@ -2041,6 +2042,12 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and any_price_provider:
             results.at[i, "Fundamental_Reliability"] = min(1.0, base_score + boost + diversity_bonus)
     else:
         results["Fundamental_Reliability"] = 0.0
+
+    # Fundamental sources count column (flags)
+    fund_flags = ["from_fmp_full", "from_fmp", "from_simfin", "from_eodhd", "from_alpha", "from_finnhub"]
+    def _fund_count(row: pd.Series) -> int:
+        return int(sum(bool(row.get(f)) for f in fund_flags))
+    results["Fundamental_Sources_Count"] = results.apply(_fund_count, axis=1)
 
     # Combined reliability score
     if "Price_Reliability" in results.columns and "Fundamental_Reliability" in results.columns:
@@ -2133,45 +2140,6 @@ results["Unit_Price"] = np.where(
     results["מחיר ממוצע"].notna(), results["מחיר ממוצע"], results["Price_Yahoo"]
 )
 results["Unit_Price"] = pd.to_numeric(results["Unit_Price"], errors="coerce")
-
-# Allocation
-def allocate_budget(
-    df: pd.DataFrame, total: float, min_pos: float, max_pos_pct: float, *, score_col: str = "Score"
-) -> pd.DataFrame:
-    df = df.copy()
-    df["סכום קנייה ($)"] = 0.0
-    if total <= 0 or df.empty:
-        return df
-    df = df.sort_values([score_col, "Ticker"], ascending=[False, True]).reset_index(
-        drop=True
-    )
-    remaining = float(total)
-    n = len(df)
-    max_pos_abs = (max_pos_pct / 100.0) * total if max_pos_pct > 0 else float("inf")
-    if min_pos > 0:
-        can_min = int(min(n, remaining // min_pos))
-        if can_min > 0:
-            base = np.full(can_min, min(min_pos, max_pos_abs), dtype=float)
-            df.loc[: can_min - 1, "סכום קנייה ($)"] = base
-            remaining -= float(base.sum())
-    if remaining > 0:
-        weights = df[score_col].clip(lower=0).to_numpy(dtype=float)
-        extras = (
-            np.full(n, remaining / n, dtype=float)
-            if np.nansum(weights) <= 0
-            else remaining * (np.nan_to_num(weights, nan=0.0) / np.nansum(weights))
-        )
-        current = df["סכום קנייה ($)"].to_numpy(dtype=float)
-        proposed = current + extras
-        if np.isfinite(max_pos_abs):
-            proposed = np.minimum(proposed, max_pos_abs)
-        df["סכום קנייה ($)"] = proposed
-    s = float(df["סכום קנייה ($)"].sum())
-    if s > 0 and abs(s - total) / max(total, 1) > 1e-6:
-        df["סכום קנייה ($)"] = df["סכום קנייה ($)"].to_numpy(dtype=float) * (total / s)
-    df["סכום קנייה ($)"] = df["סכום קנייה ($)"].round(2)
-    return df
-
 
 TOPN = min(CONFIG["TOPN_RESULTS"], len(results))
 alloc_df = results.head(TOPN).reset_index(drop=True).copy()
@@ -2300,6 +2268,12 @@ with st.sidebar:
         help="סנן מניות עם RSI גבוה מדי (overbought)"
     )
 
+    # Developer debug toggle for raw attribution
+    show_debug_attr = st.checkbox("🧪 הצג פירוט מקורות גולמי (Debug)", value=False, help="הצגת מיפוי מקורות השדות (_sources) למפתחים")
+    st.session_state["show_debug_attr"] = show_debug_attr
+    compact_mode = st.checkbox("📦 מצב תצוגה קומפקטי", value=bool(st.session_state.get("compact_mode", False)), help="הסתרת פירוט אינדיקטורים ופונדמנטלים לצמצום גובה הכרטיס")
+    st.session_state["compact_mode"] = compact_mode
+
 # Apply filters
 rec_df = results[results["סכום קנייה ($)"] > 0].copy()
 
@@ -2328,28 +2302,14 @@ st.info(f"📊 מציג {len(rec_df)} מניות אחרי פילטרים")
 
 rec_df = rec_df.copy()
 
-CARD_CSS = """
-<style>
-.card{direction:rtl;text-align:right;background:#f9fafb;border:1px solid #e5e7eb;border-radius:14px;
-    padding:14px 16px;margin:12px 0;box-shadow:0 1px 3px rgba(0,0,0,.05);font-family:system-ui,-apple-system;
-    width:100%;box-sizing:border-box}
-.card-core{background:#f0fdf4;border:2px solid #86efac}
-.card-speculative{background:#fef3c7;border:2px solid #fbbf24}
-.badge{display:inline-block;background:#eef2ff;border:1px solid #c7d2fe;color:#1e293b;padding:2px 10px;border-radius:999px;font-weight:700;white-space:nowrap}
-.badge-quality-high{background:#dcfce7;border:1px solid #22c55e;color:#166534}
-.badge-quality-medium{background:#fef3c7;border:1px solid #fbbf24;color:#92400e}
-.badge-quality-low{background:#fee2e2;border:1px solid #f87171;color:#991b1b}
-.status-buy{display:inline-block;background:#ecfdf5;border:1px solid #34d399;color:#065f46;padding:2px 10px;border-radius:999px;font-weight:700;white-space:nowrap}
-.grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin-top:6px;font-size:.9rem;color:#222}
-.item b{color:#111}
-@media(max-width:1200px){ .grid{grid-template-columns:repeat(3,minmax(0,1fr));} }
-@media(max-width:900px){ .grid{grid-template-columns:repeat(2,minmax(0,1fr));font-size:.85rem} .card h3{font-size:1rem} }
-@media(max-width:520px){ .grid{grid-template-columns:repeat(1,minmax(0,1fr));gap:6px} .card{padding:12px 12px} .badge,.status-buy{padding:2px 8px;font-size:.75rem} }
-.flex-wrap{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
-.section-divider{grid-column:1/-1;border-top:1px solid #e5e7eb;padding-top:8px;margin-top:4px;font-weight:600}
-.warning-box{background:#fef3c7;border-left:4px solid #f59e0b;padding:10px;margin:10px 0;border-radius:6px;font-size:0.9em}
-</style>
-"""
+# CSS now loaded from design_system.py - no need for separate CARD_CSS
+
+def format_rel(val) -> str:
+    if not isinstance(val, (int, float)) or not np.isfinite(val):
+        return "לא זמין"
+    tier = "High" if val >= 0.75 else ("Medium" if val >= 0.4 else "Low")
+    color = "#16a34a" if tier == "High" else ("#f59e0b" if tier == "Medium" else "#dc2626")
+    return f"<span style='color:{color};font-weight:600'>{val:.2f} ({tier})</span>"
 
 if rec_df.empty:
     st.info("אין כרגע מניות שעוברות את הסף עם סכום קנייה חיובי.")
@@ -2367,6 +2327,11 @@ else:
     if not core_df.empty:
         st.markdown("### 🛡️ מניות ליבה (Core) - סיכון נמוך יחסית")
         st.caption(f"✅ {len(core_df)} מניות עם איכות נתונים גבוהה ופרופיל סיכון מאוזן")
+        st.markdown("""
+<div style='direction:rtl;text-align:right;font-size:0.75em;margin:4px 0 10px 0'>
+<b>אגדת מהימנות:</b> <span style='color:#16a34a;font-weight:600'>High ≥ 0.75</span> · <span style='color:#f59e0b;font-weight:600'>Medium 0.40–0.74</span> · <span style='color:#dc2626;font-weight:600'>Low &lt; 0.40</span>
+</div>
+""", unsafe_allow_html=True)
         
         for _, r in core_df.iterrows():
             mean = r.get("מחיר ממוצע", np.nan)
@@ -2415,11 +2380,12 @@ else:
                 quality_icon = "❌"
                 quality_pct = "<60%"
 
-            show_mean_fmt = f"{np.round(show_mean, 2)}" if not np.isnan(show_mean) else "לא זמין"
-            unit_price_fmt = f"{np.round(unit_price, 2)}" if not np.isnan(unit_price) else "לא זמין"
+            show_mean_fmt = f"{show_mean:.2f}" if np.isfinite(show_mean) else "לא זמין"
+            unit_price_fmt = f"{unit_price:.2f}" if np.isfinite(unit_price) else "לא זמין"
             rr_fmt = f"{rr:.2f}R" if np.isfinite(rr) else "לא זמין"
-            atrp_fmt = f"{atrp:.3f}" if np.isfinite(atrp) else "לא זמין"
-            overx_fmt = f"{overx:.3f}" if np.isfinite(overx) else "לא זמין"
+            atrp_fmt = f"{atrp:.2f}" if np.isfinite(atrp) else "לא זמין"
+            overx_fmt = f"{overx:.2f}" if np.isfinite(overx) else "לא זמין"
+            near52_fmt = f"{near52:.1f}" if np.isfinite(near52) else "לא זמין"
             
             # Format new signals
             rs_fmt = f"{rs_63d*100:+.1f}%" if np.isfinite(rs_63d) else "לא זמין"
@@ -2467,24 +2433,35 @@ else:
             # Next earnings date
             next_earnings = r.get("NextEarnings", "לא ידוע")
             
-            card_html = f"""{CARD_CSS}
-<div class="card card-core">
+            # CSS is global from design_system.py - no need to inject per card
+            # Pre-format reliability values (micro perf)
+            price_rel_fmt = format_rel(r.get('Price_Reliability', np.nan))
+            fund_rel_fmt = format_rel(r.get('Fundamental_Reliability', np.nan))
+            rel_score_fmt = format_rel(r.get('Reliability_Score', np.nan))
+            # Pre-format reliability values (micro perf)
+            price_rel_fmt = format_rel(r.get('Price_Reliability', np.nan))
+            fund_rel_fmt = format_rel(r.get('Fundamental_Reliability', np.nan))
+            rel_score_fmt = format_rel(r.get('Reliability_Score', np.nan))
+            card_html = f"""
+<div class="modern-card card-core">
     <h3 class="flex-wrap" style="margin:0 0 6px 0">
-        <span class="badge">{ticker}</span>
-        <span class="status-buy">🛡️ ליבה</span>
-        <span class="{quality_badge_class}">{quality_icon} איכות: {quality_pct}</span>
-        <span style="background:#3b82f6;color:white;padding:2px 10px;border-radius:999px;font-size:0.8em;white-space:nowrap">רמת ביטחון: {confidence_badge}</span>
+        <span class="modern-badge">{ticker}</span>
+        <span class="modern-badge badge-success">🛡️ ליבה</span>
+        <span class="modern-badge {quality_badge_class}">{quality_icon} איכות: {quality_pct}</span>
+        <span class="modern-badge badge-primary" style="font-size:0.8em">רמת ביטחון: {confidence_badge}</span>
     </h3>
-    <div class="grid">
+    <div class="modern-grid">
     <div class="item"><b>מחיר ממוצע:</b> {show_mean_fmt}</div>
     <div class="item"><b>סטיית תקן:</b> {show_std}</div>
     <div class="item"><b>RSI:</b> {rsi_v if not np.isnan(rsi_v) else 'לא זמין'}</div>
-    <div class="item"><b>קרבה לשיא 52ש׳:</b> {near52 if not np.isnan(near52) else 'לא זמין'}%</div>
+    <div class="item"><b>קרבה לשיא 52ש׳:</b> {near52_fmt}%</div>
     <div class="item"><b>ניקוד:</b> {int(round(score))}</div>
     <div class="item"><b>מקורות:</b> {sources_esc.replace(' · ','&nbsp;•&nbsp;')}</div>
-    <div class="item"><b>מהימנות מחיר:</b> {r.get('Price_Reliability', np.nan)}</div>
-    <div class="item"><b>מהימנות פונד׳:</b> {r.get('Fundamental_Reliability', np.nan)}</div>
-    <div class="item"><b>ציון מהימנות:</b> {r.get('Reliability_Score', np.nan)}</div>
+    <div class="item"><b># מקורות מחיר:</b> {r.get('Price_Sources_Count', 0)}</div>
+    <div class="item"><b># מקורות פונד׳:</b> {r.get('Fundamental_Sources_Count', 0)}</div>
+    <div class="item"><b>מהימנות מחיר:</b> {price_rel_fmt}</div>
+    <div class="item"><b>מהימנות פונד׳:</b> {fund_rel_fmt}</div>
+    <div class="item"><b>ציון מהימנות:</b> {rel_score_fmt}</div>
     <div class="item"><b>סכום קנייה מומלץ:</b> ${buy_amt:,.0f}</div>
     <div class="item"><b>טווח החזקה:</b> {horizon}</div>
     <div class="item"><b>מחיר יחידה:</b> {unit_price_fmt}</div>
@@ -2508,6 +2485,13 @@ else:
             
             # Add provider attribution if available (Core cards)
             attribution = r.get("Fund_Attribution", "")
+            if show_debug_attr:
+                # Show raw provider map from _sources if available
+                raw_sources = r.get("_sources", {})
+                if raw_sources:
+                    raw_html = html_escape.escape(str(raw_sources))
+                    card_html += f"""
+    <div class="item" style="grid-column:span 5;font-size:0.7em;color:#334155;background:#f1f5f9;border:1px dashed #cbd5e1;border-radius:6px;padding:4px;margin-top:4px"><b>RAW _sources:</b> {raw_html}</div>"""
             if attribution:
                 card_html += f"""
     <div class="item" style="grid-column:span 5;font-size:0.75em;color:#6b7280;border-top:1px solid #e5e7eb;margin-top:4px;padding-top:4px"><b>📊 מקורות נתונים:</b> {esc(attribution)}</div>"""
@@ -2568,11 +2552,12 @@ else:
                 quality_icon = "❌"
                 quality_pct = "<60%"
             
-            show_mean_fmt = f"{np.round(show_mean, 2)}" if not np.isnan(show_mean) else "לא זמין"
-            unit_price_fmt = f"{np.round(unit_price, 2)}" if not np.isnan(unit_price) else "לא זמין"
+            show_mean_fmt = f"{show_mean:.2f}" if np.isfinite(show_mean) else "לא זמין"
+            unit_price_fmt = f"{unit_price:.2f}" if np.isfinite(unit_price) else "לא זמין"
             rr_fmt = f"{rr:.2f}R" if np.isfinite(rr) else "לא זמין"
-            atrp_fmt = f"{atrp:.3f}" if np.isfinite(atrp) else "לא זמין"
-            overx_fmt = f"{overx:.3f}" if np.isfinite(overx) else "לא זמין"
+            atrp_fmt = f"{atrp:.2f}" if np.isfinite(atrp) else "לא זמין"
+            overx_fmt = f"{overx:.2f}" if np.isfinite(overx) else "לא זמין"
+            near52_fmt = f"{near52:.1f}" if np.isfinite(near52) else "לא זמין"
             rs_fmt = f"{rs_63d*100:+.1f}%" if np.isfinite(rs_63d) else "לא זמין"
             vol_surge_fmt = f"{vol_surge:.2f}x" if np.isfinite(vol_surge) else "לא זמין"
             ma_status = "✅ מיושר" if ma_aligned else "⚠️ לא מיושר"
@@ -2614,25 +2599,28 @@ else:
             next_earnings = r.get("NextEarnings", "לא ידוע")
             warnings_esc = esc(warnings) if warnings else ""
             
-            card_html = f"""{CARD_CSS}
-<div class="card card-speculative">
+            # CSS is global from design_system.py - no need to inject per card
+            card_html = f"""
+<div class="modern-card card-speculative">
     <h3 class="flex-wrap" style="margin:0 0 6px 0">
-        <span class="badge">{ticker}</span>
-        <span style="background:#f59e0b;color:white;padding:2px 10px;border-radius:999px;font-weight:700;white-space:nowrap">⚡ ספקולטיבי</span>
-        <span class="{quality_badge_class}">{quality_icon} איכות: {quality_pct}</span>
-        <span style="background:#dc2626;color:white;padding:2px 10px;border-radius:999px;font-size:0.8em;white-space:nowrap">רמת ביטחון: {confidence_badge}</span>
+        <span class="modern-badge">{ticker}</span>
+        <span class="modern-badge badge-warning">⚡ ספקולטיבי</span>
+        <span class="modern-badge {quality_badge_class}">{quality_icon} איכות: {quality_pct}</span>
+        <span class="modern-badge badge-danger" style="font-size:0.8em">רמת ביטחון: {confidence_badge}</span>
     </h3>
     {f'<div class="warning-box"><b>⚠️ אזהרות:</b> {warnings_esc}</div>' if warnings_esc else ''}
-    <div class="grid">
+    <div class="modern-grid">
     <div class="item"><b>מחיר ממוצע:</b> {show_mean_fmt}</div>
     <div class="item"><b>סטיית תקן:</b> {show_std}</div>
     <div class="item"><b>RSI:</b> {rsi_v if not np.isnan(rsi_v) else 'לא זמין'}</div>
-    <div class="item"><b>קרבה לשיא 52ש׳:</b> {near52 if not np.isnan(near52) else 'לא זמין'}%</div>
+    <div class="item"><b>קרבה לשיא 52ש׳:</b> {near52_fmt}%</div>
     <div class="item"><b>ניקוד:</b> {int(round(score))}</div>
     <div class="item"><b>מקורות:</b> {sources_esc.replace(' · ','&nbsp;•&nbsp;')}</div>
-    <div class="item"><b>מהימנות מחיר:</b> {r.get('Price_Reliability', np.nan)}</div>
-    <div class="item"><b>מהימנות פונד׳:</b> {r.get('Fundamental_Reliability', np.nan)}</div>
-    <div class="item"><b>ציון מהימנות:</b> {r.get('Reliability_Score', np.nan)}</div>
+    <div class="item"><b># מקורות מחיר:</b> {r.get('Price_Sources_Count', 0)}</div>
+    <div class="item"><b># מקורות פונד׳:</b> {r.get('Fundamental_Sources_Count', 0)}</div>
+    <div class="item"><b>מהימנות מחיר:</b> {price_rel_fmt}</div>
+    <div class="item"><b>מהימנות פונד׳:</b> {fund_rel_fmt}</div>
+    <div class="item"><b>ציון מהימנות:</b> {rel_score_fmt}</div>
     <div class="item"><b>סכום קנייה מומלץ:</b> ${buy_amt:,.0f}</div>
     <div class="item"><b>טווח החזקה:</b> {horizon}</div>
     <div class="item"><b>מחיר יחידה:</b> {unit_price_fmt}</div>
@@ -2659,6 +2647,12 @@ else:
             if attribution_spec:
                 card_html += f"""
     <div class="item" style="grid-column:span 5;font-size:0.75em;color:#6b7280;border-top:1px solid #e5e7eb;margin-top:4px;padding-top:4px"><b>📊 מקורות נתונים:</b> {esc(attribution_spec)}</div>"""
+            if show_debug_attr:
+                raw_sources = r.get("_sources", {})
+                if raw_sources:
+                    raw_html = html_escape.escape(str(raw_sources))
+                    card_html += f"""
+    <div class="item" style="grid-column:span 5;font-size:0.7em;color:#334155;background:#f1f5f9;border:1px dashed #cbd5e1;border-radius:6px;padding:4px;margin-top:4px"><b>RAW _sources:</b> {raw_html}</div>"""
             
             card_html += """
   </div>
@@ -2666,6 +2660,24 @@ else:
 """
             st_html(card_html, height=560, scrolling=False)
 
+# Inject compact mode JS to hide advanced/fundamental sections
+if st.session_state.get("compact_mode"):
+    st.markdown("""
+<script>
+for(const el of document.querySelectorAll('.card')){el.classList.add('compact-mode');}
+for(const el of document.querySelectorAll('.compact-mode .section-divider')){
+  if(el.textContent.includes('🔬')||el.textContent.includes('💎')){
+    let next=el.nextElementSibling;
+    while(next && !next.classList.contains('section-divider')){
+      let toHide=next;
+      next=next.nextElementSibling;
+      toHide.style.display='none';
+    }
+    el.style.display='none';
+  }
+}
+</script>
+""", unsafe_allow_html=True)
 # ==================== Results table + CSV ====================
 st.subheader("🎯 תוצאות מסוננות ומדורגות")
 view_df_source = rec_df if not rec_df.empty else results
@@ -2681,11 +2693,15 @@ hebrew_cols = {
     "Unit_Price": "מחיר יחידה (חישוב)",
     "Price_STD": "סטיית תקן",
     "Source_List": "מקורות מחיר",
+    "Price_Sources_Count": "# מקורות מחיר",
+    "Fundamental_Sources_Count": "# מקורות פונד׳",
     "Price_Reliability": "מהימנות מחיר",
     "Fundamental_Reliability": "מהימנות פונד׳",
     "Reliability_Score": "ציון מהימנות",
     "Sources_Count": "מספר מקורות",
     # "Price_IEX" removed
+    "Price_Polygon": "מחיר Polygon",
+    "Price_Tiingo": "מחיר Tiingo",
     "Price_Marketstack": "מחיר Marketstack",
     "Price_NasdaqDL": "מחיר NasdaqDL",
     "Price_EODHD": "מחיר EODHD",
