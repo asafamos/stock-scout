@@ -1336,7 +1336,7 @@ results = displayable.reset_index(drop=True)
 
 # Apply Core recommendation filters using CONFIG constants
 core_before_filter = len(results[results["Risk_Level"] == "core"])
-results = filter_core_recommendations(results, CONFIG)
+results = filter_core_recommendations(results, CONFIG, adaptive=True)
 core_after_filter = len(results)
 
 if core_before_filter > 0:
@@ -1353,6 +1353,12 @@ if results.empty:
     st.write(f"- 🔴 ניתן להקל על הגדרות ב-CONFIG: MIN_QUALITY_SCORE_CORE={CONFIG['MIN_QUALITY_SCORE_CORE']}, "
              f"MAX_ATR_PRICE_CORE={CONFIG['MAX_ATR_PRICE_CORE']}")
     st.stop()
+elif "Adaptive_Relaxed" in results.columns and results["Adaptive_Relaxed"].any():
+    # Show adaptive relaxation banner
+    st.warning("🔄 הופעל מצב ריכוך אוטומטי — מוצגות מועמדות ספקולטיביות עם סינון טכני רופף יותר. מומלץ לבדוק פונדמנטלים לפני החלטה.")
+    st.write("קריטריוני ריכוך: איכות ≥ "
+             f"{max(CONFIG['MIN_QUALITY_SCORE_CORE']-5,15)}, ATR/Price ≤ {CONFIG['MAX_ATR_PRICE_CORE']+0.04}, "
+             f"Overext ≤ {CONFIG['MAX_OVEREXTENSION_CORE']+0.05}, RSI בטווח מורחב, Reward/Risk ≥ {max(CONFIG['MIN_RR_CORE']-0.3,1.0)}")
 
 # Show results count with guidance
 results_count = len(results)

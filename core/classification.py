@@ -49,7 +49,7 @@ def evaluate_data_quality(row: pd.Series) -> Tuple[str, int, list[str]]:
         else:
             warnings.append(f"Missing: {metric_name}")
 
-    # Fundamentals coverage enforcement
+    # Fundamentals coverage (do not auto-force low; allow medium/high based on other metrics for display purposes)
     fundamental_total = row.get("Fundamental_S")
     fundamental_quality = row.get("Quality_Score_F")
     fundamentals_missing = (
@@ -70,15 +70,12 @@ def evaluate_data_quality(row: pd.Series) -> Tuple[str, int, list[str]]:
     
     # Determine quality level
     total_critical = len(critical_metrics)
-    if fundamentals_missing:
-        quality = "low"
+    if valid_count >= total_critical * 0.85:  # 85%+ metrics valid
+        quality = "high" if not fundamentals_missing else "medium"  # downgrade one level if fundamentals missing
+    elif valid_count >= total_critical * 0.60:  # 60-85% metrics valid
+        quality = "medium" if not fundamentals_missing else "low"
     else:
-        if valid_count >= total_critical * 0.85:  # 85%+ metrics valid
-            quality = "high"
-        elif valid_count >= total_critical * 0.60:  # 60-85% metrics valid
-            quality = "medium"
-        else:
-            quality = "low"
+        quality = "low"
     
     return quality, valid_count, warnings
 
@@ -152,20 +149,24 @@ def classify_stock(row: pd.Series) -> StockClassification:
         logger.debug(f"🔍 {ticker}: DataQuality={data_quality}, ValidFields={valid_count}/6, "
                     f"RiskWarnings={len(risk_warnings)}, Warnings={all_warnings[:2]}")
     
-    # Force speculative if fundamentals missing
     fundamentals_missing = (
         row.get("Fundamental_S") is None or (isinstance(row.get("Fundamental_S"), float) and np.isnan(row.get("Fundamental_S"))) or
         row.get("Quality_Score_F") is None or (isinstance(row.get("Quality_Score_F"), float) and np.isnan(row.get("Quality_Score_F")))
     )
-    if fundamentals_missing and data_quality != "low":
-        data_quality = "low"
-        all_warnings.append("Fundamentals missing → forced low quality")
+    if fundamentals_missing:
+        all_warnings.append("Fundamentals missing")
 
     # Initial classification based on (possibly adjusted) data quality
     if data_quality == "low":
         risk_level = "speculative"
         confidence_level = "none"
-        should_display = False  # Don't show low-quality / missing-fundamentals stocks
+        # Show low-quality speculative stocks if technical coverage decent (to allow adaptive relaxation later)
+        tech_fields = [row.get("RS_63d"), row.get("Volume_Surge"), row.get("RR_Ratio"), row.get("Momentum_Consistency"), row.get("RSI"), row.get("ATR_Price")]
+        tech_valid = sum(
+            v is not None and not (isinstance(v, float) and np.isnan(v))
+            for v in tech_fields
+        )
+        should_display = tech_valid >= 4  # require majority of tech metrics
     elif data_quality == "medium" and len(risk_warnings) >= 3:
         risk_level = "speculative"
         confidence_level = "low"
@@ -253,7 +254,8 @@ def apply_classification(df: pd.DataFrame) -> pd.DataFrame:
 
 def filter_core_recommendations(
     df: pd.DataFrame,
-    config: Optional[Dict] = None
+    config: Optional[Dict] = None,
+    adaptive: bool = True
 ) -> pd.DataFrame:
     """
     Filter DataFrame to keep only high-quality "Core" stocks that pass conservative thresholds.
@@ -309,8 +311,8 @@ def filter_core_recommendations(
             logger.info("Checking first 3 stocks for classification reasons...")
             for idx, row in df.head(3).iterrows():
                 logger.info(f"  {row.get('Ticker', '?')}: Quality={row.get('Quality_Score', 'N/A')}, "
-                          f"Data_Complete={row.get('Data_Complete_Pct', 'N/A')}%, "
-                          f"Risk={row.get('Risk_Level', 'N/A')}")
+                            f"Data_Quality={row.get('Data_Quality', 'N/A')}, "
+                            f"Warnings={row.get('Classification_Warnings', '')[:80]}")
     
     # Filter 2: Minimum quality score (fundamental)
     if "Quality_Score_F" in filtered.columns:
@@ -358,6 +360,35 @@ def filter_core_recommendations(
         ]
         logger.info(f"After RewardRisk >= {min_rr}: {len(filtered)}/{initial_count}")
     
-    logger.info(f"Final Core recommendations: {len(filtered)}/{initial_count} stocks passed all filters")
-    
+    # Adaptive relaxation if enabled and still empty after filters
+    if adaptive and len(filtered) == 0:
+        relax_cfg = {
+            "MIN_QUALITY_SCORE_CORE": max(config.get("MIN_QUALITY_SCORE_CORE", 27.0) - 5, 15),
+            "MAX_OVEREXTENSION_CORE": config.get("MAX_OVEREXTENSION_CORE", 0.10) + 0.05,
+            "MAX_ATR_PRICE_CORE": config.get("MAX_ATR_PRICE_CORE", 0.08) + 0.04,
+            "RSI_MIN_CORE": max(config.get("RSI_MIN_CORE", 45) - 5, 30),
+            "RSI_MAX_CORE": min(config.get("RSI_MAX_CORE", 70) + 5, 80),
+            "MIN_RR_CORE": max(config.get("MIN_RR_CORE", 1.5) - 0.3, 1.0),
+        }
+        logger.warning(f"🔄 Adaptive relaxation engaged: {relax_cfg}")
+        pool = df[df.get("Should_Display", True)]  # showable stocks
+        # Apply relaxed technical filters on speculative / medium-quality candidates
+        relaxed = pool.copy()
+        if "Quality_Score_F" in relaxed.columns:
+            relaxed = relaxed[(relaxed["Quality_Score_F"].isna()) | (relaxed["Quality_Score_F"] >= relax_cfg["MIN_QUALITY_SCORE_CORE"])]
+        if "OverextRatio" in relaxed.columns:
+            relaxed = relaxed[(relaxed["OverextRatio"].isna()) | (relaxed["OverextRatio"] <= relax_cfg["MAX_OVEREXTENSION_CORE"])]
+        if "ATR_Price" in relaxed.columns:
+            relaxed = relaxed[(relaxed["ATR_Price"].isna()) | (relaxed["ATR_Price"] <= relax_cfg["MAX_ATR_PRICE_CORE"])]
+        if "RSI" in relaxed.columns:
+            relaxed = relaxed[(relaxed["RSI"].isna()) | ((relaxed["RSI"] >= relax_cfg["RSI_MIN_CORE"]) & (relaxed["RSI"] <= relax_cfg["RSI_MAX_CORE"]))]
+        if "RewardRisk" in relaxed.columns:
+            relaxed = relaxed[(relaxed["RewardRisk"].isna()) | (relaxed["RewardRisk"] >= relax_cfg["MIN_RR_CORE"])]
+        # Limit size
+        relaxed = relaxed.head( min( max(5, len(relaxed)), 15 ) )
+        relaxed["Adaptive_Relaxed"] = True
+        filtered = relaxed
+        logger.info(f"Adaptive relaxation produced {len(filtered)} provisional candidates")
+
+    logger.info(f"Final Core recommendations (including adaptive if any): {len(filtered)}/{initial_count}")
     return filtered.reset_index(drop=True)
