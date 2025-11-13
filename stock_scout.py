@@ -105,26 +105,52 @@ for _extra in ["nev", "stock_scout.nev", ".env.local", ".env.production"]:
         pass
 
 # ==================== HTTP helpers ====================
+import time
+import random
+import logging
+import requests
+from typing import Optional
+
+_log = logging.getLogger(__name__)
+
 def http_get_retry(
     url: str,
-    tries: int = 2,
-    backoff: float = 1.6,
-    timeout: int = 8,
+    tries: int = 4,
+    timeout: float = 8.0,
     headers: Optional[dict] = None,
-):
-    for i in range(tries):
+    session: Optional[requests.Session] = None,
+    backoff_base: float = 0.5,
+    max_backoff: float = 10.0,
+) -> Optional[requests.Response]:
+    """
+    HTTP GET with exponential backoff + full jitter.
+
+    - tries: total attempts (including the first).
+    - timeout: requests timeout for each attempt (seconds).
+    - session: optional requests.Session to reuse connections.
+    - returns requests.Response on status_code == 200, otherwise None after all retries.
+    """
+    sess = session or requests
+    for attempt in range(1, max(1, tries) + 1):
         try:
-            r = requests.get(url, timeout=timeout, headers=headers or {})
-            if r.status_code in (429, 500, 502, 503, 504):
-                logger.warning("HTTP transient error %s for %s (try %d)", r.status_code, url, i + 1)
-                time.sleep(min(6, backoff**i))
-                continue
-            if r.status_code >= 400:
-                logger.error("HTTP error %s for %s", r.status_code, url)
-            return r
-        except requests.RequestException:
-            logger.exception("RequestException for %s (try %d)", url, i + 1)
-            time.sleep(min(6, backoff**i))
+            resp = sess.get(url, timeout=timeout, headers=headers)
+            if resp is not None and resp.status_code == 200:
+                return resp
+            # treat 429 / 5xx as retryable too
+            if resp is not None and resp.status_code in (429,) or (500 <= getattr(resp, "status_code", 0) < 600):
+                _log.debug("HTTP %s -> retry attempt %d/%d for %s", getattr(resp, "status_code", None), attempt, tries, url)
+            else:
+                # non-retryable code (e.g., 400). Return response so caller can inspect.
+                return resp
+        except requests.RequestException as exc:
+            _log.debug("Request exception on attempt %d/%d for %s: %s", attempt, tries, url, exc)
+
+        # if we'll retry, sleep with full jitter
+        if attempt < tries:
+            backoff = min(max_backoff, backoff_base * (2 ** (attempt - 1)))
+            sleep = random.uniform(0, backoff)
+            time.sleep(sleep)
+    _log.warning("All %d attempts failed for %s", tries, url)
     return None
 
 

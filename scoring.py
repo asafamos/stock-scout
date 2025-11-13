@@ -1,168 +1,245 @@
-import numpy as np
+from __future__ import annotations
+import math
 import pandas as pd
-from typing import Dict
+import numpy as np
+from typing import Optional, Dict
+from fundamentals import compute_bucket_scores, compute_fundamental_score, zscore_by_group
 
-
-# Default scoring weights (can be overridden by CONFIG in stock_scout.py)
 WEIGHTS: Dict[str, float] = {"momentum": 0.4, "trend": 0.3, "fundamental": 0.3}
 
 
 def normalize_series(s: pd.Series) -> pd.Series:
-    """Normalize a pandas Series to 0..1 range.
-
-    Returns a series with same index. If values are all NaN or constant,
-    returns a series of zeros (to avoid division by zero).
-    """
-    s = pd.to_numeric(s, errors="coerce")
-    if s.dropna().empty:
-        return pd.Series(0.0, index=s.index)
-    mn = s.min()
-    mx = s.max()
-    if not np.isfinite(mn) or not np.isfinite(mx) or mx == mn:
+    """Min-max normalize a series to [0,1]; constant series -> 0."""
+    s = s.astype(float)
+    if s.isnull().all():
+        return s.fillna(0.0)
+    mn, mx = s.min(), s.max()
+    if mx == mn or not np.isfinite(mn) or not np.isfinite(mx):
         return pd.Series(0.0, index=s.index)
     return (s - mn) / (mx - mn)
 
 
-def _normalize_weights(d: Dict[str, float]) -> Dict[str, float]:
-    keys = [
-        "ma",
-        "mom",
-        "rsi",
-        "near_high_bell",
-        "vol",
-        "overext",
-        "pullback",
-        "risk_reward",
-        "macd",
-        "adx",
-    ]
-    w = {k: float(d.get(k, 0.0)) for k in keys}
-    s = sum(max(0.0, v) for v in w.values())
-    s = 1.0 if s <= 0 else s
-    return {k: max(0.0, v) / s for k, v in w.items()}
-
-
 def allocate_budget(
-    df: pd.DataFrame, total: float, min_pos: float, max_pos_pct: float
+    scores: pd.Series,
+    prices: pd.Series,
+    atr_pct: pd.Series,
+    sector: pd.Series,
+    dollar_vol: pd.Series,
+    budget: float,
+    max_pos_pct: float = 0.10,
+    max_sector_pct: float = 0.25,
+    min_price: float = 3.0,
+    min_dollar_vol: float = 1_000_000.0,
 ) -> pd.DataFrame:
-    df = df.copy()
-    df["סכום קנייה ($)"] = 0.0
-    if total <= 0 or df.empty:
-        return df
+    """
+    Risk-aware allocator:
+    - filters illiquid/cheap tickers
+    - sizes positions proportional to score / ATR% (lower ATR -> larger size)
+    - enforces per-position and per-sector caps
+    - floors to whole shares and trims to respect budget
+    Returns a DataFrame indexed by ticker with columns: shares, cost, sector
+    """
+    import numpy as np
 
-    # Sort by Score desc, ticker asc for deterministic ordering
-    df = df.sort_values(["Score", "Ticker"], ascending=[False, True]).reset_index(
-        drop=True
+    df = pd.DataFrame(
+        {
+            "score": scores,
+            "price": prices,
+            "atr_pct": atr_pct,
+            "sector": sector.fillna("Unknown"),
+            "dvol": dollar_vol,
+        }
     )
 
-    n = len(df)
-    max_pos_abs = (max_pos_pct / 100.0) * total if max_pos_pct > 0 else float("inf")
+    # require score and price at minimum
+    df = df.dropna(subset=["score", "price"])
+    # liquidity / price filters
+    df = df[(df["price"] >= min_price) & (df["dvol"] >= min_dollar_vol)]
+    if df.empty:
+        return pd.DataFrame(columns=["shares", "cost", "sector"])
 
-    # Ensure min_pos is not greater than max_pos_abs
-    if np.isfinite(max_pos_abs) and min_pos > max_pos_abs:
-        min_pos = float(max_pos_abs)
+    # sizing signal: score / abs(atr_pct) ; treat zero/NaN ATR safely
+    safe_atr = df["atr_pct"].replace(0, np.nan).abs()
+    size_sig = (df["score"].clip(lower=0) / safe_atr).replace([np.inf, -np.inf], np.nan).fillna(0.0)
 
-    # Establish raw weights
-    weights = df.get("Score", pd.Series(0.0, index=df.index)).clip(lower=0).to_numpy(dtype=float)
-    if np.nansum(weights) <= 0:
-        weights = np.ones(n, dtype=float)
+    # fallback to score-only if ATR-based signal is all zero
+    if size_sig.sum() == 0:
+        size_sig = df["score"].clip(lower=0).fillna(0.0)
+        if size_sig.sum() == 0:
+            return pd.DataFrame(columns=["shares", "cost", "sector"])
 
-    # Initial proportional allocation
-    prop = weights / float(np.nansum(weights))
-    proposed = prop * float(total)
+    # raw dollar allocation proportional to size_sig
+    raw = budget * size_sig / size_sig.sum()
 
-    # Enforce per-position bounds [min_pos, max_pos_abs]
-    if np.isfinite(max_pos_abs):
-        proposed = np.minimum(proposed, max_pos_abs)
-    if min_pos > 0:
-        proposed = np.maximum(proposed, min_pos)
+    # enforce per-position absolute cap
+    max_pos_abs = budget * max_pos_pct
+    raw = raw.clip(lower=0.0, upper=max_pos_abs)
 
-    # Iteratively adjust to match total while respecting bounds
-    for _ in range(10):
-        s = float(np.nansum(proposed))
-        diff = float(total - s)
-        if abs(diff) <= 1e-6:
-            break
+    # enforce per-sector cap (proportionally scale positions in sectors over the cap)
+    sector_totals = raw.groupby(df["sector"]).sum()
+    sector_cap = budget * max_sector_pct
+    over_sectors = sector_totals[sector_totals > sector_cap].index.tolist()
 
-        if diff > 0:
-            # distribute extra to positions not at max
-            capacity_mask = ~np.isfinite(max_pos_abs) | (proposed < max_pos_abs - 1e-9)
-            capacity = np.where(capacity_mask, (max_pos_abs - proposed), 0.0)
-            total_capacity = float(np.nansum(np.where(capacity_mask, capacity, 0.0)))
-            if total_capacity <= 1e-9:
-                break
-            # distribute proportionally to available capacity
-            add = capacity * (diff / total_capacity)
-            proposed = proposed + add
-            if min_pos > 0:
-                proposed = np.maximum(proposed, min_pos)
-        else:
-            # remove excess from positions above min_pos
-            reducible_mask = proposed > min_pos + 1e-9
-            reducible = np.where(reducible_mask, (proposed - min_pos), 0.0)
-            total_reducible = float(np.nansum(reducible))
-            if total_reducible <= 1e-9:
-                break
-            remove = reducible * ((-diff) / total_reducible)
-            proposed = proposed - remove
+    if over_sectors:
+        for s in over_sectors:
+            idxs = df.index[df["sector"] == s]
+            sector_sum = raw.loc[idxs].sum()
+            if sector_sum <= 0:
+                continue
+            allowed = sector_cap
+            factor = allowed / sector_sum
+            raw.loc[idxs] = raw.loc[idxs] * factor
 
-    # Final clipping and rounding
-    if np.isfinite(max_pos_abs):
-        proposed = np.minimum(proposed, max_pos_abs)
-    if min_pos > 0:
-        proposed = np.maximum(proposed, min_pos)
+    # final safety: ensure total allocation does not exceed budget
+    total_alloc = raw.sum()
+    if total_alloc > budget and total_alloc > 0:
+        raw = raw * (budget / total_alloc)
 
-    # If sum still differs from total due to rounding or bound constraints, scale proportionally among free positions
-    s = float(np.nansum(proposed))
-    if s > 0 and abs(s - total) / max(total, 1) > 1e-6:
-        free_mask = (proposed > min_pos + 1e-9) & (~(np.isfinite(max_pos_abs) & (proposed >= max_pos_abs - 1e-9)))
-        if np.any(free_mask):
-            scale = (total - np.nansum(np.where(~free_mask, proposed, 0.0))) / float(np.nansum(np.where(free_mask, proposed, 0.0)))
-            proposed = np.where(free_mask, proposed * scale, proposed)
+    # convert to whole shares (floor) & compute cost
+    shares = (raw / df["price"]).fillna(0).apply(np.floor).astype(int)
+    cost = shares * df["price"]
 
-    df["סכום קנייה ($)"] = np.round(proposed, 2)
-    # Final safety: ensure total does not exceed budget (rounding may push it over by cents)
-    total_assigned = float(df["סכום קנייה ($)"].sum())
-    if total_assigned > total:
-        # scale down proportionally
-        df["סכום קנייה ($)"] = np.round(df["סכום קנייה ($)"].to_numpy(dtype=float) * (total / total_assigned), 2)
+    # if rounding pushed us over budget, trim largest positions until under budget
+    # use while loop but safeguard with iteration limit
+    iter_limit = max(1000, len(cost) * 10)
+    it = 0
+    while cost.sum() > budget and cost.sum() > 0 and it < iter_limit:
+        # choose the largest cost position to decrement
+        idx_max = cost.idxmax()
+        if shares.loc[idx_max] <= 0:
+            # nothing to trim for this ticker, remove from consideration
+            cost.loc[idx_max] = 0.0
+            it += 1
+            continue
+        shares.loc[idx_max] -= 1
+        cost.loc[idx_max] = shares.loc[idx_max] * df.at[idx_max, "price"]
+        it += 1
 
-    return df
+    # final result, keep original index name if present
+    out = pd.DataFrame(
+        {
+            "shares": shares.fillna(0).astype(int),
+            "cost": cost.fillna(0.0).astype(float),
+            "sector": df["sector"],
+        }
+    )
+    out.index.name = scores.index.name
+    return out
 
 
-def fundamental_score(d: dict, surprise_bonus_on: bool = False) -> float:
-    def _to_01(x, low, high):
-        if not isinstance(x, (int, float)) or not np.isfinite(x):
-            return np.nan
-        return np.clip((x - low) / (high - low), 0, 1)
 
-    g_rev = _to_01(d.get("rev_g_yoy", np.nan), 0.00, 0.30)
-    g_eps = _to_01(d.get("eps_g_yoy", np.nan), 0.00, 0.30)
-    growth = np.nanmean([g_rev, g_eps])
+def final_score(
+    tech_df: pd.DataFrame,
+    fund_metrics: pd.DataFrame,
+    meta: pd.DataFrame,
+    penalties: Optional[pd.DataFrame] = None,
+    alpha: float = 0.55,
+) -> pd.Series:
+    """
+    Blend technical and fundamental signals into a final score in [0..100].
 
-    q_roe = _to_01(d.get("roe", np.nan), 0.05, 0.25)
-    q_roic = _to_01(d.get("roic", np.nan), 0.05, 0.20)
-    q_gm = _to_01(d.get("gm", np.nan), 0.10, 0.60)
-    quality = np.nanmean([q_roe, q_roic, q_gm])
+    tech_df: normalized technical features (expected columns like 'momentum_z','trend_z','overext_z')
+    fund_metrics: raw fundamentals metrics DataFrame (ticker index)
+    meta: DataFrame with columns 'sector' and 'market_cap' indexed by ticker
+    penalties: DataFrame (same index) with numeric penalty columns to subtract from the score
+    alpha: weight on technical side (default 0.55)
+    """
+    # compute fundamentals (0..100)
+    bucket = compute_bucket_scores(fund_metrics, meta)
+    fund = compute_fundamental_score(bucket).fillna(0.0)
 
-    pe = d.get("pe", np.nan)
-    ps = d.get("ps", np.nan)
-    val_pe = None if not np.isfinite(pe) else _to_01(40 - np.clip(pe, 0, 40), 0, 40)
-    val_ps = None if not np.isfinite(ps) else _to_01(10 - np.clip(ps, 0, 10), 0, 10)
-    vals = [v for v in (val_pe, val_ps) if v is not None and np.isfinite(v)]
-    valuation = np.nan if not vals else float(np.mean(vals))
+    # tech aggregate: use z-features (expected to be around ~N(0,1)); map to a 0..100 band
+    # prefer columns with _z suffix; fall back to 0-series if missing
+    idx = tech_df.index if isinstance(tech_df, pd.DataFrame) else fund.index
+    momentum = tech_df.get("momentum_z", pd.Series(0.0, index=idx)).astype(float)
+    trend = tech_df.get("trend_z", pd.Series(0.0, index=idx)).astype(float)
+    overext = tech_df.get("overext_z", pd.Series(0.0, index=idx)).astype(float)
 
-    penalty = 0.0
-    de = d.get("de", np.nan)
-    if isinstance(de, (int, float)) and np.isfinite(de) and de > 2.0:
-        penalty += 0.15
+    tech_raw = 0.35 * momentum + 0.15 * trend - 0.10 * overext
+    # map z-like tech_raw to a 0..100-ish band centered ~50 with modest scale
+    tech = (50.0 + 15.0 * tech_raw).clip(0.0, 100.0)
 
-    comp = np.nanmean([growth, quality, valuation])
-    comp = 0.0 if not np.isfinite(comp) else float(np.clip(comp, 0.0, 1.0))
+    # risk penalties: sum across penalty columns (if provided)
+    if penalties is None or penalties.empty:
+        risk_pen = pd.Series(0.0, index=tech.index)
+    else:
+        # align indices
+        pen = penalties.reindex(tech.index).fillna(0.0)
+        # numeric sum across columns
+        risk_pen = pen.select_dtypes(include=[float, int]).sum(axis=1).fillna(0.0)
 
-    if surprise_bonus_on:
-        surprise = d.get("surprise", np.nan)
-        comp += (0.05 if (isinstance(surprise, (int, float)) and surprise >= 2.0) else 0.0)
+    # combine (ensure alignment)
+    final = (alpha * tech + (1.0 - alpha) * fund.reindex(tech.index).fillna(0.0) - risk_pen).clip(0.0, 100.0)
+    return final
 
-    comp -= penalty
-    return float(np.clip(comp, 0.0, 1.0))
+def _cap_bucket_arr(mcap: pd.Series) -> pd.Series:
+    """Map market_cap series to buckets: small / mid / large / unknown."""
+    def _b(x: float):
+        if pd.isna(x):
+            return "unknown"
+        try:
+            if x < 2e9:
+                return "small"
+            if x < 10e9:
+                return "mid"
+            return "large"
+        except Exception:
+            return "unknown"
+    return mcap.apply(_b)
+
+def normalize_tech(df: pd.DataFrame, sector: pd.Series, market_cap: pd.Series) -> pd.DataFrame:
+    """
+    Sector- and market-cap-aware z-score normalization for technical metrics.
+    For every column in `df` returns a column named '{col}_z' with the group z-score.
+    Missing/constant groups return 0.0 (handled by zscore_by_group).
+    """
+    caps = _cap_bucket_arr(market_cap)
+    sec = sector.fillna("Unknown")
+    out = pd.DataFrame(index=df.index)
+    for col in df.columns:
+        # safe: if column missing or all-NaN, zscore_by_group will yield zeros
+        out[f"{col}_z"] = zscore_by_group(df[col], sec, caps)
+    return out
+
+def make_explain_payload(ticker_idx, final, tech_df, bucket_scores, penalties) -> dict:
+    """
+    Create payload for explanation API.
+
+    ticker_idx: index of the tickers
+    final: final scores series
+    tech_df: technical features DataFrame
+    bucket_scores: fundamental bucket scores DataFrame
+    penalties: risk penalties DataFrame
+    """
+    # ensure all inputs are aligned by ticker index
+    idx = ticker_idx
+    final = final.reindex(idx).fillna(0.0)
+    tech_df = tech_df.reindex(idx).fillna(0.0)
+    bucket_scores = bucket_scores.reindex(idx).fillna(0.0)
+    penalties = penalties.reindex(idx).fillna(0.0)
+
+    # unpack bucket scores (assuming multi-level columns)
+    bucket_df = pd.DataFrame()
+    if isinstance(bucket_scores, pd.DataFrame) and not bucket_scores.empty:
+        bucket_df = pd.DataFrame(
+            bucket_scores.to_list(),
+            index=bucket_scores.index,
+            columns=[f"bucket_{i+1}" for i in range(bucket_scores.shape[1])],
+        )
+
+    # payload construction
+    payload = {
+        "ticker": idx.tolist(),
+        "final_score": final.tolist(),
+        "technical_factors": tech_df.reset_index().to_dict(orient="records"),
+        "fundamental_buckets": bucket_df.reset_index().to_dict(orient="records"),
+        "risk_penalties": penalties.reset_index().to_dict(orient="records"),
+    }
+    return payload
+
+
+# Example usage (commented out to avoid NameError when importing module):
+# payload = make_explain_payload(ticker_idx=tech_df.index, final=final_series,
+#                                tech_df=tech_df, bucket_scores=bucket_df, penalties=pen_df)
+# import json
+# print(json.dumps(payload[list(payload.keys())[:3]], indent=2))  # show first 3 tickers
