@@ -52,12 +52,16 @@ def evaluate_data_quality(row: pd.Series) -> Tuple[str, int, list[str]]:
     # Fundamentals coverage (do not auto-force low; allow medium/high based on other metrics for display purposes)
     fundamental_total = row.get("Fundamental_S")
     fundamental_quality = row.get("Quality_Score_F")
+    coverage_pct = row.get("Fund_Coverage_Pct")
     fundamentals_missing = (
         fundamental_total is None or (isinstance(fundamental_total, float) and np.isnan(fundamental_total)) or
         fundamental_quality is None or (isinstance(fundamental_quality, float) and np.isnan(fundamental_quality))
     )
     if fundamentals_missing:
         warnings.append("Missing: Fundamental_S/Quality_Score_F")
+    if isinstance(coverage_pct, (int, float)) and np.isfinite(coverage_pct):
+        if coverage_pct < 0.25:
+            warnings.append("Low fundamental coverage (<25%)")
     
     # Check technical metrics
     rsi = row.get("RSI")
@@ -75,6 +79,9 @@ def evaluate_data_quality(row: pd.Series) -> Tuple[str, int, list[str]]:
     elif valid_count >= total_critical * 0.60:  # 60-85% metrics valid
         quality = "medium" if not fundamentals_missing else "low"
     else:
+        quality = "low"
+    # Second downgrade if coverage extremely low
+    if isinstance(coverage_pct, (int,float)) and np.isfinite(coverage_pct) and coverage_pct < 0.25 and quality == "medium":
         quality = "low"
     
     return quality, valid_count, warnings

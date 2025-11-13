@@ -108,6 +108,8 @@ CONFIG = dict(
     MIN_RR_CORE=1.5,                  # Minimum Reward/Risk ratio. Was higher or not explicit, now 1.5.
     TARGET_RECOMMENDATIONS_MIN=3,     # Warn if fewer than this many stocks pass filters
     TARGET_RECOMMENDATIONS_MAX=7,     # Show only top N if more than this pass filters
+    ENABLE_SIMFIN=True,               # Attempt SimFin fundamentals if API key present
+    COVERAGE_WARN_THRESHOLD=0.4,      # Warn if <40% of tickers have ≥3 fundamental fields
 )
 def _env(key: str, default: Optional[str] = None) -> Optional[str]:
     try:
@@ -506,7 +508,7 @@ def fetch_fundamentals_bundle(ticker: str) -> dict:
     - from_alpha: True if Alpha Vantage provided data  
     - from_finnhub: True if Finnhub provided data
     """
-    out: dict = {"from_fmp": False, "from_alpha": False, "from_finnhub": False}
+    out: dict = {"from_fmp": False, "from_alpha": False, "from_finnhub": False, "from_simfin": False}
 
     # FMP first (full bundle, then legacy fallback)
     fmp_key = _env("FMP_API_KEY")
@@ -519,6 +521,9 @@ def fetch_fundamentals_bundle(ticker: str) -> dict:
                 logger.debug(
                     f"Fundamentals(FMP/full) ✓ {ticker} — valid={d_full.get('_fmp_field_count')} roe={d_full.get('roe')} pe={d_full.get('pe')} ps={d_full.get('ps')} gm={d_full.get('gm')}"
                 )
+                # annotate coverage
+                cov_fields = [d_full.get(k) for k in ["roe","roic","gm","ps","pe","de","rev_g_yoy","eps_g_yoy"]]
+                d_full["Fund_Coverage_Pct"] = float(sum(isinstance(v,(int,float)) and np.isfinite(v) for v in cov_fields))/float(len(cov_fields))
                 return d_full
             else:
                 logger.debug(f"Fundamentals(FMP/full) ✗ {ticker} — missing core fields")
@@ -531,6 +536,8 @@ def fetch_fundamentals_bundle(ticker: str) -> dict:
                 logger.debug(
                     f"Fundamentals(FMP/legacy) ✓ {ticker} — roe={d_legacy.get('roe')} pe={d_legacy.get('pe')} ps={d_legacy.get('ps')} gm={d_legacy.get('gm')}"
                 )
+                cov_fields = [d_legacy.get(k) for k in ["roe","roic","gm","ps","pe","de","rev_g_yoy","eps_g_yoy"]]
+                d_legacy["Fund_Coverage_Pct"] = float(sum(isinstance(v,(int,float)) and np.isfinite(v) for v in cov_fields))/float(len(cov_fields))
                 return d_legacy
             else:
                 logger.debug(f"Fundamentals(FMP/legacy) ✗ {ticker} — missing core fields")
@@ -539,7 +546,22 @@ def fetch_fundamentals_bundle(ticker: str) -> dict:
     else:
         logger.debug(f"Fundamentals(FMP) skipped {ticker} — no API key")
 
-    # Alpha Vantage fallback
+    # SimFin optional (before Alpha)
+    if CONFIG.get("ENABLE_SIMFIN"):
+        sim_key = _env("SIMFIN_API_KEY")
+        if sim_key:
+            d_sim = _simfin_fetch(ticker, sim_key)
+            if d_sim:
+                logger.debug(f"Fundamentals(SimFin) ✓ {ticker} — fields={d_sim.get('_simfin_field_count')}")
+                cov_fields = [d_sim.get(k) for k in ["roe","roic","gm","ps","pe","de","rev_g_yoy","eps_g_yoy"]]
+                d_sim["Fund_Coverage_Pct"] = float(sum(isinstance(v,(int,float)) and np.isfinite(v) for v in cov_fields))/float(len(cov_fields))
+                return d_sim
+            else:
+                logger.debug(f"Fundamentals(SimFin) ✗ {ticker} — insufficient fields")
+        else:
+            logger.debug(f"Fundamentals(SimFin) skipped {ticker} — no API key")
+
+    # Alpha Vantage fallback (after FMP & SimFin)
     if bool(st.session_state.get("_alpha_ok")) and bool(_env("ALPHA_VANTAGE_API_KEY")):
         d = _alpha_overview_fetch(ticker)
         if d:
@@ -547,6 +569,8 @@ def fetch_fundamentals_bundle(ticker: str) -> dict:
             if has_core_fields:
                 d["from_alpha"] = True
                 logger.debug(f"Fundamentals(Alpha) ✓ {ticker} — roe={d.get('roe')} pe={d.get('pe')} ps={d.get('ps')}")
+                cov_fields = [d.get(k) for k in ["roe","roic","gm","ps","pe","de","rev_g_yoy","eps_g_yoy"]]
+                d["Fund_Coverage_Pct"] = float(sum(isinstance(v,(int,float)) and np.isfinite(v) for v in cov_fields))/float(len(cov_fields))
                 return d
             else:
                 logger.debug(f"Fundamentals(Alpha) ✗ {ticker} — missing core fields")
@@ -560,6 +584,8 @@ def fetch_fundamentals_bundle(ticker: str) -> dict:
     if d:
         d["from_finnhub"] = True
         logger.debug(f"Fundamentals(Finnhub) ✓ {ticker}")
+        cov_fields = [d.get(k) for k in ["roe","roic","gm","ps","pe","de","rev_g_yoy","eps_g_yoy"]]
+        d["Fund_Coverage_Pct"] = float(sum(isinstance(v,(int,float)) and np.isfinite(v) for v in cov_fields))/float(len(cov_fields))
         return d
     logger.debug(f"Fundamentals(Finnhub) ✗ {ticker} — empty response")
     return out
@@ -798,6 +824,56 @@ def _finnhub_sector(ticker: str, token: str) -> str:
         return j.get("finnhubIndustry") or j.get("sector") or "Unknown"
     except Exception:
         return "Unknown"
+
+@st.cache_data(ttl=60 * 60)
+def _simfin_fetch(ticker: str, api_key: str) -> Dict[str, any]:
+    """Fetch fundamentals from SimFin (basic ratios). Defensive; returns {} if insufficient fields."""
+    try:
+        url = (
+            "https://simfin.com/api/v2/companies/statements/standardised?"
+            f"ticker={ticker}&statement=pl&period=FY&limit=1&api-key={api_key}"
+        )
+        r = http_get_retry(url, tries=2, timeout=10)
+        if not r:
+            return {}
+        j = r.json()
+        if not j or not isinstance(j, dict):
+            return {}
+        def grab(*paths):
+            for p in paths:
+                v = j.get(p)
+                if isinstance(v, (int, float)) and np.isfinite(v):
+                    return float(v)
+            return np.nan
+        roe = grab("roe")
+        gp = grab("grossProfit")
+        rev = grab("revenue")
+        gm = (gp / rev) if (np.isfinite(gp) and np.isfinite(rev) and rev > 0) else np.nan
+        ps = grab("priceToSales")
+        pe = grab("peRatio")
+        de = grab("debtToEquity")
+        rev_g = grab("revenueGrowth")
+        eps_g = grab("epsGrowth")
+        sector = j.get("sector") or "Unknown"
+        out = {
+            "roe": roe,
+            "roic": np.nan,
+            "gm": gm,
+            "ps": ps,
+            "pe": pe,
+            "de": de,
+            "rev_g_yoy": rev_g,
+            "eps_g_yoy": eps_g,
+            "sector": sector,
+        }
+        valid_fields = sum(1 for k,v in out.items() if k != "sector" and isinstance(v,(int,float)) and np.isfinite(v))
+        if valid_fields >= 3:
+            out["from_simfin"] = True
+            out["_simfin_field_count"] = valid_fields
+            return out
+        return {}
+    except Exception:
+        return {}
 
 
 @st.cache_data(ttl=60 * 60)
@@ -1399,6 +1475,27 @@ logger.info(f"Sample Fundamental_S values: {results['Fundamental_S'].head().toli
 logger.info(f"Sample Momentum_Consistency values: {results['Momentum_Consistency'].head().tolist() if 'Momentum_Consistency' in results.columns else 'MISSING'}")
 
 results = apply_classification(results)
+
+# Fundamentals coverage summary
+if "Fund_Coverage_Pct" in results.columns:
+    coverage_vals = results["Fund_Coverage_Pct"].dropna().tolist()
+    if coverage_vals:
+        avg_cov = float(np.mean(coverage_vals))
+        pct_good = float(sum(v >= 0.5 for v in coverage_vals)) / float(len(coverage_vals))
+        # Histogram buckets
+        buckets = {"0-25%":0, "25-50%":0, "50-75%":0, "75-100%":0}
+        for v in coverage_vals:
+            if v < 0.25: buckets["0-25%"] += 1
+            elif v < 0.50: buckets["25-50%"] += 1
+            elif v < 0.75: buckets["50-75%"] += 1
+            else: buckets["75-100%"] += 1
+        logger.info(f"Fundamentals coverage buckets: {buckets}")
+        logger.info(f"Fundamentals coverage: mean={avg_cov:.2f}, >=50% fields for {pct_good*100:.1f}% of tickers")
+        warn_thresh = CONFIG.get("COVERAGE_WARN_THRESHOLD", 0.4)
+        if avg_cov < warn_thresh:
+            st.warning(f"⚠️ כיסוי פונדמנטלי נמוך: ממוצע {avg_cov:.2f} ({pct_good*100:.1f}% עם ≥50% מהשדות). שקול הוספת מקורות או מפתחות.")
+        else:
+            st.info(f"🧬 כיסוי פונדמנטלי ממוצע: {avg_cov:.2f} | {pct_good*100:.0f}% מהטיקרסים עם ≥50% שדות.")
 
 # Show classification statistics
 core_count = len(results[results["Risk_Level"] == "core"])
