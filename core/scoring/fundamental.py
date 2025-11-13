@@ -11,6 +11,24 @@ from core.logging_config import get_logger
 logger = get_logger("fundamental_scoring")
 
 
+def _safe_float(value) -> Optional[float]:
+    """Convert value to float, return None if invalid."""
+    if value is None:
+        return None
+    try:
+        val = float(value)
+        return val if np.isfinite(val) else None
+    except (ValueError, TypeError):
+        return None
+
+
+def _normalize(value: Optional[float], low: float, high: float) -> float:
+    """Normalize value to [0, 1] range."""
+    if value is None or not np.isfinite(value):
+        return 0.5  # Neutral if unknown
+    return float(np.clip((value - low) / (high - low), 0.0, 1.0))
+
+
 def compute_fundamental_score_with_breakdown(data: dict) -> FundamentalScore:
     """
     Compute fundamental score with detailed breakdown.
@@ -57,8 +75,8 @@ def compute_fundamental_score_with_breakdown(data: dict) -> FundamentalScore:
     ps = breakdown.ps_ratio
     
     # Invert: lower P/E = higher score
-    pe_score = (1.0 - _normalize(pe, 5, 40)) * 100 if np.isfinite(pe) else 50.0
-    ps_score = (1.0 - _normalize(ps, 0.5, 10)) * 100 if np.isfinite(ps) else 50.0
+    pe_score = (1.0 - _normalize(pe, 5, 40)) * 100 if (pe is not None and np.isfinite(pe)) else 50.0
+    ps_score = (1.0 - _normalize(ps, 0.5, 10)) * 100 if (ps is not None and np.isfinite(ps)) else 50.0
     
     breakdown.valuation_score = float(np.mean([pe_score, ps_score]))
     breakdown.valuation_label = _valuation_label(breakdown.valuation_score)
@@ -66,7 +84,7 @@ def compute_fundamental_score_with_breakdown(data: dict) -> FundamentalScore:
     # === Leverage Score (0-100, lower D/E = higher score) ===
     de = breakdown.debt_to_equity
     
-    if np.isfinite(de):
+    if de is not None and np.isfinite(de):
         # Penalize high debt: D/E > 2.0 is very bad
         de_penalty = _normalize(de, 0, 2.0)  # 0=good, 1=bad
         breakdown.leverage_score = (1.0 - de_penalty) * 100
@@ -88,24 +106,6 @@ def compute_fundamental_score_with_breakdown(data: dict) -> FundamentalScore:
         total=float(np.clip(total, 0, 100)),
         breakdown=breakdown
     )
-
-
-def _safe_float(value) -> Optional[float]:
-    """Convert value to float, return None if invalid."""
-    if value is None:
-        return None
-    try:
-        val = float(value)
-        return val if np.isfinite(val) else None
-    except (ValueError, TypeError):
-        return None
-
-
-def _normalize(value: Optional[float], low: float, high: float) -> float:
-    """Normalize value to [0, 1] range."""
-    if value is None or not np.isfinite(value):
-        return 0.5  # Neutral if unknown
-    return float(np.clip((value - low) / (high - low), 0.0, 1.0))
 
 
 def _quality_label(score: float) -> str:
