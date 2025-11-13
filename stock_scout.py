@@ -2419,6 +2419,9 @@ else:
     <div class="item"><b>קרבה לשיא 52ש׳:</b> {near52 if not np.isnan(near52) else 'לא זמין'}%</div>
     <div class="item"><b>ניקוד:</b> {int(round(score))}</div>
     <div class="item"><b>מקורות:</b> {sources_esc.replace(' · ','&nbsp;•&nbsp;')}</div>
+        <div class="item"><b>מהימנות מחיר:</b> {r.get('Price_Reliability', np.nan)}</div>
+        <div class="item"><b>מהימנות פונד׳:</b> {r.get('Fundamental_Reliability', np.nan)}</div>
+        <div class="item"><b>ציון מהימנות:</b> {r.get('Reliability_Score', np.nan)}</div>
     <div class="item"><b>סכום קנייה מומלץ:</b> ${buy_amt:,.0f}</div>
     <div class="item"><b>טווח החזקה:</b> {horizon}</div>
     <div class="item"><b>מחיר יחידה:</b> {unit_price_fmt}</div>
@@ -2448,6 +2451,10 @@ else:
 st.subheader("🎯 תוצאות מסוננות ומדורגות")
 view_df_source = rec_df if not rec_df.empty else results
 
+# Augment with sources count if reliability columns present
+if "Reliability_Score" in view_df_source.columns and "Source_List" in view_df_source.columns:
+    view_df_source["Sources_Count"] = view_df_source["Source_List"].apply(lambda s: len(str(s).split(" · ")) if isinstance(s, str) and s else 0)
+
 hebrew_cols = {
     "Ticker": "טיקר",
     "Price_Yahoo": "מחיר (Yahoo)",
@@ -2455,6 +2462,10 @@ hebrew_cols = {
     "Unit_Price": "מחיר יחידה (חישוב)",
     "סטיית תקן": "סטיית תקן",
     "מקורות מחיר": "מקורות מחיר",
+    "Price_Reliability": "מהימנות מחיר",
+    "Fundamental_Reliability": "מהימנות פונד׳",
+    "Reliability_Score": "ציון מהימנות",
+    "Sources_Count": "מספר מקורות",
     "Score": "ניקוד",
     "Score_Tech": "ניקוד טכני",
     "Fundamental_S": "ציון פונדמנטלי",
@@ -2504,6 +2515,10 @@ show_order = [
     "רמת סיכון",
     "איכות נתונים",
     "רמת ביטחון",
+    "ציון מהימנות",
+    "מהימנות פונד׳",
+    "מהימנות מחיר",
+    "מספר מקורות",
     "ניקוד",
     "ציון איכות",
     "מחיר ממוצע",
