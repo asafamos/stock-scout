@@ -1409,13 +1409,18 @@ with st.sidebar:
     if not results.empty and "Score" in results.columns:
         min_score_val = float(results["Score"].min())
         max_score_val = float(results["Score"].max())
-        score_range = st.slider(
-            "טווח ניקוד",
-            min_value=min_score_val,
-            max_value=max_score_val,
-            value=(min_score_val, max_score_val),
-            help="הצג רק מניות בטווח ניקוד זה"
-        )
+        # Only show slider if there's a range
+        if max_score_val > min_score_val:
+            score_range = st.slider(
+                "טווח ניקוד",
+                min_value=min_score_val,
+                max_value=max_score_val,
+                value=(min_score_val, max_score_val),
+                help="הצג רק מניות בטווח ניקוד זה"
+            )
+        else:
+            st.caption(f"ניקוד: {min_score_val:.1f} (מניה אחת)")
+            score_range = (min_score_val, max_score_val)
     else:
         score_range = (0.0, 100.0)
     
