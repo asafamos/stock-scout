@@ -1514,7 +1514,7 @@ else:
   </div>
 </div>
 """
-        st_html(card_html, height=280, scrolling=False)
+        st_html(card_html, height=420, scrolling=False)
 
 # ==================== Results table + CSV ====================
 st.subheader("🎯 תוצאות מסוננות ומדורגות")
