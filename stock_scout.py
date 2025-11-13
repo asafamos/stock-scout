@@ -269,6 +269,26 @@ def _check_tiingo() -> Tuple[bool, str]:
     return ok, ("OK" if ok else "Bad response")
 
 
+@st.cache_data(ttl=300)
+def _check_fmp() -> Tuple[bool, str]:
+    k = _env("FMP_API_KEY")
+    if not k:
+        return False, "Missing API key"
+    r = http_get_retry(
+        f"https://financialmodelingprep.com/api/v3/profile/AAPL?apikey={k}",
+        tries=1,
+        timeout=6,
+    )
+    if not r:
+        return False, "Timeout"
+    try:
+        j = r.json()
+    except Exception:
+        return False, "Bad JSON"
+    ok = isinstance(j, list) and j and isinstance(j[0], dict) and "symbol" in j[0]
+    return ok, ("OK" if ok else "Bad response")
+
+
 # ==================== Indicators ====================
 from indicators import rsi, atr, macd_line, adx, _sigmoid
 
@@ -814,7 +834,8 @@ with col_btn:
             f"Alpha: {_mask(_env('ALPHA_VANTAGE_API_KEY'))}\n\n"
             f"Finnhub: {_mask(_env('FINNHUB_API_KEY'))}\n\n"
             f"Polygon: {_mask(_env('POLYGON_API_KEY'))}\n\n"
-            f"Tiingo: {_mask(_env('TIINGO_API_KEY'))}"
+            f"Tiingo: {_mask(_env('TIINGO_API_KEY'))}\n\n"
+            f"FMP: {_mask(_env('FMP_API_KEY'))}"
         )
 
 st.title("📈 Stock Scout — 2025 (Auto)")
@@ -824,17 +845,19 @@ alpha_ok, alpha_reason = _check_alpha()
 finn_ok, finnh_reason = _check_finnhub()
 poly_ok, poly_reason = _check_polygon()
 tiin_ok, tiin_reason = _check_tiingo()
+fmp_ok, fmp_reason = _check_fmp()
 st.session_state["_alpha_ok"] = bool(alpha_ok)
 status_df = pd.DataFrame(
     {
-        "מקור": ["Alpha Vantage", "Finnhub", "Polygon", "Tiingo"],
+        "מקור": ["FMP", "Alpha Vantage", "Finnhub", "Polygon", "Tiingo"],
         "סטטוס": [
+            "🟢" if fmp_ok else "🔴",
             "🟢" if alpha_ok else "🔴",
             "🟢" if finn_ok else "🔴",
             "🟢" if poly_ok else "🔴",
             "🟢" if tiin_ok else "🔴",
         ],
-        "סיבה": [alpha_reason, finnh_reason, poly_reason, tiin_reason],
+        "סיבה": [fmp_reason, alpha_reason, finnh_reason, poly_reason, tiin_reason],
     }
 )
 st.table(status_df.style.set_properties(**{"text-align": "center", "direction": "rtl"}))
