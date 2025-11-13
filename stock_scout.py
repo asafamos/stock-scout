@@ -632,10 +632,10 @@ def fetch_fundamentals_bundle(ticker: str, enable_alpha_smart: bool = False) -> 
 
 
 def _eodhd_fetch_fundamentals(ticker: str, api_key: str) -> Dict[str, any]:
-    \"\"\"Extracted EODHD fundamentals fetching for parallel execution.\"\"\"
+    """Extracted EODHD fundamentals fetching for parallel execution."""
     try:
         r_eod = http_get_retry(
-            f\"https://eodhistoricaldata.com/api/fundamentals/{ticker}.US?api_token={api_key}&fmt=json\",
+            f"https://eodhistoricaldata.com/api/fundamentals/{ticker}.US?api_token={api_key}&fmt=json",
             tries=1,
             timeout=10,
         )
@@ -643,10 +643,10 @@ def _eodhd_fetch_fundamentals(ticker: str, api_key: str) -> Dict[str, any]:
             return {}
         
         fj = r_eod.json()
-        highlights = fj.get(\"Highlights\", {}) if isinstance(fj, dict) else {}
-        valuation = fj.get(\"Valuation\", {}) if isinstance(fj, dict) else {}
-        ratios = fj.get(\"Ratios\", {}) if isinstance(fj, dict) else {}
-        growth = fj.get(\"Growth\", {}) if isinstance(fj, dict) else {}
+        highlights = fj.get("Highlights", {}) if isinstance(fj, dict) else {}
+        valuation = fj.get("Valuation", {}) if isinstance(fj, dict) else {}
+        ratios = fj.get("Ratios", {}) if isinstance(fj, dict) else {}
+        growth = fj.get("Growth", {}) if isinstance(fj, dict) else {}
         
         def finum(*keys):
             for k in keys:
@@ -656,16 +656,16 @@ def _eodhd_fetch_fundamentals(ticker: str, api_key: str) -> Dict[str, any]:
             return np.nan
         
         return {
-            \"roe\": finum(\"ReturnOnEquityTTM\", \"ROE\"),
-            \"roic\": np.nan,
-            \"gm\": finum(\"GrossMarginTTM\", \"GrossMargin\"),
-            \"ps\": finum(\"PriceToSalesTTM\", \"PriceToSales\"),
-            \"pe\": finum(\"PERatio\", \"PE\"),
-            \"de\": finum(\"DebtToEquity\", \"DebtEquityRatio\"),
-            \"rev_g_yoy\": finum(\"RevenueGrowthTTMYoy\", \"RevenueGrowth\"),
-            \"eps_g_yoy\": finum(\"EPSGrowthTTMYoy\", \"EPSGrowth\"),
-            \"sector\": fj.get(\"General\", {}).get(\"Sector\", \"Unknown\") if isinstance(fj.get(\"General\"), dict) else \"Unknown\",
-            \"from_eodhd\": True,
+            "roe": finum("ReturnOnEquityTTM", "ROE"),
+            "roic": np.nan,
+            "gm": finum("GrossMarginTTM", "GrossMargin"),
+            "ps": finum("PriceToSalesTTM", "PriceToSales"),
+            "pe": finum("PERatio", "PE"),
+            "de": finum("DebtToEquity", "DebtEquityRatio"),
+            "rev_g_yoy": finum("RevenueGrowthTTMYoy", "RevenueGrowth"),
+            "eps_g_yoy": finum("EPSGrowthTTMYoy", "EPSGrowth"),
+            "sector": fj.get("General", {}).get("Sector", "Unknown") if isinstance(fj.get("General"), dict) else "Unknown",
+            "from_eodhd": True,
         }
     except Exception:
         return {}
