@@ -1173,10 +1173,10 @@ add_provider("Alpha Vantage", alpha_ok, alpha_ok, alpha_reason)
 add_provider("Finnhub", finn_ok, finn_ok, finnh_reason)
 add_provider("Polygon", poly_ok, False, poly_reason)
 add_provider("Tiingo", tiin_ok, False, tiin_reason)
-add_provider("SimFin", False, bool(simfin_key), "Key" if simfin_key else "אין מפתח")
-add_provider("Marketstack", bool(marketstack_key), False, "Key" if marketstack_key else "אין מפתח")
-add_provider("NasdaqDL", bool(nasdaq_key), False, "Key" if nasdaq_key else "אין מפתח")
-add_provider("EODHD", bool(eodhd_key), bool(eodhd_key), "Key" if eodhd_key else "אין מפתח")
+add_provider("SimFin", False, bool(simfin_key), "אוקיי" if simfin_key else "אין מפתח")
+add_provider("Marketstack", bool(marketstack_key), False, "אוקיי" if marketstack_key else "אין מפתח")
+add_provider("NasdaqDL", bool(nasdaq_key), False, "אוקיי" if nasdaq_key else "אין מפתח")
+add_provider("EODHD", bool(eodhd_key), bool(eodhd_key), "אוקיי" if eodhd_key else "אין מפתח")
 
 status_df = pd.DataFrame(providers_status)
 st.markdown("### 🔌 סטטוס מקורות")
@@ -2536,8 +2536,15 @@ show_order = [
     "EPS YoY",
 ]
 csv_df = view_df_source.rename(columns=hebrew_cols)
+# Build unique ordered columns for export to avoid duplicate name errors
+cols_for_export = []
+seen_cols = set()
+for c in show_order:
+    if c in csv_df.columns and c not in seen_cols:
+        cols_for_export.append(c)
+        seen_cols.add(c)
 csv_bytes = (
-    csv_df[[c for c in show_order if c in csv_df.columns]]
+    csv_df[cols_for_export]
     .to_csv(index=False)
     .encode("utf-8-sig")
 )
@@ -2553,7 +2560,7 @@ with col_csv:
     )
 with col_json:
     # JSON export for API/automation
-    json_data = csv_df[[c for c in show_order if c in csv_df.columns]].to_json(
+    json_data = csv_df[cols_for_export].to_json(
         orient="records", force_ascii=False, indent=2
     )
     st.download_button(
