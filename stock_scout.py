@@ -1381,7 +1381,95 @@ if alpha_ok:
 # ==================== Recommendation Cards ====================
 st.subheader("🤖 המלצה עכשיו")
 st.caption("הכרטיסים הבאים הם **המלצות קנייה** בלבד. אין באמור ייעוץ השקעות.")
+
+# Sidebar filters
+with st.sidebar:
+    st.header("🎛️ פילטרים")
+    st.caption("התאם אישית את תוצאות הסריקה")
+    
+    # Risk level filter
+    risk_filter = st.multiselect(
+        "רמת סיכון",
+        options=["core", "speculative"],
+        default=["core", "speculative"],
+        format_func=lambda x: "🛡️ ליבה (Core)" if x == "core" else "⚡ ספקולטיבי",
+        help="בחר אילו סוגי מניות להציג"
+    )
+    
+    # Data quality filter
+    quality_filter = st.multiselect(
+        "איכות נתונים מינימלית",
+        options=["high", "medium", "low"],
+        default=["high", "medium", "low"],
+        format_func=lambda x: {"high": "✅ גבוהה (85%+)", "medium": "⚠️ בינונית (60-85%)", "low": "❌ נמוכה (<60%)"}[x],
+        help="סנן לפי רמת איכות הנתונים"
+    )
+    
+    # Score range
+    if not results.empty and "Score" in results.columns:
+        min_score_val = float(results["Score"].min())
+        max_score_val = float(results["Score"].max())
+        score_range = st.slider(
+            "טווח ניקוד",
+            min_value=min_score_val,
+            max_value=max_score_val,
+            value=(min_score_val, max_score_val),
+            help="הצג רק מניות בטווח ניקוד זה"
+        )
+    else:
+        score_range = (0.0, 100.0)
+    
+    # Sector filter
+    if not results.empty and "Sector" in results.columns:
+        available_sectors = sorted([s for s in results["Sector"].unique() if pd.notna(s)])
+        if available_sectors:
+            sector_filter = st.multiselect(
+                "סקטורים",
+                options=available_sectors,
+                default=available_sectors,
+                help="בחר סקטורים ספציפיים"
+            )
+        else:
+            sector_filter = []
+    else:
+        sector_filter = []
+    
+    # RSI filter
+    rsi_max = st.slider(
+        "RSI מקסימלי",
+        min_value=0,
+        max_value=100,
+        value=80,
+        help="סנן מניות עם RSI גבוה מדי (overbought)"
+    )
+
+# Apply filters
 rec_df = results[results["סכום קנייה ($)"] > 0].copy()
+
+if not rec_df.empty:
+    # Apply risk filter
+    if risk_filter and "Risk_Level" in rec_df.columns:
+        rec_df = rec_df[rec_df["Risk_Level"].isin(risk_filter)]
+    
+    # Apply quality filter
+    if quality_filter and "Data_Quality" in rec_df.columns:
+        rec_df = rec_df[rec_df["Data_Quality"].isin(quality_filter)]
+    
+    # Apply score range
+    if "Score" in rec_df.columns:
+        rec_df = rec_df[(rec_df["Score"] >= score_range[0]) & (rec_df["Score"] <= score_range[1])]
+    
+    # Apply sector filter
+    if sector_filter and "Sector" in rec_df.columns:
+        rec_df = rec_df[rec_df["Sector"].isin(sector_filter)]
+    
+    # Apply RSI filter
+    if "RSI" in rec_df.columns:
+        rec_df = rec_df[(rec_df["RSI"].isna()) | (rec_df["RSI"] <= rsi_max)]
+
+st.info(f"📊 מציג {len(rec_df)} מניות אחרי פילטרים")
+
+rec_df = rec_df.copy()
 
 CARD_CSS = """
 <style>
@@ -1786,12 +1874,27 @@ csv_bytes = (
     .to_csv(index=False)
     .encode("utf-8-sig")
 )
-st.download_button(
-    "⬇️ הורדת תוצאות ל-CSV",
-    data=csv_bytes,
-    file_name="stock_scout_results.csv",
-    mime="text/csv",
-)
+
+# Download buttons side by side
+col_csv, col_json = st.columns(2)
+with col_csv:
+    st.download_button(
+        "📥 הורדת תוצאות ל-CSV",
+        data=csv_bytes,
+        file_name=f"stock_scout_results_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}.csv",
+        mime="text/csv",
+    )
+with col_json:
+    # JSON export for API/automation
+    json_data = csv_df[[c for c in show_order if c in csv_df.columns]].to_json(
+        orient="records", force_ascii=False, indent=2
+    )
+    st.download_button(
+        "📊 הורדת תוצאות ל-JSON",
+        data=json_data.encode("utf-8"),
+        file_name=f"stock_scout_results_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}.json",
+        mime="application/json",
+    )
 
 st.markdown('<div class="rtl-table">', unsafe_allow_html=True)
 st.dataframe(
