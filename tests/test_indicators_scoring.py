@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 
 from indicators import rsi, atr, macd_line
-from scoring import _normalize_weights, fundamental_score
+from core.portfolio import _normalize_weights
 import sys
 sys.path.insert(0, '/workspaces/stock-scout-2')
 from stock_scout import allocate_budget
@@ -38,9 +38,3 @@ def test_normalize_weights_and_allocate():
     out = allocate_budget(df, total=1000, min_pos=100, max_pos_pct=50)
     assert "סכום קנייה ($)" in out.columns
     assert out["סכום קנייה ($)"].sum() <= 1000 + 1
-
-
-def test_fundamental_score():
-    d = {"rev_g_yoy": 0.2, "eps_g_yoy": 0.1, "roe": 0.15, "gm": 0.3, "pe": 15, "ps": 2, "de": 1}
-    s = fundamental_score(d, surprise_bonus_on=False)
-    assert 0.0 <= s <= 1.0

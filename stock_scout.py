@@ -31,7 +31,7 @@ from dotenv import load_dotenv, find_dotenv
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from streamlit.components.v1 import html as st_html
 import html as html_escape
-from scoring import _normalize_weights, allocate_budget, fundamental_score
+from core.portfolio import _normalize_weights
 from advanced_filters import (
     compute_advanced_score, 
     should_reject_ticker, 

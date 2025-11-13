@@ -2,7 +2,7 @@ import types
 import requests
 import pytest
 
-from scoring import _normalize_weights
+from core.portfolio import _normalize_weights
 import sys
 sys.path.insert(0, '/workspaces/stock-scout-2')
 from stock_scout import allocate_budget
