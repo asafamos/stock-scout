@@ -51,8 +51,14 @@ def detect_volume_surge(df: pd.DataFrame, lookback: int = 20) -> Dict[str, float
     # Price-volume correlation (positive = healthy)
     price_change = df["Close"].pct_change().tail(lookback)
     vol_change = df["Volume"].pct_change().tail(lookback)
-    pv_corr = price_change.corr(vol_change) if len(price_change.dropna()) > 5 else 0.0
-    pv_corr = float(pv_corr) if np.isfinite(pv_corr) else 0.0
+    
+    # Combine into DataFrame and calculate correlation
+    combined = pd.concat([price_change, vol_change], axis=1).dropna()
+    if len(combined) > 5:
+        pv_corr = float(combined.iloc[:, 0].corr(combined.iloc[:, 1]))
+        pv_corr = pv_corr if np.isfinite(pv_corr) else 0.0
+    else:
+        pv_corr = 0.0
     
     return {
         "volume_surge": float(surge_ratio),
