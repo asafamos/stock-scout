@@ -864,7 +864,8 @@ status_df = pd.DataFrame(
             "🟢" if tiin_ok else "🔴",
         ],
         "סיבה": [fmp_reason, alpha_reason, finnh_reason, poly_reason, tiin_reason],
-    }
+    },
+    index=range(1, 6)
 )
 st.table(status_df.style.set_properties(**{"text-align": "center", "direction": "rtl"}))
 
