@@ -1940,27 +1940,34 @@ results = apply_sector_cap(
 
 # Source badges & unit price
 def source_badges(row: pd.Series) -> str:
-    """Build provider badges showing both price and fundamentals providers."""
-    badges = []
-    
-    # Fundamentals providers (show first)
-    if row.get("Fund_from_FMP", False):
+    """Build badges for all fundamental + price providers present on the row.
+
+    Fundamental flags (merged dict) use: from_fmp_full, from_fmp, from_simfin, from_iex, from_eodhd, from_alpha, from_finnhub.
+    Price providers parsed from Source_List.
+    """
+    badges: list[str] = []
+    # Fundamentals (order of preference)
+    if row.get("from_fmp_full") or row.get("from_fmp"):
         badges.append("🟣FMP")
-    elif row.get("Fund_from_Alpha", False):
+    if row.get("from_simfin"):
+        badges.append("🧪SimFin")
+    if row.get("from_iex"):
+        badges.append("🟤IEX")
+    if row.get("from_eodhd"):
+        badges.append("📘EODHD")
+    if row.get("from_alpha"):
         badges.append("🟣Alpha")
-    elif row.get("Fund_from_Finnhub", False):
+    if row.get("from_finnhub"):
         badges.append("🔵Finnhub")
-    
-    # Price providers (from Source_List)
+
+    # Price providers
     price_sources = row.get("Source_List")
     if isinstance(price_sources, str) and price_sources:
-        # Parse existing price providers and add if not already in badges
         for provider in price_sources.split(" · "):
-            if provider not in badges:
+            if provider and provider not in badges:
                 badges.append(provider)
-    elif not badges:  # No price sources and no fundamental sources
+    if not badges:
         badges.append("🟡Yahoo")
-    
     return " · ".join(badges)
 
 
