@@ -1739,6 +1739,10 @@ else:
 t0 = t_start()
 results["Price_Alpha"] = np.nan
 results["Price_Finnhub"] = np.nan
+results["Price_IEX"] = np.nan
+results["Price_Marketstack"] = np.nan
+results["Price_NasdaqDL"] = np.nan
+results["Price_EODHD"] = np.nan
 results["Price_Mean"] = np.nan
 results["Price_STD"] = np.nan
 results["Source_List"] = "🟡Yahoo"
@@ -1830,6 +1834,10 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and (
                 [
                     "Price_Alpha",
                     "Price_Finnhub",
+                    "Price_IEX",
+                    "Price_Marketstack",
+                    "Price_NasdaqDL",
+                    "Price_EODHD",
                     "Price_Mean",
                     "Price_STD",
                     "Source_List",
@@ -1837,6 +1845,10 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and (
             ] = [
                 vals.get("Alpha", np.nan),
                 vals.get("Finnhub", np.nan),
+                vals.get("IEX", np.nan),
+                vals.get("Marketstack", np.nan),
+                vals.get("NasdaqDL", np.nan),
+                vals.get("EODHD", np.nan),
                 pmean,
                 pstd,
                 " · ".join(srcs),
@@ -2469,6 +2481,10 @@ hebrew_cols = {
     "Fundamental_Reliability": "מהימנות פונד׳",
     "Reliability_Score": "ציון מהימנות",
     "Sources_Count": "מספר מקורות",
+    "Price_IEX": "מחיר IEX",
+    "Price_Marketstack": "מחיר Marketstack",
+    "Price_NasdaqDL": "מחיר NasdaqDL",
+    "Price_EODHD": "מחיר EODHD",
     "Score": "ניקוד",
     "Score_Tech": "ניקוד טכני",
     "Fundamental_S": "ציון פונדמנטלי",
@@ -2530,6 +2546,10 @@ show_order = [
     "מניות לקנייה",
     "עודף ($)",
     "מקורות מחיר",
+    "מחיר IEX",
+    "מחיר Marketstack",
+    "מחיר NasdaqDL",
+    "מחיר EODHD",
     "ניקוד טכני",
     "ציון פונדמנטלי",
     "RSI",
