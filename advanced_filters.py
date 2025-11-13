@@ -26,11 +26,11 @@ def compute_relative_strength(
             rs_scores[f"rs_{period}d"] = np.nan
             continue
             
-        ticker_return = (ticker_df["Close"].iloc[-1] / ticker_df["Close"].iloc[-period] - 1)
-        bench_return = (benchmark_df["Close"].iloc[-1] / benchmark_df["Close"].iloc[-period] - 1)
+        ticker_return = float(ticker_df["Close"].iloc[-1] / ticker_df["Close"].iloc[-period] - 1)
+        bench_return = float(benchmark_df["Close"].iloc[-1] / benchmark_df["Close"].iloc[-period] - 1)
         
         # Relative strength: positive means outperforming
-        rs_scores[f"rs_{period}d"] = ticker_return - bench_return
+        rs_scores[f"rs_{period}d"] = float(ticker_return - bench_return)
     
     return rs_scores
 
@@ -43,19 +43,20 @@ def detect_volume_surge(df: pd.DataFrame, lookback: int = 20) -> Dict[str, float
     if len(df) < lookback + 5:
         return {"volume_surge": 0.0, "pv_correlation": 0.0}
     
-    recent_vol = df["Volume"].tail(5).mean()
-    avg_vol = df["Volume"].tail(lookback).mean()
+    recent_vol = float(df["Volume"].tail(5).mean())
+    avg_vol = float(df["Volume"].tail(lookback).mean())
     
-    surge_ratio = recent_vol / avg_vol if avg_vol > 0 else 0.0
+    surge_ratio = float(recent_vol / avg_vol) if avg_vol > 0 else 0.0
     
     # Price-volume correlation (positive = healthy)
     price_change = df["Close"].pct_change().tail(lookback)
     vol_change = df["Volume"].pct_change().tail(lookback)
     pv_corr = price_change.corr(vol_change) if len(price_change.dropna()) > 5 else 0.0
+    pv_corr = float(pv_corr) if np.isfinite(pv_corr) else 0.0
     
     return {
-        "volume_surge": surge_ratio,
-        "pv_correlation": pv_corr if np.isfinite(pv_corr) else 0.0
+        "volume_surge": float(surge_ratio),
+        "pv_correlation": float(pv_corr)
     }
 
 
@@ -74,13 +75,13 @@ def detect_consolidation(df: pd.DataFrame, short_period: int = 20, long_period: 
     
     tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
     
-    atr_short = tr.tail(short_period).mean()
-    atr_long = tr.tail(long_period).mean()
+    atr_short = float(tr.tail(short_period).mean())
+    atr_long = float(tr.tail(long_period).mean())
     
     if atr_long == 0 or not np.isfinite(atr_long):
         return np.nan
     
-    squeeze_ratio = atr_short / atr_long
+    squeeze_ratio = float(atr_short / atr_long)
     return squeeze_ratio
 
 
@@ -94,7 +95,7 @@ def check_ma_alignment(df: pd.DataFrame, periods: list[int] = [10, 20, 50, 200])
     
     mas = {}
     for p in periods:
-        mas[f"ma_{p}"] = df["Close"].rolling(p).mean().iloc[-1]
+        mas[f"ma_{p}"] = float(df["Close"].rolling(p).mean().iloc[-1])
     
     # Check if properly ordered (bullish)
     ma_values = [mas[f"ma_{p}"] for p in periods]
@@ -107,15 +108,15 @@ def check_ma_alignment(df: pd.DataFrame, periods: list[int] = [10, 20, 50, 200])
         
         # Trend strength: slope of longest MA
         ma_200_series = df["Close"].rolling(periods[-1]).mean().tail(20)
-        trend_strength = np.polyfit(range(len(ma_200_series)), ma_200_series, 1)[0] if len(ma_200_series) >= 10 else 0.0
+        trend_strength = float(np.polyfit(range(len(ma_200_series)), ma_200_series, 1)[0]) if len(ma_200_series) >= 10 else 0.0
     else:
         alignment_score = 0.0
         trend_strength = 0.0
     
     return {
         "ma_aligned": aligned,
-        "alignment_score": alignment_score,
-        "trend_strength": trend_strength if np.isfinite(trend_strength) else 0.0
+        "alignment_score": float(alignment_score),
+        "trend_strength": float(trend_strength) if np.isfinite(trend_strength) else 0.0
     }
 
 
@@ -131,7 +132,7 @@ def find_support_resistance(df: pd.DataFrame, window: int = 20) -> Dict[str, flo
     highs = df["High"].rolling(window, center=True).max()
     lows = df["Low"].rolling(window, center=True).min()
     
-    current_price = df["Close"].iloc[-1]
+    current_price = float(df["Close"].iloc[-1])
     
     # Recent swing levels
     recent_highs = highs.tail(window * 3).dropna().unique()
@@ -139,14 +140,14 @@ def find_support_resistance(df: pd.DataFrame, window: int = 20) -> Dict[str, flo
     
     # Find nearest support (below current price)
     supports = [l for l in recent_lows if l < current_price]
-    nearest_support = max(supports) if supports else current_price * 0.9
+    nearest_support = float(max(supports)) if supports else current_price * 0.9
     
     # Find nearest resistance (above current price)
     resistances = [h for h in recent_highs if h > current_price]
-    nearest_resistance = min(resistances) if resistances else current_price * 1.1
+    nearest_resistance = float(min(resistances)) if resistances else current_price * 1.1
     
-    dist_support = (current_price - nearest_support) / current_price if nearest_support > 0 else np.nan
-    dist_resistance = (nearest_resistance - current_price) / current_price if nearest_resistance > 0 else np.nan
+    dist_support = float((current_price - nearest_support) / current_price) if nearest_support > 0 else np.nan
+    dist_resistance = float((nearest_resistance - current_price) / current_price) if nearest_resistance > 0 else np.nan
     
     return {
         "distance_to_support": dist_support,
@@ -169,18 +170,18 @@ def compute_momentum_quality(df: pd.DataFrame) -> Dict[str, float]:
     returns_1m = df["Close"].pct_change(21).tail(12)
     
     # Consistency: what % of recent periods were positive
-    consistency_1w = (returns_1w > 0).sum() / len(returns_1w) if len(returns_1w) > 0 else 0.0
-    consistency_1m = (returns_1m > 0).sum() / len(returns_1m) if len(returns_1m) > 0 else 0.0
+    consistency_1w = float((returns_1w > 0).sum() / len(returns_1w)) if len(returns_1w) > 0 else 0.0
+    consistency_1m = float((returns_1m > 0).sum() / len(returns_1m)) if len(returns_1m) > 0 else 0.0
     
-    momentum_consistency = (consistency_1w + consistency_1m) / 2
+    momentum_consistency = float((consistency_1w + consistency_1m) / 2)
     
     # Acceleration: is momentum increasing
     recent_returns = df["Close"].pct_change(21).tail(3)
-    acceleration = 1.0 if len(recent_returns) >= 2 and recent_returns.iloc[-1] > recent_returns.iloc[0] else 0.0
+    acceleration = 1.0 if len(recent_returns) >= 2 and float(recent_returns.iloc[-1]) > float(recent_returns.iloc[0]) else 0.0
     
     return {
-        "momentum_consistency": momentum_consistency,
-        "momentum_acceleration": acceleration
+        "momentum_consistency": float(momentum_consistency),
+        "momentum_acceleration": float(acceleration)
     }
 
 
@@ -197,9 +198,9 @@ def calculate_risk_reward_ratio(df: pd.DataFrame, atr_period: int = 14) -> Dict[
     high_close = (df["High"] - df["Close"].shift()).abs()
     low_close = (df["Low"] - df["Close"].shift()).abs()
     tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-    atr = tr.tail(atr_period).mean()
+    atr = float(tr.tail(atr_period).mean())
     
-    current_price = df["Close"].iloc[-1]
+    current_price = float(df["Close"].iloc[-1])
     
     # Get support/resistance
     sr_levels = find_support_resistance(df)
@@ -207,17 +208,17 @@ def calculate_risk_reward_ratio(df: pd.DataFrame, atr_period: int = 14) -> Dict[
     support = sr_levels.get("support_level", current_price * 0.95)
     
     # Potential reward (to resistance)
-    potential_reward = (resistance - current_price) if resistance > current_price else atr * 2
+    potential_reward = float((resistance - current_price)) if resistance > current_price else atr * 2
     
     # Potential risk (to support or 2x ATR)
-    potential_risk = max((current_price - support), atr * 2) if support < current_price else atr * 2
+    potential_risk = float(max((current_price - support), atr * 2)) if support < current_price else atr * 2
     
-    risk_reward = potential_reward / potential_risk if potential_risk > 0 else 0.0
+    risk_reward = float(potential_reward / potential_risk) if potential_risk > 0 else 0.0
     
     return {
-        "risk_reward_ratio": risk_reward if np.isfinite(risk_reward) else 0.0,
-        "potential_reward": potential_reward,
-        "potential_risk": potential_risk
+        "risk_reward_ratio": float(risk_reward) if np.isfinite(risk_reward) else 0.0,
+        "potential_reward": float(potential_reward),
+        "potential_risk": float(potential_risk)
     }
 
 
