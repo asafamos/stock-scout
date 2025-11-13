@@ -8,6 +8,67 @@ from fundamentals import compute_bucket_scores, compute_fundamental_score, zscor
 WEIGHTS: Dict[str, float] = {"momentum": 0.4, "trend": 0.3, "fundamental": 0.3}
 
 
+def _normalize_weights(weights: Dict[str, float]) -> Dict[str, float]:
+    """Normalize a weights dictionary so that values sum to 1.0."""
+    total = sum(weights.values())
+    if total <= 0 or not np.isfinite(total):
+        # if invalid total, return equal weights
+        n = len(weights)
+        return {k: 1.0 / n if n > 0 else 0.0 for k in weights}
+    return {k: v / total for k, v in weights.items()}
+
+
+def fundamental_score(data: dict, surprise_bonus_on: bool = False) -> float:
+    """
+    Compute a simple fundamental score (0..1) from a bundle dictionary.
+    Expected keys: roe, roic, gm, ps, pe, de, rev_g_yoy, eps_g_yoy
+    
+    This is a legacy/simplified scoring function used by stock_scout.py.
+    For more sophisticated scoring, use compute_bucket_scores + compute_fundamental_score.
+    """
+    def _norm(val, low, high):
+        """Normalize value to [0,1] range."""
+        if not isinstance(val, (int, float)) or not np.isfinite(val):
+            return 0.0
+        return np.clip((val - low) / (high - low), 0.0, 1.0)
+    
+    # Quality metrics (higher is better)
+    roe_score = _norm(data.get("roe", 0), 0, 0.25)  # ROE: 0-25%
+    roic_score = _norm(data.get("roic", 0), 0, 0.20)  # ROIC: 0-20%
+    gm_score = _norm(data.get("gm", 0), 0, 0.50)  # Gross margin: 0-50%
+    
+    # Growth metrics (higher is better)
+    rev_g = data.get("rev_g_yoy", 0)
+    eps_g = data.get("eps_g_yoy", 0)
+    rev_g_score = _norm(rev_g, -0.10, 0.30)  # Revenue growth: -10% to 30%
+    eps_g_score = _norm(eps_g, -0.20, 0.50)  # EPS growth: -20% to 50%
+    
+    # Valuation metrics (lower is better, so invert)
+    pe = data.get("pe", np.nan)
+    ps = data.get("ps", np.nan)
+    pe_score = 1.0 - _norm(pe, 5, 40) if np.isfinite(pe) else 0.5  # P/E: 5-40
+    ps_score = 1.0 - _norm(ps, 0.5, 10) if np.isfinite(ps) else 0.5  # P/S: 0.5-10
+    
+    # Leverage penalty (lower D/E is better)
+    de = data.get("de", np.nan)
+    de_penalty = _norm(de, 0, 2.0) if np.isfinite(de) else 0.0  # D/E: 0-2
+    
+    # Weighted average
+    quality = 0.35 * (roe_score + roic_score + gm_score) / 3
+    growth = 0.30 * (rev_g_score + eps_g_score) / 2
+    valuation = 0.25 * (pe_score + ps_score) / 2
+    leverage = 0.10 * (1.0 - de_penalty)
+    
+    base_score = quality + growth + valuation + leverage
+    
+    # Optional surprise bonus (not implemented here, placeholder)
+    bonus = 0.0
+    if surprise_bonus_on:
+        bonus = 0.0  # would add earnings surprise logic here
+    
+    return np.clip(base_score + bonus, 0.0, 1.0)
+
+
 def normalize_series(s: pd.Series) -> pd.Series:
     """Min-max normalize a series to [0,1]; constant series -> 0."""
     s = s.astype(float)
