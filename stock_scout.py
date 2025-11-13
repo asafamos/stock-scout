@@ -1941,15 +1941,16 @@ def _fetch_external_for(
             vals.setdefault("EODHD", p)
             srcs.append("📘EODHD")
 
-if CONFIG["EXTERNAL_PRICE_VERIFY"] and (
-    alpha_ok
-    or finn_ok
+# External price verification - run if ANY provider is available
+any_price_provider = (
+    finn_ok
     or (poly_ok and _env("POLYGON_API_KEY"))
-    or (tiin_ok and _env("TIINGO_API_KEY"))
     or (CONFIG.get("ENABLE_MARKETSTACK") and _env("MARKETSTACK_API_KEY"))
     or (CONFIG.get("ENABLE_NASDAQ_DL") and (_env("NASDAQ_API_KEY") or _env("NASDAQ_DL_API_KEY")))
     or (CONFIG.get("ENABLE_EODHD") and (_env("EODHD_API_KEY") or _env("EODHD_TOKEN")))
-):
+)
+
+if CONFIG["EXTERNAL_PRICE_VERIFY"] and any_price_provider:
     subset_idx = list(results.head(int(CONFIG["TOP_VALIDATE_K"])).index)
     with ThreadPoolExecutor(max_workers=4) as ex:
         futures = [
@@ -2011,19 +2012,35 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and (
 
     # Fundamental reliability metric
     if "Fund_Coverage_Pct" in results.columns:
-        results["Fundamental_Reliability"] = np.nan
+        results["Fundamental_Reliability"] = 0.0
         for i, row in results.iterrows():
             cov = row.get("Fund_Coverage_Pct", np.nan)
             if not isinstance(cov, (int, float)) or not np.isfinite(cov):
+                results.at[i, "Fundamental_Reliability"] = 0.0
                 continue
+            # Base score from coverage (0-1)
+            base_score = float(cov)
+            
+            # Boost for premium sources
             boost = 0.0
             if bool(row.get("from_fmp_full")):
                 boost += 0.05
-            # IEX removed
-                boost += 0.05
-            # IEX boost removed
-            # IEX boost removed
-        results["Fundamental_Reliability"] = np.nan
+            if bool(row.get("from_simfin")):
+                boost += 0.03
+            
+            # Count provider diversity
+            provider_count = sum([
+                bool(row.get("Fund_from_FMP")),
+                bool(row.get("Fund_from_Alpha")),
+                bool(row.get("Fund_from_Finnhub")),
+                bool(row.get("Fund_from_SimFin")),
+                bool(row.get("Fund_from_EODHD"))
+            ])
+            diversity_bonus = min(0.15, provider_count * 0.03)
+            
+            results.at[i, "Fundamental_Reliability"] = min(1.0, base_score + boost + diversity_bonus)
+    else:
+        results["Fundamental_Reliability"] = 0.0
 
     # Combined reliability score
     if "Price_Reliability" in results.columns and "Fundamental_Reliability" in results.columns:
@@ -2271,20 +2288,8 @@ with st.sidebar:
     else:
         score_range = (0.0, 100.0)
     
-    # Sector filter
-    if not results.empty and "Sector" in results.columns:
-        available_sectors = sorted([s for s in results["Sector"].unique() if pd.notna(s)])
-        if available_sectors:
-            sector_filter = st.multiselect(
-                "סקטורים",
-                options=available_sectors,
-                default=available_sectors,
-                help="בחר סקטורים ספציפיים"
-            )
-        else:
-            sector_filter = []
-    else:
-        sector_filter = []
+    # Sector filter removed - not useful in sidebar at this stage
+    sector_filter = []
     
     # RSI filter
     rsi_max = st.slider(
