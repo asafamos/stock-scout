@@ -1166,21 +1166,50 @@ def add_provider(name, price_ok, fund_ok, reason):
         "סיבה": reason
     })
 
+def _std_reason(name: str, price_ok: bool, fund_ok: bool, has_key: bool, base: bool=False) -> str:
+    if base:
+        return "Base"
+    if price_ok or fund_ok:
+        return "OK"
+    if not has_key:
+        return "No API Key"
+    return "Unavailable"
+
 # Yahoo baseline always price only
-add_provider("Yahoo", True, False, "בסיס")
-add_provider("FMP", False, fmp_ok, fmp_reason)
-add_provider("Alpha Vantage", alpha_ok, alpha_ok, alpha_reason)
-add_provider("Finnhub", finn_ok, finn_ok, finnh_reason)
-add_provider("Polygon", poly_ok, False, poly_reason)
-add_provider("Tiingo", tiin_ok, False, tiin_reason)
-add_provider("SimFin", False, bool(simfin_key), "אוקיי" if simfin_key else "אין מפתח")
-add_provider("Marketstack", bool(marketstack_key), False, "אוקיי" if marketstack_key else "אין מפתח")
-add_provider("NasdaqDL", bool(nasdaq_key), False, "אוקיי" if nasdaq_key else "אין מפתח")
-add_provider("EODHD", bool(eodhd_key), bool(eodhd_key), "אוקיי" if eodhd_key else "אין מפתח")
+add_provider("Yahoo", True, False, _std_reason("Yahoo", True, False, True, base=True))
+add_provider("FMP", False, fmp_ok, _std_reason("FMP", False, fmp_ok, fmp_ok))
+add_provider("Alpha Vantage", alpha_ok, alpha_ok, _std_reason("Alpha Vantage", alpha_ok, alpha_ok, bool(_env("ALPHA_VANTAGE_API_KEY"))))
+add_provider("Finnhub", finn_ok, finn_ok, _std_reason("Finnhub", finn_ok, finn_ok, bool(_env("FINNHUB_API_KEY"))))
+add_provider("Polygon", poly_ok, False, _std_reason("Polygon", poly_ok, False, bool(_env("POLYGON_API_KEY"))))
+add_provider("Tiingo", tiin_ok, False, _std_reason("Tiingo", tiin_ok, False, bool(_env("TIINGO_API_KEY"))))
+add_provider("SimFin", False, bool(simfin_key), _std_reason("SimFin", False, bool(simfin_key), bool(simfin_key)))
+add_provider("Marketstack", bool(marketstack_key), False, _std_reason("Marketstack", bool(marketstack_key), False, bool(marketstack_key)))
+add_provider("NasdaqDL", bool(nasdaq_key), False, _std_reason("NasdaqDL", bool(nasdaq_key), False, bool(nasdaq_key)))
+add_provider("EODHD", bool(eodhd_key), bool(eodhd_key), _std_reason("EODHD", bool(eodhd_key), bool(eodhd_key), bool(eodhd_key)))
 
 status_df = pd.DataFrame(providers_status)
 st.markdown("### 🔌 סטטוס מקורות")
-st.table(status_df.style.set_properties(**{"text-align": "center", "direction": "rtl"}))
+_provider_css = """
+<style>
+.provider-table-container {overflow-x:auto;}
+.provider-table-container table {width:100%; border-collapse:collapse; table-layout:fixed;}
+.provider-table-container th, .provider-table-container td {padding:6px 8px; text-align:center; font-size:14px;}
+.provider-table-container th:nth-child(1), .provider-table-container td:nth-child(1){text-align:right; min-width:130px;}
+@media (max-width:600px){
+    .provider-table-container th, .provider-table-container td {padding:4px 6px; font-size:12px;}
+    .provider-table-container th:nth-child(1), .provider-table-container td:nth-child(1){min-width:140px;}
+}
+</style>
+"""
+st.markdown(_provider_css, unsafe_allow_html=True)
+html_rows = []
+html_rows.append("<tr><th>מקור</th><th>מחיר</th><th>פונדמנטלים</th><th>Reason</th></tr>")
+for r in providers_status:
+        html_rows.append(
+                f"<tr><td>{r['מקור']}</td><td>{r['מחיר']}</td><td>{r['פונדמנטלים']}</td><td>{r['סיבה']}</td></tr>"
+        )
+providers_html = "<div class='provider-table-container'><table>" + "".join(html_rows) + "</table></div>"
+st.markdown(providers_html, unsafe_allow_html=True)
 
 # Cache reset button
 col_cache, _ = st.columns([1,4])
@@ -1423,7 +1452,10 @@ results = results.sort_values(
 ).reset_index(drop=True)
 
 # 3a) Fundamentals (Top-K) + mix score
-if CONFIG["FUNDAMENTAL_ENABLED"] and (alpha_ok or finn_ok):
+fundamental_available = (
+    alpha_ok or finn_ok or fmp_ok or bool(simfin_key) or bool(eodhd_key)
+)
+if CONFIG["FUNDAMENTAL_ENABLED"] and fundamental_available:
     t0 = t_start()
     take_k = int(min(CONFIG["FUNDAMENTAL_TOP_K"], len(results)))
     for c in [
@@ -1443,15 +1475,19 @@ if CONFIG["FUNDAMENTAL_ENABLED"] and (alpha_ok or finn_ok):
     results["Fund_from_FMP"] = False
     results["Fund_from_Alpha"] = False
     results["Fund_from_Finnhub"] = False
+    results["Fund_from_SimFin"] = False
+    results["Fund_from_EODHD"] = False
     
     for idx in results.head(take_k).index:
         tkr = results.at[idx, "Ticker"]
         d = fetch_fundamentals_bundle(tkr)
         
         # Store provider metadata
-        results.loc[idx, "Fund_from_FMP"] = d.get("from_fmp", False)
+        results.loc[idx, "Fund_from_FMP"] = d.get("from_fmp", False) or d.get("from_fmp_full", False)
         results.loc[idx, "Fund_from_Alpha"] = d.get("from_alpha", False)
         results.loc[idx, "Fund_from_Finnhub"] = d.get("from_finnhub", False)
+        results.loc[idx, "Fund_from_SimFin"] = d.get("from_simfin", False)
+        results.loc[idx, "Fund_from_EODHD"] = d.get("from_eodhd", False)
         
         # Get detailed breakdown using new function
         fund_result = compute_fundamental_score_with_breakdown(d)
@@ -2536,13 +2572,30 @@ show_order = [
     "EPS YoY",
 ]
 csv_df = view_df_source.rename(columns=hebrew_cols)
-# Build unique ordered columns for export to avoid duplicate name errors
+# Ensure column names unique after rename (pandas JSON export requires uniqueness)
+def _make_unique(names):
+    counts = {}
+    out = []
+    for n in names:
+        if n not in counts:
+            counts[n] = 1
+            out.append(n)
+        else:
+            counts[n] += 1
+            out.append(f"{n}_{counts[n]}")
+    return out
+csv_df.columns = _make_unique(list(csv_df.columns))
+# Build unique ordered columns for export referencing updated names
 cols_for_export = []
 seen_cols = set()
 for c in show_order:
-    if c in csv_df.columns and c not in seen_cols:
-        cols_for_export.append(c)
-        seen_cols.add(c)
+    # select first matching column (since duplicates now suffixed)
+    matches = [col for col in csv_df.columns if col == c or col.startswith(f"{c}_")]
+    if matches:
+        first = matches[0]
+        if first not in seen_cols:
+            cols_for_export.append(first)
+            seen_cols.add(first)
 csv_bytes = (
     csv_df[cols_for_export]
     .to_csv(index=False)
