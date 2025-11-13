@@ -31,6 +31,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from streamlit.components.v1 import html as st_html
 import html as html_escape
 from scoring import _normalize_weights, allocate_budget, fundamental_score
+from advanced_filters import (
+    compute_advanced_score, 
+    should_reject_ticker, 
+    fetch_benchmark_data
+)
 import logging
 
 warnings.filterwarnings("ignore")
@@ -1054,6 +1059,70 @@ if CONFIG["BETA_FILTER_ENABLED"]:
     ].reset_index(drop=True)
     phase_times["מסנן בטא"] = t_end(t0)
 
+# 3c) Advanced Filters - NEW!
+t0 = t_start()
+st.info("🔬 מפעיל סינונים מתקדמים...")
+
+# Fetch benchmark data once
+benchmark_df = fetch_benchmark_data(CONFIG["BETA_BENCHMARK"], CONFIG["LOOKBACK_DAYS"])
+
+# Add columns for advanced signals
+for col in ["RS_63d", "Volume_Surge", "MA_Aligned", "Quality_Score", 
+            "RR_Ratio", "Momentum_Consistency", "High_Confidence"]:
+    results[col] = np.nan
+
+advanced_keep_mask = []
+take_k_advanced = min(CONFIG["BETA_TOP_K"], len(results))
+
+for idx in results.head(take_k_advanced).index:
+    tkr = results.at[idx, "Ticker"]
+    if tkr not in data_map or benchmark_df.empty:
+        advanced_keep_mask.append(True)
+        continue
+    
+    df = data_map[tkr]
+    base_score = results.at[idx, "Score"]
+    
+    # Compute advanced score and signals
+    enhanced_score, signals = compute_advanced_score(tkr, df, benchmark_df, base_score)
+    
+    # Check rejection criteria
+    should_reject, reason = should_reject_ticker(signals)
+    
+    if should_reject:
+        advanced_keep_mask.append(False)
+        results.at[idx, "RejectionReason"] = reason
+        continue
+    
+    # Update score and signals
+    results.loc[idx, "Score"] = enhanced_score
+    results.loc[idx, "RS_63d"] = signals.get("rs_63d", np.nan)
+    results.loc[idx, "Volume_Surge"] = signals.get("volume_surge", np.nan)
+    results.loc[idx, "MA_Aligned"] = signals.get("ma_aligned", False)
+    results.loc[idx, "Quality_Score"] = signals.get("quality_score", 0.0)
+    results.loc[idx, "RR_Ratio"] = signals.get("risk_reward_ratio", np.nan)
+    results.loc[idx, "Momentum_Consistency"] = signals.get("momentum_consistency", 0.0)
+    results.loc[idx, "High_Confidence"] = signals.get("high_confidence", False)
+    
+    advanced_keep_mask.append(True)
+
+# Extend mask for remaining rows
+while len(advanced_keep_mask) < len(results):
+    advanced_keep_mask.append(True)
+
+results = results[advanced_keep_mask].reset_index(drop=True)
+
+# Re-sort by enhanced score
+results = results.sort_values(["Score", "Ticker"], ascending=[False, True]).reset_index(drop=True)
+
+phase_times["סינונים מתקדמים"] = t_end(t0)
+
+if results.empty:
+    st.warning("כל המניות נפסלו בסינונים המתקדמים. נסה להקל על הקריטריונים.")
+    st.stop()
+
+st.success(f"✅ {len(results)} מניות עברו את כל הסינונים!")
+
 # External price verification (Top-K)
 t0 = t_start()
 results["Price_Alpha"] = np.nan
@@ -1308,6 +1377,15 @@ else:
         rr = r.get("RewardRisk", np.nan)
         atrp = r.get("ATR_Price", np.nan)
         overx = r.get("OverextRatio", np.nan)
+        
+        # New advanced signals
+        rs_63d = r.get("RS_63d", np.nan)
+        vol_surge = r.get("Volume_Surge", np.nan)
+        ma_aligned = r.get("MA_Aligned", False)
+        quality_score = r.get("Quality_Score", 0.0)
+        rr_ratio = r.get("RR_Ratio", np.nan)
+        mom_consistency = r.get("Momentum_Consistency", 0.0)
+        high_confidence = r.get("High_Confidence", False)
 
         show_mean_fmt = f"{np.round(show_mean, 2)}" if not np.isnan(show_mean) else "—"
         unit_price_fmt = (
@@ -1316,15 +1394,28 @@ else:
         rr_fmt = f"{rr:.2f}R" if np.isfinite(rr) else "—"
         atrp_fmt = f"{atrp:.3f}" if np.isfinite(atrp) else "—"
         overx_fmt = f"{overx:.3f}" if np.isfinite(overx) else "—"
+        
+        # Format new signals
+        rs_fmt = f"{rs_63d*100:+.1f}%" if np.isfinite(rs_63d) else "—"
+        vol_surge_fmt = f"{vol_surge:.2f}x" if np.isfinite(vol_surge) else "—"
+        ma_status = "✅ מיושר" if ma_aligned else "⚠️ לא מיושר"
+        quality_fmt = f"{quality_score:.0f}/50"
+        rr_ratio_fmt = f"{rr_ratio:.2f}" if np.isfinite(rr_ratio) else "—"
+        mom_fmt = f"{mom_consistency*100:.0f}%"
+        confidence_badge = "🔥 ביטחון גבוה" if high_confidence else ""
 
         esc = html_escape.escape
         ticker = esc(str(r["Ticker"]))
         sources_esc = esc(str(sources))
+        
+        confidence_style = 'background:#dcfce7;border:2px solid #16a34a;' if high_confidence else ''
+        
         card_html = f"""{CARD_CSS}
-<div class="card">
-  <h3 style="display:flex;align-items:center;gap:10px;margin:0 0 6px 0">
+<div class="card" style="{confidence_style}">
+  <h3 style="display:flex;align-items:center;gap:10px;margin:0 0 6px 0;flex-wrap:wrap">
     <span class="badge">{ticker}</span>
     <span class="status-buy">סטטוס: קנייה</span>
+    {f'<span style="background:#16a34a;color:white;padding:2px 10px;border-radius:999px;font-size:0.85em">{confidence_badge}</span>' if high_confidence else ''}
   </h3>
   <div class="grid">
     <div class="item"><b>מחיר ממוצע:</b> {show_mean_fmt}</div>
@@ -1338,13 +1429,19 @@ else:
     <div class="item"><b>מחיר יחידה:</b> {unit_price_fmt}</div>
     <div class="item"><b>מניות לקנייה:</b> {shares}</div>
     <div class="item"><b>עודף לא מנוצל:</b> ${leftover:,.2f}</div>
+    <div class="item" style="grid-column:span 5;border-top:1px solid #e5e7eb;padding-top:8px;margin-top:4px"><b>🔬 אינדיקטורים מתקדמים:</b></div>
+    <div class="item"><b>יחס לשוק (3M):</b> <span style="color:{'#16a34a' if np.isfinite(rs_63d) and rs_63d > 0 else '#dc2626'}">{rs_fmt}</span></div>
+    <div class="item"><b>עליית נפח:</b> {vol_surge_fmt}</div>
+    <div class="item"><b>יישור ממוצעים:</b> {ma_status}</div>
+    <div class="item"><b>ציון איכות:</b> {quality_fmt}</div>
+    <div class="item"><b>יחס סיכון/תשואה:</b> {rr_ratio_fmt}</div>
+    <div class="item"><b>עקביות מומנטום:</b> {mom_fmt}</div>
     <div class="item"><b>ATR/Price:</b> {atrp_fmt}</div>
     <div class="item"><b>Overextension:</b> {overx_fmt}</div>
-    <div class="item"><b>Reward/Risk (≈R):</b> {rr_fmt}</div>
   </div>
 </div>
 """
-        st_html(card_html, height=210, scrolling=False)
+        st_html(card_html, height=280, scrolling=False)
 
 # ==================== Results table + CSV ====================
 st.subheader("🎯 תוצאות מסוננות ומדורגות")
@@ -1380,18 +1477,34 @@ hebrew_cols = {
     "DE_f": "Debt/Equity",
     "RevG_f": "Revenue YoY",
     "EPSG_f": "EPS YoY",
+    "RS_63d": "יחס לשוק 3M (%)",
+    "Volume_Surge": "עליית נפח (x)",
+    "MA_Aligned": "ממוצעים מיושרים",
+    "Quality_Score": "ציון איכות",
+    "RR_Ratio": "סיכון/תשואה",
+    "Momentum_Consistency": "עקביות מומנטום (%)",
+    "High_Confidence": "ביטחון גבוה",
 }
 show_order = [
     "טיקר",
     "סקטור",
-    "מחיר (Yahoo)",
+    "ניקוד",
+    "ביטחון גבוה",
+    "ציון איכות",
     "מחיר ממוצע",
     "מחיר יחידה (חישוב)",
+    "סכום קנייה ($)",
+    "מניות לקנייה",
+    "עודף ($)",
     "מקורות מחיר",
-    "ניקוד",
     "ניקוד טכני",
     "ציון פונדמנטלי",
     "RSI",
+    "יחס לשוק 3M (%)",
+    "עליית נפח (x)",
+    "ממוצעים מיושרים",
+    "סיכון/תשואה",
+    "עקביות מומנטום (%)",
     "קרבה לשיא 52ש׳ (%)",
     "נפח/ממוצע 20 ימים",
     "Overextension מול MA_L",
@@ -1399,9 +1512,6 @@ show_order = [
     "Reward/Risk (≈R)",
     "בטא",
     "טווח החזקה",
-    "סכום קנייה ($)",
-    "מניות לקנייה",
-    "עודף ($)",
     "P/E",
     "P/S",
     "ROE",
