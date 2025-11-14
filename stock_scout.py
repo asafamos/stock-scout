@@ -1840,8 +1840,8 @@ core_before_filter = len(results[results["Risk_Level"] == "core"])
 results = filter_core_recommendations(results, CONFIG, adaptive=True)
 core_after_filter = len(results)
 
-    if core_before_filter > 0:
-        st.write(f"🎯 **Core filter:** {core_before_filter} → {core_after_filter} stocks passed strict filters")
+if core_before_filter > 0:
+    st.write(f"🎯 **Core filter:** {core_before_filter} → {core_after_filter} stocks passed strict filters")
 
 phase_times["risk_quality_classification"] = t_end(t0)
 
