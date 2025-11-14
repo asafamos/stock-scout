@@ -1829,9 +1829,9 @@ st.write(f"**Initial classification:** {core_count} Core, {spec_count} Speculati
 # Filter out stocks that shouldn't be displayed (very low quality)
 displayable = results[results["Should_Display"]].copy()
 hidden_count = len(results) - len(displayable)
-    if hidden_count > 0:
-        st.write(f"🔻 Hidden {hidden_count} stocks due to very low data quality")
-        logger.info(f"Hidden {hidden_count} stocks due to very low data quality")
+if hidden_count > 0:
+    st.write(f"🔻 Hidden {hidden_count} stocks due to very low data quality")
+    logger.info(f"Hidden {hidden_count} stocks due to very low data quality")
 
 results = displayable.reset_index(drop=True)
 
