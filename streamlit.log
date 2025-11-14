@@ -9,5 +9,102 @@ Collecting usage statistics. To deactivate, set browser.gatherUsageStats to fals
   Network URL: http://172.17.0.2:8501
   External URL: http://104.28.60.70:8501
 
-HTTP Error 404: {"quoteSummary":{"result":null,"error":{"code":"Not Found","description":"Quote not found for symbol: ZCZZT"}}}
+HTTP Error 404: {"quoteSummary":{"result":null,"error":{"code":"Not Found","description":"Quote not found for symbol: GAIFW"}}}
 HTTP Error 404: {"quoteSummary":{"result":null,"error":{"code":"Not Found","description":"Quote not found for symbol: ZAZZT"}}}
+
+11 Failed downloads:
+['ZAZZT', 'GAIFW', 'GATE', 'GATEU', 'XFCSX', 'ZBZZT', 'ZCZZT']: YFTzMissingError('possibly delisted; no timezone found')
+['IBBJ', 'XDNA', 'XFHYX', 'FBBHYX']: YFPricesMissingError('possibly delisted; no price data found  (1d 2024-10-10 07:03:59.160448 -> 2025-11-14 07:03:59.160448)')
+
+1 Failed download:
+['FBBHYX']: YFPricesMissingError('possibly delisted; no price data found  (1d 2024-10-10 07:03:59.160448 -> 2025-11-14 07:03:59.160448)')
+
+1 Failed download:
+['GAIFW']: YFTzMissingError('possibly delisted; no timezone found')
+
+1 Failed download:
+['GATE']: YFTzMissingError('possibly delisted; no timezone found')
+
+1 Failed download:
+['GATEU']: YFTzMissingError('possibly delisted; no timezone found')
+
+1 Failed download:
+['IBBJ']: YFPricesMissingError('possibly delisted; no price data found  (1d 2024-10-10 07:03:59.160448 -> 2025-11-14 07:03:59.160448)')
+
+1 Failed download:
+['XDNA']: YFPricesMissingError('possibly delisted; no price data found  (1d 2024-10-10 07:03:59.160448 -> 2025-11-14 07:03:59.160448)')
+
+1 Failed download:
+['XFCSX']: YFTzMissingError('possibly delisted; no timezone found')
+
+1 Failed download:
+['XFHYX']: YFPricesMissingError('possibly delisted; no price data found  (1d 2024-10-10 07:03:59.160448 -> 2025-11-14 07:03:59.160448)')
+
+1 Failed download:
+['ZAZZT']: YFTzMissingError('possibly delisted; no timezone found')
+
+1 Failed download:
+['ZBZZT']: YFTzMissingError('possibly delisted; no timezone found')
+
+1 Failed download:
+['ZCZZT']: YFTzMissingError('possibly delisted; no timezone found')
+2025-11-14 07:04:14.339 Thread 'ThreadPoolExecutor-2_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:14.340 Thread 'ThreadPoolExecutor-2_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:14.341 Thread 'ThreadPoolExecutor-2_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:14.341 Thread 'ThreadPoolExecutor-2_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:14.341 Thread 'ThreadPoolExecutor-2_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:14.343 Thread 'ThreadPoolExecutor-2_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:14.344 Thread 'ThreadPoolExecutor-2_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:14.345 Thread 'ThreadPoolExecutor-2_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:14.350 Thread 'ThreadPoolExecutor-2_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:14.350 Thread 'ThreadPoolExecutor-2_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:14.350 Thread 'ThreadPoolExecutor-2_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:14.350 Thread 'ThreadPoolExecutor-2_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:14.842 Thread 'Thread-373': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:14.843 Thread 'Thread-373': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:14.843 Thread 'Thread-373': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:14.847 Thread 'Thread-374': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:14.847 Thread 'Thread-374': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:14.847 Thread 'Thread-374': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:14.851 Thread 'Thread-375': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:14.852 Thread 'Thread-375': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:14.852 Thread 'Thread-375': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:15.122 Thread 'ThreadPoolExecutor-2_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:15.122 Thread 'ThreadPoolExecutor-2_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:15.123 Thread 'ThreadPoolExecutor-2_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:15.256 Thread 'ThreadPoolExecutor-2_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:15.256 Thread 'ThreadPoolExecutor-2_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:15.258 Thread 'ThreadPoolExecutor-2_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:15.294 Thread 'ThreadPoolExecutor-2_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:15.294 Thread 'ThreadPoolExecutor-2_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:15.295 Thread 'ThreadPoolExecutor-2_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:16.058 Thread 'ThreadPoolExecutor-4_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:16.059 Thread 'ThreadPoolExecutor-4_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:16.059 Thread 'ThreadPoolExecutor-4_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:16.060 Thread 'ThreadPoolExecutor-4_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:16.061 Thread 'ThreadPoolExecutor-4_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:16.059 Thread 'ThreadPoolExecutor-4_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:16.062 Thread 'ThreadPoolExecutor-4_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:16.064 Thread 'ThreadPoolExecutor-4_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:16.072 Thread 'ThreadPoolExecutor-4_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:16.072 Thread 'ThreadPoolExecutor-4_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:16.073 Thread 'ThreadPoolExecutor-4_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:16.074 Thread 'ThreadPoolExecutor-4_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:16.567 Thread 'Thread-377': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:16.567 Thread 'Thread-377': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:16.568 Thread 'Thread-377': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:16.568 Thread 'Thread-378': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:16.569 Thread 'Thread-378': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:16.569 Thread 'Thread-378': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:16.576 Thread 'Thread-379': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:16.576 Thread 'Thread-379': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:16.576 Thread 'Thread-379': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:16.771 Thread 'ThreadPoolExecutor-4_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:16.771 Thread 'ThreadPoolExecutor-4_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:16.771 Thread 'ThreadPoolExecutor-4_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:16.837 Thread 'ThreadPoolExecutor-4_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:16.838 Thread 'ThreadPoolExecutor-4_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:16.838 Thread 'ThreadPoolExecutor-4_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:16.975 Thread 'ThreadPoolExecutor-4_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:16.976 Thread 'ThreadPoolExecutor-4_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-14 07:04:16.976 Thread 'ThreadPoolExecutor-4_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.

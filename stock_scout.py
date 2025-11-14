@@ -2499,8 +2499,8 @@ else:
   </div>
 </div>
 """
-            # Use a reasonable height to ensure visibility (auto sizing in Streamlit components needs explicit height)
-            st_html(card_html, height=560, scrolling=False)
+            # Use reasonable height with scrolling enabled to prevent text cutoff
+            st_html(card_html, height=700, scrolling=True)
     
     # Display Speculative recommendations
     if not spec_df.empty:
@@ -2657,7 +2657,7 @@ else:
   </div>
 </div>
 """
-            st_html(card_html, height=560, scrolling=False)
+            st_html(card_html, height=700, scrolling=True)
 
 # Inject compact mode JS to hide advanced/fundamental sections
 if st.session_state.get("compact_mode"):

@@ -294,7 +294,14 @@ h3 {{ font-size: clamp(1.25rem, 2.5vw, 1.5rem); margin-bottom: 0.5rem; }}
 }}
 
 /* ==================== BUTTONS & INTERACTIONS ==================== */
-.stButton > button, button[kind="primary"], button[kind="secondary"] {{
+/* Target all Streamlit buttons with high specificity */
+.stButton > button,
+button[kind="primary"],
+button[kind="secondary"],
+[data-testid="baseButton-primary"],
+[data-testid="baseButton-secondary"],
+.stDownloadButton > button,
+button[data-testid] {{
     background: {COLORS['primary']} !important;
     color: #FFFFFF !important;
     border: none !important;
@@ -306,9 +313,16 @@ h3 {{ font-size: clamp(1.25rem, 2.5vw, 1.5rem); margin-bottom: 0.5rem; }}
     cursor: pointer !important;
     transition: all {TRANSITIONS['base']} !important;
     box-shadow: {SHADOWS['sm']} !important;
+    text-decoration: none !important;
 }}
 
-.stButton > button:hover, button[kind="primary"]:hover, button[kind="secondary"]:hover {{
+.stButton > button:hover,
+button[kind="primary"]:hover,
+button[kind="secondary"]:hover,
+[data-testid="baseButton-primary"]:hover,
+[data-testid="baseButton-secondary"]:hover,
+.stDownloadButton > button:hover,
+button[data-testid]:hover {{
     background: {COLORS['primary_hover']} !important;
     color: #FFFFFF !important;
     box-shadow: {SHADOWS['md']} !important;
