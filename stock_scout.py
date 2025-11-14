@@ -2902,14 +2902,14 @@ if choice and choice != "(Select)" and choice in data_map:
     st.plotly_chart(fig2, use_container_width=True)
 
 # ==================== Notes ====================
-with st.expander("ℹ️ מתודולוגיה (תקציר)"):
+with st.expander("ℹ️ Methodology (Summary)"):
     st.markdown(
         """
-- היסטוריה: **Yahoo Finance** (`yfinance`). אימות מחירים: **Alpha**, **Finnhub**, **Polygon**, **Tiingo**.
-- ניקוד טכני: MA, מומנטום 1/3/6 חו׳ (Sigmoid), RSI בטווח, **Near-High bell**, **Overextension מול MA_L**, **Pullback**,
-  **ATR/Price**, **Reward/Risk**, **MACD/ADX**.
-- פונדמנטלי: **Alpha OVERVIEW** עם **Fallback ל-Finnhub** (Growth/Quality/Valuation + ענישת מינוף גבוה).
-- חוקים: מינ׳ דולר-ווליום, תקרות ATR/Price ו-Overextension (פסילות קשיחות), **earnings blackout**, **beta filter**, **sector cap**,
-  והקצאת תקציב עם תקרת פוזיציה מקסימלית.
+- **Historical Data**: Yahoo Finance (`yfinance`). Price verification: Alpha Vantage, Finnhub, Polygon, Tiingo.
+- **Technical Scoring**: Moving averages, momentum (1/3/6 months with Sigmoid), RSI range, Near-High bell curve, 
+  Overextension vs MA_L, Pullback detection, ATR/Price ratio, Reward/Risk, MACD/ADX.
+- **Fundamental Scoring**: Alpha Vantage OVERVIEW with Finnhub fallback (Growth/Quality/Valuation metrics + high leverage penalty).
+- **Filters & Rules**: Minimum dollar-volume, ATR/Price and Overextension caps (hard disqualification), earnings blackout period, 
+  beta filter, sector diversification caps, and budget allocation with maximum position size limits.
 """
     )

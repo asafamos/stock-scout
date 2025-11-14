@@ -294,15 +294,23 @@ h3 {{ font-size: clamp(1.25rem, 2.5vw, 1.5rem); margin-bottom: 0.5rem; }}
 }}
 
 /* ==================== BUTTONS & INTERACTIONS ==================== */
-/* Target all Streamlit buttons with high specificity */
+/* Target all Streamlit buttons with maximum specificity */
+div[data-testid="stButton"] button,
+div[data-testid="stDownloadButton"] button,
 .stButton > button,
+.stButton button,
 button[kind="primary"],
 button[kind="secondary"],
+button[class*="baseButton"],
 [data-testid="baseButton-primary"],
 [data-testid="baseButton-secondary"],
+[data-testid*="baseButton"],
 .stDownloadButton > button,
-button[data-testid] {{
+.stDownloadButton button,
+button[data-testid],
+button[aria-label] {{
     background: {COLORS['primary']} !important;
+    background-color: {COLORS['primary']} !important;
     color: #FFFFFF !important;
     border: none !important;
     border-radius: {RADIUS['md']} !important;
@@ -316,14 +324,22 @@ button[data-testid] {{
     text-decoration: none !important;
 }}
 
+div[data-testid="stButton"] button:hover,
+div[data-testid="stDownloadButton"] button:hover,
 .stButton > button:hover,
+.stButton button:hover,
 button[kind="primary"]:hover,
 button[kind="secondary"]:hover,
+button[class*="baseButton"]:hover,
 [data-testid="baseButton-primary"]:hover,
 [data-testid="baseButton-secondary"]:hover,
+[data-testid*="baseButton"]:hover,
 .stDownloadButton > button:hover,
-button[data-testid]:hover {{
-    background: {COLORS['primary_hover']} !important;
+.stDownloadButton button:hover,
+button[data-testid]:hover,
+button[aria-label]:hover {{
+    background: #0f2138 !important;
+    background-color: #0f2138 !important;
     color: #FFFFFF !important;
     box-shadow: {SHADOWS['md']} !important;
     transform: translateY(-1px) !important;
