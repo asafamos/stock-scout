@@ -63,16 +63,16 @@ CONFIG = dict(
     ATR_PRICE_HARD=0.08,
     USE_MACD_ADX=True,
     WEIGHTS=dict(
-        ma=0.22,
-        mom=0.30,
-        rsi=0.12,
-        near_high_bell=0.10,
-        vol=0.08,
-        overext=0.08,
-        pullback=0.05,
-        risk_reward=0.03,
-        macd=0.01,
-        adx=0.01,
+        ma=0.20,              # Moving average positioning (reduced from 0.22)
+        mom=0.25,             # Momentum 1/3/6 month (reduced from 0.30)
+        rsi=0.12,             # RSI range scoring (unchanged)
+        near_high_bell=0.10,  # Near 52-week high (unchanged)
+        vol=0.08,             # Volume consistency (unchanged)
+        overext=0.06,         # Overextension penalty (reduced from 0.08)
+        pullback=0.05,        # Pullback detection (unchanged)
+        risk_reward=0.06,     # Risk/reward ratio (increased from 0.03)
+        macd=0.04,            # MACD signal (increased from 0.01)
+        adx=0.04,             # ADX trend strength (increased from 0.01)
     ),
     FUNDAMENTAL_ENABLED=True,
     FUNDAMENTAL_WEIGHT=0.15,
@@ -92,13 +92,13 @@ CONFIG = dict(
     TOPK_RECOMMEND=5,
     # ==================== CORE RECOMMENDATION FILTERS ====================
     # These constants control the final filtering for "Core" stock recommendations.
-    # Relaxed slightly from previous hard-coded values to yield 3-7 high-quality stocks per run.
-    MIN_QUALITY_SCORE_CORE=27.0,      # Minimum fundamental quality score (out of 50). Was ~33, now 27.
-    MAX_OVEREXTENSION_CORE=0.10,      # Max allowed overextension ratio. Was ~0.05, now 0.10.
-    MAX_ATR_PRICE_CORE=0.08,          # Max ATR/Price ratio (volatility). Was ~0.05, now 0.08.
-    RSI_MIN_CORE=45,                  # Minimum RSI for Core stocks. Was ~50, now 45.
-    RSI_MAX_CORE=70,                  # Maximum RSI for Core stocks. Was ~75, now 70.
-    MIN_RR_CORE=1.5,                  # Minimum Reward/Risk ratio. Was higher or not explicit, now 1.5.
+    # Optimized to yield 5-10 high-quality stocks per run while maintaining quality.
+    MIN_QUALITY_SCORE_CORE=22.0,      # Minimum fundamental quality score (relaxed from 27 to 22)
+    MAX_OVEREXTENSION_CORE=0.12,      # Max allowed overextension ratio (raised from 0.10 to 0.12)
+    MAX_ATR_PRICE_CORE=0.09,          # Max ATR/Price ratio - volatility (raised from 0.08 to 0.09)
+    RSI_MIN_CORE=40,                  # Minimum RSI for Core stocks (lowered from 45 to 40)
+    RSI_MAX_CORE=75,                  # Maximum RSI for Core stocks (raised from 70 to 75)
+    MIN_RR_CORE=1.3,                  # Minimum Reward/Risk ratio (lowered from 1.5 to 1.3)
     TARGET_RECOMMENDATIONS_MIN=3,     # Warn if fewer than this many stocks pass filters
     TARGET_RECOMMENDATIONS_MAX=7,     # Show only top N if more than this pass filters
     ENABLE_SIMFIN=True,               # Attempt SimFin fundamentals if API key present
