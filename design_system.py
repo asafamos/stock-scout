@@ -294,24 +294,24 @@ h3 {{ font-size: clamp(1.25rem, 2.5vw, 1.5rem); margin-bottom: 0.5rem; }}
 }}
 
 /* ==================== BUTTONS & INTERACTIONS ==================== */
-.stButton > button {{
+.stButton > button, button[kind="primary"], button[kind="secondary"] {{
     background: {COLORS['primary']} !important;
     color: #FFFFFF !important;
     border: none !important;
-    border-radius: var(--radius-md) !important;
+    border-radius: {RADIUS['md']} !important;
     padding: 0.75rem 1.5rem !important;
-    font-family: var(--font-primary) !important;
+    font-family: {FONTS['primary']} !important;
     font-weight: 600 !important;
     font-size: 0.9375rem !important;
     cursor: pointer !important;
-    transition: all var(--transition) !important;
-    box-shadow: var(--shadow-sm) !important;
+    transition: all {TRANSITIONS['base']} !important;
+    box-shadow: {SHADOWS['sm']} !important;
 }}
 
-.stButton > button:hover {{
+.stButton > button:hover, button[kind="primary"]:hover, button[kind="secondary"]:hover {{
     background: {COLORS['primary_hover']} !important;
     color: #FFFFFF !important;
-    box-shadow: var(--shadow-md) !important;
+    box-shadow: {SHADOWS['md']} !important;
     transform: translateY(-1px) !important;
 }}
 

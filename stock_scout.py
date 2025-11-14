@@ -31,6 +31,7 @@ from dotenv import load_dotenv, find_dotenv
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from streamlit.components.v1 import html as st_html
 import html as html_escape
+from card_styles import get_card_css
 from core.portfolio import _normalize_weights, allocate_budget
 from advanced_filters import compute_advanced_score, should_reject_ticker, fetch_benchmark_data
 from core.logging_config import setup_logging, get_logger
@@ -2434,16 +2435,12 @@ else:
             # Next earnings date
             next_earnings = r.get("NextEarnings", "Unknown")
             
-            # CSS is global from design_system.py - no need to inject per card
-            # Pre-format reliability values (micro perf)
+            # Inject CSS for iframe isolation
             price_rel_fmt = format_rel(r.get('Price_Reliability', np.nan))
             fund_rel_fmt = format_rel(r.get('Fundamental_Reliability', np.nan))
             rel_score_fmt = format_rel(r.get('Reliability_Score', np.nan))
-            # Pre-format reliability values (micro perf)
-            price_rel_fmt = format_rel(r.get('Price_Reliability', np.nan))
-            fund_rel_fmt = format_rel(r.get('Fundamental_Reliability', np.nan))
-            rel_score_fmt = format_rel(r.get('Reliability_Score', np.nan))
-            card_html = f"""
+            
+            card_html = get_card_css() + f"""
 <div class="modern-card card-core">
     <h3 class="flex-wrap" style="margin:0 0 6px 0">
         <span class="modern-badge">{ticker}</span>
@@ -2457,6 +2454,7 @@ else:
     <div class="item"><b>RSI:</b> {rsi_v if not np.isnan(rsi_v) else 'N/A'}</div>
     <div class="item"><b>Near 52w High:</b> {near52_fmt}%</div>
     <div class="item"><b>Score:</b> {int(round(score))}</div>
+
     <div class="item"><b>Sources:</b> {sources_esc.replace(' · ','&nbsp;•&nbsp;')}</div>
     <div class="item"><b># Price Sources:</b> {r.get('Price_Sources_Count', 0)}</div>
     <div class="item"><b># Fund Sources:</b> {r.get('Fundamental_Sources_Count', 0)}</div>
@@ -2600,8 +2598,8 @@ else:
             next_earnings = r.get("NextEarnings", "Unknown")
             warnings_esc = esc(warnings) if warnings else ""
             
-            # CSS is global from design_system.py - no need to inject per card
-            card_html = f"""
+            # Inject CSS for iframe isolation
+            card_html = get_card_css() + f"""
 <div class="modern-card card-speculative">
     <h3 class="flex-wrap" style="margin:0 0 6px 0">
         <span class="modern-badge">{ticker}</span>
@@ -2829,7 +2827,7 @@ csv_bytes = (
 col_csv, col_json = st.columns(2)
 with col_csv:
     st.download_button(
-        "📥 הורדת תוצאות ל-CSV",
+        "📥 Download Results (CSV)",
         data=csv_bytes,
         file_name=f"stock_scout_results_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}.csv",
         mime="text/csv",
@@ -2840,7 +2838,7 @@ with col_json:
         orient="records", force_ascii=False, indent=2
     )
     st.download_button(
-        "📊 הורדת תוצאות ל-JSON",
+        "📊 Download Results (JSON)",
         data=json_data.encode("utf-8"),
         file_name=f"stock_scout_results_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}.json",
         mime="application/json",
@@ -2855,10 +2853,10 @@ st.dataframe(
 st.markdown("</div>", unsafe_allow_html=True)
 
 # ==================== Quick chart ====================
-st.subheader("🔍 גרף טיקר מהתוצאות")
-choices = ["(בחר)"] + view_df_source["Ticker"].astype(str).tolist()
-choice = st.selectbox("בחר טיקר", choices, index=0)
-if choice and choice != "(בחר)" and choice in data_map:
+st.subheader("🔍 Chart Ticker from Results")
+choices = ["(Select)"] + view_df_source["Ticker"].astype(str).tolist()
+choice = st.selectbox("Select ticker", choices, index=0)
+if choice and choice != "(Select)" and choice in data_map:
     dfv = data_map[choice].copy()
     dfv["MA_S"] = dfv["Close"].rolling(int(CONFIG["MA_SHORT"])).mean()
     dfv["MA_L"] = dfv["Close"].rolling(int(CONFIG["MA_LONG"])).mean()
@@ -2870,7 +2868,7 @@ if choice and choice != "(בחר)" and choice in data_map:
             high=dfv["High"],
             low=dfv["Low"],
             close=dfv["Close"],
-            name="מחיר",
+            name="Price",
         )
     )
     fig.add_trace(

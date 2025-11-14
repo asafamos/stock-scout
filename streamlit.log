@@ -9,3 +9,5 @@ Collecting usage statistics. To deactivate, set browser.gatherUsageStats to fals
   Network URL: http://172.17.0.2:8501
   External URL: http://104.28.60.70:8501
 
+HTTP Error 404: {"quoteSummary":{"result":null,"error":{"code":"Not Found","description":"Quote not found for symbol: ZCZZT"}}}
+HTTP Error 404: {"quoteSummary":{"result":null,"error":{"code":"Not Found","description":"Quote not found for symbol: ZAZZT"}}}
