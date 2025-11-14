@@ -1841,45 +1841,103 @@ if hidden_count > 0:
 
 results = displayable.reset_index(drop=True)
 
-# Apply Core recommendation filters using CONFIG constants
-core_before_filter = len(results[results["Risk_Level"] == "core"])
-results = filter_core_recommendations(results, CONFIG, adaptive=True)
-core_after_filter = len(results)
+# Split and filter Core vs Speculative separately
+core_stocks = results[results["Risk_Level"] == "core"].copy()
+spec_stocks = results[results["Risk_Level"] == "speculative"].copy()
+
+st.write(f"📊 **Before filtering:** {len(core_stocks)} Core, {len(spec_stocks)} Speculative")
+
+# Filter Core with strict criteria
+core_before_filter = len(core_stocks)
+core_filtered = filter_core_recommendations(core_stocks, CONFIG, adaptive=True) if not core_stocks.empty else pd.DataFrame()
+core_after_filter = len(core_filtered)
 
 if core_before_filter > 0:
-    st.write(f"🎯 **Core filter:** {core_before_filter} → {core_after_filter} stocks passed strict filters")
+    st.write(f"🛡️ **Core filter:** {core_before_filter} → {core_after_filter} passed strict filters")
+
+# Filter Speculative with relaxed criteria (allow higher volatility, missing some fundamentals)
+spec_before_filter = len(spec_stocks)
+if not spec_stocks.empty:
+    # Apply looser technical filters for speculative
+    spec_filtered = spec_stocks.copy()
+    
+    # Filter 1: RSI bounds (wider range)
+    if "RSI" in spec_filtered.columns:
+        rsi_min = max(CONFIG.get("RSI_MIN_CORE", 40) - 10, 25)
+        rsi_max = min(CONFIG.get("RSI_MAX_CORE", 75) + 10, 85)
+        spec_filtered = spec_filtered[
+            (spec_filtered["RSI"].isna()) | 
+            ((spec_filtered["RSI"] >= rsi_min) & (spec_filtered["RSI"] <= rsi_max))
+        ]
+    
+    # Filter 2: Maximum ATR/Price (allow higher volatility)
+    if "ATR_Price" in spec_filtered.columns:
+        max_atr = CONFIG.get("MAX_ATR_PRICE_CORE", 0.09) + 0.06  # +6% more volatility allowed
+        spec_filtered = spec_filtered[
+            (spec_filtered["ATR_Price"].isna()) | 
+            (spec_filtered["ATR_Price"] <= max_atr)
+        ]
+    
+    # Filter 3: Maximum overextension (allow stronger uptrends)
+    if "OverextRatio" in spec_filtered.columns:
+        max_overext = CONFIG.get("MAX_OVEREXTENSION_CORE", 0.12) + 0.08
+        spec_filtered = spec_filtered[
+            (spec_filtered["OverextRatio"].isna()) | 
+            (spec_filtered["OverextRatio"] <= max_overext)
+        ]
+    
+    # Filter 4: Minimum reward/risk (more lenient)
+    if "RewardRisk" in spec_filtered.columns:
+        min_rr = max(CONFIG.get("MIN_RR_CORE", 1.3) - 0.5, 0.8)
+        spec_filtered = spec_filtered[
+            (spec_filtered["RewardRisk"].isna()) | 
+            (spec_filtered["RewardRisk"] >= min_rr)
+        ]
+    
+    spec_filtered = spec_filtered.reset_index(drop=True)
+    logger.info(f"Speculative filter: {spec_before_filter} → {len(spec_filtered)}")
+else:
+    spec_filtered = pd.DataFrame()
+
+spec_after_filter = len(spec_filtered)
+if spec_before_filter > 0:
+    st.write(f"⚡ **Speculative filter:** {spec_before_filter} → {spec_after_filter} passed relaxed filters")
+
+# Combine Core and Speculative
+results = pd.concat([core_filtered, spec_filtered], ignore_index=True)
+
+# Sort by score within each risk level
+if not results.empty:
+    results = results.sort_values(
+        ["Risk_Level", "Score"], 
+        ascending=[True, False]  # Core first (comes before Spec alphabetically), then by score
+    ).reset_index(drop=True)
 
 phase_times["risk_quality_classification"] = t_end(t0)
 
 if results.empty:
     st.error("❌ **All stocks were filtered out!**")
     st.write("**Possible reasons:**")
-    st.write("- 🔴 No stock classified as Core (all Speculative)")
     st.write("- 🔴 Core stocks failed technical filters (RSI, ATR, Overextension)")
-    st.write("- 🔴 Data quality too low (missing prices/fundamentals)")
+    st.write("- 🔴 Speculative stocks failed relaxed filters (extremely high volatility)")
+    st.write("- 🔴 Data quality too low (missing critical metrics)")
     st.write(f"- 🔴 Consider relaxing CONFIG: MIN_QUALITY_SCORE_CORE={CONFIG['MIN_QUALITY_SCORE_CORE']}, "
              f"MAX_ATR_PRICE_CORE={CONFIG['MAX_ATR_PRICE_CORE']}")
     st.stop()
-elif "Adaptive_Relaxed" in results.columns and results["Adaptive_Relaxed"].any():
-    # Show adaptive relaxation banner
-    st.warning("🔄 Adaptive relaxed mode enabled — speculative candidates shown with looser technical filters. Check fundamentals before decisions.")
-    st.write("Relaxed criteria: quality ≥ "
-             f"{max(CONFIG['MIN_QUALITY_SCORE_CORE']-5,15)}, ATR/Price ≤ {CONFIG['MAX_ATR_PRICE_CORE']+0.04}, "
-             f"Overext ≤ {CONFIG['MAX_OVEREXTENSION_CORE']+0.05}, extended RSI range, Reward/Risk ≥ {max(CONFIG['MIN_RR_CORE']-0.3,1.0)}")
 
 # Show results count with guidance
 results_count = len(results)
+core_count_final = len(results[results["Risk_Level"] == "core"])
+spec_count_final = len(results[results["Risk_Level"] == "speculative"])
+
+st.success(f"✅ **Final recommendations:** {core_count_final} Core + {spec_count_final} Speculative = {results_count} total")
+
 target_min = CONFIG.get("TARGET_RECOMMENDATIONS_MIN", 3)
 target_max = CONFIG.get("TARGET_RECOMMENDATIONS_MAX", 7)
 
 if results_count < target_min:
     st.warning(f"⚠️ Only {results_count} stocks passed filters (target: {target_min}-{target_max}). "
                f"Filters are currently strict. Consider widening thresholds to increase candidates.")
-elif results_count > target_max:
-    st.info(f"📊 {results_count} stocks passed filters. Showing top {target_max}.")
-    results = results.head(target_max)
-else:
-    st.success(f"✅ {results_count} quality Core stocks passed all filters!")
 
 # External price verification (Top-K)
 t0 = t_start()
@@ -2324,11 +2382,11 @@ if rec_df.empty:
 else:
     # Split into Core and Speculative
     if "Risk_Level" in rec_df.columns:
-        core_df = rec_df[rec_df["Risk_Level"] == "core"].head(CONFIG["TOPK_RECOMMEND"])
-        spec_df = rec_df[rec_df["Risk_Level"] == "speculative"].head(CONFIG["TOPK_RECOMMEND"])
+        core_df = rec_df[rec_df["Risk_Level"] == "core"]
+        spec_df = rec_df[rec_df["Risk_Level"] == "speculative"]
     else:
         # Fallback if Risk_Level column doesn't exist
-        core_df = rec_df.head(CONFIG["TOPK_RECOMMEND"])
+        core_df = rec_df
         spec_df = pd.DataFrame()
     
     # Display Core recommendations first
