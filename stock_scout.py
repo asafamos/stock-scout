@@ -1577,14 +1577,12 @@ results = results.sort_values(
     ["Score_Tech", "Ticker"], ascending=[False, True]
 ).reset_index(drop=True)
 
-# 3a) Fundamentals (Top-K) + mix score
+# 3a) Initialize fundamental columns (will populate after advanced_filters)
 fundamental_available = (
     alpha_ok or finn_ok or fmp_ok or bool(simfin_key) or bool(eodhd_key)
 )
 if CONFIG["FUNDAMENTAL_ENABLED"] and fundamental_available:
-    t0 = t_start()
-    broaden = max(int(CONFIG.get("FUNDAMENTAL_TOP_K", 15)), int(CONFIG.get("TOPN_RESULTS", 20)) * 3, int(CONFIG.get("TARGET_RECOMMENDATIONS_MAX", 7)) * 3)
-    take_k = int(min(max(10, broaden), len(results)))
+    # Initialize columns - will fetch data AFTER advanced_filters
     for c in [
         "Fundamental_S",
         "Sector",
@@ -1604,68 +1602,7 @@ if CONFIG["FUNDAMENTAL_ENABLED"] and fundamental_available:
     results["Fund_from_Finnhub"] = False
     results["Fund_from_SimFin"] = False
     results["Fund_from_EODHD"] = False
-    
-    for idx in results.head(take_k).index:
-        tkr = results.at[idx, "Ticker"]
-        rank = list(results.head(take_k).index).index(idx) + 1  # 1-based rank
-        # Smart Alpha: enable only for top 15 to respect 25/day rate limit
-        use_alpha = (rank <= 15)
-        d = fetch_fundamentals_bundle(tkr, enable_alpha_smart=use_alpha)
-        
-        # Store provider metadata
-        results.loc[idx, "Fund_from_FMP"] = d.get("from_fmp", False) or d.get("from_fmp_full", False)
-        results.loc[idx, "Fund_from_Alpha"] = d.get("from_alpha", False)
-        results.loc[idx, "Fund_from_Finnhub"] = d.get("from_finnhub", False)
-        results.loc[idx, "Fund_from_SimFin"] = d.get("from_simfin", False)
-        results.loc[idx, "Fund_from_EODHD"] = d.get("from_eodhd", False)
-        
-        # Get detailed breakdown using new function
-        fund_result = compute_fundamental_score_with_breakdown(d)
-        results.loc[idx, "Fundamental_S"] = round(fund_result.total, 1)
-        
-        # Store breakdown scores and labels
-        results.loc[idx, "Quality_Score_F"] = round(fund_result.breakdown.quality_score, 1)
-        results.loc[idx, "Quality_Label"] = fund_result.breakdown.quality_label
-        results.loc[idx, "Growth_Score_F"] = round(fund_result.breakdown.growth_score, 1)
-        results.loc[idx, "Growth_Label"] = fund_result.breakdown.growth_label
-        results.loc[idx, "Valuation_Score_F"] = round(fund_result.breakdown.valuation_score, 1)
-        results.loc[idx, "Valuation_Label"] = fund_result.breakdown.valuation_label
-        results.loc[idx, "Leverage_Score_F"] = round(fund_result.breakdown.leverage_score, 1)
-        results.loc[idx, "Leverage_Label"] = fund_result.breakdown.leverage_label
-        
-        # Store provider attribution for transparency
-        sources_dict = d.get("_sources", {})
-        if sources_dict:
-            # Build attribution string: "ROE: FMP | GM: SimFin | PE: Finnhub"
-            attrs = [f"{k.upper()}: {v}" for k, v in sources_dict.items() if k != "sector"]
-            results.loc[idx, "Fund_Attribution"] = " | ".join(attrs[:5]) if attrs else ""  # Limit to 5 for readability
-        else:
-            results.loc[idx, "Fund_Attribution"] = ""
-        
-        # Store raw metrics
-        results.loc[idx, "PE_f"] = d.get("pe", np.nan)
-        results.loc[idx, "PS_f"] = d.get("ps", np.nan)
-        results.loc[idx, "ROE_f"] = d.get("roe", np.nan)
-        results.loc[idx, "ROIC_f"] = d.get("roic", np.nan)
-        results.loc[idx, "GM_f"] = d.get("gm", np.nan)
-        results.loc[idx, "DE_f"] = d.get("de", np.nan)
-        results.loc[idx, "RevG_f"] = d.get("rev_g_yoy", np.nan)
-        results.loc[idx, "EPSG_f"] = d.get("eps_g_yoy", np.nan)
-        results.loc[idx, "Sector"] = d.get("sector") or "Unknown"
-    results["Score"] = results["Score_Tech"]
-    results.loc[results.head(take_k).index, "Score"] = (
-        1 - float(CONFIG["FUNDAMENTAL_WEIGHT"])
-    ) * results.loc[results.head(take_k).index, "Score_Tech"] + float(
-        CONFIG["FUNDAMENTAL_WEIGHT"]
-    ) * results.loc[
-        results.head(take_k).index, "Fundamental_S"
-    ].fillna(
-        0
-    )
-    results = results.sort_values(
-        ["Score", "Ticker"], ascending=[False, True]
-    ).reset_index(drop=True)
-    phase_times["fundamentals_alpha_finnhub"] = t_end(t0)
+    results["Score"] = results["Score_Tech"]  # Use technical score for now
 else:
     results["Score"] = results["Score_Tech"]
 
@@ -1780,7 +1717,76 @@ if results.empty:
     st.warning("All stocks were filtered out by advanced filters. Try loosening criteria.")
     st.stop()
 
-# 3d) Apply risk classification and data quality evaluation
+# 3d) Fetch Fundamentals for stocks that passed advanced_filters
+if CONFIG["FUNDAMENTAL_ENABLED"] and fundamental_available:
+    t0 = t_start()
+    st.info(f"📊 Fetching fundamentals for {len(results)} stocks that passed advanced filters...")
+    
+    # Fetch for all stocks that passed advanced_filters (typically 15-25)
+    take_k = len(results)
+    
+    for idx in results.index:
+        tkr = results.at[idx, "Ticker"]
+        rank = list(results.index).index(idx) + 1  # 1-based rank
+        # Smart Alpha: enable only for top 15 to respect 25/day rate limit
+        use_alpha = (rank <= 15)
+        d = fetch_fundamentals_bundle(tkr, enable_alpha_smart=use_alpha)
+        
+        # Store provider metadata
+        results.loc[idx, "Fund_from_FMP"] = d.get("from_fmp", False) or d.get("from_fmp_full", False)
+        results.loc[idx, "Fund_from_Alpha"] = d.get("from_alpha", False)
+        results.loc[idx, "Fund_from_Finnhub"] = d.get("from_finnhub", False)
+        results.loc[idx, "Fund_from_SimFin"] = d.get("from_simfin", False)
+        results.loc[idx, "Fund_from_EODHD"] = d.get("from_eodhd", False)
+        
+        # Get detailed breakdown using new function
+        fund_result = compute_fundamental_score_with_breakdown(d)
+        results.loc[idx, "Fundamental_S"] = round(fund_result.total, 1)
+        
+        # Store breakdown scores and labels
+        results.loc[idx, "Quality_Score_F"] = round(fund_result.breakdown.quality_score, 1)
+        results.loc[idx, "Quality_Label"] = fund_result.breakdown.quality_label
+        results.loc[idx, "Growth_Score_F"] = round(fund_result.breakdown.growth_score, 1)
+        results.loc[idx, "Growth_Label"] = fund_result.breakdown.growth_label
+        results.loc[idx, "Valuation_Score_F"] = round(fund_result.breakdown.valuation_score, 1)
+        results.loc[idx, "Valuation_Label"] = fund_result.breakdown.valuation_label
+        results.loc[idx, "Leverage_Score_F"] = round(fund_result.breakdown.leverage_score, 1)
+        results.loc[idx, "Leverage_Label"] = fund_result.breakdown.leverage_label
+        
+        # Store provider attribution for transparency
+        sources_dict = d.get("_sources", {})
+        if sources_dict:
+            # Build attribution string: "ROE: FMP | GM: SimFin | PE: Finnhub"
+            attrs = [f"{k.upper()}: {v}" for k, v in sources_dict.items() if k != "sector"]
+            results.loc[idx, "Fund_Attribution"] = " | ".join(attrs[:5]) if attrs else ""  # Limit to 5 for readability
+        else:
+            results.loc[idx, "Fund_Attribution"] = ""
+        
+        # Store raw metrics
+        results.loc[idx, "PE_f"] = d.get("pe", np.nan)
+        results.loc[idx, "PS_f"] = d.get("ps", np.nan)
+        results.loc[idx, "ROE_f"] = d.get("roe", np.nan)
+        results.loc[idx, "ROIC_f"] = d.get("roic", np.nan)
+        results.loc[idx, "GM_f"] = d.get("gm", np.nan)
+        results.loc[idx, "DE_f"] = d.get("de", np.nan)
+        results.loc[idx, "RevG_f"] = d.get("rev_g_yoy", np.nan)
+        results.loc[idx, "EPSG_f"] = d.get("eps_g_yoy", np.nan)
+        results.loc[idx, "Sector"] = d.get("sector") or "Unknown"
+    
+    # Mix technical + fundamental scores
+    results["Score"] = (
+        1 - float(CONFIG["FUNDAMENTAL_WEIGHT"])
+    ) * results["Score_Tech"] + float(
+        CONFIG["FUNDAMENTAL_WEIGHT"]
+    ) * results["Fundamental_S"].fillna(0)
+    
+    results = results.sort_values(
+        ["Score", "Ticker"], ascending=[False, True]
+    ).reset_index(drop=True)
+    phase_times["fundamentals_alpha_finnhub"] = t_end(t0)
+    logger.info(f"✓ Fetched fundamentals for {take_k} stocks")
+
+# 3e) Apply risk classification and data quality evaluation
 t0 = t_start()
 st.info("🔍 Classifying stocks by risk level and data quality...")
 
