@@ -1234,6 +1234,8 @@ from design_system import get_modern_css
 st.set_page_config(page_title="Asaf's Stock Scout — 2025", page_icon="📈", layout="wide")
 st.markdown(get_modern_css(), unsafe_allow_html=True)
 
+st.title("📈 Stock Scout — 2025 (Auto)")
+
 # Secrets button
 def _mask(s: Optional[str], show_last: int = 4) -> str:
     if not s:
@@ -1244,20 +1246,6 @@ def _mask(s: Optional[str], show_last: int = 4) -> str:
         if len(s) > show_last
         else ("•" * (len(s) - 1)) + s[-1]
     )
-
-
-col_btn, _ = st.columns([1, 4])
-with col_btn:
-    if st.button("Check Secrets 🔐"):
-        st.info(
-            f"Alpha: {_mask(_env('ALPHA_VANTAGE_API_KEY'))}\n\n"
-            f"Finnhub: {_mask(_env('FINNHUB_API_KEY'))}\n\n"
-            f"Polygon: {_mask(_env('POLYGON_API_KEY'))}\n\n"
-            f"Tiingo: {_mask(_env('TIINGO_API_KEY'))}\n\n"
-            f"FMP: {_mask(_env('FMP_API_KEY'))}"
-        )
-
-st.title("📈 Stock Scout — 2025 (Auto)")
 
 # Status table
 alpha_ok, alpha_reason = _check_alpha()
@@ -1308,7 +1296,7 @@ _provider_css = """
 .provider-table-container {overflow-x:auto;}
 .provider-table-container table {width:100%; border-collapse:collapse; table-layout:fixed;}
 .provider-table-container th, .provider-table-container td {padding:6px 8px; text-align:center; font-size:14px;}
-.provider-table-container th:nth-child(1), .provider-table-container td:nth-child(1){text-align:right; min-width:130px;}
+.provider-table-container th:nth-child(1), .provider-table-container td:nth-child(1){text-align:center; min-width:130px;}
 @media (max-width:600px){
     .provider-table-container th, .provider-table-container td {padding:4px 6px; font-size:12px;}
     .provider-table-container th:nth-child(1), .provider-table-container td:nth-child(1){min-width:140px;}
@@ -1337,8 +1325,19 @@ for r in providers_status:
 providers_html = "<div class='provider-table-container'><table>" + "".join(html_rows) + "</table></div>"
 st.markdown(providers_html, unsafe_allow_html=True)
 
+# Utility buttons row
+col_secrets, col_cache, _ = st.columns([1, 1, 3])
+with col_secrets:
+    if st.button("Check Secrets 🔐"):
+        st.info(
+            f"Alpha: {_mask(_env('ALPHA_VANTAGE_API_KEY'))}\\n\\n"
+            f"Finnhub: {_mask(_env('FINNHUB_API_KEY'))}\\n\\n"
+            f"Polygon: {_mask(_env('POLYGON_API_KEY'))}\\n\\n"
+            f"Tiingo: {_mask(_env('TIINGO_API_KEY'))}\\n\\n"
+            f"FMP: {_mask(_env('FMP_API_KEY'))}"
+        )
+
 # Cache reset button
-col_cache, _ = st.columns([1,4])
 with col_cache:
     if st.button("🔄 Clear Cache & Reload"):
         st.cache_data.clear()

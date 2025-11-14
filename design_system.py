@@ -295,23 +295,24 @@ h3 {{ font-size: clamp(1.25rem, 2.5vw, 1.5rem); margin-bottom: 0.5rem; }}
 
 /* ==================== BUTTONS & INTERACTIONS ==================== */
 .stButton > button {{
-    background: var(--color-primary);
-    color: white;
-    border: none;
-    border-radius: var(--radius-md);
-    padding: 0.75rem 1.5rem;
-    font-family: var(--font-primary);
-    font-weight: 600;
-    font-size: 0.9375rem;
-    cursor: pointer;
-    transition: all var(--transition);
-    box-shadow: var(--shadow-sm);
+    background: {COLORS['primary']} !important;
+    color: #FFFFFF !important;
+    border: none !important;
+    border-radius: var(--radius-md) !important;
+    padding: 0.75rem 1.5rem !important;
+    font-family: var(--font-primary) !important;
+    font-weight: 600 !important;
+    font-size: 0.9375rem !important;
+    cursor: pointer !important;
+    transition: all var(--transition) !important;
+    box-shadow: var(--shadow-sm) !important;
 }}
 
 .stButton > button:hover {{
-    background: var(--color-primary-hover);
-    box-shadow: var(--shadow-md);
-    transform: translateY(-1px);
+    background: {COLORS['primary_hover']} !important;
+    color: #FFFFFF !important;
+    box-shadow: var(--shadow-md) !important;
+    transform: translateY(-1px) !important;
 }}
 
 /* ==================== METRICS & KPIs ==================== */
