@@ -3,9 +3,7 @@ import pandas as pd
 
 from indicators import rsi, atr, macd_line
 from core.portfolio import _normalize_weights
-import sys
-sys.path.insert(0, '/workspaces/stock-scout-2')
-from stock_scout import allocate_budget
+from core.portfolio import allocate_budget
 
 
 def test_rsi_basic():

@@ -9,8 +9,8 @@ Asaf Stock Scout — 2025 (Auto Mode, Zero-Input) — FMP-free
 • Risk rules: earnings blackout, sector cap, beta vs SPY/QQQ, min dollar-volume, hard caps.
 • External price verification: Alpha/Finnhub/Polygon/Tiingo (mean/std).
 • Allocation: min position + max position % of budget.
-• RTL UI, recommendation cards, CSV export, quick chart.
-הערה: אין באמור ייעוץ השקעות.
+• LTR English UI, recommendation cards, CSV export, quick chart.
+Note: This is not investment advice.
 """
 
 from __future__ import annotations
@@ -492,15 +492,17 @@ def _to_01(x: float, low: float, high: float) -> float:
 
 @st.cache_data(ttl=60 * 60 * 24)  # 24h cache for fundamentals
 def fetch_fundamentals_bundle(ticker: str, enable_alpha_smart: bool = False) -> dict:
-    """משיכת פונדמנטלים ממספר מקורות ומיזוג לקובץ אחד - **במקביל!**
+    """Fetch fundamentals from multiple providers and merge into a single dict (parallel).
 
-    במקום sequential (איטי), מריץ את כל המקורות בו-זמנית עם ThreadPoolExecutor.
-    חיסכון: 60-70% מזמן הריצה!
-    
-    Priority merge: FMP → SimFin → Alpha (smart) → Finnhub → EODHD → Tiingo
-    enable_alpha_smart: אם True, יפעיל Alpha Vantage (מומלץ רק ל-top picks)
+    This function runs all configured fundamentals providers in parallel using
+    a ThreadPoolExecutor instead of a slow sequential approach. Typical runtime
+    savings: ~60-70% per ticker depending on enabled providers.
 
-    החזר: dict עם השדות הרלוונטיים + דגלי מקור + _sources (attribution) + Fund_Coverage_Pct.
+    Merge priority: FMP → SimFin → Alpha (smart) → Finnhub → EODHD → Tiingo
+    `enable_alpha_smart`: if True, uses Alpha Vantage (recommended only for top picks)
+
+    Returns a dict with the merged fields plus source flags, `_sources` attribution
+    and `Fund_Coverage_Pct`.
     """
     merged: dict = {
         "roe": np.nan,
@@ -786,7 +788,7 @@ def _fmp_full_bundle_fetch(ticker: str, api_key: str) -> Dict[str, any]:
 
 
 def _alpha_overview_fetch(ticker: str) -> Dict[str, any]:
-    """משיכה מ-Alpha OVERVIEW (פשוט ולעניין)."""
+    """Fetch Alpha Vantage OVERVIEW (simple overview fields)."""
     ak = _env("ALPHA_VANTAGE_API_KEY")
     if not ak:
         return {}
@@ -829,7 +831,7 @@ def _alpha_overview_fetch(ticker: str) -> Dict[str, any]:
 
 
 def _finnhub_metrics_fetch(ticker: str) -> Dict[str, any]:
-    """Fallback ל-Finnhub metrics + sector."""
+    """Fallback to Finnhub metrics + sector information."""
     fk = _env("FINNHUB_API_KEY")
     if not fk:
         return {}
@@ -879,7 +881,7 @@ def _finnhub_metrics_fetch(ticker: str) -> Dict[str, any]:
 
 
 def _finnhub_sector(ticker: str, token: str) -> str:
-    """משיכת סקטור אמיתי מ-Finnhub (profile2)."""
+    """Fetch sector information from Finnhub (profile2 endpoint)."""
     r = http_get_retry(
         f"https://finnhub.io/api/v1/stock/profile2?symbol={ticker}&token={token}",
         tries=1,
@@ -1246,7 +1248,7 @@ def _mask(s: Optional[str], show_last: int = 4) -> str:
 
 col_btn, _ = st.columns([1, 4])
 with col_btn:
-    if st.button("בדיקת סיקרטים 🔐"):
+    if st.button("Check Secrets 🔐"):
         st.info(
             f"Alpha: {_mask(_env('ALPHA_VANTAGE_API_KEY'))}\n\n"
             f"Finnhub: {_mask(_env('FINNHUB_API_KEY'))}\n\n"
@@ -1272,10 +1274,10 @@ eodhd_key = (_env("EODHD_API_KEY") or _env("EODHD_TOKEN")) if CONFIG.get("ENABLE
 providers_status = []
 def add_provider(name, price_ok, fund_ok, reason):
     providers_status.append({
-        "מקור": name,
-        "מחיר": "🟢" if price_ok else "🔴",
-        "פונדמנטלים": "🟢" if fund_ok else "🔴",
-        "סיבה": reason
+        "source": name,
+        "price": "🟢" if price_ok else "🔴",
+        "fundamentals": "🟢" if fund_ok else "🔴",
+        "reason": reason
     })
 
 def _std_reason(name: str, price_ok: bool, fund_ok: bool, has_key: bool, base: bool=False) -> str:
@@ -1300,7 +1302,7 @@ add_provider("NasdaqDL", bool(nasdaq_key), False, _std_reason("NasdaqDL", bool(n
 add_provider("EODHD", bool(eodhd_key), bool(eodhd_key), _std_reason("EODHD", bool(eodhd_key), bool(eodhd_key), bool(eodhd_key)))
 
 status_df = pd.DataFrame(providers_status)
-st.markdown("### 🔌 סטטוס מקורות")
+st.markdown("### 🔌 Data Sources Status")
 _provider_css = """
 <style>
 .provider-table-container {overflow-x:auto;}
@@ -1319,18 +1321,18 @@ _provider_css = """
     .provider-table-container td {text-align:right; padding:4px 8px; font-size:13px; border:none;}
     .provider-table-container td:nth-child(4){display:none;} /* hide Reason for compact view */
     .provider-table-container td::before {font-weight:600; display:inline-block; margin-left:4px;}
-    .provider-table-container td:nth-child(1)::before {content:'מקור: ';}
-    .provider-table-container td:nth-child(2)::before {content:'מחיר: ';}
-    .provider-table-container td:nth-child(3)::before {content:'פונד׳: ';}
+    .provider-table-container td:nth-child(1)::before {content:'Source: ';}
+    .provider-table-container td:nth-child(2)::before {content:'Price: ';}
+    .provider-table-container td:nth-child(3)::before {content:'Fund: ';}
 }
 </style>
 """
 st.markdown(_provider_css, unsafe_allow_html=True)
 html_rows = []
-html_rows.append("<tr><th>מקור</th><th>מחיר</th><th>פונדמנטלים</th><th>Reason</th></tr>")
+html_rows.append("<tr><th>Source</th><th>Price</th><th>Fundamentals</th><th>Reason</th></tr>")
 for r in providers_status:
         html_rows.append(
-                f"<tr><td>{r['מקור']}</td><td>{r['מחיר']}</td><td>{r['פונדמנטלים']}</td><td>{r['סיבה']}</td></tr>"
+                f"<tr><td>{r['source']}</td><td>{r['price']}</td><td>{r['fundamentals']}</td><td>{r['reason']}</td></tr>"
         )
 providers_html = "<div class='provider-table-container'><table>" + "".join(html_rows) + "</table></div>"
 st.markdown(providers_html, unsafe_allow_html=True)
@@ -1338,7 +1340,7 @@ st.markdown(providers_html, unsafe_allow_html=True)
 # Cache reset button
 col_cache, _ = st.columns([1,4])
 with col_cache:
-    if st.button("🔄 איפוס Cache וטעינה מחדש"):
+    if st.button("🔄 Clear Cache & Reload"):
         st.cache_data.clear()
         st.rerun()
 
@@ -1362,12 +1364,12 @@ universe = (
     if CONFIG["SMART_SCAN"]
     else build_universe(limit=200)
 )
-phase_times["בונה יקום"] = t_end(t0)
+phase_times["build_universe"] = t_end(t0)
 
 # 2) History
 t0 = t_start()
 data_map = fetch_history_bulk(universe, CONFIG["LOOKBACK_DAYS"], CONFIG["MA_LONG"])
-phase_times["מוריד נתונים"] = t_end(t0)
+phase_times["fetch_history"] = t_end(t0)
 
 # 3) Technical score + hard filters
 t0 = t_start()
@@ -1566,9 +1568,9 @@ for tkr, df in data_map.items():
     )
 
 results = pd.DataFrame(rows)
-phase_times["מחשב ניקוד (טכני)"] = t_end(t0)
+phase_times["calc_score_technical"] = t_end(t0)
 if results.empty:
-    st.warning("אין תוצאות אחרי הסינון. ייתכן שהספים קשוחים מדי עבור היקום הנוכחי.")
+    st.warning("No results after filtering. Filters may be too strict for the current universe.")
     st.stop()
 
 results = results.sort_values(
@@ -1663,7 +1665,7 @@ if CONFIG["FUNDAMENTAL_ENABLED"] and fundamental_available:
     results = results.sort_values(
         ["Score", "Ticker"], ascending=[False, True]
     ).reset_index(drop=True)
-    phase_times["פונדמנטלי (Alpha/Finnhub)"] = t_end(t0)
+    phase_times["fundamentals_alpha_finnhub"] = t_end(t0)
 else:
     results["Score"] = results["Score_Tech"]
 
@@ -1685,7 +1687,7 @@ if CONFIG["EARNINGS_BLACKOUT_DAYS"] > 0:
             results.at[idx, "EarningsNote"] = f"Excluded: earnings within {gap_days}d"
     results = results[keep_mask].reset_index(drop=True)
     if results.empty:
-        st.warning('כל המועמדות בטופ-K נפסלו עקב חלון דו"חות.')
+        st.warning('All top-K candidates were excluded due to the earnings blackout window.')
         st.stop()
 
 # 3b) Beta filter
@@ -1703,11 +1705,11 @@ if CONFIG["BETA_FILTER_ENABLED"]:
             & (results["Beta"] > float(CONFIG["BETA_MAX_ALLOWED"]))
         )
     ].reset_index(drop=True)
-    phase_times["מסנן בטא"] = t_end(t0)
+    phase_times["beta_filter"] = t_end(t0)
 
 # 3c) Advanced Filters - NEW!
 t0 = t_start()
-st.info("🔬 מפעיל סינונים מתקדמים...")
+st.info("🔬 Running advanced filters...")
 
 # Fetch benchmark data once
 benchmark_df = fetch_benchmark_data(CONFIG["BETA_BENCHMARK"], CONFIG["LOOKBACK_DAYS"])
@@ -1772,15 +1774,15 @@ results = results[advanced_keep_mask].reset_index(drop=True)
 # Re-sort by enhanced score
 results = results.sort_values(["Score", "Ticker"], ascending=[False, True]).reset_index(drop=True)
 
-phase_times["סינונים מתקדמים"] = t_end(t0)
+phase_times["advanced_filters"] = t_end(t0)
 
 if results.empty:
-    st.warning("כל המניות נפסלו בסינונים המתקדמים. נסה להקל על הקריטריונים.")
+    st.warning("All stocks were filtered out by advanced filters. Try loosening criteria.")
     st.stop()
 
 # 3d) Apply risk classification and data quality evaluation
 t0 = t_start()
-st.info("🔍 מסווג מניות לפי רמת סיכון ואיכות נתונים...")
+st.info("🔍 Classifying stocks by risk level and data quality...")
 
 # Debug: Check what data we have
 logger.info(f"Columns available: {results.columns.tolist()}")
@@ -1810,9 +1812,9 @@ if "Fund_Coverage_Pct" in results.columns:
         logger.info(f"Fundamentals coverage: mean={avg_cov:.2f}, >=50% fields for {pct_good*100:.1f}% of tickers")
         warn_thresh = CONFIG.get("COVERAGE_WARN_THRESHOLD", 0.4)
         if avg_cov < warn_thresh:
-            st.warning(f"⚠️ כיסוי פונדמנטלי נמוך: ממוצע {avg_cov:.2f} ({pct_good*100:.1f}% עם ≥50% מהשדות). שקול הוספת מקורות או מפתחות.")
+            st.warning(f"⚠️ Low fundamentals coverage: mean {avg_cov:.2f} ({pct_good*100:.1f}% with ≥50% fields). Consider adding sources or API keys.")
         else:
-            st.info(f"🧬 כיסוי פונדמנטלי ממוצע: {avg_cov:.2f} | {pct_good*100:.0f}% מהטיקרסים עם ≥50% שדות.")
+            st.info(f"🧬 Avg fundamentals coverage: {avg_cov:.2f} | {pct_good*100:.0f}% of tickers have ≥50% fields.")
 
 # Show classification statistics
 core_count = len(results[results["Risk_Level"] == "core"])
@@ -1821,15 +1823,15 @@ high_qual = len(results[results["Data_Quality"] == "high"])
 med_qual = len(results[results["Data_Quality"] == "medium"])
 low_qual = len(results[results["Data_Quality"] == "low"])
 
-st.write(f"**סיווג ראשוני:** {core_count} Core, {spec_count} Speculative | "
-         f"**איכות:** {high_qual} גבוהה, {med_qual} בינונית, {low_qual} נמוכה")
+st.write(f"**Initial classification:** {core_count} Core, {spec_count} Speculative | "
+         f"**Quality:** {high_qual} high, {med_qual} medium, {low_qual} low")
 
 # Filter out stocks that shouldn't be displayed (very low quality)
 displayable = results[results["Should_Display"]].copy()
 hidden_count = len(results) - len(displayable)
-if hidden_count > 0:
-    st.write(f"🔻 הוסתרו {hidden_count} מניות עם איכות נתונים נמוכה מאוד")
-    logger.info(f"Hidden {hidden_count} stocks due to very low data quality")
+    if hidden_count > 0:
+        st.write(f"🔻 Hidden {hidden_count} stocks due to very low data quality")
+        logger.info(f"Hidden {hidden_count} stocks due to very low data quality")
 
 results = displayable.reset_index(drop=True)
 
@@ -1838,26 +1840,26 @@ core_before_filter = len(results[results["Risk_Level"] == "core"])
 results = filter_core_recommendations(results, CONFIG, adaptive=True)
 core_after_filter = len(results)
 
-if core_before_filter > 0:
-    st.write(f"🎯 **סינון Core:** {core_before_filter} → {core_after_filter} מניות עברו את הפילטרים המחמירים")
+    if core_before_filter > 0:
+        st.write(f"🎯 **Core filter:** {core_before_filter} → {core_after_filter} stocks passed strict filters")
 
-phase_times["סיווג סיכון ואיכות"] = t_end(t0)
+phase_times["risk_quality_classification"] = t_end(t0)
 
 if results.empty:
-    st.error("❌ **כל המניות נפסלו!**")
-    st.write("**סיבות אפשריות:**")
-    st.write("- 🔴 אף מניה לא סווגה כ-Core (כולן Speculative)")
-    st.write("- 🔴 מניות Core לא עמדו בפילטרים הטכניים (RSI, ATR, Overextension)")
-    st.write("- 🔴 איכות נתונים נמוכה מדי (חסרים מחירים/פונדמנטלים)")
-    st.write(f"- 🔴 ניתן להקל על הגדרות ב-CONFIG: MIN_QUALITY_SCORE_CORE={CONFIG['MIN_QUALITY_SCORE_CORE']}, "
+    st.error("❌ **All stocks were filtered out!**")
+    st.write("**Possible reasons:**")
+    st.write("- 🔴 No stock classified as Core (all Speculative)")
+    st.write("- 🔴 Core stocks failed technical filters (RSI, ATR, Overextension)")
+    st.write("- 🔴 Data quality too low (missing prices/fundamentals)")
+    st.write(f"- 🔴 Consider relaxing CONFIG: MIN_QUALITY_SCORE_CORE={CONFIG['MIN_QUALITY_SCORE_CORE']}, "
              f"MAX_ATR_PRICE_CORE={CONFIG['MAX_ATR_PRICE_CORE']}")
     st.stop()
 elif "Adaptive_Relaxed" in results.columns and results["Adaptive_Relaxed"].any():
     # Show adaptive relaxation banner
-    st.warning("🔄 הופעל מצב ריכוך אוטומטי — מוצגות מועמדות ספקולטיביות עם סינון טכני רופף יותר. מומלץ לבדוק פונדמנטלים לפני החלטה.")
-    st.write("קריטריוני ריכוך: איכות ≥ "
+    st.warning("🔄 Adaptive relaxed mode enabled — speculative candidates shown with looser technical filters. Check fundamentals before decisions.")
+    st.write("Relaxed criteria: quality ≥ "
              f"{max(CONFIG['MIN_QUALITY_SCORE_CORE']-5,15)}, ATR/Price ≤ {CONFIG['MAX_ATR_PRICE_CORE']+0.04}, "
-             f"Overext ≤ {CONFIG['MAX_OVEREXTENSION_CORE']+0.05}, RSI בטווח מורחב, Reward/Risk ≥ {max(CONFIG['MIN_RR_CORE']-0.3,1.0)}")
+             f"Overext ≤ {CONFIG['MAX_OVEREXTENSION_CORE']+0.05}, extended RSI range, Reward/Risk ≥ {max(CONFIG['MIN_RR_CORE']-0.3,1.0)}")
 
 # Show results count with guidance
 results_count = len(results)
@@ -1865,13 +1867,13 @@ target_min = CONFIG.get("TARGET_RECOMMENDATIONS_MIN", 3)
 target_max = CONFIG.get("TARGET_RECOMMENDATIONS_MAX", 7)
 
 if results_count < target_min:
-    st.warning(f"⚠️ רק {results_count} מניות עברו את הסינונים (יעד: {target_min}-{target_max}). "
-               f"הסינונים מחמירים כרגע. שקול להרחיב את ה-thresholds אם אתה רוצה יותר מועמדים.")
+    st.warning(f"⚠️ Only {results_count} stocks passed filters (target: {target_min}-{target_max}). "
+               f"Filters are currently strict. Consider widening thresholds to increase candidates.")
 elif results_count > target_max:
-    st.info(f"📊 {results_count} מניות עברו את הסינונים. מציג את {target_max} המובילות.")
+    st.info(f"📊 {results_count} stocks passed filters. Showing top {target_max}.")
     results = results.head(target_max)
 else:
-    st.success(f"✅ {results_count} מניות Core איכותיות עברו את כל הסינונים!")
+    st.success(f"✅ {results_count} quality Core stocks passed all filters!")
 
 # External price verification (Top-K)
 t0 = t_start()
@@ -2056,7 +2058,7 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and any_price_provider:
         ).round(4)
     else:
         results["Reliability_Score"] = np.nan
-phase_times["מאמת מחירים"] = t_end(t0)
+phase_times["price_verification"] = t_end(t0)
 
 # Horizon heuristic
 def infer_horizon(row: pd.Series) -> str:
@@ -2069,15 +2071,15 @@ def infer_horizon(row: pd.Series) -> str:
         and isinstance(rsi_v, (int, float))
         and 55 <= rsi_v <= 75
     ):
-        return "קצר (1–3 חודשים)"
+        return "Short (1-3 months)"
     if isinstance(rsi_v, (int, float)) and rsi_v <= 40 and score >= 60:
-        return "בינוני (3–6 חודשים)"
+        return "Medium (3-6 months)"
     if score >= 70:
-        return "בינוני-ארוך (6–12 חודשים)"
-    return "ארוך (6–12 חודשים)"
+        return "Medium-Long (6-12 months)"
+    return "Long (>12 months)"
 
 
-results["טווח החזקה"] = results.apply(infer_horizon, axis=1)
+results["Holding_Horizon"] = results.apply(infer_horizon, axis=1)
 
 # Sector cap
 def apply_sector_cap(df: pd.DataFrame, cap: int) -> pd.DataFrame:
@@ -2133,11 +2135,11 @@ def source_badges(row: pd.Series) -> str:
     return " · ".join(badges)
 
 
-results["מקורות מחיר"] = results.apply(source_badges, axis=1)
-results["מחיר ממוצע"] = results["Price_Mean"].round(2)
-results["סטיית תקן"] = results["Price_STD"].round(4)
+results["Price_Sources"] = results.apply(source_badges, axis=1)
+results["Price_Mean_Rounded"] = results["Price_Mean"].round(2)
+results["Price_STD_Rounded"] = results["Price_STD"].round(4)
 results["Unit_Price"] = np.where(
-    results["מחיר ממוצע"].notna(), results["מחיר ממוצע"], results["Price_Yahoo"]
+    results["Price_Mean_Rounded"].notna(), results["Price_Mean_Rounded"], results["Price_Yahoo"]
 )
 results["Unit_Price"] = pd.to_numeric(results["Unit_Price"], errors="coerce")
 
@@ -2181,30 +2183,30 @@ budget_used = float(
     results["מניות לקנייה"].to_numpy() @ results["Unit_Price"].fillna(0).to_numpy()
 )
 k0, k1, k2, k3 = st.columns(4)
-k0.metric("גודל יקום לאחר סינון היסטוריה", len(data_map))
-k1.metric("כמות תוצאות אחרי סינון", len(results))
-k2.metric("תקציב מנוצל (≈$)", f"{budget_used:,.0f}")
-k3.metric("עודף תקציב (≈$)", f"{max(0.0, float(st.session_state.get('total_budget', CONFIG['BUDGET_TOTAL'])) - budget_used):,.0f}")
+k0.metric("Universe size after history filtering", len(data_map))
+k1.metric("Results after filtering", len(results))
+k2.metric("Budget used (≈$)", f"{budget_used:,.0f}")
+k3.metric("Remaining budget (≈$)", f"{max(0.0, float(st.session_state.get('total_budget', CONFIG['BUDGET_TOTAL'])) - budget_used):,.0f}")
 
 # Timings
-st.subheader("⏱️ זמני ביצוע")
+st.subheader("⏱️ Execution Times")
 times_df = pd.DataFrame(
-    [{"שלב": k, "משך (שניות)": round(v, 2)} for k, v in phase_times.items()]
+    [{"Phase": k, "Duration (s)": round(v, 2)} for k, v in phase_times.items()]
 )
-st.table(times_df.style.set_properties(**{"text-align": "center", "direction": "rtl"}))
+st.table(times_df.style.set_properties(**{"text-align": "center"}))
 if alpha_ok:
     st.caption(
-        f"Alpha Vantage — קריאות בסשן זה: {int(st.session_state.get('av_calls', 0))} (שמור על קצבים)."
+        f"Alpha Vantage — calls this session: {int(st.session_state.get('av_calls', 0))} (respect rate limits)."
     )
 
 # ==================== Recommendation Cards ====================
-st.subheader("🤖 המלצה עכשיו")
-st.caption("הכרטיסים הבאים הם **המלצות קנייה** בלבד. אין באמור ייעוץ השקעות.")
+st.subheader("🤖 Recommendations Now")
+st.caption("These cards are buy recommendations only. This is not investment advice.")
 
 # Sidebar filters
 with st.sidebar:
-    st.header("🎛️ פילטרים")
-    st.caption("התאם אישית את תוצאות הסריקה")
+    st.header("🎛️ Filters")
+    st.caption("Customize your scan results")
 
     st.markdown("---")
     st.subheader("💰 Allocation")
@@ -2221,20 +2223,20 @@ with st.sidebar:
     
     # Risk level filter
     risk_filter = st.multiselect(
-        "רמת סיכון",
+        "Risk level",
         options=["core", "speculative"],
         default=["core", "speculative"],
-        format_func=lambda x: "🛡️ ליבה (Core)" if x == "core" else "⚡ ספקולטיבי",
-        help="בחר אילו סוגי מניות להציג"
+        format_func=lambda x: "🛡️ Core" if x == "core" else "⚡ Speculative",
+        help="Choose which types of stocks to show"
     )
     
     # Data quality filter
     quality_filter = st.multiselect(
-        "איכות נתונים מינימלית",
+        "Minimum data quality",
         options=["high", "medium", "low"],
         default=["high", "medium", "low"],
-        format_func=lambda x: {"high": "✅ גבוהה (85%+)", "medium": "⚠️ בינונית (60-85%)", "low": "❌ נמוכה (<60%)"}[x],
-        help="סנן לפי רמת איכות הנתונים"
+        format_func=lambda x: {"high": "✅ High (85%+)", "medium": "⚠️ Medium (60-85%)", "low": "❌ Low (<60%)"}[x],
+        help="Filter by data quality level"
     )
     
     # Score range
@@ -2244,14 +2246,14 @@ with st.sidebar:
         # Only show slider if there's a range
         if max_score_val > min_score_val:
             score_range = st.slider(
-                "טווח ניקוד",
+                "Score range",
                 min_value=min_score_val,
                 max_value=max_score_val,
                 value=(min_score_val, max_score_val),
-                help="הצג רק מניות בטווח ניקוד זה"
+                help="Show only stocks in this score range"
             )
         else:
-            st.caption(f"ניקוד: {min_score_val:.1f} (מניה אחת)")
+            st.caption(f"Score: {min_score_val:.1f} (single stock)")
             score_range = (min_score_val, max_score_val)
     else:
         score_range = (0.0, 100.0)
@@ -2261,17 +2263,17 @@ with st.sidebar:
     
     # RSI filter
     rsi_max = st.slider(
-        "RSI מקסימלי",
+        "Max RSI",
         min_value=0,
         max_value=100,
         value=80,
-        help="סנן מניות עם RSI גבוה מדי (overbought)"
+        help="Filter stocks with too high RSI (overbought)"
     )
 
     # Developer debug toggle for raw attribution
-    show_debug_attr = st.checkbox("🧪 הצג פירוט מקורות גולמי (Debug)", value=False, help="הצגת מיפוי מקורות השדות (_sources) למפתחים")
+    show_debug_attr = st.checkbox("🧪 Show raw source attribution (Debug)", value=False, help="Display _sources mapping for developers")
     st.session_state["show_debug_attr"] = show_debug_attr
-    compact_mode = st.checkbox("📦 מצב תצוגה קומפקטי", value=bool(st.session_state.get("compact_mode", False)), help="הסתרת פירוט אינדיקטורים ופונדמנטלים לצמצום גובה הכרטיס")
+    compact_mode = st.checkbox("📦 Compact view", value=bool(st.session_state.get("compact_mode", False)), help="Hide indicator/fundamental details to reduce card height")
     st.session_state["compact_mode"] = compact_mode
 
 # Apply filters
@@ -2298,7 +2300,7 @@ if not rec_df.empty:
     if "RSI" in rec_df.columns:
         rec_df = rec_df[(rec_df["RSI"].isna()) | (rec_df["RSI"] <= rsi_max)]
 
-st.info(f"📊 מציג {len(rec_df)} מניות אחרי פילטרים")
+st.info(f"📊 Showing {len(rec_df)} stocks after filters")
 
 rec_df = rec_df.copy()
 
@@ -2306,13 +2308,13 @@ rec_df = rec_df.copy()
 
 def format_rel(val) -> str:
     if not isinstance(val, (int, float)) or not np.isfinite(val):
-        return "לא זמין"
+        return "Not available"
     tier = "High" if val >= 0.75 else ("Medium" if val >= 0.4 else "Low")
     color = "#16a34a" if tier == "High" else ("#f59e0b" if tier == "Medium" else "#dc2626")
     return f"<span style='color:{color};font-weight:600'>{val:.2f} ({tier})</span>"
 
 if rec_df.empty:
-    st.info("אין כרגע מניות שעוברות את הסף עם סכום קנייה חיובי.")
+    st.info("No stocks currently pass the threshold with a positive buy amount.")
 else:
     # Split into Core and Speculative
     if "Risk_Level" in rec_df.columns:
@@ -2325,11 +2327,11 @@ else:
     
     # Display Core recommendations first
     if not core_df.empty:
-        st.markdown("### 🛡️ מניות ליבה (Core) - סיכון נמוך יחסית")
-        st.caption(f"✅ {len(core_df)} מניות עם איכות נתונים גבוהה ופרופיל סיכון מאוזן")
+        st.markdown("### 🛡️ Core Stocks — Lower Relative Risk")
+        st.caption(f"✅ {len(core_df)} stocks with high data quality and balanced risk profile")
         st.markdown("""
-<div style='direction:rtl;text-align:right;font-size:0.75em;margin:4px 0 10px 0'>
-<b>אגדת מהימנות:</b> <span style='color:#16a34a;font-weight:600'>High ≥ 0.75</span> · <span style='color:#f59e0b;font-weight:600'>Medium 0.40–0.74</span> · <span style='color:#dc2626;font-weight:600'>Low &lt; 0.40</span>
+<div style='direction:ltr;text-align:left;font-size:0.75em;margin:4px 0 10px 0'>
+<b>Reliability legend:</b> <span style='color:#16a34a;font-weight:600'>High ≥ 0.75</span> · <span style='color:#f59e0b;font-weight:600'>Medium 0.40–0.74</span> · <span style='color:#dc2626;font-weight:600'>Low &lt; 0.40</span>
 </div>
 """, unsafe_allow_html=True)
         
@@ -2337,10 +2339,10 @@ else:
             mean = r.get("מחיר ממוצע", np.nan)
             std = r.get("סטיית תקן", np.nan)
             show_mean = mean if not np.isnan(mean) else r["Price_Yahoo"]
-            show_std = std if not np.isnan(std) else "לא זמין"
-            sources = r.get("מקורות מחיר", "לא זמין")
+            show_std = std if not np.isnan(std) else "N/A"
+            sources = r.get("מקורות מחיר", "N/A")
             buy_amt = float(r.get("סכום קנייה ($)", 0.0))
-            horizon = r.get("טווח החזקה", "לא זמין")
+            horizon = r.get("טווח החזקה", "N/A")
             rsi_v = r.get("RSI", np.nan)
             near52 = r.get("Near52w", np.nan)
             score = r.get("Score", 0)
@@ -2380,37 +2382,37 @@ else:
                 quality_icon = "❌"
                 quality_pct = "<60%"
 
-            show_mean_fmt = f"{show_mean:.2f}" if np.isfinite(show_mean) else "לא זמין"
-            unit_price_fmt = f"{unit_price:.2f}" if np.isfinite(unit_price) else "לא זמין"
-            rr_fmt = f"{rr:.2f}R" if np.isfinite(rr) else "לא זמין"
-            atrp_fmt = f"{atrp:.2f}" if np.isfinite(atrp) else "לא זמין"
-            overx_fmt = f"{overx:.2f}" if np.isfinite(overx) else "לא זמין"
-            near52_fmt = f"{near52:.1f}" if np.isfinite(near52) else "לא זמין"
+            show_mean_fmt = f"{show_mean:.2f}" if np.isfinite(show_mean) else "N/A"
+            unit_price_fmt = f"{unit_price:.2f}" if np.isfinite(unit_price) else "N/A"
+            rr_fmt = f"{rr:.2f}R" if np.isfinite(rr) else "N/A"
+            atrp_fmt = f"{atrp:.2f}" if np.isfinite(atrp) else "N/A"
+            overx_fmt = f"{overx:.2f}" if np.isfinite(overx) else "N/A"
+            near52_fmt = f"{near52:.1f}" if np.isfinite(near52) else "N/A"
             
             # Format new signals
-            rs_fmt = f"{rs_63d*100:+.1f}%" if np.isfinite(rs_63d) else "לא זמין"
-            vol_surge_fmt = f"{vol_surge:.2f}x" if np.isfinite(vol_surge) else "לא זמין"
-            ma_status = "✅ מיושר" if ma_aligned else "⚠️ לא מיושר"
+            rs_fmt = f"{rs_63d*100:+.1f}%" if np.isfinite(rs_63d) else "N/A"
+            vol_surge_fmt = f"{vol_surge:.2f}x" if np.isfinite(vol_surge) else "N/A"
+            ma_status = "✅ Aligned" if ma_aligned else "⚠️ Not aligned"
             quality_fmt = f"{quality_score:.0f}/50"
-            rr_ratio_fmt = f"{rr_ratio:.2f}" if np.isfinite(rr_ratio) else "לא זמין"
+            rr_ratio_fmt = f"{rr_ratio:.2f}" if np.isfinite(rr_ratio) else "N/A"
             mom_fmt = f"{mom_consistency*100:.0f}%"
             confidence_badge = f"{confidence_level.upper()}" if confidence_level else "MEDIUM"
             
             # Fundamental breakdown
             qual_score_f = r.get("Quality_Score_F", np.nan)
-            qual_label = r.get("Quality_Label", "לא זמין")
+            qual_label = r.get("Quality_Label", "N/A")
             growth_score_f = r.get("Growth_Score_F", np.nan)
-            growth_label = r.get("Growth_Label", "לא זמין")
+            growth_label = r.get("Growth_Label", "N/A")
             val_score_f = r.get("Valuation_Score_F", np.nan)
-            val_label = r.get("Valuation_Label", "לא זמין")
+            val_label = r.get("Valuation_Label", "N/A")
             lev_score_f = r.get("Leverage_Score_F", np.nan)
-            lev_label = r.get("Leverage_Label", "לא זמין")
+            lev_label = r.get("Leverage_Label", "N/A")
             
             # Format fundamental scores with labels
-            qual_fmt = f"{qual_score_f:.0f} ({qual_label})" if np.isfinite(qual_score_f) else "לא זמין"
-            growth_fmt = f"{growth_score_f:.0f} ({growth_label})" if np.isfinite(growth_score_f) else "לא זמין"
-            val_fmt = f"{val_score_f:.0f} ({val_label})" if np.isfinite(val_score_f) else "לא זמין"
-            lev_fmt = f"{lev_score_f:.0f} ({lev_label})" if np.isfinite(lev_score_f) else "לא זמין"
+            qual_fmt = f"{qual_score_f:.0f} ({qual_label})" if np.isfinite(qual_score_f) else "N/A"
+            growth_fmt = f"{growth_score_f:.0f} ({growth_label})" if np.isfinite(growth_score_f) else "N/A"
+            val_fmt = f"{val_score_f:.0f} ({val_label})" if np.isfinite(val_score_f) else "N/A"
+            lev_fmt = f"{lev_score_f:.0f} ({lev_label})" if np.isfinite(lev_score_f) else "N/A"
             
             # Color coding for labels
             def label_color(label, good_vals):
@@ -2431,7 +2433,7 @@ else:
             sources_esc = esc(str(sources))
             
             # Next earnings date
-            next_earnings = r.get("NextEarnings", "לא ידוע")
+            next_earnings = r.get("NextEarnings", "Unknown")
             
             # CSS is global from design_system.py - no need to inject per card
             # Pre-format reliability values (micro perf)
@@ -2446,42 +2448,42 @@ else:
 <div class="modern-card card-core">
     <h3 class="flex-wrap" style="margin:0 0 6px 0">
         <span class="modern-badge">{ticker}</span>
-        <span class="modern-badge badge-success">🛡️ ליבה</span>
-        <span class="modern-badge {quality_badge_class}">{quality_icon} איכות: {quality_pct}</span>
-        <span class="modern-badge badge-primary" style="font-size:0.8em">רמת ביטחון: {confidence_badge}</span>
+        <span class="modern-badge badge-success">🛡️ Core</span>
+        <span class="modern-badge {quality_badge_class}">{quality_icon} Quality: {quality_pct}</span>
+        <span class="modern-badge badge-primary" style="font-size:0.8em">Confidence: {confidence_badge}</span>
     </h3>
     <div class="modern-grid">
-    <div class="item"><b>מחיר ממוצע:</b> {show_mean_fmt}</div>
-    <div class="item"><b>סטיית תקן:</b> {show_std}</div>
-    <div class="item"><b>RSI:</b> {rsi_v if not np.isnan(rsi_v) else 'לא זמין'}</div>
-    <div class="item"><b>קרבה לשיא 52ש׳:</b> {near52_fmt}%</div>
-    <div class="item"><b>ניקוד:</b> {int(round(score))}</div>
-    <div class="item"><b>מקורות:</b> {sources_esc.replace(' · ','&nbsp;•&nbsp;')}</div>
-    <div class="item"><b># מקורות מחיר:</b> {r.get('Price_Sources_Count', 0)}</div>
-    <div class="item"><b># מקורות פונד׳:</b> {r.get('Fundamental_Sources_Count', 0)}</div>
-    <div class="item"><b>מהימנות מחיר:</b> {price_rel_fmt}</div>
-    <div class="item"><b>מהימנות פונד׳:</b> {fund_rel_fmt}</div>
-    <div class="item"><b>ציון מהימנות:</b> {rel_score_fmt}</div>
-    <div class="item"><b>סכום קנייה מומלץ:</b> ${buy_amt:,.0f}</div>
-    <div class="item"><b>טווח החזקה:</b> {horizon}</div>
-    <div class="item"><b>מחיר יחידה:</b> {unit_price_fmt}</div>
-    <div class="item"><b>מניות לקנייה:</b> {shares}</div>
-    <div class="item"><b>עודף לא מנוצל:</b> ${leftover:,.2f}</div>
-    <div class="item"><b>📅 Earnings הבא:</b> {next_earnings}</div>
-    <div class="section-divider">🔬 אינדיקטורים מתקדמים:</div>
-    <div class="item"><b>יחס לשוק (3M):</b> <span style="color:{'#16a34a' if np.isfinite(rs_63d) and rs_63d > 0 else '#dc2626'}">{rs_fmt}</span></div>
-    <div class="item"><b>עליית נפח:</b> {vol_surge_fmt}</div>
-    <div class="item"><b>יישור ממוצעים:</b> {ma_status}</div>
-    <div class="item"><b>ציון איכות:</b> {quality_fmt}</div>
-    <div class="item"><b>יחס סיכון/תשואה:</b> {rr_ratio_fmt}</div>
-    <div class="item"><b>עקביות מומנטום:</b> {mom_fmt}</div>
+    <div class="item"><b>Average Price:</b> {show_mean_fmt}</div>
+    <div class="item"><b>Std Dev:</b> {show_std}</div>
+    <div class="item"><b>RSI:</b> {rsi_v if not np.isnan(rsi_v) else 'N/A'}</div>
+    <div class="item"><b>Near 52w High:</b> {near52_fmt}%</div>
+    <div class="item"><b>Score:</b> {int(round(score))}</div>
+    <div class="item"><b>Sources:</b> {sources_esc.replace(' · ','&nbsp;•&nbsp;')}</div>
+    <div class="item"><b># Price Sources:</b> {r.get('Price_Sources_Count', 0)}</div>
+    <div class="item"><b># Fund Sources:</b> {r.get('Fundamental_Sources_Count', 0)}</div>
+    <div class="item"><b>Price Reliability:</b> {price_rel_fmt}</div>
+    <div class="item"><b>Fund Reliability:</b> {fund_rel_fmt}</div>
+    <div class="item"><b>Reliability Score:</b> {rel_score_fmt}</div>
+    <div class="item"><b>Recommended Buy ($):</b> ${buy_amt:,.0f}</div>
+    <div class="item"><b>Holding Horizon:</b> {horizon}</div>
+    <div class="item"><b>Unit Price:</b> {unit_price_fmt}</div>
+    <div class="item"><b>Shares to Buy:</b> {shares}</div>
+    <div class="item"><b>Cash Leftover:</b> ${leftover:,.2f}</div>
+    <div class="item"><b>📅 Next Earnings:</b> {next_earnings}</div>
+    <div class="section-divider">🔬 Advanced Indicators:</div>
+    <div class="item"><b>Market vs (3M):</b> <span style="color:{'#16a34a' if np.isfinite(rs_63d) and rs_63d > 0 else '#dc2626'}">{rs_fmt}</span></div>
+    <div class="item"><b>Volume Surge:</b> {vol_surge_fmt}</div>
+    <div class="item"><b>MA Alignment:</b> {ma_status}</div>
+    <div class="item"><b>Quality Score:</b> {quality_fmt}</div>
+    <div class="item"><b>Risk/Reward Ratio:</b> {rr_ratio_fmt}</div>
+    <div class="item"><b>Momentum Consistency:</b> {mom_fmt}</div>
     <div class="item"><b>ATR/Price:</b> {atrp_fmt}</div>
     <div class="item"><b>Overextension:</b> {overx_fmt}</div>
-    <div class="section-divider">💎 פירוט פונדמנטלי:</div>
-    <div class="item"><b>איכות:</b> <span style="color:{qual_color};font-weight:600">{qual_fmt}</span></div>
-    <div class="item"><b>צמיחה:</b> <span style="color:{growth_color};font-weight:600">{growth_fmt}</span></div>
-    <div class="item"><b>שווי:</b> <span style="color:{val_color};font-weight:600">{val_fmt}</span></div>
-    <div class="item"><b>מינוף:</b> <span style="color:{lev_color};font-weight:600">{lev_fmt}</span></div>"""
+    <div class="section-divider">💎 Fundamental Breakdown:</div>
+    <div class="item"><b>Quality:</b> <span style="color:{qual_color};font-weight:600">{qual_fmt}</span></div>
+    <div class="item"><b>Growth:</b> <span style="color:{growth_color};font-weight:600">{growth_fmt}</span></div>
+    <div class="item"><b>Valuation:</b> <span style="color:{val_color};font-weight:600">{val_fmt}</span></div>
+    <div class="item"><b>Leverage:</b> <span style="color:{lev_color};font-weight:600">{lev_fmt}</span></div>"""
             
             # Add provider attribution if available (Core cards)
             attribution = r.get("Fund_Attribution", "")
@@ -2494,29 +2496,29 @@ else:
     <div class="item" style="grid-column:span 5;font-size:0.7em;color:#334155;background:#f1f5f9;border:1px dashed #cbd5e1;border-radius:6px;padding:4px;margin-top:4px"><b>RAW _sources:</b> {raw_html}</div>"""
             if attribution:
                 card_html += f"""
-    <div class="item" style="grid-column:span 5;font-size:0.75em;color:#6b7280;border-top:1px solid #e5e7eb;margin-top:4px;padding-top:4px"><b>📊 מקורות נתונים:</b> {esc(attribution)}</div>"""
+    <div class="item" style="grid-column:span 5;font-size:0.75em;color:#6b7280;border-top:1px solid #e5e7eb;margin-top:4px;padding-top:4px"><b>📊 Data Sources:</b> {esc(attribution)}</div>"""
             
             card_html += """
   </div>
 </div>
 """
             # Use a reasonable height to ensure visibility (auto sizing in Streamlit components needs explicit height)
-            st_html(card_html, height=560, scrolling=False)
+                        st_html(card_html, height=560, scrolling=False)
     
     # Display Speculative recommendations
     if not spec_df.empty:
-        st.markdown("### ⚡ מניות ספקולטיביות - פוטנציאל גבוה, סיכון גבוה")
-        st.caption(f"⚠️ {len(spec_df)} מניות עם פרופיל סיכון גבוה יותר")
-        st.warning("🔔 **אזהרה**: מניות אלו מסווגות כספקולטיביות בשל נתונים חלקיים או גורמי סיכון מוגברים. מתאים למשקיעים מנוסים בלבד.")
+        st.markdown("### ⚡ Speculative Stocks — High Upside, High Risk")
+        st.caption(f"⚠️ {len(spec_df)} stocks with a higher risk profile")
+        st.warning("🔔 Warning: These stocks are classified as speculative due to partial data or elevated risk factors. Suitable for experienced investors only.")
         
         for _, r in spec_df.iterrows():
             mean = r.get("מחיר ממוצע", np.nan)
             std = r.get("סטיית תקן", np.nan)
             show_mean = mean if not np.isnan(mean) else r["Price_Yahoo"]
-            show_std = std if not np.isnan(std) else "לא זמין"
-            sources = r.get("מקורות מחיר", "לא זמין")
+            show_std = std if not np.isnan(std) else "N/A"
+            sources = r.get("מקורות מחיר", "N/A")
             buy_amt = float(r.get("סכום קנייה ($)", 0.0))
-            horizon = r.get("טווח החזקה", "לא זמין")
+            horizon = r.get("טווח החזקה", "N/A")
             rsi_v = r.get("RSI", np.nan)
             near52 = r.get("Near52w", np.nan)
             score = r.get("Score", 0)
@@ -2552,33 +2554,33 @@ else:
                 quality_icon = "❌"
                 quality_pct = "<60%"
             
-            show_mean_fmt = f"{show_mean:.2f}" if np.isfinite(show_mean) else "לא זמין"
-            unit_price_fmt = f"{unit_price:.2f}" if np.isfinite(unit_price) else "לא זמין"
-            rr_fmt = f"{rr:.2f}R" if np.isfinite(rr) else "לא זמין"
-            atrp_fmt = f"{atrp:.2f}" if np.isfinite(atrp) else "לא זמין"
-            overx_fmt = f"{overx:.2f}" if np.isfinite(overx) else "לא זמין"
-            near52_fmt = f"{near52:.1f}" if np.isfinite(near52) else "לא זמין"
-            rs_fmt = f"{rs_63d*100:+.1f}%" if np.isfinite(rs_63d) else "לא זמין"
-            vol_surge_fmt = f"{vol_surge:.2f}x" if np.isfinite(vol_surge) else "לא זמין"
-            ma_status = "✅ מיושר" if ma_aligned else "⚠️ לא מיושר"
+            show_mean_fmt = f"{show_mean:.2f}" if np.isfinite(show_mean) else "N/A"
+            unit_price_fmt = f"{unit_price:.2f}" if np.isfinite(unit_price) else "N/A"
+            rr_fmt = f"{rr:.2f}R" if np.isfinite(rr) else "N/A"
+            atrp_fmt = f"{atrp:.2f}" if np.isfinite(atrp) else "N/A"
+            overx_fmt = f"{overx:.2f}" if np.isfinite(overx) else "N/A"
+            near52_fmt = f"{near52:.1f}" if np.isfinite(near52) else "N/A"
+            rs_fmt = f"{rs_63d*100:+.1f}%" if np.isfinite(rs_63d) else "N/A"
+            vol_surge_fmt = f"{vol_surge:.2f}x" if np.isfinite(vol_surge) else "N/A"
+            ma_status = "✅ Aligned" if ma_aligned else "⚠️ Not aligned"
             quality_fmt = f"{quality_score:.0f}/50"
-            rr_ratio_fmt = f"{rr_ratio:.2f}" if np.isfinite(rr_ratio) else "לא זמין"
+            rr_ratio_fmt = f"{rr_ratio:.2f}" if np.isfinite(rr_ratio) else "N/A"
             mom_fmt = f"{mom_consistency*100:.0f}%"
             confidence_badge = f"{confidence_level.upper()}" if confidence_level else "LOW"
             
             qual_score_f = r.get("Quality_Score_F", np.nan)
-            qual_label = r.get("Quality_Label", "לא זמין")
+            qual_label = r.get("Quality_Label", "N/A")
             growth_score_f = r.get("Growth_Score_F", np.nan)
-            growth_label = r.get("Growth_Label", "לא זמין")
+            growth_label = r.get("Growth_Label", "N/A")
             val_score_f = r.get("Valuation_Score_F", np.nan)
-            val_label = r.get("Valuation_Label", "לא זמין")
+            val_label = r.get("Valuation_Label", "N/A")
             lev_score_f = r.get("Leverage_Score_F", np.nan)
-            lev_label = r.get("Leverage_Label", "לא זמין")
+            lev_label = r.get("Leverage_Label", "N/A")
             
-            qual_fmt = f"{qual_score_f:.0f} ({qual_label})" if np.isfinite(qual_score_f) else "לא זמין"
-            growth_fmt = f"{growth_score_f:.0f} ({growth_label})" if np.isfinite(growth_score_f) else "לא זמין"
-            val_fmt = f"{val_score_f:.0f} ({val_label})" if np.isfinite(val_score_f) else "לא זמין"
-            lev_fmt = f"{lev_score_f:.0f} ({lev_label})" if np.isfinite(lev_score_f) else "לא זמין"
+            qual_fmt = f"{qual_score_f:.0f} ({qual_label})" if np.isfinite(qual_score_f) else "N/A"
+            growth_fmt = f"{growth_score_f:.0f} ({growth_label})" if np.isfinite(growth_score_f) else "N/A"
+            val_fmt = f"{val_score_f:.0f} ({val_label})" if np.isfinite(val_score_f) else "N/A"
+            lev_fmt = f"{lev_score_f:.0f} ({lev_label})" if np.isfinite(lev_score_f) else "N/A"
             
             def label_color(label, good_vals):
                 if label in good_vals:
@@ -2596,7 +2598,7 @@ else:
             esc = html_escape.escape
             ticker = esc(str(r["Ticker"]))
             sources_esc = esc(str(sources))
-            next_earnings = r.get("NextEarnings", "לא ידוע")
+            next_earnings = r.get("NextEarnings", "Unknown")
             warnings_esc = esc(warnings) if warnings else ""
             
             # CSS is global from design_system.py - no need to inject per card
@@ -2604,49 +2606,49 @@ else:
 <div class="modern-card card-speculative">
     <h3 class="flex-wrap" style="margin:0 0 6px 0">
         <span class="modern-badge">{ticker}</span>
-        <span class="modern-badge badge-warning">⚡ ספקולטיבי</span>
-        <span class="modern-badge {quality_badge_class}">{quality_icon} איכות: {quality_pct}</span>
-        <span class="modern-badge badge-danger" style="font-size:0.8em">רמת ביטחון: {confidence_badge}</span>
+        <span class="modern-badge badge-warning">⚡ Speculative</span>
+        <span class="modern-badge {quality_badge_class}">{quality_icon} Quality: {quality_pct}</span>
+        <span class="modern-badge badge-danger" style="font-size:0.8em">Confidence: {confidence_badge}</span>
     </h3>
-    {f'<div class="warning-box"><b>⚠️ אזהרות:</b> {warnings_esc}</div>' if warnings_esc else ''}
+    {f'<div class="warning-box"><b>⚠️ Warnings:</b> {warnings_esc}</div>' if warnings_esc else ''}
     <div class="modern-grid">
-    <div class="item"><b>מחיר ממוצע:</b> {show_mean_fmt}</div>
-    <div class="item"><b>סטיית תקן:</b> {show_std}</div>
-    <div class="item"><b>RSI:</b> {rsi_v if not np.isnan(rsi_v) else 'לא זמין'}</div>
-    <div class="item"><b>קרבה לשיא 52ש׳:</b> {near52_fmt}%</div>
-    <div class="item"><b>ניקוד:</b> {int(round(score))}</div>
-    <div class="item"><b>מקורות:</b> {sources_esc.replace(' · ','&nbsp;•&nbsp;')}</div>
-    <div class="item"><b># מקורות מחיר:</b> {r.get('Price_Sources_Count', 0)}</div>
-    <div class="item"><b># מקורות פונד׳:</b> {r.get('Fundamental_Sources_Count', 0)}</div>
-    <div class="item"><b>מהימנות מחיר:</b> {price_rel_fmt}</div>
-    <div class="item"><b>מהימנות פונד׳:</b> {fund_rel_fmt}</div>
-    <div class="item"><b>ציון מהימנות:</b> {rel_score_fmt}</div>
-    <div class="item"><b>סכום קנייה מומלץ:</b> ${buy_amt:,.0f}</div>
-    <div class="item"><b>טווח החזקה:</b> {horizon}</div>
-    <div class="item"><b>מחיר יחידה:</b> {unit_price_fmt}</div>
-    <div class="item"><b>מניות לקנייה:</b> {shares}</div>
-    <div class="item"><b>עודף לא מנוצל:</b> ${leftover:,.2f}</div>
-    <div class="item"><b>📅 Earnings הבא:</b> {next_earnings}</div>
-    <div class="section-divider">🔬 אינדיקטורים מתקדמים:</div>
-    <div class="item"><b>יחס לשוק (3M):</b> <span style="color:{'#16a34a' if np.isfinite(rs_63d) and rs_63d > 0 else '#dc2626'}">{rs_fmt}</span></div>
-    <div class="item"><b>עליית נפח:</b> {vol_surge_fmt}</div>
-    <div class="item"><b>יישור ממוצעים:</b> {ma_status}</div>
-    <div class="item"><b>ציון איכות:</b> {quality_fmt}</div>
-    <div class="item"><b>יחס סיכון/תשואה:</b> {rr_ratio_fmt}</div>
-    <div class="item"><b>עקביות מומנטום:</b> {mom_fmt}</div>
+    <div class="item"><b>Average Price:</b> {show_mean_fmt}</div>
+    <div class="item"><b>Std Dev:</b> {show_std}</div>
+    <div class="item"><b>RSI:</b> {rsi_v if not np.isnan(rsi_v) else 'N/A'}</div>
+    <div class="item"><b>Near 52w High:</b> {near52_fmt}%</div>
+    <div class="item"><b>Score:</b> {int(round(score))}</div>
+    <div class="item"><b>Sources:</b> {sources_esc.replace(' · ','&nbsp;•&nbsp;')}</div>
+    <div class="item"><b># Price Sources:</b> {r.get('Price_Sources_Count', 0)}</div>
+    <div class="item"><b># Fund Sources:</b> {r.get('Fundamental_Sources_Count', 0)}</div>
+    <div class="item"><b>Price Reliability:</b> {price_rel_fmt}</div>
+    <div class="item"><b>Fund Reliability:</b> {fund_rel_fmt}</div>
+    <div class="item"><b>Reliability Score:</b> {rel_score_fmt}</div>
+    <div class="item"><b>Recommended Buy ($):</b> ${buy_amt:,.0f}</div>
+    <div class="item"><b>Holding Horizon:</b> {horizon}</div>
+    <div class="item"><b>Unit Price:</b> {unit_price_fmt}</div>
+    <div class="item"><b>Shares to Buy:</b> {shares}</div>
+    <div class="item"><b>Cash Leftover:</b> ${leftover:,.2f}</div>
+    <div class="item"><b>📅 Next Earnings:</b> {next_earnings}</div>
+    <div class="section-divider">🔬 Advanced Indicators:</div>
+    <div class="item"><b>Market vs (3M):</b> <span style="color:{'#16a34a' if np.isfinite(rs_63d) and rs_63d > 0 else '#dc2626'}">{rs_fmt}</span></div>
+    <div class="item"><b>Volume Surge:</b> {vol_surge_fmt}</div>
+    <div class="item"><b>MA Alignment:</b> {ma_status}</div>
+    <div class="item"><b>Quality Score:</b> {quality_fmt}</div>
+    <div class="item"><b>Risk/Reward Ratio:</b> {rr_ratio_fmt}</div>
+    <div class="item"><b>Momentum Consistency:</b> {mom_fmt}</div>
     <div class="item"><b>ATR/Price:</b> {atrp_fmt}</div>
     <div class="item"><b>Overextension:</b> {overx_fmt}</div>
-    <div class="section-divider">💎 פירוט פונדמנטלי:</div>
-    <div class="item"><b>איכות:</b> <span style="color:{qual_color};font-weight:600">{qual_fmt}</span></div>
-    <div class="item"><b>צמיחה:</b> <span style="color:{growth_color};font-weight:600">{growth_fmt}</span></div>
-    <div class="item"><b>שווי:</b> <span style="color:{val_color};font-weight:600">{val_fmt}</span></div>
-    <div class="item"><b>מינוף:</b> <span style="color:{lev_color};font-weight:600">{lev_fmt}</span></div>"""
+    <div class="section-divider">💎 Fundamental Breakdown:</div>
+    <div class="item"><b>Quality:</b> <span style="color:{qual_color};font-weight:600">{qual_fmt}</span></div>
+    <div class="item"><b>Growth:</b> <span style="color:{growth_color};font-weight:600">{growth_fmt}</span></div>
+    <div class="item"><b>Valuation:</b> <span style="color:{val_color};font-weight:600">{val_fmt}</span></div>
+    <div class="item"><b>Leverage:</b> <span style="color:{lev_color};font-weight:600">{lev_fmt}</span></div>"""
             
             # Add provider attribution if available (Speculative cards)
             attribution_spec = r.get("Fund_Attribution", "")
             if attribution_spec:
                 card_html += f"""
-    <div class="item" style="grid-column:span 5;font-size:0.75em;color:#6b7280;border-top:1px solid #e5e7eb;margin-top:4px;padding-top:4px"><b>📊 מקורות נתונים:</b> {esc(attribution_spec)}</div>"""
+    <div class="item" style="grid-column:span 5;font-size:0.75em;color:#6b7280;border-top:1px solid #e5e7eb;margin-top:4px;padding-top:4px"><b>📊 Data Sources:</b> {esc(attribution_spec)}</div>"""
             if show_debug_attr:
                 raw_sources = r.get("_sources", {})
                 if raw_sources:
@@ -2679,7 +2681,7 @@ for(const el of document.querySelectorAll('.compact-mode .section-divider')){
 </script>
 """, unsafe_allow_html=True)
 # ==================== Results table + CSV ====================
-st.subheader("🎯 תוצאות מסוננות ומדורגות")
+st.subheader("🎯 Filtered & Ranked Results")
 view_df_source = rec_df if not rec_df.empty else results
 
 # Augment with sources count if reliability columns present
@@ -2687,47 +2689,47 @@ if "Reliability_Score" in view_df_source.columns and "Source_List" in view_df_so
     view_df_source["Sources_Count"] = view_df_source["Source_List"].apply(lambda s: len(str(s).split(" · ")) if isinstance(s, str) and s else 0)
 
 hebrew_cols = {
-    "Ticker": "טיקר",
-    "Price_Yahoo": "מחיר (Yahoo)",
-    "Price_Mean": "מחיר ממוצע",
-    "Unit_Price": "מחיר יחידה (חישוב)",
-    "Price_STD": "סטיית תקן",
-    "Source_List": "מקורות מחיר",
-    "Price_Sources_Count": "# מקורות מחיר",
-    "Fundamental_Sources_Count": "# מקורות פונד׳",
-    "Price_Reliability": "מהימנות מחיר",
-    "Fundamental_Reliability": "מהימנות פונד׳",
-    "Reliability_Score": "ציון מהימנות",
-    "Sources_Count": "מספר מקורות",
+    "Ticker": "Ticker",
+    "Price_Yahoo": "Price (Yahoo)",
+    "Price_Mean": "Average Price",
+    "Unit_Price": "Unit Price (calc)",
+    "Price_STD": "Std Dev",
+    "Source_List": "Price Sources",
+    "Price_Sources_Count": "# Price Sources",
+    "Fundamental_Sources_Count": "# Fund Sources",
+    "Price_Reliability": "Price Reliability",
+    "Fundamental_Reliability": "Fund Reliability",
+    "Reliability_Score": "Reliability Score",
+    "Sources_Count": "Sources Count",
     # "Price_IEX" removed
-    "Price_Polygon": "מחיר Polygon",
-    "Price_Tiingo": "מחיר Tiingo",
-    "Price_Marketstack": "מחיר Marketstack",
-    "Price_NasdaqDL": "מחיר NasdaqDL",
-    "Price_EODHD": "מחיר EODHD",
-    "Score": "ניקוד",
-    "Score_Tech": "ניקוד טכני",
-    "Fundamental_S": "ציון פונדמנטלי",
-    "Quality_Score_F": "ציון איכות פונד׳",
-    "Quality_Label": "תווית איכות",
-    "Growth_Score_F": "ציון צמיחה פונד׳",
-    "Growth_Label": "תווית צמיחה",
-    "Valuation_Score_F": "ציון שווי פונד׳",
-    "Valuation_Label": "תווית שווי",
-    "Leverage_Score_F": "ציון מינוף פונד׳",
-    "Leverage_Label": "תווית מינוף",
-    "Sector": "סקטור",
+    "Price_Polygon": "Price Polygon",
+    "Price_Tiingo": "Price Tiingo",
+    "Price_Marketstack": "Price Marketstack",
+    "Price_NasdaqDL": "Price NasdaqDL",
+    "Price_EODHD": "Price EODHD",
+    "Score": "Score",
+    "Score_Tech": "Tech Score",
+    "Fundamental_S": "Fundamental Score",
+    "Quality_Score_F": "Fund Quality Score",
+    "Quality_Label": "Quality Label",
+    "Growth_Score_F": "Growth Score",
+    "Growth_Label": "Growth Label",
+    "Valuation_Score_F": "Valuation Score",
+    "Valuation_Label": "Valuation Label",
+    "Leverage_Score_F": "Leverage Score",
+    "Leverage_Label": "Leverage Label",
+    "Sector": "Sector",
     "RSI": "RSI",
-    "Near52w": "קרבה לשיא 52ש׳ (%)",
-    "Volx20d": "נפח/ממוצע 20 ימים",
-    "OverextRatio": "Overextension מול MA_L",
+    "Near52w": "Near 52w High (%)",
+    "Volx20d": "Volume / 20d Avg",
+    "OverextRatio": "Overextension vs MA_L",
     "ATR_Price": "ATR/Price",
     "RewardRisk": "Reward/Risk (≈R)",
-    "Beta": "בטא",
-    "טווח החזקה": "טווח החזקה",
-    "סכום קנייה ($)": "סכום קנייה ($)",
-    "מניות לקנייה": "מניות לקנייה",
-    "עודף ($)": "עודף ($)",
+    "Beta": "Beta",
+    "טווח החזקה": "Holding Horizon",
+    "סכום קנייה ($)": "Buy Amount ($)",
+    "מניות לקנייה": "Shares to Buy",
+    "עודף ($)": "Leftover ($)",
     "PE_f": "P/E",
     "PS_f": "P/S",
     "ROE_f": "ROE",
@@ -2736,54 +2738,54 @@ hebrew_cols = {
     "DE_f": "Debt/Equity",
     "RevG_f": "Revenue YoY",
     "EPSG_f": "EPS YoY",
-    "RS_63d": "יחס לשוק 3M (%)",
-    "Volume_Surge": "עליית נפח (x)",
-    "MA_Aligned": "ממוצעים מיושרים",
-    "Quality_Score": "ציון איכות",
-    "RR_Ratio": "סיכון/תשואה",
-    "Momentum_Consistency": "עקביות מומנטום (%)",
-    "High_Confidence": "ביטחון גבוה",
-    "Risk_Level": "רמת סיכון",
-    "Data_Quality": "איכות נתונים",
-    "Confidence_Level": "רמת ביטחון",
-    "Classification_Warnings": "אזהרות"
+    "RS_63d": "Market vs (3M) (%)",
+    "Volume_Surge": "Volume Surge (x)",
+    "MA_Aligned": "MA Aligned",
+    "Quality_Score": "Quality Score",
+    "RR_Ratio": "Risk/Reward",
+    "Momentum_Consistency": "Momentum Consistency (%)",
+    "High_Confidence": "High Confidence",
+    "Risk_Level": "Risk Level",
+    "Data_Quality": "Data Quality",
+    "Confidence_Level": "Confidence Level",
+    "Classification_Warnings": "Warnings"
 }
 show_order = [
-    "טיקר",
-    "סקטור",
-    "רמת סיכון",
-    "איכות נתונים",
-    "רמת ביטחון",
-    "ציון מהימנות",
-    "מהימנות פונד׳",
-    "מהימנות מחיר",
-    "מספר מקורות",
-    "ניקוד",
-    "ציון איכות",
-    "מחיר ממוצע",
-    "מחיר יחידה (חישוב)",
-    "סכום קנייה ($)",
-    "מניות לקנייה",
-    "עודף ($)",
-    "מקורות מחיר",
-    "מחיר Marketstack",
-    "מחיר NasdaqDL",
-    "מחיר EODHD",
-    "ניקוד טכני",
-    "ציון פונדמנטלי",
+    "Ticker",
+    "Sector",
+    "Risk Level",
+    "Data Quality",
+    "Confidence Level",
+    "Reliability Score",
+    "Fund Reliability",
+    "Price Reliability",
+    "Sources Count",
+    "Score",
+    "Quality Score",
+    "Average Price",
+    "Unit Price (calc)",
+    "Buy Amount ($)",
+    "Shares to Buy",
+    "Leftover ($)",
+    "Price Sources",
+    "Price Marketstack",
+    "Price NasdaqDL",
+    "Price EODHD",
+    "Tech Score",
+    "Fundamental Score",
     "RSI",
-    "יחס לשוק 3M (%)",
-    "עליית נפח (x)",
-    "ממוצעים מיושרים",
-    "סיכון/תשואה",
-    "עקביות מומנטום (%)",
-    "קרבה לשיא 52ש׳ (%)",
-    "נפח/ממוצע 20 ימים",
-    "Overextension מול MA_L",
+    "Market vs (3M) (%)",
+    "Volume Surge (x)",
+    "MA Aligned",
+    "Risk/Reward",
+    "Momentum Consistency (%)",
+    "Near 52w High (%)",
+    "Volume / 20d Avg",
+    "Overextension vs MA_L",
     "ATR/Price",
     "Reward/Risk (≈R)",
-    "בטא",
-    "טווח החזקה",
+    "Beta",
+    "Holding Horizon",
     "P/E",
     "P/S",
     "ROE",

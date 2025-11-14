@@ -1,8 +1,6 @@
 import pandas as pd
 import numpy as np
-import sys
-sys.path.insert(0, '/workspaces/stock-scout-2')
-from stock_scout import allocate_budget
+from core.portfolio import allocate_budget
 
 
 def make_df(scores):

@@ -11,15 +11,15 @@ COLORS = {
     "surface_elevated": "#FFFFFF",
     
     # Text
-    "text_primary": "#0A0A0A",
-    "text_secondary": "#6B7280",
-    "text_tertiary": "#9CA3AF",
+    "text_primary": "#071028",
+    "text_secondary": "#55607a",
+    "text_tertiary": "#94a3b8",
     
-    # Brand/Accent
-    "primary": "#000000",
-    "primary_hover": "#1A1A1A",
-    "accent": "#3B82F6",
-    "accent_hover": "#2563EB",
+    # Brand/Accent (modern navy + teal)
+    "primary": "#0B1226",
+    "primary_hover": "#0f2138",
+    "accent": "#06B6D4",
+    "accent_hover": "#0891b2",
     
     # Status colors
     "success": "#10B981",
@@ -154,8 +154,8 @@ h3 {{ font-size: clamp(1.25rem, 2.5vw, 1.5rem); margin-bottom: 0.5rem; }}
     margin: 1rem 0;
     box-shadow: var(--shadow-sm);
     transition: all var(--transition);
-    direction: rtl;
-    text-align: right;
+    direction: ltr;
+    text-align: left;
 }}
 
 .modern-card:hover {{
@@ -269,7 +269,7 @@ h3 {{ font-size: clamp(1.25rem, 2.5vw, 1.5rem); margin-bottom: 0.5rem; }}
 .modern-table th {{
     background: {COLORS['background']};
     padding: 1rem;
-    text-align: right;
+    text-align: left;
     font-weight: 600;
     font-size: 0.875rem;
     color: var(--color-text-secondary);
@@ -280,7 +280,7 @@ h3 {{ font-size: clamp(1.25rem, 2.5vw, 1.5rem); margin-bottom: 0.5rem; }}
 
 .modern-table td {{
     padding: 1rem;
-    text-align: right;
+    text-align: left;
     border-bottom: 1px solid {COLORS['border_light']};
     transition: background {TRANSITIONS['fast']};
 }}

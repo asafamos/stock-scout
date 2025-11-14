@@ -142,7 +142,7 @@ Buying near support with all other signals aligned = best risk/reward
 
 **Visual Indicator**:
 - Green border on card
-- "🔥 ביטחון גבוה" badge
+- "🔥 High Confidence" badge
 
 ---
 

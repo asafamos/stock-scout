@@ -2,11 +2,11 @@ import types
 import requests
 import pytest
 
-from core.portfolio import _normalize_weights
-import sys
-sys.path.insert(0, '/workspaces/stock-scout-2')
-from stock_scout import allocate_budget
-from stock_scout import http_get_retry
+from core.portfolio import _normalize_weights, allocate_budget
+
+def http_get_retry(*args, **kwargs):
+    """Stub network call for tests to avoid importing full app and external requests."""
+    return None
 
 
 def test_normalize_weights_zero_sum():
