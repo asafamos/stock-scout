@@ -338,26 +338,29 @@ def should_reject_ticker(signals: Dict[str, any]) -> Tuple[bool, str]:
     """
     Hard rejection criteria - eliminate poor setups.
     Returns (should_reject, reason)
+    
+    RELAXED thresholds to allow more quality candidates through.
+    The real filtering happens later in classification and core filters.
     """
-    # Reject if underperforming market significantly
+    # Reject only if SIGNIFICANTLY underperforming market
     rs_63d = signals.get("rs_63d", np.nan)
-    if np.isfinite(rs_63d) and rs_63d < -0.10:
-        return True, "Underperforming market by >10%"
+    if np.isfinite(rs_63d) and rs_63d < -0.20:  # Relaxed from -0.10 to -0.20
+        return True, "Underperforming market by >20%"
     
-    # Reject if weak momentum consistency
+    # Reject only if extremely weak momentum
     mom_consistency = signals.get("momentum_consistency", 0.0)
-    if mom_consistency < 0.30:  # Restore original stricter threshold expected by tests
-        return True, "Weak momentum consistency"
+    if mom_consistency < 0.20:  # Relaxed from 0.30 to 0.20
+        return True, "Very weak momentum consistency"
     
-    # Reject if poor risk/reward
+    # Reject only if terrible risk/reward (almost no upside)
     rr = signals.get("risk_reward_ratio", np.nan)
-    if np.isfinite(rr) and rr < 0.8:  # Relaxed from 1.0 to 0.8
-        return True, "Risk/Reward < 0.8"
+    if np.isfinite(rr) and rr < 0.5:  # Relaxed from 0.8 to 0.5
+        return True, "Risk/Reward < 0.5"
     
-    # Reject if MA trend is bearish (relaxed)
+    # Reject only if strongly bearish MA trend
     alignment_score = signals.get("alignment_score", 0.0)
-    if alignment_score < 0.2:  # Relaxed from 0.3 to 0.2
-        return True, "Bearish MA alignment"
+    if alignment_score < 0.1:  # Relaxed from 0.2 to 0.1
+        return True, "Strongly bearish MA alignment"
     
     return False, ""
 
