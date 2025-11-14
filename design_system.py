@@ -324,6 +324,22 @@ button[aria-label] {{
     text-decoration: none !important;
 }}
 
+/* Target button text content with extreme specificity */
+div[data-testid="stButton"] button p,
+div[data-testid="stDownloadButton"] button p,
+.stButton > button p,
+.stButton button p,
+.stDownloadButton > button p,
+.stDownloadButton button p,
+button[data-testid] p,
+button[kind="primary"] p,
+button[kind="secondary"] p,
+button[class*="baseButton"] p,
+button p {{
+    color: #FFFFFF !important;
+    margin: 0 !important;
+}}
+
 div[data-testid="stButton"] button:hover,
 div[data-testid="stDownloadButton"] button:hover,
 .stButton > button:hover,
@@ -343,6 +359,16 @@ button[aria-label]:hover {{
     color: #FFFFFF !important;
     box-shadow: {SHADOWS['md']} !important;
     transform: translateY(-1px) !important;
+}}
+
+/* Hover state for button text */
+div[data-testid="stButton"] button:hover p,
+div[data-testid="stDownloadButton"] button:hover p,
+.stButton button:hover p,
+.stDownloadButton button:hover p,
+button[data-testid]:hover p,
+button:hover p {{
+    color: #FFFFFF !important;
 }}
 
 /* ==================== METRICS & KPIs ==================== */

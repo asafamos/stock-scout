@@ -2844,6 +2844,18 @@ with col_json:
         mime="application/json",
     )
 
+# Force button text color override with inline styles
+st.markdown(
+    """
+    <style>
+    button, button p, button div, button span {
+        color: white !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 st.markdown('<div class="rtl-table">', unsafe_allow_html=True)
 st.dataframe(
     csv_df[[c for c in show_order if c in csv_df.columns]],
