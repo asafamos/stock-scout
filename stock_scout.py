@@ -2503,7 +2503,7 @@ else:
 </div>
 """
             # Use a reasonable height to ensure visibility (auto sizing in Streamlit components needs explicit height)
-                        st_html(card_html, height=560, scrolling=False)
+            st_html(card_html, height=560, scrolling=False)
     
     # Display Speculative recommendations
     if not spec_df.empty:
