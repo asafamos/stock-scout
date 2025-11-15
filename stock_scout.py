@@ -18,6 +18,8 @@ import os
 import time
 import logging
 import warnings
+import pickle
+from pathlib import Path
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Tuple
 
@@ -42,6 +44,70 @@ from core.classification import apply_classification, filter_core_recommendation
 warnings.filterwarnings("ignore")
 setup_logging(level=logging.INFO)
 logger = get_logger("stock_scout")
+
+# ==================== ML MODEL LOADING ====================
+MODEL_PATH = Path(__file__).parent / 'model_xgboost_5d.pkl'
+XGBOOST_MODEL = None
+XGBOOST_FEATURES = []
+
+if MODEL_PATH.exists():
+    try:
+        with open(MODEL_PATH, 'rb') as f:
+            model_data = pickle.load(f)
+            XGBOOST_MODEL = model_data.get('model')
+            XGBOOST_FEATURES = model_data.get('feature_names', [])
+            logger.info(f"✓ XGBoost model loaded successfully ({len(XGBOOST_FEATURES)} features)")
+    except Exception as e:
+        logger.warning(f"⚠ Failed to load XGBoost model: {e}")
+else:
+    logger.info("ℹ XGBoost model not found - ML scoring disabled")
+
+# ==================== CONFIG ====================
+    """Score stock with XGBoost model. Returns probability 0-1."""
+    if XGBOOST_MODEL is None:
+        return 0.5  # Fallback if model not loaded
+    
+    try:
+        # Base features from stock_scout indicators
+        close = row.get('Close', row.get('Unit_Price', np.nan))
+        ma50 = row.get('MA50', np.nan)
+        volume = row.get('Volume', np.nan)
+        avg_vol = row.get('AvgVol', np.nan)
+        
+        features = {
+            'RSI': row.get('RSI', 50),
+            'ATR_Pct': row.get('ATR_Price', 0.03),  # ATR/Price already computed
+            'Overext': row.get('OverextRatio', 0.0),  # Already computed
+            'RR': row.get('RewardRisk', 1.0),
+            'MomCons': row.get('Momentum_Consistency', 0.5),
+            'VolSurge': row.get('Volume_Surge', 1.0) if np.isfinite(row.get('Volume_Surge', np.nan)) else (
+                volume / avg_vol if np.isfinite(volume) and np.isfinite(avg_vol) and avg_vol > 0 else 1.0
+            )
+        }
+        
+        # Engineer features (must match train_recommender.py)
+        features['RR_MomCons'] = features['RR'] * features['MomCons']
+        features['RSI_Neutral'] = abs(features['RSI'] - 50)
+        features['Risk_Score'] = abs(features['Overext']) + features['ATR_Pct']
+        features['Vol_Mom'] = features['VolSurge'] * features['MomCons']
+        
+        # Build feature vector in model's expected order
+        X = pd.DataFrame([features])[XGBOOST_FEATURES]
+        X = X.fillna(X.median())
+        
+        return float(XGBOOST_MODEL.predict_proba(X.values)[0][1])
+    except Exception as e:
+        logger.warning(f"ML scoring failed for {row.get('Ticker', 'unknown')}: {e}")
+        return 0.5
+
+def assign_confidence_tier(prob: float) -> str:
+    """Assign confidence tier based on ML probability."""
+    if prob >= 0.50:
+        return "🟢 גבוה"
+    elif prob >= 0.30:
+        return "🟡 בינוני"
+    else:
+        return "🔴 נמוך"
 
 # ==================== CONFIG ====================
 CONFIG = dict(
@@ -1900,6 +1966,32 @@ else:
     spec_filtered = pd.DataFrame()
 
 spec_after_filter = len(spec_filtered)
+
+# ==================== ML SCORING ====================
+if XGBOOST_MODEL is not None:
+    logger.info("Applying XGBoost ML scoring...")
+    
+    # Score Core stocks
+    if not core_filtered.empty:
+        core_filtered['ML_Probability'] = core_filtered.apply(score_with_xgboost, axis=1)
+        core_filtered['ML_Confidence'] = core_filtered['ML_Probability'].apply(assign_confidence_tier)
+        core_filtered = core_filtered.sort_values('ML_Probability', ascending=False)
+        logger.info(f"Core stocks scored: avg probability {core_filtered['ML_Probability'].mean():.3f}")
+    
+    # Score Speculative stocks
+    if not spec_filtered.empty:
+        spec_filtered['ML_Probability'] = spec_filtered.apply(score_with_xgboost, axis=1)
+        spec_filtered['ML_Confidence'] = spec_filtered['ML_Probability'].apply(assign_confidence_tier)
+        spec_filtered = spec_filtered.sort_values('ML_Probability', ascending=False)
+        logger.info(f"Speculative stocks scored: avg probability {spec_filtered['ML_Probability'].mean():.3f}")
+else:
+    logger.info("ML scoring skipped - model not available")
+    if not core_filtered.empty:
+        core_filtered['ML_Probability'] = 0.5
+        core_filtered['ML_Confidence'] = "N/A"
+    if not spec_filtered.empty:
+        spec_filtered['ML_Probability'] = 0.5
+        spec_filtered['ML_Confidence'] = "N/A"
 if spec_before_filter > 0:
     st.write(f"⚡ **Speculative filter:** {spec_before_filter} → {spec_after_filter} passed relaxed filters")
 
@@ -2432,6 +2524,10 @@ else:
             confidence_level = r.get("Confidence_Level", "medium")
             warnings = r.get("Classification_Warnings", "")
             
+            # ML scoring info
+            ml_prob = r.get("ML_Probability", np.nan)
+            ml_confidence = r.get("ML_Confidence", "N/A")
+            
             # Data quality badge
             if data_quality == "high":
                 quality_badge_class = "badge-quality-high"
@@ -2445,6 +2541,21 @@ else:
                 quality_badge_class = "badge-quality-low"
                 quality_icon = "❌"
                 quality_pct = "<60%"
+            
+            # ML confidence badge
+            if np.isfinite(ml_prob):
+                if ml_prob >= 0.50:
+                    ml_badge_color = "#16a34a"  # green
+                    ml_badge_text = "גבוה"
+                elif ml_prob >= 0.30:
+                    ml_badge_color = "#f59e0b"  # orange
+                    ml_badge_text = "בינוני"
+                else:
+                    ml_badge_color = "#dc2626"  # red
+                    ml_badge_text = "נמוך"
+                ml_badge_html = f"""<span style='display:inline-block;padding:3px 8px;border-radius:4px;background:{ml_badge_color};color:white;font-weight:bold;font-size:0.85em;margin-left:8px'>ML: {ml_badge_text} ({ml_prob*100:.0f}%)</span>"""
+            else:
+                ml_badge_html = ""
 
             show_mean_fmt = f"{show_mean:.2f}" if np.isfinite(show_mean) else "N/A"
             unit_price_fmt = f"{unit_price:.2f}" if np.isfinite(unit_price) else "N/A"
@@ -2511,6 +2622,7 @@ else:
         <span class="modern-badge badge-success">🛡️ Core</span>
         <span class="modern-badge {quality_badge_class}">{quality_icon} Quality: {quality_pct}</span>
         <span class="modern-badge badge-primary" style="font-size:0.8em">Confidence: {confidence_badge}</span>
+        {ml_badge_html}
     </h3>
     <div class="modern-grid">
     <div class="item"><b>Average Price:</b> {show_mean_fmt}</div>
@@ -2602,6 +2714,10 @@ else:
             confidence_level = r.get("Confidence_Level", "low")
             warnings = r.get("Classification_Warnings", "")
             
+            # ML scoring info
+            ml_prob = r.get("ML_Probability", np.nan)
+            ml_confidence = r.get("ML_Confidence", "N/A")
+            
             if data_quality == "high":
                 quality_badge_class = "badge-quality-high"
                 quality_icon = "✅"
@@ -2614,6 +2730,21 @@ else:
                 quality_badge_class = "badge-quality-low"
                 quality_icon = "❌"
                 quality_pct = "<60%"
+            
+            # ML confidence badge
+            if np.isfinite(ml_prob):
+                if ml_prob >= 0.50:
+                    ml_badge_color = "#16a34a"  # green
+                    ml_badge_text = "גבוה"
+                elif ml_prob >= 0.30:
+                    ml_badge_color = "#f59e0b"  # orange
+                    ml_badge_text = "בינוני"
+                else:
+                    ml_badge_color = "#dc2626"  # red
+                    ml_badge_text = "נמוך"
+                ml_badge_html = f"""<span style='display:inline-block;padding:3px 8px;border-radius:4px;background:{ml_badge_color};color:white;font-weight:bold;font-size:0.85em;margin-left:8px'>ML: {ml_badge_text} ({ml_prob*100:.0f}%)</span>"""
+            else:
+                ml_badge_html = ""
             
             show_mean_fmt = f"{show_mean:.2f}" if np.isfinite(show_mean) else "N/A"
             unit_price_fmt = f"{unit_price:.2f}" if np.isfinite(unit_price) else "N/A"
@@ -2670,6 +2801,7 @@ else:
         <span class="modern-badge badge-warning">⚡ Speculative</span>
         <span class="modern-badge {quality_badge_class}">{quality_icon} Quality: {quality_pct}</span>
         <span class="modern-badge badge-danger" style="font-size:0.8em">Confidence: {confidence_badge}</span>
+        {ml_badge_html}
     </h3>
     {f'<div class="warning-box"><b>⚠️ Warnings:</b> {warnings_esc}</div>' if warnings_esc else ''}
     <div class="modern-grid">
@@ -2809,13 +2941,17 @@ hebrew_cols = {
     "Risk_Level": "Risk Level",
     "Data_Quality": "Data Quality",
     "Confidence_Level": "Confidence Level",
-    "Classification_Warnings": "Warnings"
+    "Classification_Warnings": "Warnings",
+    "ML_Probability": "ML Probability",
+    "ML_Confidence": "ML Confidence"
 }
 show_order = [
     "Ticker",
     "Sector",
     "Risk Level",
     "Data Quality",
+    "ML Probability",
+    "ML Confidence",
     "Confidence Level",
     "Reliability Score",
     "Fund Reliability",
