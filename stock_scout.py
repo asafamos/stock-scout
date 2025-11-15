@@ -1677,13 +1677,16 @@ if CONFIG["EARNINGS_BLACKOUT_DAYS"] > 0:
     to_check_idx = list(results.head(int(CONFIG["EARNINGS_CHECK_TOPK"])).index)
     symbols = [results.at[i, "Ticker"] for i in to_check_idx]
     ed_map = _earnings_batch(symbols)
-    now_utc = datetime.utcnow()
+    now_utc = datetime.utcnow().replace(tzinfo=None)
     keep_mask = np.ones(len(results), dtype=bool)
     for idx in to_check_idx:
         tkr = results.at[idx, "Ticker"]
         dt_earn = ed_map.get(tkr)
         if dt_earn is None:
             continue
+        # Ensure dt_earn is timezone-naive
+        if hasattr(dt_earn, 'tzinfo') and dt_earn.tzinfo is not None:
+            dt_earn = dt_earn.replace(tzinfo=None)
         gap_days = abs((dt_earn - now_utc).days)
         if gap_days <= int(CONFIG["EARNINGS_BLACKOUT_DAYS"]):
             keep_mask[idx] = False
