@@ -62,7 +62,7 @@ if MODEL_PATH.exists():
 else:
     logger.info("ℹ XGBoost model not found - ML scoring disabled")
 
-# ==================== CONFIG ====================
+def score_with_xgboost(row: pd.Series) -> float:
     """Score stock with XGBoost model. Returns probability 0-1."""
     if XGBOOST_MODEL is None:
         return 0.5  # Fallback if model not loaded
