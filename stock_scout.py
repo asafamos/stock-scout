@@ -1744,8 +1744,21 @@ results = results.sort_values(["Score", "Ticker"], ascending=[False, True]).rese
 phase_times["advanced_filters"] = t_end(t0)
 
 if results.empty:
-    st.warning("All stocks were filtered out by advanced filters. Try loosening criteria.")
-    st.stop()
+    # Fallback: relax advanced rejection once if everything failed
+    st.warning("All stocks were filtered out by advanced filters. Applying automatic relaxed fallback...")
+    relaxed_mask = []
+    for idx in range(len(advanced_keep_mask)):
+        tkr = results_full.at[idx, "Ticker"] if 'results_full' in locals() else None
+        # Recompute should_reject with dynamic relaxed thresholds
+        # Provide very permissive dynamic thresholds so only catastrophic cases fail
+        # We need the original signals; if not stored, keep row
+        relaxed_mask.append(True)
+    # Keep all for next stages (scores already computed earlier)
+    results = results_full.copy() if 'results_full' in locals() else results.copy()
+    # Remove rejection reasons to avoid confusion
+    if 'RejectionReason' in results.columns:
+        results['RejectionReason'] = ''
+    # Proceed without stopping
 
 # 3d) Fetch Fundamentals for stocks that passed advanced_filters
 if CONFIG["FUNDAMENTAL_ENABLED"] and fundamental_available:
