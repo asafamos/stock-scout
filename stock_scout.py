@@ -747,12 +747,12 @@ def _fmp_full_bundle_fetch(ticker: str, api_key: str) -> Dict[str, any]:
     Returns a dict with unified fields similar to other providers. Falls back silently if endpoints fail.
     """
     try:
-        base = "https://financialmodelingprep.com/api/v3"
+        base = "https://financialmodelingprep.com/stable"
         endpoints = {
-            "profile": f"{base}/profile/{ticker}?apikey={api_key}",
-            "key_metrics": f"{base}/key-metrics/{ticker}?period=annual&limit=1&apikey={api_key}",
-            "ratios_ttm": f"{base}/ratios-ttm/{ticker}?apikey={api_key}",
-            "growth": f"{base}/financial-growth/{ticker}?period=annual&limit=1&apikey={api_key}",
+            "profile": f"{base}/profile?symbol={ticker}&apikey={api_key}",
+            "key_metrics": f"{base}/key-metrics?symbol={ticker}&period=annual&limit=1&apikey={api_key}",
+            "ratios_ttm": f"{base}/ratios-ttm?symbol={ticker}&apikey={api_key}",
+            "growth": f"{base}/financial-growth?symbol={ticker}&period=annual&limit=1&apikey={api_key}",
         }
 
         fetched: Dict[str, any] = {}
