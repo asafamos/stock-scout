@@ -163,27 +163,30 @@ def classify_stock(row: pd.Series) -> StockClassification:
     if fundamentals_missing:
         all_warnings.append("Fundamentals missing")
 
-    # Initial classification based on (possibly adjusted) data quality - more permissive
+    # Initial classification - stricter Core criteria to populate Speculative category
     if data_quality == "low":
         risk_level = "speculative"
         confidence_level = "none"
-        # Show low-quality speculative stocks if technical coverage decent
         tech_fields = [row.get("RS_63d"), row.get("Volume_Surge"), row.get("RR_Ratio"), row.get("Momentum_Consistency"), row.get("RSI"), row.get("ATR_Price")]
         tech_valid = sum(
             v is not None and not (isinstance(v, float) and np.isnan(v))
             for v in tech_fields
         )
-        should_display = tech_valid >= 4  # require majority of tech metrics
-    elif data_quality == "medium" and len(risk_warnings) >= 4:  # Changed from 3 to 4
+        should_display = tech_valid >= 4
+    elif data_quality == "medium" and len(risk_warnings) >= 2:  # More aggressive - medium quality with 2+ warnings
         risk_level = "speculative"
-        confidence_level = "low"
+        confidence_level = "medium" if len(risk_warnings) <= 3 else "low"
         should_display = True
-    elif len(risk_warnings) >= 5:  # Changed from 4 to 5
+    elif len(risk_warnings) >= 3:  # More aggressive - 3+ warnings = speculative
         risk_level = "speculative"
-        confidence_level = "low"
+        confidence_level = "medium" if len(risk_warnings) <= 4 else "low"
+        should_display = True
+    elif data_quality == "medium":  # Medium quality even without many warnings → Speculative
+        risk_level = "speculative"
+        confidence_level = "medium"
         should_display = True
     else:
-        # Could be core - more permissive now
+        # Core only for high quality with minimal warnings
         risk_level = "core"
         
         # Determine confidence level for core stocks
@@ -287,15 +290,15 @@ def filter_core_recommendations(
     if df.empty:
         return df
     
-    # Default config if not provided
+    # Default config if not provided - more selective for Core to allow Speculative category
     if config is None:
         config = {
-            "MIN_QUALITY_SCORE_CORE": 23.0,  # Lowered from 27 to allow more quality stocks
-            "MAX_OVEREXTENSION_CORE": 0.12,  # Slightly relaxed from 0.10
-            "MAX_ATR_PRICE_CORE": 0.09,      # Slightly relaxed from 0.08
-            "RSI_MIN_CORE": 40,              # Lowered from 45
-            "RSI_MAX_CORE": 72,              # Raised from 70
-            "MIN_RR_CORE": 1.3,              # Lowered from 1.5
+            "MIN_QUALITY_SCORE_CORE": 30.0,  # Raised to be more selective (best stocks only)
+            "MAX_OVEREXTENSION_CORE": 0.08,  # Tightened back
+            "MAX_ATR_PRICE_CORE": 0.07,      # Tightened - Core should be stable
+            "RSI_MIN_CORE": 45,              # Back to conservative
+            "RSI_MAX_CORE": 68,              # Avoid overbought for Core
+            "MIN_RR_CORE": 1.5,              # Core needs good risk/reward
         }
     
     initial_count = len(df)
