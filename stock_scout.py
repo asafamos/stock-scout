@@ -44,7 +44,7 @@ from core.unified_logic import (
     compute_technical_score,
     compute_final_score,
 )
-from core.classification import apply_classification
+from core.classification import apply_classification, filter_core_recommendations
 from core.scoring.fundamental import compute_fundamental_score_with_breakdown
 from indicators import rsi, atr, macd_line, adx, _sigmoid
 
