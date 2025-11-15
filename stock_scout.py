@@ -35,166 +35,160 @@ from streamlit.components.v1 import html as st_html
 import html as html_escape
 from card_styles import get_card_css
 from core.portfolio import _normalize_weights, allocate_budget
+from core.config import get_config
 from advanced_filters import compute_advanced_score, should_reject_ticker, fetch_benchmark_data
-from core.logging_config import setup_logging, get_logger
-from core.config import get_config as get_core_config, get_api_keys
-from core.scoring.fundamental import compute_fundamental_score_with_breakdown
-from core.classification import apply_classification, filter_core_recommendations
+from core.unified_logic import (
+    build_technical_indicators,
+    apply_technical_filters,
+    score_with_ml_model,
+    compute_technical_score,
+    compute_final_score,
+)
+from indicators import rsi, atr, macd_line, adx, _sigmoid
 
-warnings.filterwarnings("ignore")
-setup_logging(level=logging.INFO)
-logger = get_logger("stock_scout")
+# Get global configuration
+_config_obj = get_config()
+CONFIG = {
+    # Convert dataclass to dict with all attributes
+    **{k: getattr(_config_obj, k) for k in dir(_config_obj) if not k.startswith('_') and not callable(getattr(_config_obj, k))},
+    # Additional backwards-compatible keys
+    "SMART_SCAN": _config_obj.smart_scan,
+    "UNIVERSE_LIMIT": _config_obj.universe_limit,
+    "LOOKBACK_DAYS": _config_obj.lookback_days,
+    "MA_SHORT": _config_obj.ma_short,
+    "MA_LONG": _config_obj.ma_long,
+    "RSI_BOUNDS": _config_obj.rsi_bounds,
+    "WEIGHTS": _config_obj.weights,
+    # Indicator toggles and thresholds
+    "USE_MACD_ADX": _config_obj.use_macd_adx,
+    "OVEREXT_SOFT": _config_obj.overext_soft,
+    "OVEREXT_HARD": _config_obj.overext_hard,
+    "PULLBACK_RANGE": _config_obj.pullback_range,
+    "ATR_PRICE_HARD": _config_obj.atr_price_hard,
+    # Basic price/volume constraints
+    "MIN_PRICE": _config_obj.min_price,
+    "MIN_AVG_VOLUME": _config_obj.min_avg_volume,
+    "MIN_DOLLAR_VOLUME": _config_obj.min_dollar_volume,
+    "MIN_MARKET_CAP": _config_obj.min_market_cap,
+    "FUNDAMENTAL_ENABLED": _config_obj.fundamental_enabled,
+    "FUNDAMENTAL_WEIGHT": _config_obj.fundamental_weight,
+    # Earnings / risk filters
+    "EARNINGS_BLACKOUT_DAYS": _config_obj.earnings_blackout_days,
+    "EARNINGS_CHECK_TOPK": _config_obj.earnings_check_topk,
+    "BETA_FILTER_ENABLED": _config_obj.beta_filter_enabled,
+    "BETA_TOP_K": _config_obj.beta_top_k,
+    "BETA_MAX_ALLOWED": _config_obj.beta_max_allowed,
+    "SECTOR_CAP_MAX": _config_obj.sector_cap_max,
+    "SECTOR_CAP_ENABLED": _config_obj.sector_cap_enabled,
+    # Results sizing
+    "TOPN_RESULTS": _config_obj.topn_results,
+    "TOPK_RECOMMEND": _config_obj.topk_recommend,
+    # Allocation / budget
+    "BUDGET_TOTAL": _config_obj.budget_total,
+    "MIN_POSITION": _config_obj.min_position,
+    "MAX_POSITION_PCT": _config_obj.max_position_pct,
+    "EXTERNAL_PRICE_VERIFY": _config_obj.external_price_verify,
+    "TOP_VALIDATE_K": _config_obj.top_validate_k,
+    "BETA_BENCHMARK": _config_obj.beta_benchmark,
+    "ENABLE_SIMFIN": False,
+    "ENABLE_MARKETSTACK": False,
+    "ENABLE_NASDAQ_DL": False,
+    "ENABLE_EODHD": False,
+}
 
-# ==================== ML MODEL LOADING ====================
-MODEL_PATH = Path(__file__).parent / 'model_xgboost_5d.pkl'
+# Load environment variables
+warnings.simplefilter("ignore", FutureWarning)
+
+# Setup logger
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+load_dotenv(find_dotenv(usecwd=True))
+MODEL_DATA = None
+try:
+    _base = Path(__file__).parent
+    _cand_cal = _base / "model_xgboost_5d_calibrated.pkl"
+    _cand_fb = _base / "model_xgboost_5d.pkl"
+    _model_path = _cand_cal if _cand_cal.exists() else (_cand_fb if _cand_fb.exists() else None)
+    if _model_path is not None:
+        with open(_model_path, 'rb') as _f:
+            MODEL_DATA = pickle.load(_f)
+            try:
+                st.info(f"✓ Loaded ML model: {_model_path.name} (features: {len(MODEL_DATA.get('feature_names', []))})")
+            except Exception:
+                pass
+    else:
+        st.info("ML model not found; ML scoring will be neutral.")
+except Exception as _e:
+    st.warning(f"Could not load ML model: {_e}")
+
+# Backwards-compatible ML objects and helpers for existing scoring flow
 XGBOOST_MODEL = None
 XGBOOST_FEATURES = []
-
-if MODEL_PATH.exists():
+if MODEL_DATA is not None:
     try:
-        with open(MODEL_PATH, 'rb') as f:
-            model_data = pickle.load(f)
-            XGBOOST_MODEL = model_data.get('model')
-            XGBOOST_FEATURES = model_data.get('feature_names', [])
-            logger.info(f"✓ XGBoost model loaded successfully ({len(XGBOOST_FEATURES)} features)")
-    except Exception as e:
-        logger.warning(f"⚠ Failed to load XGBoost model: {e}")
-else:
-    logger.info("ℹ XGBoost model not found - ML scoring disabled")
+        XGBOOST_MODEL = MODEL_DATA.get('model')
+        XGBOOST_FEATURES = MODEL_DATA.get('feature_names', [])
+    except Exception:
+        XGBOOST_MODEL = None
+
 
 def score_with_xgboost(row: pd.Series) -> float:
-    """Score stock with XGBoost model. Returns probability 0-1."""
+    """Compatibility wrapper used in older code paths. Returns 0.5 when model unavailable."""
     if XGBOOST_MODEL is None:
-        return 0.5  # Fallback if model not loaded
-    
+        return 0.5
+    # Build features mapping consistent with training
+    features = {}
+    for fname in XGBOOST_FEATURES:
+        # Use available columns or fallbacks
+        if fname in row:
+            features[fname] = row.get(fname)
+        else:
+            # sensible defaults
+            if 'RSI' in fname:
+                features[fname] = row.get('RSI', 50)
+            elif 'ATR' in fname or 'ATR_Pct' in fname:
+                features[fname] = row.get('ATR_Pct', 0.05)
+            elif 'Vol' in fname:
+                features[fname] = row.get('Volx20d', 1.0)
+            else:
+                features[fname] = row.get(fname, 0.0)
+
+    X = pd.DataFrame([features])[XGBOOST_FEATURES]
+    X = X.fillna(X.median())
     try:
-        # Base features from stock_scout indicators
-        close = row.get('Close', row.get('Unit_Price', np.nan))
-        ma50 = row.get('MA50', np.nan)
-        volume = row.get('Volume', np.nan)
-        avg_vol = row.get('AvgVol', np.nan)
-        
-        features = {
-            'RSI': row.get('RSI', 50),
-            'ATR_Pct': row.get('ATR_Price', 0.03),  # ATR/Price already computed
-            'Overext': row.get('OverextRatio', 0.0),  # Already computed
-            'RR': row.get('RewardRisk', 1.0),
-            'MomCons': row.get('Momentum_Consistency', 0.5),
-            'VolSurge': row.get('Volume_Surge', 1.0) if np.isfinite(row.get('Volume_Surge', np.nan)) else (
-                volume / avg_vol if np.isfinite(volume) and np.isfinite(avg_vol) and avg_vol > 0 else 1.0
-            )
-        }
-        
-        # Engineer features (must match train_recommender.py)
-        features['RR_MomCons'] = features['RR'] * features['MomCons']
-        features['RSI_Neutral'] = abs(features['RSI'] - 50)
-        features['Risk_Score'] = abs(features['Overext']) + features['ATR_Pct']
-        features['Vol_Mom'] = features['VolSurge'] * features['MomCons']
-        
-        # Build feature vector in model's expected order
-        X = pd.DataFrame([features])[XGBOOST_FEATURES]
-        X = X.fillna(X.median())
-        
-        return float(XGBOOST_MODEL.predict_proba(X.values)[0][1])
-    except Exception as e:
-        logger.warning(f"ML scoring failed for {row.get('Ticker', 'unknown')}: {e}")
+        if hasattr(XGBOOST_MODEL, 'predict_proba'):
+            return float(XGBOOST_MODEL.predict_proba(X.values)[0][1])
+        else:
+            return float(XGBOOST_MODEL.predict_proba(X)[0][1])
+    except Exception:
         return 0.5
 
-def assign_confidence_tier(prob: float) -> str:
-    """Assign confidence tier based on ML probability."""
-    if prob >= 0.50:
-        return "🟢 גבוה"
-    elif prob >= 0.30:
-        return "🟡 בינוני"
-    else:
-        return "🔴 נמוך"
 
-# ==================== CONFIG ====================
-CONFIG = dict(
-    BUDGET_TOTAL=1000.0,
-    MIN_POSITION=500.0,
-    MAX_POSITION_PCT=15.0,
-    UNIVERSE_LIMIT=350,
-    LOOKBACK_DAYS=400,
-    SMART_SCAN=True,
-    MIN_PRICE=3.0,
-    MIN_AVG_VOLUME=500_000,
-    MIN_DOLLAR_VOLUME=5_000_000,
-    MA_SHORT=20,
-    MA_LONG=50,
-    RSI_BOUNDS=(40, 75),
-    PULLBACK_RANGE=(0.85, 0.97),
-    OVEREXT_SOFT=0.20,
-    OVEREXT_HARD=0.30,
-    ATR_PRICE_HARD=0.08,
-    USE_MACD_ADX=True,
-    WEIGHTS=dict(
-        ma=0.20,              # Moving average positioning (reduced from 0.22)
-        mom=0.25,             # Momentum 1/3/6 month (reduced from 0.30)
-        rsi=0.12,             # RSI range scoring (unchanged)
-        near_high_bell=0.10,  # Near 52-week high (unchanged)
-        vol=0.08,             # Volume consistency (unchanged)
-        overext=0.06,         # Overextension penalty (reduced from 0.08)
-        pullback=0.05,        # Pullback detection (unchanged)
-        risk_reward=0.06,     # Risk/reward ratio (increased from 0.03)
-        macd=0.04,            # MACD signal (increased from 0.01)
-        adx=0.04,             # ADX trend strength (increased from 0.01)
-    ),
-    FUNDAMENTAL_ENABLED=True,
-    FUNDAMENTAL_WEIGHT=0.15,
-    FUNDAMENTAL_TOP_K=15,
-    SURPRISE_BONUS_ON=False,
-    EARNINGS_BLACKOUT_DAYS=7,
-    EARNINGS_CHECK_TOPK=12,
-    SECTOR_CAP_ENABLED=True,
-    SECTOR_CAP_MAX=3,
-    BETA_FILTER_ENABLED=True,
-    BETA_BENCHMARK="SPY",
-    BETA_MAX_ALLOWED=2.0,
-    BETA_TOP_K=60,
-    EXTERNAL_PRICE_VERIFY=True,
-    TOP_VALIDATE_K=30,
-    TOPN_RESULTS=15,
-    TOPK_RECOMMEND=5,
-    # ==================== CORE RECOMMENDATION FILTERS ====================
-    # These constants control the final filtering for "Core" stock recommendations.
-    # Optimized to yield 5-10 high-quality stocks per run while maintaining quality.
-    MIN_QUALITY_SCORE_CORE=22.0,      # Minimum fundamental quality score (relaxed from 27 to 22)
-    MAX_OVEREXTENSION_CORE=0.12,      # Max allowed overextension ratio (raised from 0.10 to 0.12)
-    MAX_ATR_PRICE_CORE=0.09,          # Max ATR/Price ratio - volatility (raised from 0.08 to 0.09)
-    RSI_MIN_CORE=40,                  # Minimum RSI for Core stocks (lowered from 45 to 40)
-    RSI_MAX_CORE=75,                  # Maximum RSI for Core stocks (raised from 70 to 75)
-    MIN_RR_CORE=1.3,                  # Minimum Reward/Risk ratio (lowered from 1.5 to 1.3)
-    TARGET_RECOMMENDATIONS_MIN=3,     # Warn if fewer than this many stocks pass filters
-    TARGET_RECOMMENDATIONS_MAX=7,     # Show only top N if more than this pass filters
-    ENABLE_SIMFIN=True,               # Attempt SimFin fundamentals if API key present
-    COVERAGE_WARN_THRESHOLD=0.4,      # Warn if <40% of tickers have ≥3 fundamental fields
-    # ENABLE_IEX removed (IEX service no longer available)
-    ENABLE_MARKETSTACK=True,          # Marketstack price source (EOD latest)
-    ENABLE_NASDAQ_DL=True,            # Nasdaq Data Link price source (experimental)
-    ENABLE_EODHD=True,                # EODHD price + fundamentals source
-)
-def _env(key: str, default: Optional[str] = None) -> Optional[str]:
+def assign_confidence_tier(prob: float) -> str:
+    if not isinstance(prob, (int, float)) or not np.isfinite(prob):
+        return "N/A"
+    if prob >= 0.50:
+        return "High"
+    if prob >= 0.30:
+        return "Medium"
+    return "Low"
+
+
+# ==================== Environment helper ====================
+def _env(key: str) -> Optional[str]:
+    """Get environment variable or Streamlit secret."""
     try:
-        if "secrets" in dir(st) and key in st.secrets:
+        if hasattr(st, 'secrets') and key in st.secrets:
             return st.secrets[key]
     except Exception:
         pass
-    return os.getenv(key, default)
+    return os.getenv(key)
 
-
-load_dotenv(find_dotenv(usecwd=True))
-for _extra in ["nev", "stock_scout.nev", ".env.local", ".env.production"]:
-    try:
-        if os.path.exists(_extra):
-            load_dotenv(_extra)
-    except Exception:
-        pass
 
 # ==================== HTTP helpers ====================
-import time
-import random
 _log = logging.getLogger(__name__)
+
 
 def http_get_retry(
     url: str,
@@ -205,45 +199,181 @@ def http_get_retry(
     backoff_base: float = 0.5,
     max_backoff: float = 10.0,
 ) -> Optional[requests.Response]:
-    """
-    HTTP GET with exponential backoff + full jitter.
-
-    - tries: total attempts (including the first).
-    - timeout: requests timeout for each attempt (seconds).
-    - session: optional requests.Session to reuse connections.
-    - returns requests.Response on status_code == 200, otherwise None after all retries.
-    """
+    """HTTP GET with exponential backoff + full jitter."""
+    import random
     sess = session or requests
     for attempt in range(1, max(1, tries) + 1):
         try:
             resp = sess.get(url, timeout=timeout, headers=headers)
             if resp is not None and resp.status_code == 200:
                 return resp
-            # treat 429 / 5xx as retryable too
-            if resp is not None and resp.status_code in (429,) or (500 <= getattr(resp, "status_code", 0) < 600):
-                _log.debug("HTTP %s -> retry attempt %d/%d for %s", getattr(resp, "status_code", None), attempt, tries, url)
+            if resp is not None and (
+                resp.status_code == 429 or (500 <= resp.status_code < 600)
+            ):
+                _log.debug(f"HTTP {resp.status_code} -> retry attempt {attempt}/{tries}")
             else:
-                # non-retryable code (e.g., 400). Return response so caller can inspect.
                 return resp
         except requests.RequestException as exc:
-            _log.debug("Request exception on attempt %d/%d for %s: %s", attempt, tries, url, exc)
-
-        # if we'll retry, sleep with full jitter
+            _log.debug(f"Request exception on attempt {attempt}/{tries}: {exc}")
         if attempt < tries:
             backoff = min(max_backoff, backoff_base * (2 ** (attempt - 1)))
-            sleep = random.uniform(0, backoff)
-            time.sleep(sleep)
-    _log.warning("All %d attempts failed for %s", tries, url)
+            sleep_time = random.uniform(0, backoff)
+            time.sleep(sleep_time)
+    _log.warning(f"All {tries} attempts failed for URL")
     return None
 
 
 def alpha_throttle(min_gap_seconds: float = 12.0) -> None:
+    """Throttle Alpha Vantage calls."""
     ts_key = "_alpha_last_call_ts"
     last = st.session_state.get(ts_key, 0.0)
     now = time.time()
-    if now - last < min_gap_seconds:
-        time.sleep(min_gap_seconds - (now - last))
+    elapsed = now - last
+    if elapsed < min_gap_seconds:
+        time.sleep(min_gap_seconds - elapsed)
     st.session_state[ts_key] = time.time()
+
+
+# --- Build Universe (restored) ---
+def build_universe(limit: int) -> List[str]:
+    """Fetch S&P 500 tickers (wikipedia) then fallback to common mega-cap list.
+    Limit result length to `limit`."""
+    try:
+        tables = pd.read_html('https://en.wikipedia.org/wiki/List_of_S%26P_500_companies')
+        df_sp = tables[0]
+        tickers = df_sp['Symbol'].astype(str).str.replace('.', '-', regex=False).tolist()
+        return tickers[:limit]
+    except Exception:
+        fallback = ["AAPL","MSFT","NVDA","AMZN","GOOGL","META","TSLA","JPM","V","WMT","UNH","AVGO"]
+        return fallback[:limit]
+
+
+# ==================== Universe & data ====================
+def safe_yf_download(
+    tickers: List[str], start: datetime, end: datetime
+) -> Dict[str, pd.DataFrame]:
+    """Download with fallback for single tickers."""
+    out: Dict[str, pd.DataFrame] = {}
+    try:
+        data = yf.download(
+            tickers,
+            start=start,
+            end=end,
+            auto_adjust=True,
+            progress=False,
+            group_by="ticker" if len(tickers) > 1 else None,
+            threads=True,
+        )
+        if isinstance(data.columns, pd.MultiIndex):
+            for ticker in tickers:
+                try:
+                    df = data[ticker].dropna()
+                    if not df.empty:
+                        out[ticker] = df
+                except Exception:
+                    continue
+        elif not data.empty:
+            out[tickers[0]] = data.dropna()
+    except Exception:
+        pass
+    
+    # Download missing individually
+    missing = [t for t in tickers if t not in out]
+    for ticker in missing:
+        try:
+            df = yf.download(
+                ticker,
+                start=start,
+                end=end,
+                auto_adjust=True,
+                progress=False
+            ).dropna()
+            if not df.empty:
+                out[ticker] = df
+        except Exception:
+            continue
+    return out
+
+
+@st.cache_data(show_spinner=True, ttl=60 * 60 * 4)  # 4 hours - history changes slowly
+def fetch_history_bulk(
+    tickers: List[str], period_days: int, ma_long: int
+) -> Dict[str, pd.DataFrame]:
+    """Fetch bulk historical data with sufficient lookback for moving averages."""
+    end = datetime.utcnow()
+    start = end - timedelta(days=period_days + 50)
+    data_map = safe_yf_download(tickers, start, end)
+    
+    # Filter: need at least ma_long + 50 rows
+    min_rows = ma_long + 50
+    filtered = {}
+    for tkr, df in data_map.items():
+        if len(df) >= min_rows:
+            filtered[tkr] = df
+    return filtered
+
+
+# ==================== Earnings ====================
+@st.cache_data(ttl=60 * 60)
+def get_next_earnings_date(ticker: str) -> Optional[datetime]:
+    """Get next earnings date from Finnhub → yfinance fallback."""
+    try:
+        key = _env("FINNHUB_API_KEY")
+        if key:
+            today = datetime.utcnow().date()
+            url = (
+                f"https://finnhub.io/api/v1/calendar/earnings?from={today.isoformat()}"
+                f"&to={(today + timedelta(days=180)).isoformat()}&symbol={ticker}&token={key}"
+            )
+            r = http_get_retry(url, tries=1, timeout=10)
+            if r:
+                data = r.json()
+                for row in data.get("earningsCalendar", []):
+                    if row.get("symbol") == ticker and row.get("date"):
+                        return datetime.fromisoformat(row["date"])
+    except Exception:
+        pass
+
+    try:
+        ed = yf.Ticker(ticker).get_earnings_dates(limit=4)
+        if isinstance(ed, pd.DataFrame) and not ed.empty:
+            now = pd.Timestamp.utcnow()
+            future = ed[ed.index >= now]
+            dt = future.index.min() if not future.empty else ed.index.max()
+            if pd.notna(dt):
+                return dt.to_pydatetime()
+    except Exception:
+        pass
+
+    try:
+        cal = yf.Ticker(ticker).calendar
+        if isinstance(cal, pd.DataFrame) and "Earnings Date" in cal.index:
+            vals = cal.loc["Earnings Date"].values
+            if len(vals) > 0:
+                dt = pd.to_datetime(str(vals[0]))
+                if pd.notna(dt):
+                    return dt.to_pydatetime()
+    except Exception:
+        pass
+
+    return None
+
+
+@st.cache_data(ttl=60 * 30)
+def _earnings_batch(symbols: List[str]) -> Dict[str, Optional[datetime]]:
+    """Batch fetch earnings dates in parallel."""
+    out: Dict[str, Optional[datetime]] = {}
+    if not symbols:
+        return out
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        futs = {ex.submit(get_next_earnings_date, s): s for s in symbols}
+        for f in as_completed(futs):
+            s = futs[f]
+            try:
+                out[s] = f.result()
+            except Exception:
+                out[s] = None
+    return out
 
 
 # ==================== Connectivity checks ====================
@@ -274,7 +404,9 @@ def _check_finnhub() -> Tuple[bool, str]:
     if not k:
         return False, "Missing API key"
     r = http_get_retry(
-        f"https://finnhub.io/api/v1/quote?symbol=AAPL&token={k}", tries=1, timeout=6
+        f"https://finnhub.io/api/v1/quote?symbol=AAPL&token={k}",
+        tries=1,
+        timeout=6,
     )
     if not r:
         return False, "Timeout"
@@ -291,7 +423,7 @@ def _check_polygon() -> Tuple[bool, str]:
     if not k:
         return False, "Missing API key"
     r = http_get_retry(
-        f"https://api.polygon.io/v2/aggs/ticker/AAPL/prev?adjusted=true&apiKey={k}",
+        f"https://api.polygon.io/v2/aggs/ticker/AAPL/prev?apiKey={k}",
         tries=1,
         timeout=6,
     )
@@ -301,7 +433,12 @@ def _check_polygon() -> Tuple[bool, str]:
         j = r.json()
     except Exception:
         return False, "Bad JSON"
-    ok = bool(j.get("resultsCount", 0) > 0 and "results" in j)
+    ok = (
+        isinstance(j, dict)
+        and "results" in j
+        and isinstance(j["results"], list)
+        and j["results"]
+    )
     return ok, ("OK" if ok else "Bad response")
 
 
@@ -354,200 +491,6 @@ def _check_fmp() -> Tuple[bool, str]:
             return False, str(j.get("error", "Unknown error"))
     ok = isinstance(j, list) and j and isinstance(j[0], dict) and "symbol" in j[0]
     return ok, ("OK" if ok else "Bad response")
-
-
-# ==================== Indicators ====================
-from indicators import rsi, atr, macd_line, adx, _sigmoid
-
-
-# ==================== Universe & data ====================
-@st.cache_data(ttl=60 * 15)
-def build_universe(limit: int = 350) -> List[str]:
-    ok, _ = _check_finnhub()
-    if not ok:
-        return [
-            "AAPL",
-            "MSFT",
-            "NVDA",
-            "AMZN",
-            "GOOGL",
-            "META",
-            "TSLA",
-            "AVGO",
-            "AMD",
-            "QCOM",
-            "ADBE",
-            "CRM",
-            "NFLX",
-            "INTC",
-            "ORCL",
-            "PANW",
-            "SNPS",
-            "CDNS",
-            "MU",
-            "KLAC",
-        ]
-    key = _env("FINNHUB_API_KEY")
-    symbols: List[str] = []
-    for mic in ("XNAS", "XNYS"):
-        r = http_get_retry(
-            f"https://finnhub.io/api/v1/stock/symbol?exchange=US&mic={mic}&token={key}",
-            tries=1,
-            timeout=14,
-        )
-        if not r:
-            continue
-        try:
-            arr = r.json()
-            for it in arr:
-                s = it.get("symbol", "")
-                typ = it.get("type", "")
-                if not s or "." in s:
-                    continue
-                if typ and "Common Stock" not in typ:
-                    continue
-                symbols.append(s)
-        except Exception:
-            continue
-    symbols = sorted(pd.unique(pd.Series(symbols)))
-    if not symbols:
-        return ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META"]
-    if len(symbols) > limit:
-        bins: Dict[str, List[str]] = {}
-        for tkr in symbols:
-            bins.setdefault(tkr[0], []).append(tkr)
-        per = max(1, int(limit / max(1, len(bins))))
-        sampled: List[str] = []
-        for _, arr in sorted(bins.items()):
-            sampled.extend(sorted(arr)[:per])
-        if len(sampled) < limit:
-            sampled.extend(
-                [t for t in symbols if t not in sampled][: (limit - len(sampled))]
-            )
-        symbols = sampled
-    return symbols[:limit]
-
-
-def safe_yf_download(
-    tickers: List[str], start: datetime, end: datetime
-) -> Dict[str, pd.DataFrame]:
-    out: Dict[str, pd.DataFrame] = {}
-    if not tickers:
-        return out
-    try:
-        data_raw = yf.download(
-            tickers,
-            start=start,
-            end=end,
-            auto_adjust=True,
-            progress=False,
-            group_by="ticker",
-            threads=True,
-        )
-        if isinstance(data_raw.columns, pd.MultiIndex):
-            for t in tickers:
-                try:
-                    df = data_raw[t].dropna()
-                    if not df.empty:
-                        out[t] = df
-                except Exception:
-                    continue
-        else:
-            df = data_raw.dropna()
-            if not df.empty:
-                out[tickers[0]] = df
-    except Exception:
-        pass
-    missing = [t for t in tickers if t not in out]
-    for t in missing:
-        try:
-            dfi = yf.download(
-                t, start=start, end=end, auto_adjust=True, progress=False
-            ).dropna()
-            if not dfi.empty:
-                out[t] = dfi
-        except Exception:
-            continue
-    return out
-
-
-@st.cache_data(show_spinner=True, ttl=60 * 60 * 4)  # 4 hours - history changes slowly
-def fetch_history_bulk(
-    tickers: List[str], period_days: int, ma_long: int
-) -> Dict[str, pd.DataFrame]:
-    end = datetime.utcnow()
-    start = end - timedelta(days=period_days)
-    data = safe_yf_download(tickers, start, end)
-    out: Dict[str, pd.DataFrame] = {}
-    min_len = max(60, int(ma_long) + 10)
-    for t, df in data.items():
-        try:
-            if len(df) >= min_len:
-                out[t] = df
-        except Exception:
-            continue
-    return out
-
-
-# ==================== Earnings ====================
-@st.cache_data(ttl=60 * 60)
-def get_next_earnings_date(ticker: str) -> Optional[datetime]:
-    try:
-        key = _env("FINNHUB_API_KEY")
-        if key:
-            today = datetime.utcnow().date()
-            url = (
-                f"https://finnhub.io/api/v1/calendar/earnings?from={today.isoformat()}"
-                f"&to={(today + timedelta(days=180)).isoformat()}&symbol={ticker}&token={key}"
-            )
-            r = http_get_retry(url, tries=1, timeout=10)
-            if r:
-                data = r.json()
-                for row in data.get("earningsCalendar", []):
-                    if row.get("symbol") == ticker and row.get("date"):
-                        return datetime.fromisoformat(row["date"])
-    except Exception:
-        pass
-
-    try:
-        ed = yf.Ticker(ticker).get_earnings_dates(limit=4)
-        if isinstance(ed, pd.DataFrame) and not ed.empty:
-            now = pd.Timestamp.utcnow()
-            future = ed[ed.index >= now]
-            dt = future.index.min() if not future.empty else ed.index.max()
-            if pd.notna(dt):
-                return dt.to_pydatetime()
-    except Exception:
-        pass
-
-    try:
-        cal = yf.Ticker(ticker).calendar
-        if isinstance(cal, pd.DataFrame) and "Earnings Date" in cal.index:
-            vals = cal.loc["Earnings Date"].values
-            if len(vals) > 0:
-                dt = pd.to_datetime(str(vals[0]))
-                if pd.notna(dt):
-                    return dt.to_pydatetime()
-    except Exception:
-        pass
-
-    return None
-
-
-@st.cache_data(ttl=60 * 30)
-def _earnings_batch(symbols: List[str]) -> Dict[str, Optional[datetime]]:
-    out: Dict[str, Optional[datetime]] = {}
-    if not symbols:
-        return out
-    with ThreadPoolExecutor(max_workers=6) as ex:
-        futs = {ex.submit(get_next_earnings_date, s): s for s in symbols}
-        for f in as_completed(futs):
-            s = futs[f]
-            try:
-                out[s] = f.result()
-            except Exception:
-                out[s] = None
-    return out
 
 
 # ==================== Fundamentals (Alpha → Finnhub) ====================
@@ -1303,6 +1246,12 @@ st.markdown(get_modern_css(), unsafe_allow_html=True)
 
 st.title("📈 Stock Scout — 2025 (Auto)")
 
+# Relaxed mode toggle: allows looser filters (momentum-first)
+RELAXED_MODE = st.checkbox(
+    "Relaxed Mode (Momentum-first) — allow looser filters",
+    value=False,
+    help="When enabled, speculative/relaxed filters are preferred; ML still applies but filters are looser.",
+)
 # Secrets button
 def _mask(s: Optional[str], show_last: int = 4) -> str:
     if not s:
@@ -1638,10 +1587,8 @@ phase_times["calc_score_technical"] = t_end(t0)
 if results.empty:
     st.warning("No results after filtering. Filters may be too strict for the current universe.")
     st.stop()
-
-results = results.sort_values(
-    ["Score_Tech", "Ticker"], ascending=[False, True]
-).reset_index(drop=True)
+sort_col = 'Final_Score' if 'Final_Score' in results.columns else 'Score_Tech'
+results = results.sort_values([sort_col, "Ticker"], ascending=[False, True]).reset_index(drop=True)
 
 # 3a) Initialize fundamental columns (will populate after advanced_filters)
 fundamental_available = (
@@ -1668,9 +1615,9 @@ if CONFIG["FUNDAMENTAL_ENABLED"] and fundamental_available:
     results["Fund_from_Finnhub"] = False
     results["Fund_from_SimFin"] = False
     results["Fund_from_EODHD"] = False
-    results["Score"] = results["Score_Tech"]  # Use technical score for now
+    results["Score"] = results.get('Final_Score', results["Score_Tech"])  # unified final score or fallback
 else:
-    results["Score"] = results["Score_Tech"]
+    results["Score"] = results.get('Final_Score', results["Score_Tech"])
 
 # Earnings blackout
 if CONFIG["EARNINGS_BLACKOUT_DAYS"] > 0:

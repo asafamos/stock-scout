@@ -344,18 +344,18 @@ def should_reject_ticker(signals: Dict[str, any]) -> Tuple[bool, str]:
     """
     # Reject only if SIGNIFICANTLY underperforming market
     rs_63d = signals.get("rs_63d", np.nan)
-    if np.isfinite(rs_63d) and rs_63d < -0.20:  # Relaxed from -0.10 to -0.20
-        return True, "Underperforming market by >20%"
+    if np.isfinite(rs_63d) and rs_63d <= -0.15:  # Allow 15% underperformance to reject
+        return True, "Underperforming market by >15%"
     
     # Reject only if extremely weak momentum
     mom_consistency = signals.get("momentum_consistency", 0.0)
-    if mom_consistency < 0.20:  # Relaxed from 0.30 to 0.20
+    if mom_consistency <= 0.20:  # Treat 20% or less as very weak
         return True, "Very weak momentum consistency"
     
     # Reject only if terrible risk/reward (almost no upside)
     rr = signals.get("risk_reward_ratio", np.nan)
-    if np.isfinite(rr) and rr < 0.5:  # Relaxed from 0.8 to 0.5
-        return True, "Risk/Reward < 0.5"
+    if np.isfinite(rr) and rr <= 0.5:  # 0.5 or less is unacceptable
+        return True, "Risk/Reward <= 0.5"
     
     # Reject only if strongly bearish MA trend
     alignment_score = signals.get("alignment_score", 0.0)

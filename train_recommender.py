@@ -29,6 +29,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score, classification_report, brier_score_loss, precision_recall_curve
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.calibration import calibration_curve
+from sklearn.calibration import CalibratedClassifierCV
 import xgboost as xgb
 import shap
 
@@ -152,6 +153,16 @@ def train_and_eval(df: pd.DataFrame, out_path: str, model_type: str = 'xgboost',
 
     model.fit(X_train, y_train)
 
+    # Calibrate model probabilities using isotonic regression on holdout set
+    try:
+        calibrator = CalibratedClassifierCV(base_estimator=model, method='isotonic', cv='prefit')
+        calibrator.fit(X_test, y_test)
+        model_calibrated = calibrator
+        print('\n✓ Model calibrated with isotonic regression (prefit on holdout set)')
+    except Exception as e:
+        print(f"\n⚠ Calibration failed: {e} - saving uncalibrated model")
+        model_calibrated = model
+
     prob = model.predict_proba(X_test)[:, 1]
     preds = model.predict(X_test)
 
@@ -198,16 +209,19 @@ def train_and_eval(df: pd.DataFrame, out_path: str, model_type: str = 'xgboost',
             print(f"\n⚠ SHAP computation skipped: {e}")
 
     # Save model with metadata
+    # Save calibrated model
+    model_filename = out_path
     model_data = {
-        'model': model,
+        'model': model_calibrated,
         'feature_names': feature_names,
         'optimal_threshold': optimal_threshold,
         'auc': auc,
-        'model_type': model_type
+        'model_type': model_type,
+        'calibrated': True if model_calibrated is not None and hasattr(model_calibrated, 'predict_proba') else False
     }
-    with open(out_path, 'wb') as f:
+    with open(model_filename, 'wb') as f:
         pickle.dump(model_data, f)
-    print(f"\n✓ Model saved to {out_path}")
+    print(f"\n✓ Calibrated model saved to {model_filename}")
 
 
 def main():

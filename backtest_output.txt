@@ -1,0 +1,73 @@
+✓ Loaded ML model: model_xgboost_5d.pkl (10 features)
+
+======================================================================
+STOCK SCOUT UNIFIED BACKTEST
+======================================================================
+Date Range: 2024-06-01 to 2024-11-01
+Universe Limit: 30
+Forward Horizons: [5, 10, 20]
+======================================================================
+
+Building stock universe...
+⚠ Could not fetch S&P 500 list: HTTP Error 403: Forbidden
+✓ Universe: 10 stocks
+
+Downloading benchmark (SPY)...
+[1/10] Processing AAPL... ✓ 25 signals
+[2/10] Processing MSFT... ✓ 44 signals
+[3/10] Processing GOOGL... ✓ 41 signals
+[4/10] Processing AMZN... ✓ 27 signals
+[5/10] Processing NVDA... ✓ 35 signals
+[6/10] Processing META... ✓ 36 signals
+[7/10] Processing TSLA... ✓ 44 signals
+[8/10] Processing JPM... ✓ 37 signals
+[9/10] Processing V... ✓ 59 signals
+[10/10] Processing WMT... ✓ 11 signals
+
+✓ Saved results to: backtest_unified.csv
+
+======================================================================
+BACKTEST SUMMARY
+======================================================================
+Total Signals: 359
+Unique Tickers: 10
+Date Range: 2024-06-03 to 2024-11-01
+
+Core Signals: 81 (22.6%)
+Speculative Signals: 278 (77.4%)
+
+ML Probability: mean=0.295, median=0.255
+
+5-Day Forward Returns:
+  Hit Rate (>0%): 59.1%
+  Outperform SPY: 51.3%
+  Mean Return: 1.08%
+  Median Return: 1.33%
+  Mean Excess: 0.49% (vs SPY)
+  Worst Return: -17.37%
+  Best Return: 21.97%
+
+10-Day Forward Returns:
+  Hit Rate (>0%): 66.3%
+  Outperform SPY: 54.0%
+  Mean Return: 2.03%
+  Median Return: 2.13%
+  Mean Excess: 0.93% (vs SPY)
+  Worst Return: -18.69%
+  Best Return: 23.60%
+
+20-Day Forward Returns:
+  Hit Rate (>0%): 73.0%
+  Outperform SPY: 62.3%
+  Mean Return: 6.12%
+  Median Return: 4.34%
+  Mean Excess: 3.83% (vs SPY)
+  Worst Return: -17.61%
+  Best Return: 59.70%
+
+ML Probability Stratification (5-day returns):
+  Low(<30%): 208 signals, hit rate 64.4%, mean return 1.49%
+  Medium(30-50%): 76 signals, hit rate 53.9%, mean return 0.21%
+  High(>50%): 75 signals, hit rate 49.3%, mean return 0.82%
+======================================================================
+
