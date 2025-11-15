@@ -46,7 +46,18 @@ def load_cases(path: str) -> pd.DataFrame:
 def main():
     args = parse_args()
     with open(args.model, 'rb') as f:
-        model = pickle.load(f)
+        model_data = pickle.load(f)
+    
+    # Handle both old (model only) and new (dict with metadata) format
+    if isinstance(model_data, dict):
+        model = model_data['model']
+        feature_names = model_data.get('feature_names', [])
+        print(f"Model type: {model_data.get('model_type', 'unknown')}")
+        print(f"Features: {len(feature_names)}")
+    else:
+        model = model_data
+        feature_names = ['RSI', 'ATR_Pct', 'Overext', 'RR', 'MomCons', 'VolSurge']
+        print("Legacy model format detected")
 
     cases = load_cases(args.cases)
     rows = []
@@ -71,12 +82,31 @@ def main():
             eval_idx = max(0, len(ind) - pre_days - 1)
             eval_date = ind.index[eval_idx]
             vec = ind.loc[eval_date]
-            # Require indicators present
-            feat_cols = [c for c in ['RSI', 'ATR_Pct', 'Overext', 'RR', 'MomCons', 'VolSurge'] if c in ind.columns]
-            if vec[feat_cols].isna().any():
+            
+            # Build feature vector matching model expectations
+            base_cols = ['RSI', 'ATR_Pct', 'Overext', 'RR', 'MomCons', 'VolSurge']
+            vec_df = pd.DataFrame([vec[base_cols]], columns=base_cols)
+            
+            # Engineer features if needed
+            if any('_' in f and f not in base_cols for f in feature_names):
+                if 'RR' in vec_df.columns and 'MomCons' in vec_df.columns:
+                    vec_df['RR_MomCons'] = vec_df['RR'] * vec_df['MomCons']
+                if 'RSI' in vec_df.columns:
+                    vec_df['RSI_Neutral'] = (vec_df['RSI'] - 50).abs()
+                if 'Overext' in vec_df.columns and 'ATR_Pct' in vec_df.columns:
+                    vec_df['Risk_Score'] = vec_df['Overext'].abs() + vec_df['ATR_Pct']
+                if 'VolSurge' in vec_df.columns and 'MomCons' in vec_df.columns:
+                    vec_df['Vol_Mom'] = vec_df['VolSurge'] * vec_df['MomCons']
+            
+            # Ensure column order matches model
+            if feature_names:
+                vec_df = vec_df[feature_names]
+            
+            if vec_df.isna().any().any():
                 rows.append({'Ticker': tk, 'EventDate': event.date(), 'Status': 'NaNFeatures'})
                 continue
-            prob = float(model.predict_proba([vec[feat_cols].astype(float).values])[0][1])
+            
+            prob = float(model.predict_proba(vec_df.values)[0][1])
             passed = apply_filters(vec, thresholds)
             rows.append({
                 'Ticker': tk,

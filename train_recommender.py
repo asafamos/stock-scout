@@ -21,14 +21,16 @@ from __future__ import annotations
 import argparse
 import pickle
 from pathlib import Path
-from typing import List
+from typing import List, Tuple
 
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import roc_auc_score, classification_report, brier_score_loss
-from sklearn.model_selection import train_test_split
+from sklearn.metrics import roc_auc_score, classification_report, brier_score_loss, precision_recall_curve
+from sklearn.model_selection import TimeSeriesSplit
 from sklearn.calibration import calibration_curve
+import xgboost as xgb
+import shap
 
 
 def parse_args():
@@ -37,6 +39,8 @@ def parse_args():
     p.add_argument('--horizon', type=int, default=20, help='Forward horizon to label (days)')
     p.add_argument('--target', type=str, default='pos', choices=['pos', 'beat_bench'], help='Label target')
     p.add_argument('--out', type=str, default='recommender_model.pkl', help='Output model file')
+    p.add_argument('--model', type=str, default='xgboost', choices=['logistic', 'xgboost'], help='Model type')
+    p.add_argument('--cv', action='store_true', help='Use TimeSeriesSplit cross-validation')
     return p.parse_args()
 
 
@@ -45,6 +49,23 @@ def load_signals(path: str) -> pd.DataFrame:
     # normalize column names
     df.columns = [c.strip() for c in df.columns]
     return df
+
+
+def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Add derived features for better model performance."""
+    X = df.copy()
+    
+    # Interaction features
+    if 'RR' in X.columns and 'MomCons' in X.columns:
+        X['RR_MomCons'] = X['RR'] * X['MomCons']
+    if 'RSI' in X.columns:
+        X['RSI_Neutral'] = (X['RSI'] - 50).abs()  # Distance from neutral
+    if 'Overext' in X.columns and 'ATR_Pct' in X.columns:
+        X['Risk_Score'] = X['Overext'].abs() + X['ATR_Pct']  # Combined risk
+    if 'VolSurge' in X.columns and 'MomCons' in X.columns:
+        X['Vol_Mom'] = X['VolSurge'] * X['MomCons']  # Volume confirmation
+    
+    return X
 
 
 def build_dataset(df: pd.DataFrame, horizon: int, target: str = 'pos') -> pd.DataFrame:
@@ -56,6 +77,10 @@ def build_dataset(df: pd.DataFrame, horizon: int, target: str = 'pos') -> pd.Dat
 
     feature_cols = [c for c in ['RSI', 'ATR_Pct', 'Overext', 'RR', 'MomCons', 'VolSurge'] if c in df.columns]
     X = df[feature_cols].copy()
+    
+    # Engineer additional features
+    X = engineer_features(X)
+    
     # Fill NaNs conservatively
     X = X.fillna(X.median())
 
@@ -75,13 +100,56 @@ def build_dataset(df: pd.DataFrame, horizon: int, target: str = 'pos') -> pd.Dat
     return out
 
 
-def train_and_eval(df: pd.DataFrame, out_path: str):
+def train_and_eval(df: pd.DataFrame, out_path: str, model_type: str = 'xgboost', use_cv: bool = False):
     y = df['y'].values
     X = df.drop(columns=['y', 'Ticker', 'Date'])
+    feature_names = X.columns.tolist()
 
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=42, stratify=y)
+    if use_cv:
+        # TimeSeriesSplit for temporal data
+        tscv = TimeSeriesSplit(n_splits=5)
+        aucs = []
+        for train_idx, test_idx in tscv.split(X):
+            X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
+            y_train, y_test = y[train_idx], y[test_idx]
+            
+            if model_type == 'xgboost':
+                model = xgb.XGBClassifier(
+                    n_estimators=100,
+                    max_depth=4,
+                    learning_rate=0.1,
+                    scale_pos_weight=len(y_train[y_train==0])/max(1, len(y_train[y_train==1])),
+                    random_state=42
+                )
+            else:
+                model = LogisticRegression(max_iter=1000, class_weight='balanced')
+            
+            model.fit(X_train, y_train)
+            prob = model.predict_proba(X_test)[:, 1]
+            if len(np.unique(y_test)) > 1:
+                aucs.append(roc_auc_score(y_test, prob))
+        
+        print(f"\n=== Cross-Validation Results ({len(aucs)} folds) ===")
+        print(f"Mean AUC: {np.mean(aucs):.4f} ± {np.std(aucs):.4f}")
+        print(f"Fold AUCs: {[f'{a:.3f}' for a in aucs]}")
 
-    model = LogisticRegression(max_iter=1000)
+    # Train final model on 75% data, test on most recent 25%
+    split_idx = int(len(X) * 0.75)
+    X_train, X_test = X.iloc[:split_idx], X.iloc[split_idx:]
+    y_train, y_test = y[:split_idx], y[split_idx:]
+
+    if model_type == 'xgboost':
+        model = xgb.XGBClassifier(
+            n_estimators=150,
+            max_depth=5,
+            learning_rate=0.05,
+            scale_pos_weight=len(y_train[y_train==0])/max(1, len(y_train[y_train==1])),
+            random_state=42,
+            eval_metric='auc'
+        )
+    else:
+        model = LogisticRegression(max_iter=1000, class_weight='balanced')
+
     model.fit(X_train, y_train)
 
     prob = model.predict_proba(X_test)[:, 1]
@@ -90,28 +158,67 @@ def train_and_eval(df: pd.DataFrame, out_path: str):
     auc = roc_auc_score(y_test, prob) if len(np.unique(y_test)) > 1 else float('nan')
     brier = brier_score_loss(y_test, prob)
 
-    print("=== Model Evaluation ===")
+    print("\n=== Final Model Evaluation ===")
+    print(f"Train size: {len(X_train)}, Test size: {len(X_test)}")
+    print(f"Test set positives: {y_test.sum()}/{len(y_test)} ({y_test.mean()*100:.1f}%)")
     print(f"AUC: {auc:.4f}")
     print(f"Brier score: {brier:.4f}")
     print(classification_report(y_test, preds))
 
-    # calibration curve
+    # Find optimal threshold using PR curve
+    precision, recall, thresholds = precision_recall_curve(y_test, prob)
+    f1_scores = 2 * (precision * recall) / (precision + recall + 1e-8)
+    optimal_idx = np.argmax(f1_scores)
+    optimal_threshold = thresholds[optimal_idx] if optimal_idx < len(thresholds) else 0.5
+    print(f"\nOptimal threshold (F1): {optimal_threshold:.3f}")
+
+    # Calibration curve
     prob_true, prob_pred = calibration_curve(y_test, prob, n_bins=10)
     calib = pd.DataFrame({'prob_pred': prob_pred, 'prob_true': prob_true})
     calib.to_csv('calibration_curve.csv', index=False)
 
-    # save model
+    # Feature importance for XGBoost
+    if model_type == 'xgboost':
+        importance_df = pd.DataFrame({
+            'feature': feature_names,
+            'importance': model.feature_importances_
+        }).sort_values('importance', ascending=False)
+        print("\n=== Feature Importance (Top 10) ===")
+        print(importance_df.head(10).to_string(index=False))
+        importance_df.to_csv('feature_importance.csv', index=False)
+        
+        # SHAP explanations (sample)
+        try:
+            explainer = shap.TreeExplainer(model)
+            shap_values = explainer.shap_values(X_test.head(50))
+            shap_df = pd.DataFrame(shap_values, columns=feature_names)
+            shap_df.to_csv('shap_values_sample.csv', index=False)
+            print("\n✓ SHAP values saved to shap_values_sample.csv")
+        except Exception as e:
+            print(f"\n⚠ SHAP computation skipped: {e}")
+
+    # Save model with metadata
+    model_data = {
+        'model': model,
+        'feature_names': feature_names,
+        'optimal_threshold': optimal_threshold,
+        'auc': auc,
+        'model_type': model_type
+    }
     with open(out_path, 'wb') as f:
-        pickle.dump(model, f)
-    print(f"Model saved to {out_path}")
+        pickle.dump(model_data, f)
+    print(f"\n✓ Model saved to {out_path}")
 
 
 def main():
     args = parse_args()
     df = load_signals(args.signals)
     ds = build_dataset(df, args.horizon, args.target)
-    print(f"Dataset rows: {len(ds)}; positives: {ds['y'].sum()} / {len(ds)}")
-    train_and_eval(ds, args.out)
+    print(f"\n📊 Dataset Summary")
+    print(f"Total rows: {len(ds)}")
+    print(f"Positives: {ds['y'].sum()} / {len(ds)} ({ds['y'].mean()*100:.1f}%)")
+    print(f"Features: {len([c for c in ds.columns if c not in ['y', 'Ticker', 'Date']])}")
+    train_and_eval(ds, args.out, args.model, args.cv)
 
 
 if __name__ == '__main__':
