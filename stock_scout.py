@@ -44,6 +44,7 @@ from core.unified_logic import (
     compute_technical_score,
     compute_final_score,
 )
+from core.scoring.fundamental import compute_fundamental_score_with_breakdown
 from indicators import rsi, atr, macd_line, adx, _sigmoid
 
 # Get global configuration
@@ -177,12 +178,25 @@ def assign_confidence_tier(prob: float) -> str:
 
 # ==================== Environment helper ====================
 def _env(key: str) -> Optional[str]:
-    """Get environment variable or Streamlit secret."""
+    """Get environment variable or Streamlit secret (supports nested sections)."""
+    # Try Streamlit secrets with nested sections
     try:
-        if hasattr(st, 'secrets') and key in st.secrets:
-            return st.secrets[key]
+        if hasattr(st, 'secrets'):
+            secrets_obj = st.secrets
+            # direct top-level
+            if isinstance(secrets_obj, dict) and key in secrets_obj:
+                return secrets_obj[key]
+            # common nested containers
+            for section in ("api_keys", "keys", "secrets", "tokens"):
+                try:
+                    container = secrets_obj.get(section) if hasattr(secrets_obj, 'get') else secrets_obj[section]
+                    if isinstance(container, dict) and key in container:
+                        return container[key]
+                except Exception:
+                    continue
     except Exception:
         pass
+    # Fallback to environment
     return os.getenv(key)
 
 

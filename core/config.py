@@ -112,13 +112,21 @@ class APIKeys:
     def from_env(cls) -> "APIKeys":
         """Load API keys from environment variables or Streamlit secrets."""
         def _get_key(key: str) -> Optional[str]:
-            # Try Streamlit secrets first
+            # Try Streamlit secrets first (supports nested sections)
             try:
-                if "secrets" in dir(st) and key in st.secrets:
-                    return st.secrets[key]
+                if "secrets" in dir(st):
+                    sec = st.secrets
+                    if isinstance(sec, dict) and key in sec:
+                        return sec[key]
+                    for section in ("api_keys", "keys", "secrets", "tokens"):
+                        try:
+                            container = sec.get(section) if hasattr(sec, 'get') else sec[section]
+                            if isinstance(container, dict) and key in container:
+                                return container[key]
+                        except Exception:
+                            continue
             except Exception:
                 pass
-            
             # Fall back to environment variable
             return os.getenv(key)
         
