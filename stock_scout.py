@@ -2021,14 +2021,23 @@ results_count = len(results)
 core_count_final = len(results[results["Risk_Level"] == "core"])
 spec_count_final = len(results[results["Risk_Level"] == "speculative"])
 
-st.success(f"✅ **Final recommendations:** {core_count_final} Core + {spec_count_final} Speculative = {results_count} total")
+st.success(f"✅ **Final recommendations:** {core_count_final} 🛡️ Core + {spec_count_final} ⚡ Speculative = {results_count} total")
 
-target_min = CONFIG.get("TARGET_RECOMMENDATIONS_MIN", 3)
-target_max = CONFIG.get("TARGET_RECOMMENDATIONS_MAX", 7)
+# Updated targets: aim for balanced mix
+target_min = CONFIG.get("TARGET_RECOMMENDATIONS_MIN", 5)
+target_max = CONFIG.get("TARGET_RECOMMENDATIONS_MAX", 12)
+target_core_min = 3
+target_spec_min = 2
 
 if results_count < target_min:
     st.warning(f"⚠️ Only {results_count} stocks passed filters (target: {target_min}-{target_max}). "
-               f"Filters are currently strict. Consider widening thresholds to increase candidates.")
+               f"Consider checking market conditions or relaxing filters.")
+elif core_count_final < target_core_min:
+    st.info(f"ℹ️ Only {core_count_final} Core stocks (target: {target_core_min}+). "
+            f"Core stocks meet strict quality criteria. {spec_count_final} Speculative stocks offer higher-risk opportunities.")
+elif spec_count_final < target_spec_min and core_count_final >= target_core_min:
+    st.info(f"ℹ️ Good Core selection ({core_count_final} stocks). "
+            f"Few Speculative opportunities today - market may be in consolidation phase.")
 
 # External price verification (Top-K)
 t0 = t_start()
