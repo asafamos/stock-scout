@@ -198,6 +198,7 @@ def aggregate_metrics(recs: Dict[pd.Timestamp, List[Tuple[str, pd.Series]]], dat
                 'Overext': float(row['Overext']),
                 'RR': float(row['RR']),
                 'MomCons': float(row['MomCons']),
+                'VolSurge': float(row.get('VolSurge', np.nan)),
             }
             for h in horizons:
                 r = fwd[h]
@@ -255,6 +256,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument('--end', type=str, required=True, help='End date YYYY-MM-DD')
     p.add_argument('--horizons', type=str, default='5,10,20', help='Forward day horizons')
     p.add_argument('--benchmark', type=str, default='SPY', help='Benchmark ticker (default SPY)')
+    p.add_argument('--use-finnhub', action='store_true', help='Fetch US universe via Finnhub API keys')
+    p.add_argument('--limit', type=int, default=150, help='Universe size limit when using Finnhub')
+    p.add_argument('--sp500', action='store_true', help='Use current S&P500 constituents from Wikipedia')
     return p.parse_args()
 
 
@@ -265,6 +269,23 @@ def load_ticker_list(args: argparse.Namespace) -> List[str]:
     if args.tickers_file:
         with open(args.tickers_file) as f:
             tickers.extend([line.strip().upper() for line in f if line.strip()])
+    if args.sp500 and not tickers:
+        try:
+            import pandas as pd
+            tables = pd.read_html('https://en.wikipedia.org/wiki/List_of_S%26P_500_companies')
+            sp = tables[0]
+            tickers = sp['Symbol'].astype(str).str.replace('.', '-', regex=False).tolist()
+            print(f"Fetched {len(tickers)} S&P500 tickers from Wikipedia.")
+        except Exception as e:
+            print(f"S&P500 fetch failed: {e}")
+    if args.use_finnhub and not tickers:
+        try:
+            from core.data_sources import FinnhubClient
+            fc = FinnhubClient()
+            tickers = fc.get_universe(limit=args.limit)
+            print(f"Fetched {len(tickers)} tickers from Finnhub universe.")
+        except Exception as e:
+            print(f"Finnhub universe fetch failed: {e}. Falling back to manual list if provided.")
     # Deduplicate
     tickers = sorted(set(tickers))
     if not tickers:

@@ -54,7 +54,8 @@ def build_dataset(df: pd.DataFrame, horizon: int, target: str = 'pos') -> pd.Dat
     if rcol not in df.columns:
         raise SystemExit(f"Signals missing column {rcol}")
 
-    X = df[['RSI', 'ATR_Pct', 'Overext', 'RR', 'MomCons']].copy()
+    feature_cols = [c for c in ['RSI', 'ATR_Pct', 'Overext', 'RR', 'MomCons', 'VolSurge'] if c in df.columns]
+    X = df[feature_cols].copy()
     # Fill NaNs conservatively
     X = X.fillna(X.median())
 
