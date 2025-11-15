@@ -44,6 +44,7 @@ from core.unified_logic import (
     compute_technical_score,
     compute_final_score,
 )
+from core.classification import apply_classification
 from core.scoring.fundamental import compute_fundamental_score_with_breakdown
 from indicators import rsi, atr, macd_line, adx, _sigmoid
 
@@ -1674,91 +1675,111 @@ if CONFIG["BETA_FILTER_ENABLED"]:
     ].reset_index(drop=True)
     phase_times["beta_filter"] = t_end(t0)
 
-# 3c) Advanced Filters - NEW!
+# 3c) Advanced Filters (dynamic penalty approach)
 t0 = t_start()
-st.info("🔬 Running advanced filters...")
+st.info("🔬 Running advanced filters (dynamic penalties)...")
 
-# Fetch benchmark data once
 benchmark_df = fetch_benchmark_data(CONFIG["BETA_BENCHMARK"], CONFIG["LOOKBACK_DAYS"])
 
-# Add columns for advanced signals
-for col in ["RS_63d", "Volume_Surge", "MA_Aligned", "Quality_Score", 
-            "RR_Ratio", "Momentum_Consistency", "High_Confidence"]:
-    results[col] = np.nan
+adv_cols = [
+    "RS_63d", "Volume_Surge", "MA_Aligned", "Quality_Score", "RR_Ratio",
+    "Momentum_Consistency", "High_Confidence", "AdvPenalty", "AdvFlags"
+]
+for col in adv_cols:
+    if col in ["MA_Aligned", "High_Confidence"]:
+        results[col] = False
+    elif col == "AdvFlags":
+        results[col] = ""
+    else:
+        results[col] = np.nan
 
-advanced_keep_mask = []
-logger.info(f"🔬 Running advanced filters on full set ({len(results)} stocks)...")
-rejection_reasons = {}
+logger.info(f"🔬 Advanced filters pre-pass on {len(results)} stocks...")
 
+signals_store = []  # (idx, signals, enhanced_score, catastrophic, reason)
 for idx in results.index:
     tkr = results.at[idx, "Ticker"]
     if tkr not in data_map or benchmark_df.empty:
-        advanced_keep_mask.append(True)
+        signals_store.append((idx, {}, results.at[idx, "Score"], False, ""))
         continue
-    
     df = data_map[tkr]
     base_score = results.at[idx, "Score"]
-    
-    # Compute advanced score and signals
     enhanced_score, signals = compute_advanced_score(tkr, df, benchmark_df, base_score)
-    
-    # Check rejection criteria
-    should_reject, reason = should_reject_ticker(signals)
-    
-    # Debug: Log rejections
-    if should_reject:
-        logger.debug(f"{tkr} rejected: {reason} | signals: {signals}")
-        rejection_reasons[reason] = rejection_reasons.get(reason, 0) + 1
-    
-    if should_reject:
-        advanced_keep_mask.append(False)
-        results.at[idx, "RejectionReason"] = reason
-        continue
-    
-    # Update score and signals
-    results.loc[idx, "Score"] = enhanced_score
-    results.loc[idx, "RS_63d"] = signals.get("rs_63d", np.nan)
-    results.loc[idx, "Volume_Surge"] = signals.get("volume_surge", np.nan)
-    results.loc[idx, "MA_Aligned"] = signals.get("ma_aligned", False)
-    results.loc[idx, "Quality_Score"] = signals.get("quality_score", 0.0)
-    results.loc[idx, "RR_Ratio"] = signals.get("risk_reward_ratio", np.nan)
-    results.loc[idx, "Momentum_Consistency"] = signals.get("momentum_consistency", 0.0)
-    results.loc[idx, "High_Confidence"] = signals.get("high_confidence", False)
-    
-    advanced_keep_mask.append(True)
+    catastrophic, reason = should_reject_ticker(signals)
+    signals_store.append((idx, signals, enhanced_score, catastrophic, reason))
 
-# Extend mask for remaining rows
-while len(advanced_keep_mask) < len(results):
-    advanced_keep_mask.append(True)
+rs_vals = []
+mom_vals = []
+rr_vals = []
+for (_, sig, _, _, _) in signals_store:
+    v_rs = sig.get("rs_63d")
+    if isinstance(v_rs, (int, float)) and np.isfinite(v_rs):
+        rs_vals.append(v_rs)
+    v_mom = sig.get("momentum_consistency")
+    if isinstance(v_mom, (int, float)) and np.isfinite(v_mom):
+        mom_vals.append(v_mom)
+    v_rr = sig.get("risk_reward_ratio")
+    if isinstance(v_rr, (int, float)) and np.isfinite(v_rr):
+        rr_vals.append(v_rr)
 
-# Log rejection statistics
-logger.info(f"📊 Advanced filter results: {sum(advanced_keep_mask)}/{len(advanced_keep_mask)} stocks kept (after rejections)")
-if rejection_reasons:
-    logger.info(f"Rejection breakdown: {rejection_reasons}")
+def _q(vals, q, default):
+    return float(np.quantile(vals, q)) if vals else default
 
-results = results[advanced_keep_mask].reset_index(drop=True)
+rs_thresh_dyn = _q(rs_vals, 0.15, -0.15)
+mom_thresh_dyn = _q(mom_vals, 0.20, 0.25)
+rr_thresh_dyn = _q(rr_vals, 0.25, 0.90)
+logger.info(f"Dynamic thresholds -> RS:{rs_thresh_dyn:.3f} MOM:{mom_thresh_dyn:.3f} RR:{rr_thresh_dyn:.3f}")
 
-# Re-sort by enhanced score
+catastrophic_count = 0
+kept = 0
+for (idx, sig, enhanced_score, catastrophic, reason) in signals_store:
+    flags = []
+    penalty = 0.0
+    if sig:
+        rs_val = sig.get("rs_63d", np.nan)
+        mom_val = sig.get("momentum_consistency", 0.0)
+        rr_val = sig.get("risk_reward_ratio", np.nan)
+        if np.isfinite(rs_val) and rs_val < rs_thresh_dyn:
+            penalty += 8.0
+            flags.append("LowRS")
+        if mom_val < mom_thresh_dyn:
+            penalty += 6.0
+            flags.append("WeakMomentum")
+        if np.isfinite(rr_val) and rr_val < rr_thresh_dyn:
+            penalty += 10.0
+            flags.append("LowRR")
+    if catastrophic:
+        catastrophic_count += 1
+        results.loc[idx, "RejectionReason"] = reason
+    results.loc[idx, "RS_63d"] = sig.get("rs_63d", np.nan)
+    results.loc[idx, "Volume_Surge"] = sig.get("volume_surge", np.nan)
+    results.loc[idx, "MA_Aligned"] = sig.get("ma_aligned", False)
+    results.loc[idx, "Quality_Score"] = sig.get("quality_score", 0.0)
+    results.loc[idx, "RR_Ratio"] = sig.get("risk_reward_ratio", np.nan)
+    results.loc[idx, "Momentum_Consistency"] = sig.get("momentum_consistency", 0.0)
+    results.loc[idx, "High_Confidence"] = sig.get("high_confidence", False)
+    results.loc[idx, "AdvPenalty"] = penalty
+    results.loc[idx, "AdvFlags"] = ",".join(flags)
+    adj_score = max(0.0, enhanced_score - penalty)
+    results.loc[idx, "Score"] = adj_score
+    if not catastrophic:
+        kept += 1
+
+if catastrophic_count == len(signals_store):
+    logger.warning("All stocks met catastrophic rejection; overriding to keep all for inspection.")
+    kept = len(signals_store)
+
+logger.info(f"Advanced filters dynamic: kept {kept}/{len(signals_store)} catastrophic={catastrophic_count}")
+
+if catastrophic_count > 0 and catastrophic_count < len(signals_store):
+    drop_indices = [idx for (idx, _, _, c, _) in signals_store if c]
+    results = results[~results.index.isin(drop_indices)].reset_index(drop=True)
+
 results = results.sort_values(["Score", "Ticker"], ascending=[False, True]).reset_index(drop=True)
-
 phase_times["advanced_filters"] = t_end(t0)
 
 if results.empty:
-    # Fallback: relax advanced rejection once if everything failed
-    st.warning("All stocks were filtered out by advanced filters. Applying automatic relaxed fallback...")
-    relaxed_mask = []
-    for idx in range(len(advanced_keep_mask)):
-        tkr = results_full.at[idx, "Ticker"] if 'results_full' in locals() else None
-        # Recompute should_reject with dynamic relaxed thresholds
-        # Provide very permissive dynamic thresholds so only catastrophic cases fail
-        # We need the original signals; if not stored, keep row
-        relaxed_mask.append(True)
-    # Keep all for next stages (scores already computed earlier)
-    results = results_full.copy() if 'results_full' in locals() else results.copy()
-    # Remove rejection reasons to avoid confusion
-    if 'RejectionReason' in results.columns:
-        results['RejectionReason'] = ''
-    # Proceed without stopping
+    st.warning("Advanced filters produced empty set even after penalties.")
+    st.stop()
 
 # 3d) Fetch Fundamentals for stocks that passed advanced_filters
 if CONFIG["FUNDAMENTAL_ENABLED"] and fundamental_available:
