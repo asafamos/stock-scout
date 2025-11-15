@@ -92,10 +92,11 @@ CONFIG = {
     "EXTERNAL_PRICE_VERIFY": _config_obj.external_price_verify,
     "TOP_VALIDATE_K": _config_obj.top_validate_k,
     "BETA_BENCHMARK": _config_obj.beta_benchmark,
-    "ENABLE_SIMFIN": False,
-    "ENABLE_MARKETSTACK": False,
-    "ENABLE_NASDAQ_DL": False,
-    "ENABLE_EODHD": False,
+    # Disabled providers (legacy/deprecated/paid):
+    "ENABLE_SIMFIN": False,      # SimFin API v2 deprecated, v3 requires paid subscription
+    "ENABLE_MARKETSTACK": False,  # Monthly usage limit reached (free tier exhausted)
+    "ENABLE_NASDAQ_DL": False,    # API access blocked (403 Forbidden)
+    "ENABLE_EODHD": False,        # Requires paid subscription (402 Payment Required)
 }
 
 # Load environment variables
@@ -1315,10 +1316,10 @@ add_provider("Alpha Vantage", alpha_ok, alpha_ok, _std_reason("Alpha Vantage", a
 add_provider("Finnhub", finn_ok, finn_ok, _std_reason("Finnhub", finn_ok, finn_ok, bool(_env("FINNHUB_API_KEY"))))
 add_provider("Polygon", poly_ok, False, _std_reason("Polygon", poly_ok, False, bool(_env("POLYGON_API_KEY"))))
 add_provider("Tiingo", tiin_ok, False, _std_reason("Tiingo", tiin_ok, False, bool(_env("TIINGO_API_KEY"))))
-add_provider("SimFin", False, bool(simfin_key), _std_reason("SimFin", False, bool(simfin_key), bool(simfin_key)))
-add_provider("Marketstack", bool(marketstack_key), False, _std_reason("Marketstack", bool(marketstack_key), False, bool(marketstack_key)))
-add_provider("NasdaqDL", bool(nasdaq_key), False, _std_reason("NasdaqDL", bool(nasdaq_key), False, bool(nasdaq_key)))
-add_provider("EODHD", bool(eodhd_key), bool(eodhd_key), _std_reason("EODHD", bool(eodhd_key), bool(eodhd_key), bool(eodhd_key)))
+add_provider("SimFin", False, False, "API Deprecated")
+add_provider("Marketstack", False, False, "Usage Limit Reached")
+add_provider("NasdaqDL", False, False, "Access Blocked")
+add_provider("EODHD", False, False, "Paid Subscription Required")
 
 status_df = pd.DataFrame(providers_status)
 st.markdown("### 🔌 Data Sources Status")
