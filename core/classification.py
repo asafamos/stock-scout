@@ -75,11 +75,21 @@ def evaluate_data_quality(row: pd.Series) -> Tuple[str, int, list[str]]:
     # Determine quality level
     total_critical = len(critical_metrics)
     if valid_count >= total_critical * 0.85:  # 85%+ metrics valid
-        quality = "high" if not fundamentals_missing else "medium"  # downgrade one level if fundamentals missing
+        quality = "high" if not fundamentals_missing else "medium"
     elif valid_count >= total_critical * 0.60:  # 60-85% metrics valid
         quality = "medium" if not fundamentals_missing else "low"
     else:
         quality = "low"
+    
+    # Downgrade based on fundamental quality score (not just presence)
+    if not fundamentals_missing and isinstance(fundamental_quality, (int, float)) and np.isfinite(fundamental_quality):
+        if fundamental_quality < 30.0 and quality == "high":
+            quality = "medium"  # High quality metrics but mediocre fundamentals → medium
+            warnings.append("Fundamental quality below 30")
+        elif fundamental_quality < 25.0 and quality == "medium":
+            quality = "low"  # Low fundamental quality → low overall
+            warnings.append("Fundamental quality below 25")
+    
     # Second downgrade if coverage extremely low
     if isinstance(coverage_pct, (int,float)) and np.isfinite(coverage_pct) and coverage_pct < 0.25 and quality == "medium":
         quality = "low"
