@@ -255,11 +255,18 @@ def build_universe(limit: int) -> List[str]:
     """Fetch S&P 500 tickers (wikipedia) then fallback to common mega-cap list.
     Limit result length to `limit`."""
     try:
-        tables = pd.read_html('https://en.wikipedia.org/wiki/List_of_S%26P_500_companies')
-        df_sp = tables[0]
+        # Wikipedia requires a User-Agent header
+        tables = pd.read_html(
+            'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies',
+            storage_options={'User-Agent': 'Mozilla/5.0'}
+        )
+        # S&P500 table is typically the second table (index 1)
+        df_sp = tables[1]
         tickers = df_sp['Symbol'].astype(str).str.replace('.', '-', regex=False).tolist()
+        logger.info(f"✓ Loaded {len(tickers)} S&P500 tickers from Wikipedia")
         return tickers[:limit]
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Wikipedia S&P500 fetch failed ({e}), using fallback list")
         fallback = ["AAPL","MSFT","NVDA","AMZN","GOOGL","META","TSLA","JPM","V","WMT","UNH","AVGO"]
         return fallback[:limit]
 
