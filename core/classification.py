@@ -89,6 +89,15 @@ def evaluate_data_quality(row: pd.Series) -> Tuple[str, int, list[str]]:
         elif fundamental_quality < 25.0 and quality == "medium":
             quality = "low"  # Low fundamental quality → low overall
             warnings.append("Fundamental quality below 25")
+        
+        # UPGRADE: Strong technical score can boost quality when fundamentals are moderate
+        # This creates Core stocks even when Quality_Score_F is 27-29 (Speculative range)
+        technical_score = row.get("Score", 0)
+        if fundamental_quality >= 25.0 and fundamental_quality < 30.0 and quality == "medium":
+            # If technical score is strong (>70), upgrade to high → Core
+            if isinstance(technical_score, (int, float)) and technical_score >= 70.0:
+                quality = "high"
+                warnings.append(f"Upgraded to Core: strong technical ({technical_score:.1f}) despite moderate fundamentals")
     
     # Second downgrade if coverage extremely low
     if isinstance(coverage_pct, (int,float)) and np.isfinite(coverage_pct) and coverage_pct < 0.25 and quality == "medium":

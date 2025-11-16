@@ -62,9 +62,12 @@ def compute_fundamental_score_with_breakdown(data: dict) -> FundamentalScore:
     
     breakdown.quality_score = float(np.mean([roe_score, roic_score, gm_score]))
     
-    # Fallback: If all metrics are NaN/missing, use moderate default (28 = Speculative range)
+    # Fallback: If all metrics are NaN/missing, use default that creates varied distribution
+    # Uses a baseline that will be adjusted by technical signals in classification
     if not np.isfinite(breakdown.quality_score):
-        breakdown.quality_score = 28.0  # Creates Speculative stocks when fundamentals unavailable
+        # Default to moderate-low quality (27) to create Speculative stocks
+        # Individual stocks will be upgraded/downgraded based on technical strength
+        breakdown.quality_score = 27.0
     
     breakdown.quality_label = _quality_label(breakdown.quality_score)
     
