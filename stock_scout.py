@@ -320,8 +320,8 @@ def fetch_history_bulk(
     start = end - timedelta(days=period_days + 50)
     data_map = safe_yf_download(tickers, start, end)
     
-    # Filter: need at least ma_long + 50 rows
-    min_rows = ma_long + 50
+    # Filter: need at least ma_long + 40 rows (relaxed from +50 to handle weekends/holidays)
+    min_rows = ma_long + 40
     filtered = {}
     for tkr, df in data_map.items():
         if len(df) >= min_rows:
