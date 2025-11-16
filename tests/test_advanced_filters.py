@@ -102,7 +102,7 @@ def test_momentum_consistency():
 def test_rejection_criteria_underperforming():
     """Test rejection for underperforming stocks"""
     signals = {
-        "rs_63d": -0.15,  # Underperforming by 15%
+           "rs_63d": -0.30,  # Updated: below -0.25 threshold (was -0.15)
         "momentum_consistency": 0.5,
         "risk_reward_ratio": 2.0,
         "alignment_score": 0.8
@@ -117,7 +117,7 @@ def test_rejection_criteria_weak_momentum():
     """Test rejection for weak momentum"""
     signals = {
         "rs_63d": 0.05,
-        "momentum_consistency": 0.2,  # Very weak
+            "momentum_consistency": 0.05,  # Updated: below 0.10 threshold (was 0.2)
         "risk_reward_ratio": 2.0,
         "alignment_score": 0.8
     }
@@ -132,7 +132,7 @@ def test_rejection_criteria_poor_rr():
     signals = {
         "rs_63d": 0.05,
         "momentum_consistency": 0.7,
-        "risk_reward_ratio": 0.5,  # Poor R/R
+            "risk_reward_ratio": 0.35,  # Updated: below 0.40 threshold (was 0.5)
         "alignment_score": 0.8
     }
     
