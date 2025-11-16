@@ -345,7 +345,7 @@ def should_reject_ticker(signals: Dict[str, any], dynamic: Optional[Dict[str, fl
     # Dynamic / static thresholds (static fallback keeps tests stable)
     rs_thresh = (dynamic.get("rs_63d") if dynamic else None)
     if rs_thresh is None:
-        rs_thresh = -0.12  # slightly more permissive than -0.10
+        rs_thresh = -0.25  # more permissive - only reject severely underperforming
     rs_63d = signals.get("rs_63d", np.nan)
     if np.isfinite(rs_63d) and rs_63d <= rs_thresh:
         return True, f"Underperforming market (<= {rs_thresh:.2f})"
@@ -353,7 +353,7 @@ def should_reject_ticker(signals: Dict[str, any], dynamic: Optional[Dict[str, fl
     # Momentum threshold (dynamic fallback)
     mom_thresh = (dynamic.get("momentum_consistency") if dynamic else None)
     if mom_thresh is None:
-        mom_thresh = 0.21  # keep test (0.20 < 0.21) rejecting while more permissive than 0.25
+        mom_thresh = 0.10  # very permissive - only reject worst momentum
     mom_consistency = signals.get("momentum_consistency", 0.0)
     if mom_consistency < mom_thresh:
         return True, f"Weak momentum (<{mom_thresh:.2f})"
@@ -361,7 +361,7 @@ def should_reject_ticker(signals: Dict[str, any], dynamic: Optional[Dict[str, fl
     # Risk/Reward threshold (dynamic fallback)
     rr_thresh = (dynamic.get("risk_reward_ratio") if dynamic else None)
     if rr_thresh is None:
-        rr_thresh = 0.80  # relax from 1.0 -> 0.80
+        rr_thresh = 0.40  # relax from 0.80 -> 0.40 to allow more stocks
     rr = signals.get("risk_reward_ratio", np.nan)
     if np.isfinite(rr) and rr < rr_thresh:
         return True, f"Poor Risk/Reward (<{rr_thresh:.2f})"

@@ -18,8 +18,8 @@ class Config:
     max_position_pct: float = 15.0
     
     # Universe & Data
-    universe_limit: int = 350
-    lookback_days: int = 400
+    universe_limit: int = 50
+    lookback_days: int = 90
     smart_scan: bool = True
     
     # Price & Volume Filters

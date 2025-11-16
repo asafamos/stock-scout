@@ -1732,9 +1732,10 @@ for (_, sig, _, _, _) in signals_store:
 def _q(vals, q, default):
     return float(np.quantile(vals, q)) if vals else default
 
-rs_thresh_dyn = _q(rs_vals, 0.15, -0.15)
-mom_thresh_dyn = _q(mom_vals, 0.20, 0.25)
-rr_thresh_dyn = _q(rr_vals, 0.25, 0.90)
+# More permissive percentiles to allow more stocks through
+rs_thresh_dyn = _q(rs_vals, 0.05, -0.30)    # 5th percentile (was 15th), allow more underperformers
+mom_thresh_dyn = _q(mom_vals, 0.10, 0.15)   # 10th percentile (was 20th), allow weaker momentum
+rr_thresh_dyn = _q(rr_vals, 0.10, 0.50)     # 10th percentile (was 25th), allow lower RR
 logger.info(f"Dynamic thresholds -> RS:{rs_thresh_dyn:.3f} MOM:{mom_thresh_dyn:.3f} RR:{rr_thresh_dyn:.3f}")
 
 catastrophic_count = 0
@@ -1747,13 +1748,13 @@ for (idx, sig, enhanced_score, catastrophic, reason) in signals_store:
         mom_val = sig.get("momentum_consistency", 0.0)
         rr_val = sig.get("risk_reward_ratio", np.nan)
         if np.isfinite(rs_val) and rs_val < rs_thresh_dyn:
-            penalty += 8.0
+            penalty += 2.0  # reduced from 8.0
             flags.append("LowRS")
         if mom_val < mom_thresh_dyn:
-            penalty += 6.0
+            penalty += 2.0  # reduced from 6.0
             flags.append("WeakMomentum")
         if np.isfinite(rr_val) and rr_val < rr_thresh_dyn:
-            penalty += 10.0
+            penalty += 3.0  # reduced from 10.0
             flags.append("LowRR")
     if catastrophic:
         catastrophic_count += 1
