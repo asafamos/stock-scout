@@ -545,6 +545,50 @@ class YFinanceClient:
     """Yahoo Finance client using yfinance library."""
     
     @staticmethod
+    def get_info(ticker: str) -> dict:
+        """
+        Get basic stock info from yfinance (always available).
+        Useful as fallback for fundamentals.
+        
+        Args:
+            ticker: Stock ticker
+            
+        Returns:
+            Dictionary with basic info (P/E, market cap, sector, etc.)
+        """
+        try:
+            stock = yf.Ticker(ticker)
+            info = stock.info
+            
+            if not info:
+                return {}
+            
+            # Extract key fields (handle missing data gracefully)
+            def safe_get(key, default=np.nan):
+                val = info.get(key, default)
+                return val if val not in [None, 'N/A', ''] else default
+            
+            return {
+                'pe': safe_get('trailingPE'),
+                'forward_pe': safe_get('forwardPE'),
+                'ps': safe_get('priceToSalesTrailing12Months'),
+                'pb': safe_get('priceToBook'),
+                'market_cap': safe_get('marketCap'),
+                'roe': safe_get('returnOnEquity', np.nan) * 100 if safe_get('returnOnEquity') not in [np.nan, None] else np.nan,
+                'profit_margin': safe_get('profitMargins', np.nan) * 100 if safe_get('profitMargins') not in [np.nan, None] else np.nan,
+                'de': safe_get('debtToEquity'),
+                'revenue_growth': safe_get('revenueGrowth', np.nan) * 100 if safe_get('revenueGrowth') not in [np.nan, None] else np.nan,
+                'earnings_growth': safe_get('earningsGrowth', np.nan) * 100 if safe_get('earningsGrowth') not in [np.nan, None] else np.nan,
+                'sector': safe_get('sector', 'Unknown'),
+                'industry': safe_get('industry', 'Unknown'),
+                'beta': safe_get('beta'),
+                'dividend_yield': safe_get('dividendYield', np.nan) * 100 if safe_get('dividendYield') not in [np.nan, None] else np.nan,
+            }
+        except Exception as e:
+            logger.debug(f"Failed to get yfinance info for {ticker}: {e}")
+            return {}
+    
+    @staticmethod
     def download_bulk(
         tickers: List[str],
         start: datetime,
@@ -738,7 +782,9 @@ class DataSourceManager:
     
     def get_fundamentals_with_fallback(self, ticker: str) -> dict:
         """
-        Get fundamentals with fallback (Alpha Vantage → Finnhub).
+        Get fundamentals with fallback chain: Alpha Vantage → Finnhub → yfinance.
+        
+        NEW (Nov 2025): Added yfinance as final fallback - always available!
         
         Args:
             ticker: Stock ticker
@@ -754,6 +800,18 @@ class DataSourceManager:
         
         # Fallback to Finnhub
         data = self.finnhub.get_fundamentals(ticker)
+        if data:
+            logger.debug(f"Got fundamentals for {ticker} from Finnhub (fallback)")
+            return data
+        
+        # NEW: Final fallback to yfinance (always available!)
+        data = self.yfinance.get_info(ticker)
+        if data:
+            logger.debug(f"Got fundamentals for {ticker} from yfinance (final fallback)")
+            return data
+        
+        logger.warning(f"No fundamentals available for {ticker}")
+        return {}
         if data:
             logger.debug(f"Got fundamentals for {ticker} from Finnhub (fallback)")
             return data

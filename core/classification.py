@@ -109,6 +109,7 @@ def evaluate_data_quality(row: pd.Series) -> Tuple[str, int, list[str]]:
 def evaluate_risk_factors(row: pd.Series) -> list[str]:
     """
     Evaluate risk factors for a stock.
+    UPDATED: Added downside protection filters based on backtest analysis.
     
     Returns:
         List of risk warnings
@@ -120,10 +121,23 @@ def evaluate_risk_factors(row: pd.Series) -> list[str]:
     if rsi is not None and isinstance(rsi, (int, float)) and rsi > 75:
         risk_warnings.append("Overbought (RSI > 75)")
     
-    # Check volatility
+    # DOWNSIDE PROTECTION: Check extreme volatility (>6% ATR)
+    # Data shows: stocks with high volatility had worst losses (-17% TSLA, -15% NVDA)
     atr_price = row.get("ATR_Price")
-    if atr_price is not None and isinstance(atr_price, (int, float)) and atr_price > 0.06:
-        risk_warnings.append("High volatility (ATR/Price > 6%)")
+    if atr_price is not None and isinstance(atr_price, (int, float)):
+        if atr_price > 0.06:  # >6% = EXTREME volatility
+            risk_warnings.append(f"⛔ EXTREME volatility (ATR={atr_price*100:.1f}%)")
+        elif atr_price > 0.05:  # 5-6% = High volatility
+            risk_warnings.append(f"High volatility (ATR={atr_price*100:.1f}%)")
+    
+    # DOWNSIDE PROTECTION: Check poor risk/reward ratio
+    # Data shows: RR ≥2.0 has 66% win vs lower RR
+    rr = row.get("RR_Ratio") or row.get("RewardRisk")
+    if rr is not None and isinstance(rr, (int, float)):
+        if rr < 1.5:  # Below minimum threshold
+            risk_warnings.append(f"⛔ Poor risk/reward (RR={rr:.2f} < 1.5)")
+        elif rr < 2.0:  # Below optimal threshold
+            risk_warnings.append(f"Low risk/reward (RR={rr:.2f})")
     
     # Check overextension
     overext = row.get("OverextRatio")
@@ -150,7 +164,14 @@ def evaluate_risk_factors(row: pd.Series) -> list[str]:
 
 def classify_stock(row: pd.Series) -> StockClassification:
     """
-    Classify a stock as core or speculative based on data quality and risk.
+    NEW CLASSIFICATION LOGIC (Nov 2025):
+    Core = BEST signals: RSI 25-40 (oversold gems) + RR≥2.0 + MomCons≥0.6
+    Speculative = Good but not great signals
+    
+    Based on backtest data showing:
+    - RSI 25-40: 70% win, 2.37% avg return 🔥
+    - RR ≥2.0: 66% win, 1.66% avg return
+    - MomCons ≥0.6: 65% win, 1.35% avg return
     
     Args:
         row: DataFrame row with all stock metrics
@@ -181,44 +202,64 @@ def classify_stock(row: pd.Series) -> StockClassification:
     )
     if fundamentals_missing:
         all_warnings.append("Fundamentals missing")
-
-    # Initial classification - stricter Core criteria to populate Speculative category
-    if data_quality == "low":
+    
+    # Extract key metrics for classification
+    rsi = row.get("RSI")
+    rr = row.get("RR_Ratio") or row.get("RewardRisk", 0)
+    mom_cons = row.get("Momentum_Consistency", 0)
+    
+    # CORE CRITERIA (Best signals - based on 70% win rate data)
+    # 1. RSI 25-40 (oversold gems)
+    # 2. RR ≥ 2.0 (good risk/reward)
+    # 3. MomCons ≥ 0.6 (consistent momentum)
+    # 4. Data quality at least medium
+    # 5. Max 2 risk warnings
+    is_core_rsi = isinstance(rsi, (int, float)) and 25 <= rsi <= 40
+    is_core_rr = isinstance(rr, (int, float)) and rr >= 2.0
+    is_core_mom = isinstance(mom_cons, (int, float)) and mom_cons >= 0.6
+    has_quality = data_quality in ["high", "medium"]
+    low_risk = len(risk_warnings) <= 2
+    
+    # Core = ALL conditions met
+    if is_core_rsi and is_core_rr and is_core_mom and has_quality and low_risk:
+        risk_level = "core"
+        confidence_level = "high" if data_quality == "high" and len(risk_warnings) == 0 else "medium"
+        should_display = True
+        all_warnings.append(f"Core: RSI={rsi:.1f}, RR={rr:.2f}, MomCons={mom_cons:.2f}")
+    
+    # SPECULATIVE CRITERIA (Good but not great)
+    # Option A: RSI 50-58 (neutral bounce zone) with decent quality
+    # Option B: RSI 25-40 but missing other Core requirements
+    # Option C: Medium data quality with acceptable metrics
+    elif data_quality == "low":
         risk_level = "speculative"
         confidence_level = "none"
-        tech_fields = [row.get("RS_63d"), row.get("Volume_Surge"), row.get("RR_Ratio"), row.get("Momentum_Consistency"), row.get("RSI"), row.get("ATR_Price")]
+        tech_fields = [row.get("RS_63d"), row.get("Volume_Surge"), rr, mom_cons, rsi, row.get("ATR_Price")]
         tech_valid = sum(
             v is not None and not (isinstance(v, float) and np.isnan(v))
             for v in tech_fields
         )
         should_display = tech_valid >= 4
-    elif data_quality == "medium" and len(risk_warnings) >= 2:  # More aggressive - medium quality with 2+ warnings
+    elif isinstance(rsi, (int, float)) and 50 <= rsi <= 58 and has_quality:  # Neutral bounce zone
         risk_level = "speculative"
-        confidence_level = "medium" if len(risk_warnings) <= 3 else "low"
+        confidence_level = "medium" if len(risk_warnings) <= 2 else "low"
         should_display = True
-    elif len(risk_warnings) >= 3:  # More aggressive - 3+ warnings = speculative
+        all_warnings.append(f"Spec: Neutral bounce (RSI={rsi:.1f})")
+    elif is_core_rsi and has_quality:  # Good RSI but missing RR or MomCons
         risk_level = "speculative"
-        confidence_level = "medium" if len(risk_warnings) <= 4 else "low"
+        confidence_level = "medium" if len(risk_warnings) <= 2 else "low"
         should_display = True
-    elif data_quality == "medium":  # Medium quality even without many warnings → Speculative
+        all_warnings.append(f"Spec: Good RSI but RR={rr:.2f} or MomCons={mom_cons:.2f} below Core threshold")
+    elif has_quality and len(risk_warnings) <= 3:  # Decent quality, acceptable risk
         risk_level = "speculative"
-        confidence_level = "medium"
+        confidence_level = "medium" if len(risk_warnings) <= 2 else "low"
         should_display = True
     else:
-        # Core only for high quality with minimal warnings
-        risk_level = "core"
-        
-        # Determine confidence level for core stocks
-        if data_quality == "high" and len(risk_warnings) == 0:
-            confidence_level = "high"
-        elif data_quality == "high" and len(risk_warnings) <= 1:
-            confidence_level = "medium"
-        elif data_quality == "medium" and len(risk_warnings) <= 1:
-            confidence_level = "medium"
-        else:
-            confidence_level = "low"
-        
-        should_display = True
+        # Don't recommend: poor quality or too risky
+        risk_level = "speculative"
+        confidence_level = "none"
+        should_display = False
+        all_warnings.append("Not recommended: poor quality or excessive risk")
     
     # Override high confidence if original high_confidence flag is False
     original_high_conf = row.get("High_Confidence", False)
@@ -309,15 +350,17 @@ def filter_core_recommendations(
     if df.empty:
         return df
     
-    # Default config if not provided - more selective for Core to allow Speculative category
+    # NEW CORE CONFIG (Nov 2025): Based on 70% win rate backtest data
+    # Core = BEST signals: RSI 25-40 (oversold gems) + RR≥2.0 + MomCons≥0.6
     if config is None:
         config = {
-            "MIN_QUALITY_SCORE_CORE": 30.0,  # Raised to be more selective (best stocks only)
-            "MAX_OVEREXTENSION_CORE": 0.08,  # Tightened back
-            "MAX_ATR_PRICE_CORE": 0.07,      # Tightened - Core should be stable
-            "RSI_MIN_CORE": 45,              # Back to conservative
-            "RSI_MAX_CORE": 68,              # Avoid overbought for Core
-            "MIN_RR_CORE": 1.5,              # Core needs good risk/reward
+            "MIN_QUALITY_SCORE_CORE": 25.0,  # Relaxed - technical signals are primary
+            "MAX_OVEREXTENSION_CORE": 0.10,  # Allow some overextension
+            "MAX_ATR_PRICE_CORE": 0.06,      # Max 6% volatility (downside protection)
+            "RSI_MIN_CORE": 25,              # NEW: Oversold zone start
+            "RSI_MAX_CORE": 40,              # NEW: Oversold zone end (70% win rate!)
+            "MIN_RR_CORE": 2.0,              # RAISED: Core requires RR≥2.0 (66% win)
+            "MIN_MOMCONS_CORE": 0.6,         # NEW: Require consistent momentum (65% win)
         }
     
     initial_count = len(df)
@@ -382,12 +425,21 @@ def filter_core_recommendations(
     
     # Filter 6: Minimum reward/risk ratio
     if "RewardRisk" in filtered.columns:
-        min_rr = config.get("MIN_RR_CORE", 1.5)
+        min_rr = config.get("MIN_RR_CORE", 2.0)
         filtered = filtered[
             (filtered["RewardRisk"].isna()) | 
             (filtered["RewardRisk"] >= min_rr)
         ]
         logger.info(f"After RewardRisk >= {min_rr}: {len(filtered)}/{initial_count}")
+    
+    # Filter 7: NEW - Minimum momentum consistency (Core = consistent trends)
+    if "Momentum_Consistency" in filtered.columns:
+        min_mom = config.get("MIN_MOMCONS_CORE", 0.6)
+        filtered = filtered[
+            (filtered["Momentum_Consistency"].isna()) | 
+            (filtered["Momentum_Consistency"] >= min_mom)
+        ]
+        logger.info(f"After MomentumConsistency >= {min_mom}: {len(filtered)}/{initial_count}")
     
     # Adaptive relaxation if enabled and still empty after filters
     if adaptive and len(filtered) == 0:

@@ -320,6 +320,11 @@ def compute_forward_returns(
 
 def compute_technical_score(row: pd.Series, weights: Optional[Dict[str, float]] = None) -> float:
     """Compute a deterministic technical score (0-100) from indicators in `row`.
+    
+    NEW (Nov 2025): Volatility-adjusted scoring
+    - Penalize extreme volatility (ATR > 6%)
+    - Reward stable movers (ATR 2-4%)
+    - Adjust RR by volatility (risk-adjusted RR)
 
     This function centralizes the simple scoring logic so both app and backtest
     use the same formula. `weights` is a mapping similar to CONFIG['WEIGHTS']
@@ -346,6 +351,7 @@ def compute_technical_score(row: pd.Series, weights: Optional[Dict[str, float]] 
     # Extract components from row (use safe defaults)
     ma_ok = float(row.get('MA_Aligned', 0.0)) if pd.notna(row.get('MA_Aligned', np.nan)) else 0.0
     mom = float(row.get('Momentum_Consistency', 0.0)) if pd.notna(row.get('Momentum_Consistency', np.nan)) else 0.0
+    
     # RSI score: closer to mid-band (50) is neutral; reward 50-40/60 range
     rsi = row.get('RSI', np.nan)
     if pd.isna(rsi):
@@ -365,8 +371,26 @@ def compute_technical_score(row: pd.Series, weights: Optional[Dict[str, float]] 
 
     pullback = float(row.get('Near52w', np.nan)) / 100.0 if pd.notna(row.get('Near52w', np.nan)) else 0.5
 
+    # VOLATILITY-ADJUSTED RISK/REWARD
+    # Penalize high volatility, reward stable movers
     rr = float(row.get('RR', np.nan)) if pd.notna(row.get('RR', np.nan)) else 1.0
-    rr_score = max(0.0, min(1.0, (rr + 1.0) / 5.0))
+    atr_pct = float(row.get('ATR_Pct', np.nan)) if pd.notna(row.get('ATR_Pct', np.nan)) else 0.03
+    
+    # Volatility penalty/bonus
+    if atr_pct > 0.06:  # >6% = extreme volatility
+        vol_adjustment = 0.5  # Heavy penalty
+    elif atr_pct > 0.05:  # 5-6% = high volatility
+        vol_adjustment = 0.7
+    elif atr_pct < 0.02:  # <2% = too stable (low opportunity)
+        vol_adjustment = 0.8
+    elif 0.02 <= atr_pct <= 0.04:  # Sweet spot: 2-4%
+        vol_adjustment = 1.2  # Bonus!
+    else:  # 4-5% = acceptable
+        vol_adjustment = 1.0
+    
+    # Risk-adjusted RR = RR * volatility adjustment
+    adjusted_rr = rr * vol_adjustment
+    rr_score = max(0.0, min(1.0, (adjusted_rr + 1.0) / 5.0))
 
     macd = 1.0 if row.get('MACD_Pos', False) else 0.0
     adx = float(row.get('ADX14', 0.0)) if pd.notna(row.get('ADX14', np.nan)) else 0.0
@@ -380,11 +404,15 @@ def compute_technical_score(row: pd.Series, weights: Optional[Dict[str, float]] 
         + norm_w['vol'] * vol_score
         + norm_w['overext'] * overext_score
         + norm_w['pullback'] * pullback
-        + norm_w['risk_reward'] * rr_score
+        + norm_w['risk_reward'] * rr_score  # Now volatility-adjusted!
         + norm_w['macd'] * macd
         + norm_w['adx'] * adx_score
     )
 
+    # Additional volatility penalty for extreme cases
+    if atr_pct > 0.06:
+        tech *= 0.85  # 15% penalty to overall score
+    
     # scale to 0-100
     return float(np.clip(tech * 100.0, 0.0, 100.0))
 

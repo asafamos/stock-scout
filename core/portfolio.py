@@ -10,9 +10,14 @@ from typing import Dict
 import pandas as pd
 
 def allocate_budget(
-    df: pd.DataFrame, total: float, min_pos: float, max_pos_pct: float, *, score_col: str = "Score"
+    df: pd.DataFrame, total: float, min_pos: float, max_pos_pct: float, *, score_col: str = "Score", dynamic_sizing: bool = True
 ) -> pd.DataFrame:
     """Allocate budget across tickers proportionally to score with min/max constraints.
+    
+    NEW (Nov 2025): Dynamic position sizing based on confidence levels:
+    - High confidence (RSI<30, RR>3, MomCons>0.7): 2.0x weight
+    - Medium confidence: 1.0x weight
+    - Low confidence: 0.5x weight
 
     Pure function extracted from `stock_scout.py` to allow testing without importing UI side-effects.
     Args:
@@ -21,6 +26,7 @@ def allocate_budget(
         min_pos: Minimum dollar allocation per included position (0 for none).
         max_pos_pct: Maximum position as percent of total (e.g. 15 for 15%).
         score_col: Column name representing relative score weights.
+        dynamic_sizing: Whether to apply confidence-based position sizing (default True).
     Returns:
         DataFrame copy with new column "סכום קנייה ($)" populated.
     """
@@ -28,6 +34,30 @@ def allocate_budget(
     df["סכום קנייה ($)"] = 0.0
     if total <= 0 or df.empty:
         return df
+    
+    # Calculate confidence multipliers if dynamic sizing enabled
+    if dynamic_sizing and "RSI" in df.columns:
+        df["_confidence_mult"] = 1.0  # Default medium confidence
+        
+        # High confidence: RSI<30 + RR>3 + MomCons>0.7
+        rsi_cond = df.get("RSI", pd.Series(50)).fillna(50) < 30
+        rr_cond = df.get("RR_Ratio", df.get("RewardRisk", pd.Series(0))).fillna(0) > 3.0
+        mom_cond = df.get("Momentum_Consistency", pd.Series(0)).fillna(0) > 0.7
+        high_conf = rsi_cond & rr_cond & mom_cond
+        df.loc[high_conf, "_confidence_mult"] = 2.0
+        
+        # Low confidence: RSI>50 or RR<1.5 or MomCons<0.4
+        rsi_low = df.get("RSI", pd.Series(50)).fillna(50) > 50
+        rr_low = df.get("RR_Ratio", df.get("RewardRisk", pd.Series(2))).fillna(2) < 1.5
+        mom_low = df.get("Momentum_Consistency", pd.Series(0.5)).fillna(0.5) < 0.4
+        low_conf = rsi_low | rr_low | mom_low
+        df.loc[low_conf & ~high_conf, "_confidence_mult"] = 0.5
+        
+        # Apply confidence multiplier to scores
+        adjusted_scores = df[score_col] * df["_confidence_mult"]
+    else:
+        adjusted_scores = df[score_col]
+    
     df = df.sort_values([score_col, "Ticker"], ascending=[False, True]).reset_index(drop=True)
     remaining = float(total)
     n = len(df)
@@ -39,7 +69,8 @@ def allocate_budget(
             df.loc[: can_min - 1, "סכום קנייה ($)"] = base
             remaining -= float(base.sum())
     if remaining > 0:
-        weights = df[score_col].clip(lower=0).to_numpy(dtype=float)
+        # Use adjusted scores for proportional allocation
+        weights = adjusted_scores.clip(lower=0).to_numpy(dtype=float)
         extras = (
             np.full(n, remaining / n, dtype=float)
             if np.nansum(weights) <= 0
@@ -54,6 +85,11 @@ def allocate_budget(
     if s > 0 and abs(s - total) / max(total, 1) > 1e-6:
         df["סכום קנייה ($)"] = df["סכום קנייה ($)"].to_numpy(dtype=float) * (total / s)
     df["סכום קנייה ($)"] = df["סכום קנייה ($)"].round(2)
+    
+    # Clean up temporary column
+    if "_confidence_mult" in df.columns:
+        df.drop(columns=["_confidence_mult"], inplace=True)
+    
     return df
 
 

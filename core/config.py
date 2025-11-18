@@ -31,12 +31,23 @@ class Config:
     # Technical Indicators
     ma_short: int = 20
     ma_long: int = 50
-    rsi_bounds: tuple = (25, 80)  # Expanded from (40, 75) - allow more oversold stocks (they perform better!)
+    # RSI Multi-Tier System:
+    # Tier A (Core): RSI 25-40 (oversold gems - 70% win rate!)
+    # Tier B (Spec): RSI 50-58 (neutral bounce zone)
+    # SKIP: RSI 40-50 (dead zone - only 55% win) and RSI >60 (overbought)
+    rsi_core_bounds: tuple = (25, 40)  # Core = best oversold signals
+    rsi_spec_bounds: tuple = (50, 58)  # Spec = neutral bounce zone
+    rsi_bounds: tuple = (25, 80)  # Overall acceptable range (for backwards compatibility)
     pullback_range: tuple = (0.85, 0.97)
     overext_soft: float = 0.20
     overext_hard: float = 0.30
     atr_price_hard: float = 0.08
     use_macd_adx: bool = True
+    
+    # Downside Protection Filters
+    max_atr_pct: float = 6.0  # Reject extreme volatility (>6% ATR)
+    min_rr_required: float = 1.5  # Minimum Risk/Reward ratio
+    earnings_blackout_days: int = 7  # Skip stocks with earnings in next N days
     
     # Technical Weights (Optimized based on backtest analysis)
     weights: Dict[str, float] = field(default_factory=lambda: {
@@ -59,7 +70,6 @@ class Config:
     surprise_bonus_on: bool = False
     
     # Risk Management
-    earnings_blackout_days: int = 7
     earnings_check_topk: int = 12
     sector_cap_enabled: bool = True
     sector_cap_max: int = 3
