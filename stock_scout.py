@@ -253,7 +253,10 @@ def alpha_throttle(min_gap_seconds: float = 12.0) -> None:
 # --- Build Universe (restored) ---
 def build_universe(limit: int) -> List[str]:
     """Fetch S&P 500 tickers (wikipedia) then fallback to common mega-cap list.
-    Limit result length to `limit`."""
+    Limit result length to `limit`.
+    
+    CRITICAL FIX: Deduplicates by company name to prevent GOOG/GOOGL duplicates.
+    """
     try:
         # Wikipedia requires a User-Agent header
         tables = pd.read_html(
@@ -262,8 +265,15 @@ def build_universe(limit: int) -> List[str]:
         )
         # S&P500 table is typically the second table (index 1)
         df_sp = tables[1]
+        
+        # CRITICAL FIX: Deduplicate by company name (keep first ticker, usually Class A)
+        # Prevents duplicate recommendations for GOOG/GOOGL, BRK.A/BRK.B, etc.
+        original_count = len(df_sp)
+        df_sp = df_sp.drop_duplicates(subset='Security', keep='first')
+        logger.info(f"✓ Deduplicated {original_count} → {len(df_sp)} unique companies (removed {original_count - len(df_sp)} multi-class tickers)")
+        
         tickers = df_sp['Symbol'].astype(str).str.replace('.', '-', regex=False).tolist()
-        logger.info(f"✓ Loaded {len(tickers)} S&P500 tickers from Wikipedia")
+        logger.info(f"✓ Loaded {len(tickers)} unique S&P500 companies from Wikipedia")
         return tickers[:limit]
     except Exception as e:
         logger.warning(f"Wikipedia S&P500 fetch failed ({e}), using fallback list")
@@ -1804,6 +1814,15 @@ if CONFIG["FUNDAMENTAL_ENABLED"] and fundamental_available:
         # Smart Alpha: enable only for top 15 to respect 25/day rate limit
         use_alpha = (rank <= 15)
         d = fetch_fundamentals_bundle(tkr, enable_alpha_smart=use_alpha)
+        
+        # DEBUG: Log FMP data quality for key tickers (transparency check)
+        if tkr in ['AAPL', 'GOOGL', 'MSFT', 'NVDA', 'TSLA', 'META', 'AMZN', 'JPM', 'V']:
+            fmp_ok = d.get('from_fmp', False) or d.get('from_fmp_full', False)
+            coverage = d.get('Fund_Coverage_Pct', 0.0)
+            quality_f = d.get('Quality_Score_F', np.nan)
+            roe = d.get('roe', np.nan)
+            logger.info(f"🔍 {tkr} FMP Debug: from_fmp={fmp_ok}, coverage={coverage:.0%}, "
+                       f"roe={roe}, quality_score_f={quality_f:.1f if np.isfinite(quality_f) else 'NaN'}")
         
         # Store provider metadata
         results.loc[idx, "Fund_from_FMP"] = d.get("from_fmp", False) or d.get("from_fmp_full", False)

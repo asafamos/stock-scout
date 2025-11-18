@@ -189,37 +189,49 @@ def score_with_ml_model(row: pd.Series, model_data: Optional[Dict] = None) -> fl
     """
     Score stock with ML model.
     
+    IMPORTANT: Model is currently DISABLED due to inverse correlation bug.
+    Analysis shows predictions are backwards: low prob = good performance (70% win),
+    high prob = poor performance (50% win). Model needs retraining with correct labels.
+    
     Args:
         row: Series with technical indicators
         model_data: Dict with 'model' and 'feature_names' keys
         
     Returns:
-        Probability between 0 and 1
+        Probability between 0 and 1 (currently returns 0.5 neutral)
     """
-    if model_data is None or model_data.get('model') is None:
-        return 0.5  # Neutral if no model
+    # DISABLED: Model predictions are inverted - needs retraining
+    return 0.5
     
-    try:
-        model = model_data['model']
-        feature_names = model_data['feature_names']
-        
-        # Extract features in correct order
-        features = {}
-        for fname in feature_names:
-            features[fname] = row.get(fname, 0.5 if 'MomCons' in fname else 1.0)
-        
-        X = pd.DataFrame([features])[feature_names]
-        X = X.fillna(X.median())
-        
-        # Support both sklearn-like calibrated classifiers and xgboost
-        if hasattr(model, 'predict_proba'):
-            prob = float(model.predict_proba(X.values)[0][1])
-        else:
-            # fallback to xgboost API
-            prob = float(model.predict_proba(X)[0][1])
-        return prob
-    except Exception:
-        return 0.5
+    # Original code (keep for when model is retrained):
+    # if model_data is None or model_data.get('model') is None:
+    #     return 0.5  # Neutral if no model
+    # 
+    # try:
+    #     model = model_data['model']
+    #     feature_names = model_data['feature_names']
+    #     
+    #     # Extract features in correct order
+    #     features = {}
+    #     for fname in feature_names:
+    #         features[fname] = row.get(fname, 0.5 if 'MomCons' in fname else 1.0)
+    #     
+    #     X = pd.DataFrame([features])[feature_names]
+    #     X = X.fillna(X.median())
+    #     
+    #     # Support both sklearn-like calibrated classifiers and xgboost
+    #     if hasattr(model, 'predict_proba'):
+    #         prob = float(model.predict_proba(X.values)[0][1])
+    #     else:
+    #         # fallback to xgboost API
+    #         prob = float(model.predict_proba(X)[0][1])
+    #     
+    #     # OPTION: Invert predictions to fix backwards model
+    #     # prob = 1.0 - prob
+    #     
+    #     return prob
+    # except Exception:
+    #     return 0.5
 
 
 def compute_forward_returns(

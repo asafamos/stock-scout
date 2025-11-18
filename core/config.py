@@ -31,24 +31,24 @@ class Config:
     # Technical Indicators
     ma_short: int = 20
     ma_long: int = 50
-    rsi_bounds: tuple = (40, 75)
+    rsi_bounds: tuple = (25, 80)  # Expanded from (40, 75) - allow more oversold stocks (they perform better!)
     pullback_range: tuple = (0.85, 0.97)
     overext_soft: float = 0.20
     overext_hard: float = 0.30
     atr_price_hard: float = 0.08
     use_macd_adx: bool = True
     
-    # Technical Weights
+    # Technical Weights (Optimized based on backtest analysis)
     weights: Dict[str, float] = field(default_factory=lambda: {
-        "ma": 0.22,
-        "mom": 0.30,
-        "rsi": 0.12,
-        "near_high_bell": 0.10,
-        "vol": 0.08,
+        "ma": 0.20,
+        "mom": 0.25,           # Reduced from 0.30
+        "rsi": 0.20,           # INCREASED from 0.12 - RSI is highly predictive!
+        "near_high_bell": 0.12,
+        "vol": 0.02,           # REDUCED from 0.08 - volume surge doesn't predict well
         "overext": 0.08,
         "pullback": 0.05,
-        "risk_reward": 0.03,
-        "macd": 0.01,
+        "risk_reward": 0.05,   # Increased from 0.03
+        "macd": 0.02,          # Increased from 0.01
         "adx": 0.01,
     })
     
