@@ -209,29 +209,45 @@ def classify_stock(row: pd.Series) -> StockClassification:
     mom_cons = row.get("Momentum_Consistency", 0)
     
     # CORE CRITERIA (Best signals - balanced for coverage + quality)
-    # FIXED: Lowered thresholds for production (67% win rate, 100+ stocks)
+    # FIXED: Check technical signals FIRST (they're more important than data completeness!)
     # 1. RSI 25-40 (oversold gems)
-    # 2. RR ≥ 1.5 (good risk/reward) - LOWERED from 2.0
-    # 3. MomCons ≥ 0.5 (consistent momentum) - LOWERED from 0.6
-    # 4. Data quality at least medium
-    # 5. Max 2 risk warnings
+    # 2. RR ≥ 1.5 (good risk/reward)
+    # 3. MomCons ≥ 0.5 (consistent momentum)
+    # 4. Max 3 risk warnings (relaxed from 2)
+    # 5. Data quality "low" is acceptable if technicals are strong
     is_core_rsi = isinstance(rsi, (int, float)) and 25 <= rsi <= 40
-    is_core_rr = isinstance(rr, (int, float)) and rr >= 1.5  # Lowered from 2.0
-    is_core_mom = isinstance(mom_cons, (int, float)) and mom_cons >= 0.5  # Lowered from 0.6
-    has_quality = data_quality in ["high", "medium"]
-    low_risk = len(risk_warnings) <= 2
+    is_core_rr = isinstance(rr, (int, float)) and rr >= 1.5
+    is_core_mom = isinstance(mom_cons, (int, float)) and mom_cons >= 0.5
+    low_risk = len(risk_warnings) <= 3  # Relaxed from 2
     
-    # Core = ALL conditions met
-    if is_core_rsi and is_core_rr and is_core_mom and has_quality and low_risk:
+    # Core = RSI + RR + MomCons met, regardless of data completeness
+    # (Technical signals are more important than fundamental completeness!)
+    if is_core_rsi and is_core_rr and is_core_mom and low_risk:
         risk_level = "core"
-        confidence_level = "high" if data_quality == "high" and len(risk_warnings) == 0 else "medium"
+        # Adjust confidence based on data quality
+        if data_quality == "high" and len(risk_warnings) == 0:
+            confidence_level = "high"
+        elif data_quality in ["high", "medium"] and len(risk_warnings) <= 1:
+            confidence_level = "medium"
+        else:
+            confidence_level = "low"
         should_display = True
         all_warnings.append(f"Core: RSI={rsi:.1f}, RR={rr:.2f}, MomCons={mom_cons:.2f}")
     
     # SPECULATIVE CRITERIA (Good but not great)
-    # Option A: RSI 50-58 (neutral bounce zone) with decent quality
+    # Option A: RSI 50-58 (neutral bounce zone)
     # Option B: RSI 25-40 but missing other Core requirements
-    # Option C: Medium data quality with acceptable metrics
+    # Option C: Decent technicals but higher risk
+    elif isinstance(rsi, (int, float)) and 50 <= rsi <= 58:  # Neutral bounce zone
+        risk_level = "speculative"
+        confidence_level = "medium" if len(risk_warnings) <= 2 else "low"
+        should_display = True
+        all_warnings.append(f"Spec: Neutral bounce (RSI={rsi:.1f})")
+    elif is_core_rsi:  # Good RSI but missing RR or MomCons
+        risk_level = "speculative"
+        confidence_level = "medium" if len(risk_warnings) <= 2 else "low"
+        should_display = True
+        all_warnings.append(f"Spec: Good RSI but RR={rr:.2f} or MomCons={mom_cons:.2f} below threshold")
     elif data_quality == "low":
         risk_level = "speculative"
         confidence_level = "none"
@@ -241,17 +257,7 @@ def classify_stock(row: pd.Series) -> StockClassification:
             for v in tech_fields
         )
         should_display = tech_valid >= 4
-    elif isinstance(rsi, (int, float)) and 50 <= rsi <= 58 and has_quality:  # Neutral bounce zone
-        risk_level = "speculative"
-        confidence_level = "medium" if len(risk_warnings) <= 2 else "low"
-        should_display = True
-        all_warnings.append(f"Spec: Neutral bounce (RSI={rsi:.1f})")
-    elif is_core_rsi and has_quality:  # Good RSI but missing RR or MomCons
-        risk_level = "speculative"
-        confidence_level = "medium" if len(risk_warnings) <= 2 else "low"
-        should_display = True
-        all_warnings.append(f"Spec: Good RSI but RR={rr:.2f} or MomCons={mom_cons:.2f} below Core threshold")
-    elif has_quality and len(risk_warnings) <= 3:  # Decent quality, acceptable risk
+    elif data_quality in ["high", "medium"] and len(risk_warnings) <= 3:  # Decent quality, acceptable risk
         risk_level = "speculative"
         confidence_level = "medium" if len(risk_warnings) <= 2 else "low"
         should_display = True
