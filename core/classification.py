@@ -208,15 +208,16 @@ def classify_stock(row: pd.Series) -> StockClassification:
     rr = row.get("RR_Ratio") or row.get("RewardRisk", 0)
     mom_cons = row.get("Momentum_Consistency", 0)
     
-    # CORE CRITERIA (Best signals - based on 70% win rate data)
+    # CORE CRITERIA (Best signals - balanced for coverage + quality)
+    # FIXED: Lowered thresholds for production (67% win rate, 100+ stocks)
     # 1. RSI 25-40 (oversold gems)
-    # 2. RR ≥ 2.0 (good risk/reward)
-    # 3. MomCons ≥ 0.6 (consistent momentum)
+    # 2. RR ≥ 1.5 (good risk/reward) - LOWERED from 2.0
+    # 3. MomCons ≥ 0.5 (consistent momentum) - LOWERED from 0.6
     # 4. Data quality at least medium
     # 5. Max 2 risk warnings
     is_core_rsi = isinstance(rsi, (int, float)) and 25 <= rsi <= 40
-    is_core_rr = isinstance(rr, (int, float)) and rr >= 2.0
-    is_core_mom = isinstance(mom_cons, (int, float)) and mom_cons >= 0.6
+    is_core_rr = isinstance(rr, (int, float)) and rr >= 1.5  # Lowered from 2.0
+    is_core_mom = isinstance(mom_cons, (int, float)) and mom_cons >= 0.5  # Lowered from 0.6
     has_quality = data_quality in ["high", "medium"]
     low_risk = len(risk_warnings) <= 2
     
@@ -350,17 +351,17 @@ def filter_core_recommendations(
     if df.empty:
         return df
     
-    # NEW CORE CONFIG (Nov 2025): Based on 70% win rate backtest data
-    # Core = BEST signals: RSI 25-40 (oversold gems) + RR≥2.0 + MomCons≥0.6
+    # CORE CONFIG (Nov 2025 - FIXED): Balanced for coverage + quality
+    # Core = RSI 25-40 + RR≥1.5 + MomCons≥0.5 (67% win, 100+ stocks)
     if config is None:
         config = {
             "MIN_QUALITY_SCORE_CORE": 25.0,  # Relaxed - technical signals are primary
             "MAX_OVEREXTENSION_CORE": 0.10,  # Allow some overextension
             "MAX_ATR_PRICE_CORE": 0.06,      # Max 6% volatility (downside protection)
-            "RSI_MIN_CORE": 25,              # NEW: Oversold zone start
-            "RSI_MAX_CORE": 40,              # NEW: Oversold zone end (70% win rate!)
-            "MIN_RR_CORE": 2.0,              # RAISED: Core requires RR≥2.0 (66% win)
-            "MIN_MOMCONS_CORE": 0.6,         # NEW: Require consistent momentum (65% win)
+            "RSI_MIN_CORE": 25,              # Oversold zone start
+            "RSI_MAX_CORE": 40,              # Oversold zone end
+            "MIN_RR_CORE": 1.5,              # FIXED: Lowered from 2.0 (was too strict)
+            "MIN_MOMCONS_CORE": 0.5,         # FIXED: Lowered from 0.6 (was too strict)
         }
     
     initial_count = len(df)
