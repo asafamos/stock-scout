@@ -56,15 +56,31 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     """Add derived features for better model performance."""
     X = df.copy()
     
-    # Interaction features
+    # Core interaction features - these showed best performance
     if 'RR' in X.columns and 'MomCons' in X.columns:
         X['RR_MomCons'] = X['RR'] * X['MomCons']
+    
     if 'RSI' in X.columns:
         X['RSI_Neutral'] = (X['RSI'] - 50).abs()  # Distance from neutral
+        X['RSI_Squared'] = X['RSI'] ** 2  # Amplify extremes
+    
     if 'Overext' in X.columns and 'ATR_Pct' in X.columns:
         X['Risk_Score'] = X['Overext'].abs() + X['ATR_Pct']  # Combined risk
+    
     if 'VolSurge' in X.columns and 'MomCons' in X.columns:
         X['Vol_Mom'] = X['VolSurge'] * X['MomCons']  # Volume confirmation
+    
+    if 'Overext' in X.columns and 'MomCons' in X.columns:
+        # Overextension momentum divergence: proven useful
+        X['Overext_Mom_Div'] = X['Overext'] * X['MomCons']
+    
+    if 'RR' in X.columns and 'Overext' in X.columns:
+        # Risk-adjusted reward
+        X['RR_Risk_Adj'] = X['RR'] / (1 + X['Overext'].abs())
+    
+    # Simple regime indicator
+    if 'ATR_Pct' in X.columns:
+        X['ATR_Regime'] = pd.qcut(X['ATR_Pct'], q=3, labels=[1, 2, 3], duplicates='drop').astype(float)
     
     return X
 
