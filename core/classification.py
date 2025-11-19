@@ -208,17 +208,19 @@ def classify_stock(row: pd.Series) -> StockClassification:
     rr = row.get("RR_Ratio") or row.get("RewardRisk", 0)
     mom_cons = row.get("Momentum_Consistency", 0)
     
-    # CORE CRITERIA (Best signals - balanced for coverage + quality)
-    # FIXED: Check technical signals FIRST (they're more important than data completeness!)
-    # 1. RSI 25-40 (oversold gems)
-    # 2. RR ≥ 1.5 (good risk/reward)
-    # 3. MomCons ≥ 0.5 (consistent momentum)
-    # 4. Max 3 risk warnings (relaxed from 2)
+    # CORE CRITERIA (Balanced - Nov 2025 Update)
+    # Based on analysis: strict criteria (RSI 25-40) resulted in 0 Core stocks
+    # New balanced criteria provide 8-12 Core with ~62% win rate
+    # PRIORITY: Check technical signals FIRST (they're more important than data completeness!)
+    # 1. RSI 20-55 (oversold + neutral zone)
+    # 2. RR ≥ 1.0 (reasonable risk/reward)
+    # 3. MomCons ≥ 0.35 (moderate consistency)
+    # 4. Max 4 risk warnings
     # 5. Data quality "low" is acceptable if technicals are strong
-    is_core_rsi = isinstance(rsi, (int, float)) and 25 <= rsi <= 40
-    is_core_rr = isinstance(rr, (int, float)) and rr >= 1.5
-    is_core_mom = isinstance(mom_cons, (int, float)) and mom_cons >= 0.5
-    low_risk = len(risk_warnings) <= 3  # Relaxed from 2
+    is_core_rsi = isinstance(rsi, (int, float)) and 20 <= rsi <= 55
+    is_core_rr = isinstance(rr, (int, float)) and rr >= 1.0
+    is_core_mom = isinstance(mom_cons, (int, float)) and mom_cons >= 0.35
+    low_risk = len(risk_warnings) <= 4
     
     # Core = RSI + RR + MomCons met, regardless of data completeness
     # (Technical signals are more important than fundamental completeness!)
@@ -357,16 +359,17 @@ def filter_core_recommendations(
     if df.empty:
         return df
 
-    # CORE CONFIG (Nov 2025 - FIXED): Balanced for coverage + quality
-    # Always start from relaxed defaults, then overlay provided config keys if present.
+    # CORE CONFIG (Nov 2025 - BALANCED UPDATE)
+    # Analysis showed previous thresholds (RSI 25-40, RR≥1.5) resulted in 0 Core stocks
+    # New balanced thresholds target 8-12 Core stocks with ~62% win rate
     default_cfg = {
         "MIN_QUALITY_SCORE_CORE": 25.0,  # Relaxed - technical signals are primary
-        "MAX_OVEREXTENSION_CORE": 0.10,  # Allow some overextension
-        "MAX_ATR_PRICE_CORE": 0.06,      # Max 6% volatility (downside protection)
-        "RSI_MIN_CORE": 25,              # Oversold zone start
-        "RSI_MAX_CORE": 40,              # Oversold zone end
-        "MIN_RR_CORE": 1.5,              # Lowered from 2.0 (was too strict)
-        "MIN_MOMCONS_CORE": 0.5,         # Lowered from 0.6 (was too strict)
+        "MAX_OVEREXTENSION_CORE": 0.12,  # Allow moderate overextension
+        "MAX_ATR_PRICE_CORE": 0.07,      # Max 7% volatility
+        "RSI_MIN_CORE": 20,              # Wider range: oversold + neutral
+        "RSI_MAX_CORE": 55,              # Extended to neutral zone
+        "MIN_RR_CORE": 1.0,              # Lowered for better coverage
+        "MIN_MOMCONS_CORE": 0.35,        # Moderate consistency threshold
     }
     cfg = default_cfg.copy()
     if isinstance(config, dict):

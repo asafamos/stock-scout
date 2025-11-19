@@ -1940,19 +1940,20 @@ spec_stocks = results[results["Risk_Level"] == "speculative"].copy()
 st.write(f"📊 **Before filtering:** {len(core_stocks)} Core, {len(spec_stocks)} Speculative")
 
 # Fallback: if no Core, promote top relaxed candidates from Speculative
+# Updated Nov 2025: More lenient fallback aligned with balanced criteria
 if len(core_stocks) == 0 and not spec_stocks.empty:
     st.warning("⚠️ No Core stocks classified. Applying adaptive Core fallback…")
     try:
         rr = spec_stocks.get("RewardRisk")
         if rr is None:
             rr = spec_stocks.get("RR_Ratio")
-        # Relaxed technical window to ensure minimal viable Core set
+        # Fallback uses even more relaxed criteria (RSI 20-60, RR≥0.8)
         mask = (
-            spec_stocks.get("RSI").between(25, 45, inclusive="both")
-            & (rr.fillna(0) >= 1.3)
-            & (spec_stocks.get("Momentum_Consistency", pd.Series([0]*len(spec_stocks))).fillna(0) >= 0.45)
-            & (spec_stocks.get("ATR_Price", pd.Series([1]*len(spec_stocks))).fillna(1) <= 0.08)
-            & (spec_stocks.get("OverextRatio", pd.Series([1]*len(spec_stocks))).fillna(1) <= 0.12)
+            spec_stocks.get("RSI").between(20, 60, inclusive="both")
+            & (rr.fillna(0) >= 0.8)
+            & (spec_stocks.get("Momentum_Consistency", pd.Series([0]*len(spec_stocks))).fillna(0) >= 0.3)
+            & (spec_stocks.get("ATR_Price", pd.Series([1]*len(spec_stocks))).fillna(1) <= 0.09)
+            & (spec_stocks.get("OverextRatio", pd.Series([1]*len(spec_stocks))).fillna(1) <= 0.15)
             & (spec_stocks.get("Should_Display", pd.Series([True]*len(spec_stocks))).fillna(True))
         )
         fallback = spec_stocks[mask].copy().sort_values(["Score","Ticker"], ascending=[False, True]).head(5)
