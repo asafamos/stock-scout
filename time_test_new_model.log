@@ -1,0 +1,41 @@
+✓ Loaded ML model: model_xgboost_5d.pkl (22 features)
+
+Loading test cases from: cases_recent_winners.csv
+✓ Loaded 8 test cases
+
+[1/8] Validating NVDA @ 2024-02-26 (eval 5d before)... ✓ ML:87.6%
+[2/8] Validating SMCI @ 2024-02-29 (eval 7d before)... ✗ ML:48.7%
+[3/8] Validating META @ 2024-02-05 (eval 5d before)... ✓ ML:61.1%
+[4/8] Validating PLTR @ 2024-11-05 (eval 5d before)... ✓ ML:80.1%
+[5/8] Validating AVGO @ 2024-03-15 (eval 7d before)... ✓ ML:90.2%
+[6/8] Validating TSLA @ 2024-10-24 (eval 10d before)... ✓ ML:93.9%
+[7/8] Validating AMD @ 2024-02-01 (eval 5d before)... ✗ ML:53.5%
+[8/8] Validating ANET @ 2024-02-15 (eval 7d before)... ✓ ML:54.7%
+
+✓ Saved results to: time_test_with_new_model.csv
+
+================================================================================
+TIME-TRAVEL VALIDATION RESULTS
+================================================================================
+
+Ticker   EvalDate     Core   Spec   ML_Prob    R_5d       Status      
+--------------------------------------------------------------------------------
+NVDA     2024-02-21   ✓      ✓      87.6%      15.1%      ✅ Success   
+SMCI     2024-02-22   ✗      ✗      48.7%      -11.2%     ❌ Filtered  
+META     2024-01-31   ✓      ✓      61.1%      20.4%      ✅ Success   
+PLTR     2024-10-31   ✓      ✓      80.1%      34.5%      ✅ Success   
+AVGO     2024-03-08   ✓      ✓      90.2%      -5.6%      🟡 Spec Only 
+TSLA     2024-10-14   ✓      ✓      93.9%      -0.1%      🟡 Spec Only 
+AMD      2024-01-26   ✗      ✓      53.5%      0.2%       🟡 Spec Only 
+ANET     2024-02-08   ✓      ✓      54.7%      -3.4%      🟡 Spec Only 
+--------------------------------------------------------------------------------
+
+SUMMARY:
+  Total Cases: 8
+  Valid Data: 8
+  Passed Core: 6 (75.0%)
+  Passed Spec: 7 (87.5%)
+  Mean ML Prob: 71.2%
+  5-Day Returns: mean=6.23%, median=0.04%, hit rate=50.0%
+================================================================================
+
