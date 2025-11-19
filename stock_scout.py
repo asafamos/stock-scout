@@ -1847,8 +1847,9 @@ if CONFIG["FUNDAMENTAL_ENABLED"] and fundamental_available:
             coverage = d.get('Fund_Coverage_Pct', 0.0)
             quality_f = d.get('Quality_Score_F', np.nan)
             roe = d.get('roe', np.nan)
+            quality_str = f"{quality_f:.1f}" if np.isfinite(quality_f) else "NaN"
             logger.info(f"🔍 {tkr} FMP Debug: from_fmp={fmp_ok}, coverage={coverage:.0%}, "
-                       f"roe={roe}, quality_score_f={quality_f:.1f if np.isfinite(quality_f) else 'NaN'}")
+                       f"roe={roe}, quality_score_f={quality_str}")
         
         # Store provider metadata
         results.loc[idx, "Fund_from_FMP"] = d.get("from_fmp", False) or d.get("from_fmp_full", False)
