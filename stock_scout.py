@@ -46,6 +46,7 @@ from core.unified_logic import (
 )
 from core.classification import apply_classification, filter_core_recommendations
 from core.scoring.fundamental import compute_fundamental_score_with_breakdown
+from core.v2_risk_engine import score_ticker_v2_enhanced
 from indicators import rsi, atr, macd_line, adx, _sigmoid
 
 # OpenAI for enhanced target price predictions
@@ -1909,55 +1910,64 @@ if CONFIG["FUNDAMENTAL_ENABLED"] and fundamental_available:
         results.loc[idx, "EPSG_f"] = d.get("eps_g_yoy", np.nan)
         results.loc[idx, "Sector"] = d.get("sector") or "Unknown"
     
-    # V2 UNIFIED SCORING: Integrate quality, ML, confidence into final Score
-    # For performance, we'll use the existing Score_Tech and enhance it with v2 metrics
-    # Full v2 scoring with multi-source fetch can be slow, so we do a hybrid approach
+    # V2 RISK ENGINE: Apply FULL risk gates, reliability penalties, and position sizing
+    st.info("🚨 Applying V2 risk gates and reliability enforcement...")
     
-    st.info("🔬 Enhancing scores with V2 reliability metrics...")
+    budget = float(st.session_state.get("budget", CONFIG.get("BUDGET", 5000)))
     
-    # Calculate reliability score based on existing data
-    if "Price_Sources_Count" in results.columns and "Fundamental_Sources_Count" in results.columns:
-        # Normalize source counts (max 10 sources)
-        price_rel = results["Price_Sources_Count"].fillna(1).clip(1, 10) / 10.0
-        fund_rel = results["Fundamental_Sources_Count"].fillna(1).clip(1, 10) / 10.0
+    # Apply enhanced V2 scoring to each ticker
+    v2_results = []
+    for idx, row in results.iterrows():
+        ticker = row["Ticker"]
         
-        # Calculate reliability score (0-100)
-        results["reliability_score_v2"] = ((price_rel + fund_rel) / 2.0) * 100
+        # Prepare input data for v2 engine
+        ticker_data = {
+            "ticker": ticker,
+            "score_tech": row.get("Score_Tech", 50),
+            "fundamental_score": row.get("Fundamental_S", 50),
+            "rr_ratio": row.get("RR_Ratio", 1.0),
+            "risk_level": row.get("Risk_Level", "speculative"),
+            "price_sources_count": row.get("Price_Sources_Count", 1),
+            "fundamental_sources_count": row.get("Fundamental_Sources_Count", 0),
+            "price_cv": row.get("Price_CV", 0.0),
+            "ml_prob": row.get("ML_Prob", 0.5),
+            "ml_enabled": CONFIG.get("ENABLE_ML", True),
+            # Fundamental completeness: count non-null fundamental fields
+            "fundamental_fields": {
+                "pe": row.get("PE_f"),
+                "ps": row.get("PS_f"),
+                "roe": row.get("ROE_f"),
+                "roic": row.get("ROIC_f"),
+                "gm": row.get("GM_f"),
+                "de": row.get("DE_f"),
+                "rev_g": row.get("RevG_f"),
+                "eps_g": row.get("EPSG_f"),
+            }
+        }
         
-        # Calculate conviction as weighted score with reliability bonus
-        # Base score (technical + fundamental mix) + reliability bonus (up to 10%)
-        base_score = (
-            (1 - float(CONFIG["FUNDAMENTAL_WEIGHT"])) * results["Score_Tech"] + 
-            float(CONFIG["FUNDAMENTAL_WEIGHT"]) * results["Fundamental_S"].fillna(0)
-        )
-        
-        # Reliability bonus: high reliability stocks get up to +10%, low reliability get penalty up to -10%
-        reliability_factor = (results["reliability_score_v2"] - 50) / 500  # -0.1 to +0.1
-        
-        results["conviction_v2_base"] = base_score
-        results["conviction_v2_final"] = (base_score * (1 + reliability_factor)).clip(0, 100)
-        
-        # Add component scores for display
-        results["fundamental_score_v2"] = results["Fundamental_S"].fillna(50)
-        results["technical_score_v2"] = results["Score_Tech"].fillna(50)
-        results["rr_score_v2"] = results["RR_Ratio"].fillna(1.0).clip(0, 5) * 20  # Scale 0-5 to 0-100
-        
-        # Use V2 conviction as final score
-        results["Score"] = results["conviction_v2_final"]
-        
-        # Add risk meter (inverse of score for now)
-        results["risk_meter_v2"] = 100 - results["conviction_v2_final"]
-        
-        logger.info(f"✓ Enhanced {len(results)} stocks with V2 reliability scoring")
-    else:
-        # Fallback to simple weighted average
-        results["Score"] = (
-            1 - float(CONFIG["FUNDAMENTAL_WEIGHT"])
-        ) * results["Score_Tech"] + float(
-            CONFIG["FUNDAMENTAL_WEIGHT"]
-        ) * results["Fundamental_S"].fillna(0)
-        
-        logger.warning("Missing source count columns - using basic scoring")
+        # Call enhanced V2 scoring
+        v2_result = score_ticker_v2_enhanced(ticker_data, budget, CONFIG)
+        v2_results.append(v2_result)
+    
+    # Add V2 columns to results DataFrame
+    v2_df = pd.DataFrame(v2_results)
+    
+    # Merge V2 results back into main results
+    for col in v2_df.columns:
+        if col != "ticker":
+            results[col] = v2_df[col].values
+    
+    # Use V2 final conviction as Score
+    results["Score"] = results["conviction_v2_final"]
+    
+    # Add risk meter
+    results["risk_meter_v2"] = 100 - results["conviction_v2_final"]
+    
+    logger.info(f"✓ Applied V2 risk gates to {len(results)} stocks")
+    logger.info(f"  - Blocked: {len(results[results['risk_gate_status_v2'] == 'blocked'])} stocks")
+    logger.info(f"  - Severely reduced: {len(results[results['risk_gate_status_v2'] == 'severely_reduced'])} stocks")
+    logger.info(f"  - Reduced: {len(results[results['risk_gate_status_v2'] == 'reduced'])} stocks")
+    logger.info(f"  - Full allocation: {len(results[results['risk_gate_status_v2'] == 'full'])} stocks")
     
     results = results.sort_values(
         ["Score", "Ticker"], ascending=[False, True]
@@ -2475,30 +2485,52 @@ if ml_threshold_value > 0 and "ML_Prob" in results.columns:
     logger.info(f"ML confidence filter: {before_ml} → {after_ml} stocks (threshold={ml_threshold_value:.0%})")
 
 alloc_df = results.head(TOPN).reset_index(drop=True).copy()
-# Build allocation score with risk/reliability tilt
-risk_mult_core, risk_mult_spec = 1.2, 0.8
-if st.session_state.get("alloc_style_idx", 0) == 1:  # Conservative
-    risk_mult_core, risk_mult_spec = 1.5, 0.5
-elif st.session_state.get("alloc_style_idx", 0) == 2:  # Aggressive
-    risk_mult_core, risk_mult_spec = 1.0, 1.2
-if "Risk_Level" in alloc_df.columns:
-    alloc_df["_risk_mult"] = np.where(alloc_df["Risk_Level"] == "core", risk_mult_core, risk_mult_spec)
-else:
-    alloc_df["_risk_mult"] = 1.0
-if "Reliability_Score" in alloc_df.columns:
-    rel = alloc_df["Reliability_Score"].fillna(0.5).clip(0, 1)
-    alloc_df["_rel_mult"] = 0.6 + 0.6 * rel
-else:
-    alloc_df["_rel_mult"] = 1.0
-alloc_df["AllocScore"] = alloc_df["Score"].clip(lower=0) * alloc_df["_risk_mult"] * alloc_df["_rel_mult"]
 
-results = allocate_budget(
-    alloc_df,
-    float(st.session_state.get("total_budget", CONFIG["BUDGET_TOTAL"])),
-    float(st.session_state.get("min_position", CONFIG["MIN_POSITION"])),
-    float(st.session_state.get("max_position_pct", CONFIG["MAX_POSITION_PCT"])),
-    score_col="AllocScore",
-)
+# V2 ALLOCATION: Use buy_amount_v2 from risk engine (already has gates + penalties applied)
+# For backward compatibility, keep old AllocScore but use buy_amount_v2 as primary allocation
+if "buy_amount_v2" in alloc_df.columns:
+    logger.info("Using V2 position sizing with risk gates and reliability penalties")
+    
+    # Use buy_amount_v2 directly - it already includes:
+    # - Risk gate penalties (blocked stocks = $0)
+    # - Reliability penalties (low reliability = reduced allocation)
+    # - Core vs speculative caps (3% vs 15% of budget)
+    # - ML boost applied AFTER penalties
+    alloc_df["Buy_Amount"] = alloc_df["buy_amount_v2"]
+    alloc_df["AllocScore"] = alloc_df["Score"].clip(lower=0)  # Keep for display only
+    
+else:
+    # Fallback to old allocation logic if V2 columns missing
+    logger.warning("V2 columns missing - using legacy allocation logic")
+    risk_mult_core, risk_mult_spec = 1.2, 0.8
+    if st.session_state.get("alloc_style_idx", 0) == 1:  # Conservative
+        risk_mult_core, risk_mult_spec = 1.5, 0.5
+    elif st.session_state.get("alloc_style_idx", 0) == 2:  # Aggressive
+        risk_mult_core, risk_mult_spec = 1.0, 1.2
+    if "Risk_Level" in alloc_df.columns:
+        alloc_df["_risk_mult"] = np.where(alloc_df["Risk_Level"] == "core", risk_mult_core, risk_mult_spec)
+    else:
+        alloc_df["_risk_mult"] = 1.0
+    if "Reliability_Score" in alloc_df.columns:
+        rel = alloc_df["Reliability_Score"].fillna(0.5).clip(0, 1)
+        alloc_df["_rel_mult"] = 0.6 + 0.6 * rel
+    else:
+        alloc_df["_rel_mult"] = 1.0
+    alloc_df["AllocScore"] = alloc_df["Score"].clip(lower=0) * alloc_df["_risk_mult"] * alloc_df["_rel_mult"]
+
+# Skip legacy allocate_budget if using V2 (already sized)
+if "buy_amount_v2" not in alloc_df.columns:
+    results = allocate_budget(
+        alloc_df,
+        float(st.session_state.get("total_budget", CONFIG["BUDGET_TOTAL"])),
+        float(st.session_state.get("min_position", CONFIG["MIN_POSITION"])),
+        float(st.session_state.get("max_position_pct", CONFIG["MAX_POSITION_PCT"])),
+        score_col="AllocScore",
+    )
+else:
+    # V2: Use already-computed Buy_Amount
+    results = alloc_df.copy()
+    
 results["מניות לקנייה"] = np.floor(
     np.where(
         results["Unit_Price"] > 0, results["סכום קנייה ($)"] / results["Unit_Price"], 0
@@ -3504,14 +3536,21 @@ show_order = [
     "ML Confidence",
     "Confidence Level",
     "Reliability Score",
+    "reliability_v2",  # raw V2 reliability (0-100)
     "Fund Reliability",
     "Price Reliability",
     "Sources Count",
+    "risk_gate_status_v2",  # blocked / severely_reduced / reduced / full
+    "risk_gate_penalty_v2",
     "Score",
+    "conviction_v2_base",
+    "conviction_v2_final",
+    "ml_boost_v2",
     "Quality Score",
     "Average Price",
     "Unit Price (calc)",
     "Buy Amount ($)",
+    "buy_amount_v2",  # v2 raw dollar amount pre-hebrew mapping
     "Shares to Buy",
     "Leftover ($)",
     "Price Sources",
