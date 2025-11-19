@@ -24,7 +24,9 @@ from core.unified_logic import (
     apply_technical_filters,
     score_with_ml_model,
     compute_forward_returns,
-    fetch_stock_data
+    fetch_stock_data,
+    compute_technical_score,
+    compute_final_score
 )
 
 

@@ -189,49 +189,93 @@ def score_with_ml_model(row: pd.Series, model_data: Optional[Dict] = None) -> fl
     """
     Score stock with ML model.
     
-    IMPORTANT: Model is currently DISABLED due to inverse correlation bug.
-    Analysis shows predictions are backwards: low prob = good performance (70% win),
-    high prob = poor performance (50% win). Model needs retraining with correct labels.
+    Uses retrained XGBoost model (14 features, AUC 0.555) for probability scoring.
+    Model predicts probability of positive 20-day return.
     
     Args:
         row: Series with technical indicators
         model_data: Dict with 'model' and 'feature_names' keys
         
     Returns:
-        Probability between 0 and 1 (currently returns 0.5 neutral)
+        Probability between 0 and 1 (0.5 if model unavailable)
     """
-    # DISABLED: Model predictions are inverted - needs retraining
-    return 0.5
+    if model_data is None or model_data.get('model') is None:
+        return 0.5  # Neutral if no model
     
-    # Original code (keep for when model is retrained):
-    # if model_data is None or model_data.get('model') is None:
-    #     return 0.5  # Neutral if no model
-    # 
-    # try:
-    #     model = model_data['model']
-    #     feature_names = model_data['feature_names']
-    #     
-    #     # Extract features in correct order
-    #     features = {}
-    #     for fname in feature_names:
-    #         features[fname] = row.get(fname, 0.5 if 'MomCons' in fname else 1.0)
-    #     
-    #     X = pd.DataFrame([features])[feature_names]
-    #     X = X.fillna(X.median())
-    #     
-    #     # Support both sklearn-like calibrated classifiers and xgboost
-    #     if hasattr(model, 'predict_proba'):
-    #         prob = float(model.predict_proba(X.values)[0][1])
-    #     else:
-    #         # fallback to xgboost API
-    #         prob = float(model.predict_proba(X)[0][1])
-    #     
-    #     # OPTION: Invert predictions to fix backwards model
-    #     # prob = 1.0 - prob
-    #     
-    #     return prob
-    # except Exception:
-    #     return 0.5
+    try:
+        model = model_data['model']
+        feature_names = model_data['feature_names']
+        
+        # Extract base features from row
+        base_features = ['RSI', 'ATR_Pct', 'Overext', 'RR', 'MomCons', 'VolSurge']
+        features = {}
+        for fname in base_features:
+            if fname in row.index:
+                features[fname] = row[fname]
+            else:
+                # Provide sensible defaults
+                features[fname] = 0.5 if fname == 'MomCons' else 1.0
+        
+        # Engineer derived features (must match train_recommender.py)
+        X = pd.DataFrame([features])
+        
+        # RR_MomCons
+        if 'RR' in X.columns and 'MomCons' in X.columns:
+            X['RR_MomCons'] = X['RR'] * X['MomCons']
+        
+        # RSI_Neutral, RSI_Squared
+        if 'RSI' in X.columns:
+            X['RSI_Neutral'] = (X['RSI'] - 50).abs()
+            X['RSI_Squared'] = X['RSI'] ** 2
+        
+        # Risk_Score
+        if 'Overext' in X.columns and 'ATR_Pct' in X.columns:
+            X['Risk_Score'] = X['Overext'].abs() + X['ATR_Pct']
+        
+        # Vol_Mom
+        if 'VolSurge' in X.columns and 'MomCons' in X.columns:
+            X['Vol_Mom'] = X['VolSurge'] * X['MomCons']
+        
+        # Overext_Mom_Div
+        if 'Overext' in X.columns and 'MomCons' in X.columns:
+            X['Overext_Mom_Div'] = X['Overext'] * X['MomCons']
+        
+        # RR_Risk_Adj
+        if 'RR' in X.columns and 'Overext' in X.columns:
+            X['RR_Risk_Adj'] = X['RR'] / (1 + X['Overext'].abs())
+        
+        # ATR_Regime
+        if 'ATR_Pct' in X.columns:
+            # Simple regime: low (<0.02), med (0.02-0.04), high (>0.04)
+            atr_val = X['ATR_Pct'].iloc[0]
+            if atr_val < 0.02:
+                X['ATR_Regime'] = 1.0
+            elif atr_val < 0.04:
+                X['ATR_Regime'] = 2.0
+            else:
+                X['ATR_Regime'] = 3.0
+        
+        # Ensure all model features exist
+        for fname in feature_names:
+            if fname not in X.columns:
+                X[fname] = 0.5  # fallback
+        
+        # Select features in correct order
+        X_model = X[feature_names].fillna(0.5)
+        
+        # Predict probability
+        if hasattr(model, 'predict_proba'):
+            prob = float(model.predict_proba(X_model.values)[0][1])
+        else:
+            # XGBoost API
+            prob = float(model.predict_proba(X_model)[0][1])
+        
+        # Clip to valid range
+        return max(0.0, min(1.0, prob))
+        
+    except Exception as e:
+        # Fallback to neutral on any error
+        return 0.5
 
 
 def compute_forward_returns(

@@ -1,0 +1,71 @@
+⚠ Model file not found: /workspaces/stock-scout-2/model_xgboost_5d_calibrated.pkl
+
+======================================================================
+STOCK SCOUT UNIFIED BACKTEST
+======================================================================
+Date Range: 2024-05-01 to 2024-11-01
+Universe Limit: 50
+Forward Horizons: [5, 10, 20]
+======================================================================
+
+Building stock universe...
+⚠ Could not fetch S&P 500 list: HTTP Error 403: Forbidden
+✓ Universe: 10 stocks
+
+Downloading benchmark (SPY)...
+[1/10] Processing AAPL... ✓ 128 signals
+[2/10] Processing MSFT... ✓ 128 signals
+[3/10] Processing GOOGL... ✓ 125 signals
+[4/10] Processing AMZN... ✓ 128 signals
+[5/10] Processing NVDA... ✓ 120 signals
+[6/10] Processing META... ✓ 126 signals
+[7/10] Processing TSLA... ✓ 121 signals
+[8/10] Processing JPM... ✓ 127 signals
+[9/10] Processing V... ✓ 128 signals
+[10/10] Processing WMT... ✓ 115 signals
+
+✓ Saved results to: backtest_expanded.csv
+
+======================================================================
+BACKTEST SUMMARY
+======================================================================
+Total Signals: 1246
+Unique Tickers: 10
+Date Range: 2024-05-01 to 2024-11-01
+
+Core Signals: 972 (78.0%)
+Speculative Signals: 274 (22.0%)
+
+ML Probability: mean=0.500, median=0.500
+
+5-Day Forward Returns:
+  Hit Rate (>0%): 58.0%
+  Outperform SPY: 51.4%
+  Mean Return: 1.01%
+  Median Return: 0.82%
+  Mean Excess: 0.43% (vs SPY)
+  Worst Return: -17.37%
+  Best Return: 29.01%
+
+10-Day Forward Returns:
+  Hit Rate (>0%): 64.0%
+  Outperform SPY: 52.8%
+  Mean Return: 2.09%
+  Median Return: 1.66%
+  Mean Excess: 0.96% (vs SPY)
+  Worst Return: -20.93%
+  Best Return: 43.68%
+
+20-Day Forward Returns:
+  Hit Rate (>0%): 67.9%
+  Outperform SPY: 55.8%
+  Mean Return: 4.12%
+  Median Return: 3.29%
+  Mean Excess: 2.00% (vs SPY)
+  Worst Return: -26.68%
+  Best Return: 60.09%
+
+ML Probability Stratification (5-day returns):
+  Medium(30-50%): 1246 signals, hit rate 58.0%, mean return 1.01%
+======================================================================
+

@@ -1,0 +1,45 @@
+
+📊 Dataset Summary
+Total rows: 1246
+Positives: 839 / 1246 (67.3%)
+Features: 14
+
+=== Cross-Validation Results (5 folds) ===
+Mean AUC: 0.6690 ± 0.0695
+Fold AUCs: ['0.748', '0.722', '0.562', '0.616', '0.697']
+
+⚠ Calibration failed: CalibratedClassifierCV.__init__() got an unexpected keyword argument 'base_estimator' - saving uncalibrated model
+
+=== Final Model Evaluation ===
+Train size: 934, Test size: 312
+Test set positives: 179/312 (57.4%)
+AUC: 0.5547
+Brier score: 0.2747
+              precision    recall  f1-score   support
+
+           0       0.46      0.63      0.53       133
+           1       0.62      0.44      0.51       179
+
+    accuracy                           0.52       312
+   macro avg       0.54      0.54      0.52       312
+weighted avg       0.55      0.52      0.52       312
+
+
+Optimal threshold (F1): 0.205
+
+=== Feature Importance (Top 10) ===
+        feature  importance
+        ATR_Pct    0.114841
+     RR_MomCons    0.102766
+    RSI_Neutral    0.094024
+Overext_Mom_Div    0.086079
+             RR    0.080069
+        MomCons    0.076710
+        Overext    0.073730
+    RR_Risk_Adj    0.072901
+     Risk_Score    0.065679
+     ATR_Regime    0.065202
+
+✓ SHAP values saved to shap_values_sample.csv
+
+✓ Calibrated model saved to model_xgboost_5d.pkl
