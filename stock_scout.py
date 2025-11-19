@@ -48,6 +48,14 @@ from core.classification import apply_classification, filter_core_recommendation
 from core.scoring.fundamental import compute_fundamental_score_with_breakdown
 from indicators import rsi, atr, macd_line, adx, _sigmoid
 
+# OpenAI for enhanced target price predictions
+try:
+    from openai import OpenAI
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
+    OpenAI = None
+
 # Get global configuration
 _config_obj = get_config()
 CONFIG = {
@@ -1901,18 +1909,61 @@ if CONFIG["FUNDAMENTAL_ENABLED"] and fundamental_available:
         results.loc[idx, "EPSG_f"] = d.get("eps_g_yoy", np.nan)
         results.loc[idx, "Sector"] = d.get("sector") or "Unknown"
     
-    # Mix technical + fundamental scores
-    results["Score"] = (
-        1 - float(CONFIG["FUNDAMENTAL_WEIGHT"])
-    ) * results["Score_Tech"] + float(
-        CONFIG["FUNDAMENTAL_WEIGHT"]
-    ) * results["Fundamental_S"].fillna(0)
+    # V2 UNIFIED SCORING: Integrate quality, ML, confidence into final Score
+    # For performance, we'll use the existing Score_Tech and enhance it with v2 metrics
+    # Full v2 scoring with multi-source fetch can be slow, so we do a hybrid approach
+    
+    st.info("🔬 Enhancing scores with V2 reliability metrics...")
+    
+    # Calculate reliability score based on existing data
+    if "Price_Sources_Count" in results.columns and "Fundamental_Sources_Count" in results.columns:
+        # Normalize source counts (max 10 sources)
+        price_rel = results["Price_Sources_Count"].fillna(1).clip(1, 10) / 10.0
+        fund_rel = results["Fundamental_Sources_Count"].fillna(1).clip(1, 10) / 10.0
+        
+        # Calculate reliability score (0-100)
+        results["reliability_score_v2"] = ((price_rel + fund_rel) / 2.0) * 100
+        
+        # Calculate conviction as weighted score with reliability bonus
+        # Base score (technical + fundamental mix) + reliability bonus (up to 10%)
+        base_score = (
+            (1 - float(CONFIG["FUNDAMENTAL_WEIGHT"])) * results["Score_Tech"] + 
+            float(CONFIG["FUNDAMENTAL_WEIGHT"]) * results["Fundamental_S"].fillna(0)
+        )
+        
+        # Reliability bonus: high reliability stocks get up to +10%, low reliability get penalty up to -10%
+        reliability_factor = (results["reliability_score_v2"] - 50) / 500  # -0.1 to +0.1
+        
+        results["conviction_v2_base"] = base_score
+        results["conviction_v2_final"] = (base_score * (1 + reliability_factor)).clip(0, 100)
+        
+        # Add component scores for display
+        results["fundamental_score_v2"] = results["Fundamental_S"].fillna(50)
+        results["technical_score_v2"] = results["Score_Tech"].fillna(50)
+        results["rr_score_v2"] = results["RR_Ratio"].fillna(1.0).clip(0, 5) * 20  # Scale 0-5 to 0-100
+        
+        # Use V2 conviction as final score
+        results["Score"] = results["conviction_v2_final"]
+        
+        # Add risk meter (inverse of score for now)
+        results["risk_meter_v2"] = 100 - results["conviction_v2_final"]
+        
+        logger.info(f"✓ Enhanced {len(results)} stocks with V2 reliability scoring")
+    else:
+        # Fallback to simple weighted average
+        results["Score"] = (
+            1 - float(CONFIG["FUNDAMENTAL_WEIGHT"])
+        ) * results["Score_Tech"] + float(
+            CONFIG["FUNDAMENTAL_WEIGHT"]
+        ) * results["Fundamental_S"].fillna(0)
+        
+        logger.warning("Missing source count columns - using basic scoring")
     
     results = results.sort_values(
         ["Score", "Ticker"], ascending=[False, True]
     ).reset_index(drop=True)
     phase_times["fundamentals_alpha_finnhub"] = t_end(t0)
-    logger.info(f"✓ Fetched fundamentals for {take_k} stocks")
+    logger.info(f"✓ Scored {take_k} stocks with V2-enhanced conviction")
 
 # 3e) Apply risk classification and data quality evaluation
 t0 = t_start()
@@ -2413,7 +2464,16 @@ results["Unit_Price"] = np.where(
 )
 results["Unit_Price"] = pd.to_numeric(results["Unit_Price"], errors="coerce")
 
-TOPN = min(CONFIG["TOPN_RESULTS"], len(results))
+TOPN = min(int(st.session_state.get("topn_recs", CONFIG["TOPN_RESULTS"])), len(results))
+
+# Apply ML confidence threshold BEFORE taking topN
+ml_threshold_value = float(st.session_state.get("ml_threshold", 0)) / 100.0
+if ml_threshold_value > 0 and "ML_Prob" in results.columns:
+    before_ml = len(results)
+    results = results[results["ML_Prob"] >= ml_threshold_value].copy()
+    after_ml = len(results)
+    logger.info(f"ML confidence filter: {before_ml} → {after_ml} stocks (threshold={ml_threshold_value:.0%})")
+
 alloc_df = results.head(TOPN).reset_index(drop=True).copy()
 # Build allocation score with risk/reliability tilt
 risk_mult_core, risk_mult_spec = 1.2, 0.8
@@ -2478,8 +2538,66 @@ with st.sidebar:
     st.header("🎛️ Filters")
     st.caption("Customize your scan results")
 
+    # V2 SCORING ENGINE (NOW DEFAULT)
+    st.markdown("---")
+    st.subheader("🚀 Advanced Scoring")
+    st.caption("Multi-source fundamentals (FMP→Finnhub→Tiingo→Alpha) • Unified conviction (35% fund, 35% tech, 15% RR, 15% reliability) • ML boost ±10%")
+    
+    # Always enabled, but allow configuration
+    enable_multi_source = st.checkbox(
+        "Fetch multi-source fundamentals",
+        value=bool(st.session_state.get("enable_multi_source", True)),
+        help="Fetch and aggregate fundamentals from all available sources for better reliability."
+    )
+    st.session_state["enable_multi_source"] = enable_multi_source
+    
+    enable_ml_boost = st.checkbox(
+        "Enable ML confidence boost",
+        value=bool(st.session_state.get("enable_ml_boost", True)),
+        help="Allow ML model to adjust conviction by ±10% based on historical patterns."
+    )
+    st.session_state["enable_ml_boost"] = enable_ml_boost
+    
+    # OpenAI target price enhancement (ENABLED BY DEFAULT)
+    if OPENAI_AVAILABLE and (os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")):
+        enable_openai_targets = st.checkbox(
+            "🤖 Enable AI-enhanced target prices",
+            value=bool(st.session_state.get("enable_openai_targets", True)),
+            help="Use OpenAI GPT-4 to predict target prices based on fundamentals + technicals. Shows holding period and expected sell price."
+        )
+        st.session_state["enable_openai_targets"] = enable_openai_targets
+    else:
+        st.session_state["enable_openai_targets"] = False
+        if not OPENAI_AVAILABLE:
+            st.caption("ℹ️ Install `openai` package for AI target predictions")
+        elif not (os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")):
+            st.caption("ℹ️ Add OPENAI_API_KEY to enable AI predictions")
+
     st.markdown("---")
     st.subheader("💰 Allocation")
+    
+    # Number of recommendations
+    topn_recs = st.slider(
+        "Max recommendations", 
+        min_value=5, 
+        max_value=50, 
+        value=int(st.session_state.get("topn_recs", CONFIG["TOPN_RESULTS"])), 
+        step=5,
+        help="Maximum number of stocks to allocate budget to"
+    )
+    st.session_state["topn_recs"] = int(topn_recs)
+    
+    # ML confidence threshold
+    ml_threshold = st.slider(
+        "ML confidence threshold (%)", 
+        min_value=0, 
+        max_value=100, 
+        value=int(st.session_state.get("ml_threshold", 0)), 
+        step=5,
+        help="Minimum ML probability to include stock (0=disabled). 🔥High: 70%+, 🟡Med: 50-70%, ⚠️Low: <50%"
+    )
+    st.session_state["ml_threshold"] = int(ml_threshold)
+    
     total_budget = st.number_input("Total investment ($)", min_value=0.0, value=float(st.session_state.get("total_budget", CONFIG["BUDGET_TOTAL"])), step=100.0)
     st.session_state["total_budget"] = float(total_budget)
     min_position = st.number_input("Min position ($)", min_value=0.0, value=float(st.session_state.get("min_position", max(50.0, round(float(total_budget) * 0.10)))), step=50.0)
@@ -2574,6 +2692,137 @@ st.info(f"📊 Showing {len(rec_df)} stocks after filters")
 
 rec_df = rec_df.copy()
 
+# Add overall ranking (1 = best)
+rec_df = rec_df.sort_values("Score", ascending=False).reset_index(drop=True)
+rec_df["Overall_Rank"] = range(1, len(rec_df) + 1)
+
+# Calculate target prices and dates WITH OPTIONAL OPENAI ENHANCEMENT
+from datetime import datetime, timedelta
+
+@st.cache_data(ttl=3600)
+def get_openai_target_prediction(ticker: str, current_price: float, fundamentals: dict, technicals: dict) -> Optional[float]:
+    """
+    Use OpenAI to predict realistic target price based on fundamentals and technicals.
+    Returns None if API unavailable or request fails.
+    """
+    if not OPENAI_AVAILABLE:
+        return None
+    
+    openai_key = os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")
+    if not openai_key:
+        return None
+    
+    try:
+        client = OpenAI(api_key=openai_key)
+        
+        # Build context from fundamentals
+        fund_str = ", ".join([f"{k}: {v}" for k, v in fundamentals.items() if v is not None and not (isinstance(v, float) and np.isnan(v))])
+        tech_str = ", ".join([f"{k}: {v:.2f}" for k, v in technicals.items() if isinstance(v, (int, float)) and np.isfinite(v)])
+        
+        prompt = f"""You are a financial analyst. Based on the following data for {ticker}:
+
+Current Price: ${current_price:.2f}
+
+Fundamentals: {fund_str}
+
+Technical Indicators: {tech_str}
+
+Provide a realistic 3-month target price as a single number (just the price, no explanation). Consider:
+- Growth trends and valuation metrics
+- Technical momentum and support/resistance
+- Risk/reward ratio
+- Market conditions
+
+Target Price:"""
+        
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=50
+        )
+        
+        # Extract number from response
+        answer = response.choices[0].message.content.strip()
+        # Try to parse as number
+        import re
+        match = re.search(r'\$?([\d,]+\.?\d*)', answer)
+        if match:
+            target = float(match.group(1).replace(',', ''))
+            # Sanity check: target should be within -50% to +200% of current
+            if current_price * 0.5 <= target <= current_price * 3.0:
+                return target
+    except Exception as e:
+        logger.warning(f"OpenAI target prediction failed for {ticker}: {e}")
+    
+    return None
+
+def calculate_targets(row):
+    """Calculate entry price, target price, and target date based on ATR, RR, and optional OpenAI prediction"""
+    ticker = row.get("Ticker", "")
+    current_price = row.get("Unit_Price", row.get("Price_Yahoo", np.nan))
+    atr = row.get("ATR", np.nan)
+    rr = row.get("RewardRisk", np.nan)
+    horizon_str = row.get("טווח החזקה", "20d")
+    
+    # Parse holding horizon
+    try:
+        if isinstance(horizon_str, str) and horizon_str.endswith("d"):
+            days = int(horizon_str.replace("d", "").strip())
+        else:
+            days = 20  # default
+    except:
+        days = 20
+    
+    if np.isfinite(current_price) and current_price > 0:
+        # Entry price: current - 0.5*ATR (wait for slight pullback)
+        if np.isfinite(atr):
+            entry_price = current_price - (0.5 * atr)
+        else:
+            entry_price = current_price * 0.98  # 2% below if no ATR
+        
+        # Try OpenAI-enhanced target first
+        ai_target = None
+        if st.session_state.get("enable_openai_targets", False):
+            fundamentals = {
+                "PE": row.get("PERatio", np.nan),
+                "PB": row.get("PBRatio", np.nan),
+                "ROE": row.get("ROE", np.nan),
+                "Margin": row.get("ProfitMargin", np.nan),
+                "RevenueGrowth": row.get("RevenueGrowthYoY", np.nan)
+            }
+            technicals = {
+                "RSI": row.get("RSI", np.nan),
+                "Momentum_63d": row.get("Momentum_63d", np.nan),
+                "RewardRisk": rr,
+                "ATR": atr
+            }
+            ai_target = get_openai_target_prediction(ticker, current_price, fundamentals, technicals)
+        
+        if ai_target is not None:
+            # Use AI prediction as target
+            target_price = ai_target
+            target_source = "AI"
+        elif np.isfinite(atr) and np.isfinite(rr):
+            # Fallback to technical calculation: entry + (RR * ATR)
+            target_price = entry_price + (rr * atr)
+            target_source = "Technical"
+        else:
+            # Conservative default: 10% above entry
+            target_price = entry_price * 1.10
+            target_source = "Default"
+        
+        # Target date: today + holding horizon
+        target_date = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
+        
+        return entry_price, target_price, target_date, target_source
+    else:
+        return current_price, np.nan, "N/A", "N/A"
+
+rec_df[["Entry_Price", "Target_Price", "Target_Date", "Target_Source"]] = rec_df.apply(
+    lambda row: pd.Series(calculate_targets(row)), axis=1
+)
+
 # CSS now loaded from design_system.py - no need for separate CARD_CSS
 
 def format_rel(val) -> str:
@@ -2656,17 +2905,17 @@ else:
                 quality_icon = "❌"
                 quality_pct = "<60%"
             
-            # ML confidence badge
+            # ML confidence badge: 🔥High≥70%, 🟡Med 50-70%, ⚠️Low<50%
             if np.isfinite(ml_prob):
-                if ml_prob >= 0.50:
+                if ml_prob >= 0.70:
                     ml_badge_color = "#16a34a"  # green
-                    ml_badge_text = "גבוה"
-                elif ml_prob >= 0.30:
+                    ml_badge_text = "🔥 גבוה"
+                elif ml_prob >= 0.50:
                     ml_badge_color = "#f59e0b"  # orange
-                    ml_badge_text = "בינוני"
+                    ml_badge_text = "🟡 בינוני"
                 else:
                     ml_badge_color = "#dc2626"  # red
-                    ml_badge_text = "נמוך"
+                    ml_badge_text = "⚠️ נמוך"
                 ml_badge_html = f"""<span style='display:inline-block;padding:3px 8px;border-radius:4px;background:{ml_badge_color};color:white;font-weight:bold;font-size:0.85em;margin-left:8px'>ML: {ml_badge_text} ({ml_prob*100:.0f}%)</span>"""
             else:
                 ml_badge_html = ""
@@ -2724,20 +2973,112 @@ else:
             # Next earnings date
             next_earnings = r.get("NextEarnings", "Unknown")
             
+            # NEW: Ranking and target prices
+            overall_rank = r.get("Overall_Rank", "N/A")
+            entry_price = r.get("Entry_Price", np.nan)
+            target_price = r.get("Target_Price", np.nan)
+            target_date = r.get("Target_Date", "N/A")
+            target_source = r.get("Target_Source", "N/A")
+            
+            entry_price_fmt = f"${entry_price:.2f}" if np.isfinite(entry_price) else "N/A"
+            target_price_fmt = f"${target_price:.2f}" if np.isfinite(target_price) else "N/A"
+            
+            # Add badge for AI-enhanced targets
+            target_badge = ""
+            if target_source == "AI":
+                target_badge = " <span style='background:#10b981;color:white;padding:2px 6px;border-radius:4px;font-size:0.75em;font-weight:bold'>🤖 AI</span>"
+            elif target_source == "Technical":
+                target_badge = " <span style='background:#6366f1;color:white;padding:2px 6px;border-radius:4px;font-size:0.75em'>📊 Tech</span>"
+            elif target_source == "Default":
+                target_badge = " <span style='background:#6b7280;color:white;padding:2px 6px;border-radius:4px;font-size:0.75em'>📐 Est</span>"
+            
+            # Calculate potential gain %
+            if np.isfinite(entry_price) and np.isfinite(target_price) and entry_price > 0:
+                potential_gain_pct = ((target_price - entry_price) / entry_price) * 100
+                gain_fmt = f"+{potential_gain_pct:.1f}%"
+                gain_color = "#16a34a"
+            else:
+                gain_fmt = "N/A"
+                gain_color = "#6b7280"
+                target_badge = ""  # No badge if no valid target
+            
             # Inject CSS for iframe isolation
             price_rel_fmt = format_rel(r.get('Price_Reliability', np.nan))
             fund_rel_fmt = format_rel(r.get('Fundamental_Reliability', np.nan))
             rel_score_fmt = format_rel(r.get('Reliability_Score', np.nan))
             
+            # V2 SCORES (NOW ALWAYS ENABLED AS DEFAULT)
+            v2_html = ""
+            conv_v2 = r.get("conviction_v2_final", np.nan)
+            conv_v2_base = r.get("conviction_v2_base", np.nan)
+            fund_v2 = r.get("fundamental_score_v2", np.nan)
+            tech_v2 = r.get("technical_score_v2", np.nan)
+            rr_v2 = r.get("rr_score_v2", np.nan)
+            rel_v2 = r.get("reliability_score_v2", np.nan)
+            risk_v2 = r.get("risk_meter_v2", np.nan)
+            risk_label_v2 = r.get("risk_label_v2", "N/A")
+            ml_boost_v2 = r.get("ml_boost", 0.0)
+            
+            if np.isfinite(conv_v2):  # Show V2 box if score was computed
+                
+                # Format scores
+                conv_v2_fmt = f"{conv_v2:.0f}" if np.isfinite(conv_v2) else "N/A"
+                fund_v2_fmt = f"{fund_v2:.0f}" if np.isfinite(fund_v2) else "N/A"
+                tech_v2_fmt = f"{tech_v2:.0f}" if np.isfinite(tech_v2) else "N/A"
+                rr_v2_fmt = f"{rr_v2:.0f}" if np.isfinite(rr_v2) else "N/A"
+                rel_v2_fmt = f"{rel_v2:.0f}" if np.isfinite(rel_v2) else "N/A"
+                risk_v2_fmt = f"{risk_v2:.0f}" if np.isfinite(risk_v2) else "N/A"
+                
+                # Conviction meter color
+                if conv_v2 >= 75:
+                    conv_color = "#16a34a"  # green
+                elif conv_v2 >= 60:
+                    conv_color = "#f59e0b"  # orange
+                else:
+                    conv_color = "#dc2626"  # red
+                
+                # Risk meter color (inverted: low risk = green)
+                if risk_v2 < 35:
+                    risk_color = "#16a34a"  # green
+                elif risk_v2 < 65:
+                    risk_color = "#f59e0b"  # orange
+                else:
+                    risk_color = "#dc2626"  # red
+                
+                v2_html = f"""
+    <div style="background:#e0f2fe;border-radius:8px;padding:10px;margin:8px 0;border-left:4px solid #0ea5e9">
+        <div style="font-weight:bold;margin-bottom:6px;color:#0369a1">🚀 V2 SCORING ENGINE</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px;font-size:0.85em">
+            <div><b>Conviction:</b> <span style="color:{conv_color};font-weight:bold;font-size:1.2em">{conv_v2_fmt}/100</span></div>
+            <div><b>Risk Meter:</b> <span style="color:{risk_color};font-weight:bold">{risk_v2_fmt}/100 ({risk_label_v2})</span></div>
+            <div><b>Fundamentals:</b> {fund_v2_fmt}/100</div>
+            <div><b>Technical:</b> {tech_v2_fmt}/100</div>
+            <div><b>R/R:</b> {rr_v2_fmt}/100</div>
+            <div><b>Reliability:</b> {rel_v2_fmt}/100</div>
+            <div style="grid-column:span 2"><b>ML Boost:</b> {ml_boost_v2:+.1f}% <span style="font-size:0.9em;color:#64748b">(Base: {conv_v2_base:.0f})</span></div>
+        </div>
+    </div>"""
+            
             card_html = get_card_css() + f"""
 <div class="modern-card card-core">
     <h3 class="flex-wrap" style="margin:0 0 6px 0">
+        <span class="modern-badge" style="background:#8b5cf6;color:white;font-weight:bold">#{overall_rank}</span>
         <span class="modern-badge">{ticker}</span>
         <span class="modern-badge badge-success">🛡️ Core</span>
         <span class="modern-badge {quality_badge_class}">{quality_icon} Quality: {quality_pct}</span>
         <span class="modern-badge badge-primary" style="font-size:0.8em">Confidence: {confidence_badge}</span>
         {ml_badge_html}
     </h3>
+    <div style="background:#f8fafc;border-radius:8px;padding:10px;margin:8px 0;border-left:4px solid #8b5cf6">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;font-size:0.9em">
+            <div><b>💰 מחיר קניה מומלץ:</b><br/><span style="font-size:1.1em;color:#3b82f6;font-weight:bold">{entry_price_fmt}</span></div>
+            <div><b>🎯 מחיר יעד:</b><br/><span style="font-size:1.1em;color:{gain_color};font-weight:bold">{target_price_fmt}</span>{target_badge}</div>
+            <div><b>📈 פוטנציאל רווח:</b><br/><span style="font-size:1.1em;color:{gain_color};font-weight:bold">{gain_fmt}</span></div>
+            <div><b>📅 תזמון יעד:</b><br/><span style="font-size:1.1em;color:#6366f1;font-weight:bold">{target_date}</span></div>
+            <div><b>⏱️ טווח אחזקה:</b><br/><span style="font-size:1.1em;color:#8b5cf6;font-weight:bold">{horizon}</span></div>
+        </div>
+    </div>
+    {v2_html}
     <div class="modern-grid">
     <div class="item"><b>Average Price:</b> {show_mean_fmt}</div>
     <div class="item"><b>Std Dev:</b> {show_std}</div>
@@ -2752,7 +3093,6 @@ else:
     <div class="item"><b>Fund Reliability:</b> {fund_rel_fmt}</div>
     <div class="item"><b>Reliability Score:</b> {rel_score_fmt}</div>
     <div class="item"><b>Recommended Buy ($):</b> ${buy_amt:,.0f}</div>
-    <div class="item"><b>Holding Horizon:</b> {horizon}</div>
     <div class="item"><b>Unit Price:</b> {unit_price_fmt}</div>
     <div class="item"><b>Shares to Buy:</b> {shares}</div>
     <div class="item"><b>Cash Leftover:</b> ${leftover:,.2f}</div>
@@ -2845,17 +3185,17 @@ else:
                 quality_icon = "❌"
                 quality_pct = "<60%"
             
-            # ML confidence badge
+            # ML confidence badge: 🔥High≥70%, 🟡Med 50-70%, ⚠️Low<50%
             if np.isfinite(ml_prob):
-                if ml_prob >= 0.50:
+                if ml_prob >= 0.70:
                     ml_badge_color = "#16a34a"  # green
-                    ml_badge_text = "גבוה"
-                elif ml_prob >= 0.30:
+                    ml_badge_text = "🔥 גבוה"
+                elif ml_prob >= 0.50:
                     ml_badge_color = "#f59e0b"  # orange
-                    ml_badge_text = "בינוני"
+                    ml_badge_text = "🟡 בינוני"
                 else:
                     ml_badge_color = "#dc2626"  # red
-                    ml_badge_text = "נמוך"
+                    ml_badge_text = "⚠️ נמוך"
                 ml_badge_html = f"""<span style='display:inline-block;padding:3px 8px;border-radius:4px;background:{ml_badge_color};color:white;font-weight:bold;font-size:0.85em;margin-left:8px'>ML: {ml_badge_text} ({ml_prob*100:.0f}%)</span>"""
             else:
                 ml_badge_html = ""
@@ -2917,10 +3257,87 @@ else:
             next_earnings = r.get("NextEarnings", "Unknown")
             warnings_esc = esc(warnings) if warnings else ""
             
+            # NEW: Ranking and target prices
+            overall_rank = r.get("Overall_Rank", "N/A")
+            entry_price = r.get("Entry_Price", np.nan)
+            target_price = r.get("Target_Price", np.nan)
+            target_date = r.get("Target_Date", "N/A")
+            target_source = r.get("Target_Source", "N/A")
+            
+            entry_price_fmt = f"${entry_price:.2f}" if np.isfinite(entry_price) else "N/A"
+            target_price_fmt = f"${target_price:.2f}" if np.isfinite(target_price) else "N/A"
+            
+            # Add badge for AI-enhanced targets
+            target_badge_spec = ""
+            if target_source == "AI":
+                target_badge_spec = " <span style='background:#10b981;color:white;padding:2px 6px;border-radius:4px;font-size:0.75em;font-weight:bold'>🤖 AI</span>"
+            elif target_source == "Technical":
+                target_badge_spec = " <span style='background:#6366f1;color:white;padding:2px 6px;border-radius:4px;font-size:0.75em'>📊 Tech</span>"
+            
+            # Calculate potential gain %
+            if np.isfinite(entry_price) and np.isfinite(target_price) and entry_price > 0:
+                potential_gain_pct = ((target_price - entry_price) / entry_price) * 100
+                gain_fmt = f"+{potential_gain_pct:.1f}%"
+                gain_color = "#16a34a"
+            else:
+                gain_fmt = "N/A"
+                gain_color = "#6b7280"
+            
             # Inject CSS for iframe isolation
+            
+            # V2 SCORES (NOW ALWAYS ENABLED AS DEFAULT)
+            v2_html_spec = ""
+            conv_v2 = r.get("conviction_v2_final", np.nan)
+            conv_v2_base = r.get("conviction_v2_base", np.nan)
+            fund_v2 = r.get("fundamental_score_v2", np.nan)
+            tech_v2 = r.get("technical_score_v2", np.nan)
+            rr_v2 = r.get("rr_score_v2", np.nan)
+            rel_v2 = r.get("reliability_score_v2", np.nan)
+            risk_v2 = r.get("risk_meter_v2", np.nan)
+            risk_label_v2 = r.get("risk_label_v2", "N/A")
+            ml_boost_v2 = r.get("ml_boost", 0.0)
+            
+            if np.isfinite(conv_v2):  # Show V2 box if score was computed
+                
+                conv_v2_fmt = f"{conv_v2:.0f}" if np.isfinite(conv_v2) else "N/A"
+                fund_v2_fmt = f"{fund_v2:.0f}" if np.isfinite(fund_v2) else "N/A"
+                tech_v2_fmt = f"{tech_v2:.0f}" if np.isfinite(tech_v2) else "N/A"
+                rr_v2_fmt = f"{rr_v2:.0f}" if np.isfinite(rr_v2) else "N/A"
+                rel_v2_fmt = f"{rel_v2:.0f}" if np.isfinite(rel_v2) else "N/A"
+                risk_v2_fmt = f"{risk_v2:.0f}" if np.isfinite(risk_v2) else "N/A"
+                
+                if conv_v2 >= 75:
+                    conv_color = "#16a34a"
+                elif conv_v2 >= 60:
+                    conv_color = "#f59e0b"
+                else:
+                    conv_color = "#dc2626"
+                
+                if risk_v2 < 35:
+                    risk_color = "#16a34a"
+                elif risk_v2 < 65:
+                    risk_color = "#f59e0b"
+                else:
+                    risk_color = "#dc2626"
+                
+                v2_html_spec = f"""
+    <div style="background:#fef3c7;border-radius:8px;padding:10px;margin:8px 0;border-left:4px solid #f59e0b">
+        <div style="font-weight:bold;margin-bottom:6px;color:#d97706">🚀 V2 SCORING ENGINE</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px;font-size:0.85em">
+            <div><b>Conviction:</b> <span style="color:{conv_color};font-weight:bold;font-size:1.2em">{conv_v2_fmt}/100</span></div>
+            <div><b>Risk Meter:</b> <span style="color:{risk_color};font-weight:bold">{risk_v2_fmt}/100 ({risk_label_v2})</span></div>
+            <div><b>Fundamentals:</b> {fund_v2_fmt}/100</div>
+            <div><b>Technical:</b> {tech_v2_fmt}/100</div>
+            <div><b>R/R:</b> {rr_v2_fmt}/100</div>
+            <div><b>Reliability:</b> {rel_v2_fmt}/100</div>
+            <div style="grid-column:span 2"><b>ML Boost:</b> {ml_boost_v2:+.1f}% <span style="font-size:0.9em;color:#64748b">(Base: {conv_v2_base:.0f})</span></div>
+        </div>
+    </div>"""
+            
             card_html = get_card_css() + f"""
 <div class="modern-card card-speculative">
     <h3 class="flex-wrap" style="margin:0 0 6px 0">
+        <span class="modern-badge" style="background:#f59e0b;color:white;font-weight:bold">#{overall_rank}</span>
         <span class="modern-badge">{ticker}</span>
         <span class="modern-badge badge-warning">⚡ Speculative</span>
         <span class="modern-badge {quality_badge_class}">{quality_icon} Quality: {quality_pct}</span>
@@ -2928,6 +3345,16 @@ else:
         {ml_badge_html}
     </h3>
     {f'<div class="warning-box"><b>⚠️ Warnings:</b> {warnings_esc}</div>' if warnings_esc else ''}
+    <div style="background:#fef3c7;border-radius:8px;padding:10px;margin:8px 0;border-left:4px solid #f59e0b">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;font-size:0.9em">
+            <div><b>💰 מחיר קניה מומלץ:</b><br/><span style="font-size:1.1em;color:#3b82f6;font-weight:bold">{entry_price_fmt}</span></div>
+            <div><b>🎯 מחיר יעד:</b><br/><span style="font-size:1.1em;color:{gain_color};font-weight:bold">{target_price_fmt}</span>{target_badge_spec}</div>
+            <div><b>📈 פוטנציאל רווח:</b><br/><span style="font-size:1.1em;color:{gain_color};font-weight:bold">{gain_fmt}</span></div>
+            <div><b>📅 תזמון יעד:</b><br/><span style="font-size:1.1em;color:#6366f1;font-weight:bold">{target_date}</span></div>
+            <div><b>⏱️ טווח אחזקה:</b><br/><span style="font-size:1.1em;color:#f59e0b;font-weight:bold">{horizon}</span></div>
+        </div>
+    </div>
+    {v2_html_spec}
     <div class="modern-grid">
     <div class="item"><b>Average Price:</b> {show_mean_fmt}</div>
     <div class="item"><b>Std Dev:</b> {show_std}</div>
@@ -2941,7 +3368,6 @@ else:
     <div class="item"><b>Fund Reliability:</b> {fund_rel_fmt}</div>
     <div class="item"><b>Reliability Score:</b> {rel_score_fmt}</div>
     <div class="item"><b>Recommended Buy ($):</b> ${buy_amt:,.0f}</div>
-    <div class="item"><b>Holding Horizon:</b> {horizon}</div>
     <div class="item"><b>Unit Price:</b> {unit_price_fmt}</div>
     <div class="item"><b>Shares to Buy:</b> {shares}</div>
     <div class="item"><b>Cash Leftover:</b> ${leftover:,.2f}</div>

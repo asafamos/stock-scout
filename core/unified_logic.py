@@ -501,3 +501,317 @@ def fetch_stock_data(ticker: str, start_date: str, end_date: str) -> Optional[pd
         return df
     except Exception:
         return None
+
+
+# ============================================================================
+# V2 SCORING ENGINE INTEGRATION (NON-BREAKING)
+# ============================================================================
+
+def score_ticker_v2(
+    ticker: str,
+    row: pd.Series,
+    historical_df: Optional[pd.DataFrame] = None,
+    enable_ml: bool = True,
+    use_multi_source: bool = True
+) -> Dict:
+    """
+    V2 scoring pipeline using multi-source data and unified scoring engine.
+    
+    This is a NON-BREAKING addition. V1 scoring remains unchanged.
+    
+    Args:
+        ticker: Stock symbol
+        row: Row from technical indicators DataFrame (contains RSI, ATR, etc.)
+        historical_df: Full OHLCV DataFrame (optional, for additional calculations)
+        enable_ml: Whether to use ML boost
+        use_multi_source: Whether to fetch multi-source fundamentals
+    
+    Returns:
+        Dict with all v2 scores and metadata:
+        {
+            "ticker": str,
+            "fundamental_score_v2": float (0-100),
+            "fundamental_confidence_v2": float (0-100),
+            "technical_score_v2": float (0-100),
+            "technical_confidence_v2": float (0-100),
+            "rr_score_v2": float (0-100),
+            "rr_confidence_v2": float (0-100),
+            "reliability_score_v2": float (0-100),
+            "conviction_v2_base": float (0-100),  # Before ML
+            "conviction_v2_final": float (0-100),  # After ML
+            "ml_probability": Optional[float],
+            "ml_boost": float,
+            "ml_status": str,
+            "risk_meter_v2": float (0-100),
+            "risk_label_v2": str,
+            "warnings_v2": List[str],
+            "sources_used": List[str],
+            "disagreement_score": float,
+            "breakdown": Dict  # Detailed component scores
+        }
+    """
+    from core import scoring_engine
+    from core import data_sources_v2
+    from core import ml_integration
+    
+    result = {
+        "ticker": ticker,
+        "fundamental_score_v2": 50.0,
+        "fundamental_confidence_v2": 0.0,
+        "technical_score_v2": 50.0,
+        "technical_confidence_v2": 0.0,
+        "rr_score_v2": 50.0,
+        "rr_confidence_v2": 0.0,
+        "reliability_score_v2": 50.0,
+        "conviction_v2_base": 50.0,
+        "conviction_v2_final": 50.0,
+        "ml_probability": None,
+        "ml_boost": 0.0,
+        "ml_status": "Not computed",
+        "risk_meter_v2": 50.0,
+        "risk_label_v2": "MODERATE",
+        "warnings_v2": [],
+        "sources_used": [],
+        "disagreement_score": 0.0,
+        "breakdown": {}
+    }
+    
+    try:
+        # ===== STEP 1: Fetch Multi-Source Fundamentals =====
+        if use_multi_source:
+            try:
+                multi_source_data = data_sources_v2.fetch_multi_source_data(ticker)
+                result["sources_used"] = multi_source_data.get("sources_used", [])
+                result["disagreement_score"] = multi_source_data.get("disagreement_score", 0.0)
+            except Exception as e:
+                import logging
+                logging.warning(f"Multi-source fetch failed for {ticker}: {e}")
+                multi_source_data = {}
+        else:
+            multi_source_data = {}
+        
+        # ===== STEP 2: Calculate Fundamental Score =====
+        fund_score, fund_confidence = scoring_engine.calculate_fundamental_score(
+            pe=multi_source_data.get("pe"),
+            ps=multi_source_data.get("ps"),
+            pb=multi_source_data.get("pb"),
+            roe=multi_source_data.get("roe"),
+            margin=multi_source_data.get("margin"),
+            rev_yoy=multi_source_data.get("rev_yoy"),
+            eps_yoy=multi_source_data.get("eps_yoy"),
+            debt_equity=multi_source_data.get("debt_equity")
+        )
+        
+        result["fundamental_score_v2"] = fund_score
+        result["fundamental_confidence_v2"] = fund_confidence
+        
+        # ===== STEP 3: Calculate Technical/Momentum Score =====
+        # Extract technical indicators from row
+        rsi = row.get("RSI", np.nan)
+        atr = row.get("ATR", np.nan)
+        close = row.get("Close", np.nan) if historical_df is None else historical_df['Close'].iloc[-1]
+        atr_pct = (atr / close) if (np.isfinite(atr) and np.isfinite(close) and close > 0) else np.nan
+        
+        ma_aligned = row.get("MA_Aligned", False)
+        overextension = row.get("OverextRatio", np.nan)
+        volume_surge = row.get("Volume_Surge", np.nan)
+        near_high = row.get("Near52w", np.nan)
+        
+        # Momentum periods (if available)
+        mom_1m = row.get("Mom_1M", np.nan)
+        mom_3m = row.get("Mom_3M", np.nan)
+        mom_6m = row.get("Mom_6M", np.nan)
+        
+        tech_score, tech_confidence = scoring_engine.calculate_momentum_score(
+            rsi=rsi,
+            atr_pct=atr_pct,
+            ma_aligned=ma_aligned,
+            mom_1m=mom_1m,
+            mom_3m=mom_3m,
+            mom_6m=mom_6m,
+            near_high=near_high,
+            overextension=overextension,
+            volume_surge=volume_surge
+        )
+        
+        result["technical_score_v2"] = tech_score
+        result["technical_confidence_v2"] = tech_confidence
+        
+        # ===== STEP 4: Calculate Risk/Reward Score =====
+        rr_ratio = row.get("RewardRisk", np.nan)
+        support = row.get("Support_20d", np.nan)
+        resistance = row.get("Resistance_20d", np.nan)
+        current_price = close
+        
+        rr_score, rr_confidence = scoring_engine.calculate_rr_score(
+            rr_ratio=rr_ratio,
+            atr=atr,
+            support=support,
+            resistance=resistance,
+            current_price=current_price
+        )
+        
+        result["rr_score_v2"] = rr_score
+        result["rr_confidence_v2"] = rr_confidence
+        
+        # ===== STEP 5: Calculate Reliability Score =====
+        price_sources = multi_source_data.get("price_sources", 1)
+        fund_sources = len(result["sources_used"])
+        price_std = multi_source_data.get("price_std", np.nan)
+        price_mean = multi_source_data.get("price_mean", np.nan)
+        
+        # Data completeness: how many technical indicators are valid?
+        tech_fields = ["RSI", "ATR", "MA_Aligned", "OverextRatio", "Volume_Surge", "Near52w", "RewardRisk"]
+        valid_count = sum(1 for f in tech_fields if np.isfinite(row.get(f, np.nan)))
+        data_completeness = (valid_count / len(tech_fields)) * 100.0
+        
+        reliability_score = scoring_engine.calculate_reliability_score(
+            price_sources=price_sources,
+            fund_sources=fund_sources,
+            price_std=price_std,
+            price_mean=price_mean,
+            fundamental_confidence=fund_confidence,
+            data_completeness=data_completeness
+        )
+        
+        result["reliability_score_v2"] = reliability_score
+        
+        # ===== STEP 6: Calculate Base Conviction =====
+        base_conviction, breakdown = scoring_engine.calculate_conviction_score(
+            fundamental_score=fund_score,
+            fundamental_confidence=fund_confidence,
+            momentum_score=tech_score,
+            momentum_confidence=tech_confidence,
+            rr_score=rr_score,
+            rr_confidence=rr_confidence,
+            reliability_score=reliability_score,
+            ml_probability=None  # Add ML separately
+        )
+        
+        result["conviction_v2_base"] = base_conviction
+        result["breakdown"] = breakdown
+        
+        # ===== STEP 7: Apply ML Boost (if enabled) =====
+        if enable_ml:
+            # Prepare data for ML
+            ticker_data = {
+                "near_high": near_high,
+                "market_trend": row.get("Market_Trend", 0.0),
+                "market_volatility": row.get("Market_Volatility", 0.02),
+                "spy_rsi": row.get("SPY_RSI", 50.0),
+                "relative_strength_20d": row.get("Relative_Strength_20d", 0.0),
+                "dist_from_52w_high": row.get("Dist_From_52w_High", 0.1),
+                "mom_acceleration": row.get("Mom_Acceleration", 0.0)
+            }
+            
+            technical_indicators = {
+                "rsi": rsi,
+                "atr_pct": atr_pct,
+                "overextension": overextension,
+                "rr_ratio": rr_ratio,
+                "momentum_consistency": row.get("Momentum_Consistency", 0.5),
+                "volume_surge": volume_surge
+            }
+            
+            fundamental_scores_dict = {
+                "fund_score": fund_score,
+                "fund_confidence": fund_confidence
+            }
+            
+            final_conviction, ml_info = ml_integration.integrate_ml_with_conviction(
+                base_conviction=base_conviction,
+                ticker_data=ticker_data,
+                technical_indicators=technical_indicators,
+                fundamental_scores=fundamental_scores_dict,
+                enable_ml=True
+            )
+            
+            result["conviction_v2_final"] = final_conviction
+            result["ml_probability"] = ml_info.get("ml_probability")
+            result["ml_boost"] = ml_info.get("ml_boost", 0.0)
+            result["ml_status"] = ml_info.get("ml_status", "Unknown")
+        else:
+            result["conviction_v2_final"] = base_conviction
+            result["ml_status"] = "ML disabled"
+        
+        # ===== STEP 8: Calculate Risk Meter =====
+        beta = multi_source_data.get("beta", np.nan)
+        leverage = multi_source_data.get("debt_equity", np.nan)
+        
+        risk_meter, risk_label = scoring_engine.calculate_risk_meter(
+            rr_ratio=rr_ratio,
+            beta=beta,
+            atr_pct=atr_pct,
+            leverage=leverage
+        )
+        
+        result["risk_meter_v2"] = risk_meter
+        result["risk_label_v2"] = risk_label
+        
+        # ===== STEP 9: Generate Warnings =====
+        warnings = scoring_engine.generate_warnings(
+            rr_ratio=rr_ratio,
+            fundamental_confidence=fund_confidence,
+            beta=beta,
+            atr_pct=atr_pct,
+            reliability_score=reliability_score
+        )
+        
+        result["warnings_v2"] = warnings
+        
+    except Exception as e:
+        import logging
+        logging.error(f"V2 scoring failed for {ticker}: {e}")
+        result["warnings_v2"].append(f"⚠️ V2 scoring error: {str(e)[:100]}")
+    
+    return result
+
+
+def batch_score_v2(
+    tickers: List[str],
+    indicators_df: pd.DataFrame,
+    enable_ml: bool = True,
+    use_multi_source: bool = True
+) -> pd.DataFrame:
+    """
+    Batch v2 scoring for multiple tickers.
+    
+    Args:
+        tickers: List of ticker symbols
+        indicators_df: DataFrame with technical indicators (index = tickers)
+        enable_ml: Whether to use ML
+        use_multi_source: Whether to fetch multi-source data
+    
+    Returns:
+        DataFrame with all v2 scores (one row per ticker)
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    results = []
+    
+    for ticker in tickers:
+        if ticker not in indicators_df.index:
+            logger.warning(f"Ticker {ticker} not in indicators DataFrame")
+            continue
+        
+        row = indicators_df.loc[ticker]
+        
+        try:
+            v2_result = score_ticker_v2(
+                ticker=ticker,
+                row=row,
+                enable_ml=enable_ml,
+                use_multi_source=use_multi_source
+            )
+            results.append(v2_result)
+        except Exception as e:
+            logger.error(f"Failed to score {ticker}: {e}")
+    
+    if not results:
+        return pd.DataFrame()
+    
+    df = pd.DataFrame(results)
+    df.set_index("ticker", inplace=True)
+    
+    return df

@@ -855,3 +855,47 @@ WARNING:__main__:All 1 attempts failed for URL
 `use_container_width` will be removed after 2025-12-31.
 
 For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+WARNING:__main__:All 1 attempts failed for URL
+INFO:__main__:✓ Deduplicated 503 → 503 unique companies (removed 0 multi-class tickers)
+INFO:__main__:✓ Loaded 503 unique S&P500 companies from Wikipedia
+INFO:__main__:🔬 Advanced filters pre-pass on 46 stocks...
+INFO:__main__:Dynamic thresholds -> RS:-0.175 MOM:0.229 RR:0.023
+INFO:__main__:Advanced filters dynamic: kept 34/46 catastrophic=12
+INFO:__main__:🔍 GOOGL FMP Debug: from_fmp=True, coverage=62%, roe=nan, quality_score_f=NaN
+INFO:__main__:🔍 AAPL FMP Debug: from_fmp=True, coverage=62%, roe=nan, quality_score_f=NaN
+INFO:__main__:🔍 AMZN FMP Debug: from_fmp=True, coverage=62%, roe=nan, quality_score_f=NaN
+INFO:__main__:✓ Fetched fundamentals for 34 stocks
+INFO:__main__:Columns available: ['Ticker', 'Price_Yahoo', 'Score_Tech', 'RSI', 'Near52w', 'Volx20d', 'OverextRatio', 'ATR_Price', 'RewardRisk', 'ATR14', 'Fundamental_S', 'Sector', 'PE_f', 'PS_f', 'ROE_f', 'ROIC_f', 'GM_f', 'DE_f', 'RevG_f', 'EPSG_f', 'Fund_from_FMP', 'Fund_from_Alpha', 'Fund_from_Finnhub', 'Fund_from_SimFin', 'Fund_from_EODHD', 'Score', 'Beta', 'RS_63d', 'Volume_Surge', 'MA_Aligned', 'Quality_Score', 'RR_Ratio', 'Momentum_Consistency', 'High_Confidence', 'AdvPenalty', 'AdvFlags', 'RejectionReason', 'Quality_Score_F', 'Quality_Label', 'Growth_Score_F', 'Growth_Label', 'Valuation_Score_F', 'Valuation_Label', 'Leverage_Score_F', 'Leverage_Label', 'Fund_Attribution']
+INFO:__main__:Sample RS_63d values: [-0.06344123614084118, -0.16254899252387056, 0.10815713453256204, 0.38297589712186864, -0.038772626670352306]
+INFO:__main__:Sample Volume_Surge values: [0.8293635019457144, 0.599790777320192, 1.1797808207957179, 1.0637183984352259, 0.8487613538107296]
+INFO:__main__:Sample RR_Ratio values: [0.049121598853716704, 0.66823085329012, 0.05680960650725089, 0.20891673080822729, 0.32346965220225726]
+INFO:__main__:Sample Quality_Score values: [13.0, 0.0, 14.0, 18.0, 8.0]
+INFO:__main__:Sample Fundamental_S values: [42.6, 68.0, 63.4, 58.1, 62.5]
+INFO:__main__:Sample Momentum_Consistency values: [0.7916666666666667, 0.375, 0.625, 0.7916666666666667, 0.7083333333333334]
+[2025-11-19 11:29:42] [INFO] [stock_scout.classification] Classified 34 stocks: Core=3, Speculative=31, Hidden=0
+[2025-11-19 11:29:42] [INFO] [stock_scout.classification] 📊 Initial distribution: 3 Core, 0 Speculative (total: 3)
+[2025-11-19 11:29:42] [INFO] [stock_scout.classification] After Core filter: 3/3
+[2025-11-19 11:29:42] [INFO] [stock_scout.classification] After fundamental quality score >= 25.0: 3/3
+[2025-11-19 11:29:42] [INFO] [stock_scout.classification] After overextension <= 0.12: 3/3
+[2025-11-19 11:29:42] [INFO] [stock_scout.classification] After ATR/Price <= 0.07: 3/3
+[2025-11-19 11:29:42] [INFO] [stock_scout.classification] After RSI in [20, 55]: 3/3
+[2025-11-19 11:29:42] [INFO] [stock_scout.classification] After RewardRisk >= 1.0: 3/3
+[2025-11-19 11:29:42] [INFO] [stock_scout.classification] After MomentumConsistency >= 0.35: 3/3
+[2025-11-19 11:29:42] [INFO] [stock_scout.classification] Final Core recommendations (including adaptive if any): 3/3
+INFO:__main__:Speculative filter: 31 → 24
+INFO:__main__:Applying XGBoost ML scoring...
+INFO:__main__:Core stocks scored: avg probability 0.847
+INFO:__main__:Speculative stocks scored: avg probability 0.839
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+2025-11-19 11:29:45.039 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
