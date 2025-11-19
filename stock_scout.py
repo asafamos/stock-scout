@@ -1713,22 +1713,23 @@ for col in adv_cols:
 
 logger.info(f"🔬 Advanced filters pre-pass on {len(results)} stocks...")
 
-signals_store = []  # (idx, signals, enhanced_score, catastrophic, reason)
+# Step 1: Compute all signals first (without rejection)
+signals_store = []  # (idx, signals, enhanced_score)
 for idx in results.index:
     tkr = results.at[idx, "Ticker"]
     if tkr not in data_map or benchmark_df.empty:
-        signals_store.append((idx, {}, results.at[idx, "Score"], False, ""))
+        signals_store.append((idx, {}, results.at[idx, "Score"]))
         continue
     df = data_map[tkr]
     base_score = results.at[idx, "Score"]
     enhanced_score, signals = compute_advanced_score(tkr, df, benchmark_df, base_score)
-    catastrophic, reason = should_reject_ticker(signals)
-    signals_store.append((idx, signals, enhanced_score, catastrophic, reason))
+    signals_store.append((idx, signals, enhanced_score))
 
+# Step 2: Calculate dynamic thresholds from all signals
 rs_vals = []
 mom_vals = []
 rr_vals = []
-for (_, sig, _, _, _) in signals_store:
+for (_, sig, _) in signals_store:
     v_rs = sig.get("rs_63d")
     if isinstance(v_rs, (int, float)) and np.isfinite(v_rs):
         rs_vals.append(v_rs)
@@ -1748,9 +1749,37 @@ mom_thresh_dyn = _q(mom_vals, 0.10, 0.15)   # 10th percentile (was 20th), allow 
 rr_thresh_dyn = _q(rr_vals, 0.10, 0.50)     # 10th percentile (was 25th), allow lower RR
 logger.info(f"Dynamic thresholds -> RS:{rs_thresh_dyn:.3f} MOM:{mom_thresh_dyn:.3f} RR:{rr_thresh_dyn:.3f}")
 
+# Step 3: NOW apply rejection with dynamic thresholds
+dynamic_thresholds = {
+    "rs_63d": rs_thresh_dyn,
+    "momentum_consistency": mom_thresh_dyn,
+    "risk_reward_ratio": rr_thresh_dyn
+}
+
 catastrophic_count = 0
 kept = 0
-for (idx, sig, enhanced_score, catastrophic, reason) in signals_store:
+for (idx, sig, enhanced_score) in signals_store:
+    # Apply rejection with dynamic thresholds
+    catastrophic, reason = should_reject_ticker(sig, dynamic=dynamic_thresholds)
+    
+    if catastrophic:
+        catastrophic_count += 1
+        results.loc[idx, "RejectionReason"] = reason
+        # Skip penalty calculation for rejected stocks
+        results.loc[idx, "RS_63d"] = sig.get("rs_63d", np.nan)
+        results.loc[idx, "Volume_Surge"] = sig.get("volume_surge", np.nan)
+        results.loc[idx, "MA_Aligned"] = sig.get("ma_aligned", False)
+        results.loc[idx, "Quality_Score"] = sig.get("quality_score", 0.0)
+        results.loc[idx, "RR_Ratio"] = sig.get("risk_reward_ratio", np.nan)
+        results.loc[idx, "Momentum_Consistency"] = sig.get("momentum_consistency", 0.0)
+        results.loc[idx, "High_Confidence"] = sig.get("high_confidence", False)
+        results.loc[idx, "AdvPenalty"] = 0.0
+        results.loc[idx, "AdvFlags"] = "REJECTED"
+        results.loc[idx, "Score"] = 0.0
+        continue
+    
+    # Not catastrophic - apply normal penalty logic
+    kept += 1
     flags = []
     penalty = 0.0
     if sig:
@@ -1766,9 +1795,7 @@ for (idx, sig, enhanced_score, catastrophic, reason) in signals_store:
         if np.isfinite(rr_val) and rr_val < rr_thresh_dyn:
             penalty += 3.0  # reduced from 10.0
             flags.append("LowRR")
-    if catastrophic:
-        catastrophic_count += 1
-        results.loc[idx, "RejectionReason"] = reason
+    
     results.loc[idx, "RS_63d"] = sig.get("rs_63d", np.nan)
     results.loc[idx, "Volume_Surge"] = sig.get("volume_surge", np.nan)
     results.loc[idx, "MA_Aligned"] = sig.get("ma_aligned", False)
@@ -1780,8 +1807,6 @@ for (idx, sig, enhanced_score, catastrophic, reason) in signals_store:
     results.loc[idx, "AdvFlags"] = ",".join(flags)
     adj_score = max(0.0, enhanced_score - penalty)
     results.loc[idx, "Score"] = adj_score
-    if not catastrophic:
-        kept += 1
 
 if catastrophic_count == len(signals_store):
     logger.warning("All stocks met catastrophic rejection; overriding to keep all for inspection.")
@@ -1790,7 +1815,8 @@ if catastrophic_count == len(signals_store):
 logger.info(f"Advanced filters dynamic: kept {kept}/{len(signals_store)} catastrophic={catastrophic_count}")
 
 if catastrophic_count > 0 and catastrophic_count < len(signals_store):
-    drop_indices = [idx for (idx, _, _, c, _) in signals_store if c]
+    # Remove catastrophic stocks
+    drop_indices = results[results["Score"] == 0.0].index
     results = results[~results.index.isin(drop_indices)].reset_index(drop=True)
 
 results = results.sort_values(["Score", "Ticker"], ascending=[False, True]).reset_index(drop=True)
