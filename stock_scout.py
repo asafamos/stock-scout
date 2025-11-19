@@ -240,14 +240,42 @@ def http_get_retry(
 
 
 def alpha_throttle(min_gap_seconds: float = 12.0) -> None:
-    """Throttle Alpha Vantage calls."""
+    """Throttle Alpha Vantage calls to respect 5 calls/minute (25 calls/day on free tier).
+    
+    Args:
+        min_gap_seconds: Minimum seconds between calls (default 12s = 5 calls/min)
+    """
     ts_key = "_alpha_last_call_ts"
+    calls_key = "av_calls"
+    
+    # Track number of calls in session
+    call_count = st.session_state.get(calls_key, 0)
+    
+    # Reset counter daily (conservative approach)
+    last_reset_key = "_alpha_reset_date"
+    today = datetime.utcnow().date().isoformat()
+    if st.session_state.get(last_reset_key) != today:
+        st.session_state[calls_key] = 0
+        st.session_state[last_reset_key] = today
+        call_count = 0
+    
+    # Check daily limit (25 on free tier, be conservative with 20)
+    if call_count >= 20:
+        logger.warning(f"Alpha Vantage daily limit reached ({call_count} calls), skipping")
+        return
+    
+    # Enforce rate limit
     last = st.session_state.get(ts_key, 0.0)
     now = time.time()
     elapsed = now - last
     if elapsed < min_gap_seconds:
-        time.sleep(min_gap_seconds - elapsed)
+        sleep_time = min_gap_seconds - elapsed
+        logger.debug(f"Alpha Vantage throttle: sleeping {sleep_time:.1f}s")
+        time.sleep(sleep_time)
+    
+    # Update state
     st.session_state[ts_key] = time.time()
+    st.session_state[calls_key] = call_count + 1
 
 
 # --- Build Universe (restored) ---
@@ -615,10 +643,11 @@ def fetch_fundamentals_bundle(ticker: str, enable_alpha_smart: bool = False) -> 
             if ek:
                 futures['eodhd'] = ex.submit(_eodhd_fetch_fundamentals, ticker, ek)
         
-        # Tiingo
-        tk = _env("TIINGO_API_KEY")
-        if tk:
-            futures['tiingo'] = ex.submit(_tiingo_fundamentals_fetch, ticker)
+        # Tiingo (comprehensive fundamentals)
+        if CONFIG.get("ENABLE_TIINGO", True):  # Enable by default
+            tk = _env("TIINGO_API_KEY")
+            if tk:
+                futures['tiingo'] = ex.submit(_tiingo_fundamentals_fetch, ticker)
         
         # Collect results with timeout
         results = {}
@@ -831,45 +860,70 @@ def _fmp_full_bundle_fetch(ticker: str, api_key: str) -> Dict[str, any]:
 
 
 def _alpha_overview_fetch(ticker: str) -> Dict[str, any]:
-    """Fetch Alpha Vantage OVERVIEW (simple overview fields)."""
+    """Fetch Alpha Vantage OVERVIEW with improved error handling and comprehensive fields.
+    
+    Returns: dict with roe, roic, gm, ps, pe, de, rev_g_yoy, eps_g_yoy, sector
+    """
     ak = _env("ALPHA_VANTAGE_API_KEY")
     if not ak:
         return {}
     try:
-        alpha_throttle(2.0)
+        alpha_throttle(12.0)  # 5 calls/minute = 12 seconds between calls
         url = f"https://www.alphavantage.co/query?function=OVERVIEW&symbol={ticker}&apikey={ak}"
-        r = http_get_retry(url, tries=1, timeout=6)
+        r = http_get_retry(url, tries=2, timeout=10)
         if not r:
             return {}
         j = r.json()
-        if not (isinstance(j, dict) and j.get("Symbol")):
+        
+        # Check for Alpha Vantage errors
+        if isinstance(j, dict):
+            if "Note" in j or "Information" in j:
+                logger.warning(f"Alpha Vantage rate limit: {j.get('Note') or j.get('Information')}")
+                return {}
+            if not j.get("Symbol"):
+                return {}
+        else:
             return {}
 
         def fnum(k):
             try:
-                v = float(j.get(k, np.nan))
+                v = j.get(k)
+                if v in (None, "None", "-", ""):
+                    return np.nan
+                v = float(v)
                 return v if np.isfinite(v) else np.nan
             except Exception:
                 return np.nan
 
+        # Calculate gross margin from raw numbers if available
         gp = fnum("GrossProfitTTM")
-        tr = fnum("TotalRevenueTTM")
-        gm_calc = (
-            (gp / tr) if (np.isfinite(gp) and np.isfinite(tr) and tr > 0) else np.nan
-        )
+        tr = fnum("RevenueTTM")
+        gm_calc = (gp / tr) if (np.isfinite(gp) and np.isfinite(tr) and tr > 0) else np.nan
+        
+        # Fallback to profit margin if gross margin not available
         pm = fnum("ProfitMargin")
-        return {
+        
+        out = {
             "roe": fnum("ReturnOnEquityTTM"),
-            "roic": np.nan,
+            "roic": np.nan,  # Alpha doesn't provide ROIC directly
             "gm": gm_calc if np.isfinite(gm_calc) else pm,
-            "ps": fnum("PriceToSalesTTM"),
+            "ps": fnum("PriceToSalesRatioTTM"),
             "pe": fnum("PERatio"),
-            "de": fnum("DebtToEquityTTM"),
+            "de": fnum("DebtToEquity"),
             "rev_g_yoy": fnum("QuarterlyRevenueGrowthYOY"),
             "eps_g_yoy": fnum("QuarterlyEarningsGrowthYOY"),
             "sector": j.get("Sector") or "Unknown",
         }
-    except Exception:
+        
+        # Count valid fields
+        valid_count = sum(1 for k, v in out.items() if k != "sector" and isinstance(v, (int, float)) and np.isfinite(v))
+        if valid_count >= 3:  # At least 3 valid fields
+            out["from_alpha"] = True
+            out["_alpha_field_count"] = valid_count
+            return out
+        return {}
+    except Exception as e:
+        logger.debug(f"Alpha Vantage fetch failed for {ticker}: {e}")
         return {}
 
 
@@ -991,100 +1045,55 @@ def _simfin_fetch(ticker: str, api_key: str) -> Dict[str, any]:
 
 @st.cache_data(ttl=60 * 60 * 24)
 def _tiingo_fundamentals_fetch(ticker: str) -> Dict[str, any]:
-    """Fetch fundamentals from Tiingo - P/E, P/B, Market Cap, Dividend Yield."""
+    """Fetch fundamentals from Tiingo - comprehensive data from fundamentals endpoint.
+    
+    Returns: dict with pe, ps, pb, roe, gm, de, rev_g_yoy, eps_g_yoy if available.
+    """
     tk = _env("TIINGO_API_KEY")
     if not tk:
         return {}
     try:
-        # Tiingo daily price metadata includes fundamental ratios
-        url = f"https://api.tiingo.com/tiingo/daily/{ticker}?token={tk}"
-        r = http_get_retry(url, tries=2, timeout=8)
-        if not r:
-            return {}
-        j = r.json()
-        if not isinstance(j, dict):
-            return {}
-        
-        def fnum(key):
-            try:
-                v = j.get(key)
-                if v is None:
-                    return np.nan
-                return float(v) if np.isfinite(float(v)) else np.nan
-            except:
-                return np.nan
-        
-        # Tiingo provides limited fundamentals in metadata
-        # For comprehensive data, use the fundamentals endpoint
+        # Use Tiingo fundamentals endpoint for comprehensive data
         fund_url = f"https://api.tiingo.com/tiingo/fundamentals/{ticker}/daily?token={tk}"
-        fund_r = http_get_retry(fund_url, tries=1, timeout=10)
+        fund_r = http_get_retry(fund_url, tries=2, timeout=10)
         
-        out = {}
-        if fund_r:
-            try:
-                fund_j = fund_r.json()
-                if fund_j and isinstance(fund_j, list) and len(fund_j) > 0:
-                    latest = fund_j[0]
-                    out = {
-                        "pe": fnum("pe") if "pe" in latest else np.nan,
-                        "pb": fnum("pb") if "pb" in latest else np.nan,
-                        "dividend_yield": fnum("divYield") if "divYield" in latest else np.nan,
-                        "market_cap": fnum("marketCap") if "marketCap" in latest else np.nan,
-                    }
-            except:
-                pass
-        
-        # If fundamentals endpoint failed, try basic metadata
-        if not out or all(not np.isfinite(v) for v in out.values() if isinstance(v, float)):
+        if not fund_r:
             return {}
         
-        valid_count = sum(1 for v in out.values() if isinstance(v, (int, float)) and np.isfinite(v))
-        if valid_count >= 1:
-            out["from_tiingo"] = True
-            out["_tiingo_field_count"] = valid_count
-            return out
-        return {}
-    except Exception:
-        return {}
-
-
-@st.cache_data(ttl=60 * 60 * 24)
-def _tiingo_fundamentals_fetch(ticker: str) -> Dict[str, any]:
-    """Fetch fundamentals from Tiingo - P/E, Market Cap."""
-    tk = _env("TIINGO_API_KEY")
-    if not tk:
-        return {}
-    try:
-        # Tiingo daily metadata includes fundamentals
-        url = f"https://api.tiingo.com/tiingo/daily/{ticker}?token={tk}"
-        r = http_get_retry(url, tries=2, timeout=8)
-        if not r:
+        fund_j = fund_r.json()
+        if not fund_j or not isinstance(fund_j, list) or len(fund_j) == 0:
             return {}
-        j = r.json()
-        if not isinstance(j, dict):
-            return {}
+        
+        latest = fund_j[0]  # Most recent data
         
         def fnum(key):
             try:
-                v = j.get(key)
+                v = latest.get(key)
                 if v is None:
                     return np.nan
                 return float(v) if np.isfinite(float(v)) else np.nan
             except:
                 return np.nan
         
-        # Extract available fundamentals
-        out = {}
-        if "description" in j:  # has metadata
-            out["market_cap"] = fnum("marketCap")
+        out = {
+            "pe": fnum("pe"),
+            "ps": fnum("priceToSalesRatio"),
+            "pb": fnum("pb"),
+            "roe": fnum("roe"),
+            "gm": fnum("grossMargin"),
+            "de": fnum("debtToEquity"),
+            "rev_g_yoy": fnum("revenueGrowth"),
+            "eps_g_yoy": fnum("epsGrowth"),
+        }
         
         valid_count = sum(1 for v in out.values() if isinstance(v, (int, float)) and np.isfinite(v))
-        if valid_count >= 1:
+        if valid_count >= 2:  # At least 2 valid fields
             out["from_tiingo"] = True
             out["_tiingo_field_count"] = valid_count
             return out
         return {}
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Tiingo fundamentals fetch failed for {ticker}: {e}")
         return {}
 
 
@@ -1332,11 +1341,11 @@ add_provider("FMP", False, fmp_ok, _std_reason("FMP", False, fmp_ok, fmp_ok))
 add_provider("Alpha Vantage", alpha_ok, alpha_ok, _std_reason("Alpha Vantage", alpha_ok, alpha_ok, bool(_env("ALPHA_VANTAGE_API_KEY"))))
 add_provider("Finnhub", finn_ok, finn_ok, _std_reason("Finnhub", finn_ok, finn_ok, bool(_env("FINNHUB_API_KEY"))))
 add_provider("Polygon", poly_ok, False, _std_reason("Polygon", poly_ok, False, bool(_env("POLYGON_API_KEY"))))
-add_provider("Tiingo", tiin_ok, False, _std_reason("Tiingo", tiin_ok, False, bool(_env("TIINGO_API_KEY"))))
-add_provider("SimFin", False, False, "API Deprecated")
+add_provider("Tiingo", tiin_ok, tiin_ok, _std_reason("Tiingo", tiin_ok, tiin_ok, bool(_env("TIINGO_API_KEY"))))  # Now supports fundamentals!
+add_provider("SimFin", False, bool(_env("SIMFIN_API_KEY")), "Deprecated" if not _env("SIMFIN_API_KEY") else "OK")
 add_provider("Marketstack", False, False, "Usage Limit Reached")
 add_provider("NasdaqDL", False, False, "Access Blocked")
-add_provider("EODHD", False, False, "Paid Subscription Required")
+add_provider("EODHD", False, bool(_env("EODHD_API_KEY")), "No API Key" if not _env("EODHD_API_KEY") else "OK")
 
 status_df = pd.DataFrame(providers_status)
 st.markdown("### 🔌 Data Sources Status")
