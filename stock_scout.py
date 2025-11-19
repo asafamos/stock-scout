@@ -1939,6 +1939,46 @@ spec_stocks = results[results["Risk_Level"] == "speculative"].copy()
 
 st.write(f"📊 **Before filtering:** {len(core_stocks)} Core, {len(spec_stocks)} Speculative")
 
+# Fallback: if no Core, promote top relaxed candidates from Speculative
+if len(core_stocks) == 0 and not spec_stocks.empty:
+    st.warning("⚠️ No Core stocks classified. Applying adaptive Core fallback…")
+    try:
+        rr = spec_stocks.get("RewardRisk")
+        if rr is None:
+            rr = spec_stocks.get("RR_Ratio")
+        # Relaxed technical window to ensure minimal viable Core set
+        mask = (
+            spec_stocks.get("RSI").between(25, 45, inclusive="both")
+            & (rr.fillna(0) >= 1.3)
+            & (spec_stocks.get("Momentum_Consistency", pd.Series([0]*len(spec_stocks))).fillna(0) >= 0.45)
+            & (spec_stocks.get("ATR_Price", pd.Series([1]*len(spec_stocks))).fillna(1) <= 0.08)
+            & (spec_stocks.get("OverextRatio", pd.Series([1]*len(spec_stocks))).fillna(1) <= 0.12)
+            & (spec_stocks.get("Should_Display", pd.Series([True]*len(spec_stocks))).fillna(True))
+        )
+        fallback = spec_stocks[mask].copy().sort_values(["Score","Ticker"], ascending=[False, True]).head(5)
+        if not fallback.empty:
+            fallback["Risk_Level"] = "core"
+            # Mark reason
+            if "Classification_Warnings" in fallback.columns:
+                fallback["Classification_Warnings"] = (
+                    fallback["Classification_Warnings"].fillna("") + "; Adaptive Core fallback"
+                ).str.strip("; ")
+            else:
+                fallback["Classification_Warnings"] = "Adaptive Core fallback"
+            # Lower confidence if missing
+            if "Confidence_Level" in fallback.columns:
+                fallback.loc[fallback["Confidence_Level"].isna(), "Confidence_Level"] = "low"
+            else:
+                fallback["Confidence_Level"] = "low"
+            # Update sets
+            core_stocks = fallback
+            spec_stocks = spec_stocks.drop(fallback.index)
+            st.info(f"🔄 Promoted {len(core_stocks)} fallback Core candidates based on relaxed criteria")
+        else:
+            logger.info("Adaptive Core fallback found no eligible candidates")
+    except Exception as e:
+        logger.warning(f"Adaptive Core fallback error: {e}")
+
 # Filter Core with strict criteria
 core_before_filter = len(core_stocks)
 core_filtered = filter_core_recommendations(core_stocks, CONFIG, adaptive=True) if not core_stocks.empty else pd.DataFrame()
@@ -2039,8 +2079,10 @@ if results.empty:
     st.write("- 🔴 Core stocks failed technical filters (RSI, ATR, Overextension)")
     st.write("- 🔴 Speculative stocks failed relaxed filters (extremely high volatility)")
     st.write("- 🔴 Data quality too low (missing critical metrics)")
-    st.write(f"- 🔴 Consider relaxing CONFIG: MIN_QUALITY_SCORE_CORE={CONFIG['MIN_QUALITY_SCORE_CORE']}, "
-             f"MAX_ATR_PRICE_CORE={CONFIG['MAX_ATR_PRICE_CORE']}")
+    st.write(
+        f"- 🔴 Consider relaxing CONFIG: MIN_QUALITY_SCORE_CORE={CONFIG.get('MIN_QUALITY_SCORE_CORE', 25.0)}, "
+        f"MAX_ATR_PRICE_CORE={CONFIG.get('MAX_ATR_PRICE_CORE', 0.06)}"
+    )
     st.stop()
 
 # Show results count with guidance
@@ -2821,6 +2863,16 @@ else:
             growth_color = label_color(growth_label, ['Fast', 'Moderate'])
             val_color = label_color(val_label, ['Cheap', 'Fair'])
             lev_color = label_color(lev_label, ['Low', 'Medium'])
+            
+            # Reliability scores formatting (same as Core section)
+            def format_rel(val):
+                if np.isfinite(val):
+                    return f"{val:.1f}%"
+                return "N/A"
+            
+            price_rel_fmt = format_rel(r.get('Price_Reliability', np.nan))
+            fund_rel_fmt = format_rel(r.get('Fundamental_Reliability', np.nan))
+            rel_score_fmt = format_rel(r.get('Reliability_Score', np.nan))
             
             esc = html_escape.escape
             ticker = esc(str(r["Ticker"]))

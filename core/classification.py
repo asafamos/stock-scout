@@ -356,19 +356,24 @@ def filter_core_recommendations(
     """
     if df.empty:
         return df
-    
+
     # CORE CONFIG (Nov 2025 - FIXED): Balanced for coverage + quality
-    # Core = RSI 25-40 + RR≥1.5 + MomCons≥0.5 (67% win, 100+ stocks)
-    if config is None:
-        config = {
-            "MIN_QUALITY_SCORE_CORE": 25.0,  # Relaxed - technical signals are primary
-            "MAX_OVEREXTENSION_CORE": 0.10,  # Allow some overextension
-            "MAX_ATR_PRICE_CORE": 0.06,      # Max 6% volatility (downside protection)
-            "RSI_MIN_CORE": 25,              # Oversold zone start
-            "RSI_MAX_CORE": 40,              # Oversold zone end
-            "MIN_RR_CORE": 1.5,              # FIXED: Lowered from 2.0 (was too strict)
-            "MIN_MOMCONS_CORE": 0.5,         # FIXED: Lowered from 0.6 (was too strict)
-        }
+    # Always start from relaxed defaults, then overlay provided config keys if present.
+    default_cfg = {
+        "MIN_QUALITY_SCORE_CORE": 25.0,  # Relaxed - technical signals are primary
+        "MAX_OVEREXTENSION_CORE": 0.10,  # Allow some overextension
+        "MAX_ATR_PRICE_CORE": 0.06,      # Max 6% volatility (downside protection)
+        "RSI_MIN_CORE": 25,              # Oversold zone start
+        "RSI_MAX_CORE": 40,              # Oversold zone end
+        "MIN_RR_CORE": 1.5,              # Lowered from 2.0 (was too strict)
+        "MIN_MOMCONS_CORE": 0.5,         # Lowered from 0.6 (was too strict)
+    }
+    cfg = default_cfg.copy()
+    if isinstance(config, dict):
+        # Only take known keys to avoid accidental overrides
+        for k in default_cfg.keys():
+            if k in config:
+                cfg[k] = config[k]
     
     initial_count = len(df)
     filtered = df.copy()
@@ -395,7 +400,7 @@ def filter_core_recommendations(
     
     # Filter 2: Minimum quality score (fundamental)
     if "Quality_Score_F" in filtered.columns:
-        min_qual = config.get("MIN_QUALITY_SCORE_CORE", 27.0)
+        min_qual = cfg["MIN_QUALITY_SCORE_CORE"]
         filtered = filtered[
             (filtered["Quality_Score_F"].isna()) | 
             (filtered["Quality_Score_F"] >= min_qual)
@@ -404,7 +409,7 @@ def filter_core_recommendations(
     
     # Filter 3: Maximum overextension
     if "OverextRatio" in filtered.columns:
-        max_overext = config.get("MAX_OVEREXTENSION_CORE", 0.10)
+        max_overext = cfg["MAX_OVEREXTENSION_CORE"]
         filtered = filtered[
             (filtered["OverextRatio"].isna()) | 
             (filtered["OverextRatio"] <= max_overext)
@@ -413,7 +418,7 @@ def filter_core_recommendations(
     
     # Filter 4: Maximum ATR/Price (volatility)
     if "ATR_Price" in filtered.columns:
-        max_atr = config.get("MAX_ATR_PRICE_CORE", 0.08)
+        max_atr = cfg["MAX_ATR_PRICE_CORE"]
         filtered = filtered[
             (filtered["ATR_Price"].isna()) | 
             (filtered["ATR_Price"] <= max_atr)
@@ -422,8 +427,8 @@ def filter_core_recommendations(
     
     # Filter 5: RSI bounds
     if "RSI" in filtered.columns:
-        rsi_min = config.get("RSI_MIN_CORE", 45)
-        rsi_max = config.get("RSI_MAX_CORE", 70)
+        rsi_min = cfg["RSI_MIN_CORE"]
+        rsi_max = cfg["RSI_MAX_CORE"]
         filtered = filtered[
             (filtered["RSI"].isna()) | 
             ((filtered["RSI"] >= rsi_min) & (filtered["RSI"] <= rsi_max))
@@ -432,7 +437,7 @@ def filter_core_recommendations(
     
     # Filter 6: Minimum reward/risk ratio
     if "RewardRisk" in filtered.columns:
-        min_rr = config.get("MIN_RR_CORE", 2.0)
+        min_rr = cfg["MIN_RR_CORE"]
         filtered = filtered[
             (filtered["RewardRisk"].isna()) | 
             (filtered["RewardRisk"] >= min_rr)
@@ -441,7 +446,7 @@ def filter_core_recommendations(
     
     # Filter 7: NEW - Minimum momentum consistency (Core = consistent trends)
     if "Momentum_Consistency" in filtered.columns:
-        min_mom = config.get("MIN_MOMCONS_CORE", 0.6)
+        min_mom = cfg["MIN_MOMCONS_CORE"]
         filtered = filtered[
             (filtered["Momentum_Consistency"].isna()) | 
             (filtered["Momentum_Consistency"] >= min_mom)
@@ -451,12 +456,12 @@ def filter_core_recommendations(
     # Adaptive relaxation if enabled and still empty after filters
     if adaptive and len(filtered) == 0:
         relax_cfg = {
-            "MIN_QUALITY_SCORE_CORE": max(config.get("MIN_QUALITY_SCORE_CORE", 27.0) - 5, 15),
-            "MAX_OVEREXTENSION_CORE": config.get("MAX_OVEREXTENSION_CORE", 0.10) + 0.05,
-            "MAX_ATR_PRICE_CORE": config.get("MAX_ATR_PRICE_CORE", 0.08) + 0.04,
-            "RSI_MIN_CORE": max(config.get("RSI_MIN_CORE", 45) - 5, 30),
-            "RSI_MAX_CORE": min(config.get("RSI_MAX_CORE", 70) + 5, 80),
-            "MIN_RR_CORE": max(config.get("MIN_RR_CORE", 1.5) - 0.3, 1.0),
+            "MIN_QUALITY_SCORE_CORE": max(cfg["MIN_QUALITY_SCORE_CORE"] - 5, 15),
+            "MAX_OVEREXTENSION_CORE": cfg["MAX_OVEREXTENSION_CORE"] + 0.05,
+            "MAX_ATR_PRICE_CORE": cfg["MAX_ATR_PRICE_CORE"] + 0.04,
+            "RSI_MIN_CORE": max(cfg["RSI_MIN_CORE"] - 5, 30),
+            "RSI_MAX_CORE": min(cfg["RSI_MAX_CORE"] + 5, 80),
+            "MIN_RR_CORE": max(cfg["MIN_RR_CORE"] - 0.3, 1.0),
         }
         logger.warning(f"🔄 Adaptive relaxation engaged: {relax_cfg}")
         pool = df[df.get("Should_Display", True)]  # showable stocks
