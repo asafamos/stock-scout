@@ -1954,6 +1954,36 @@ if CONFIG["FUNDAMENTAL_ENABLED"] and fundamental_available:
     phase_times["fundamentals_alpha_finnhub"] = t_end(t0)
     logger.info(f"✓ Scored {take_k} stocks with V2-enhanced conviction")
 
+    # Ensure canonical V2 column aliases exist for UI/CSV and enforce blocked zeros
+    # Map rr -> reward_risk_v2, reliability -> reliability_score_v2
+    if "rr_ratio_v2" in results.columns:
+        results["reward_risk_v2"] = results["rr_ratio_v2"]
+    else:
+        results["reward_risk_v2"] = results.get("RR_Ratio", np.nan)
+
+    if "reliability_v2" in results.columns:
+        results["reliability_score_v2"] = results["reliability_v2"]
+    else:
+        results["reliability_score_v2"] = results.get("Reliability_Score", np.nan)
+
+    # Ensure presence of other requested keys (fill with defaults if missing)
+    for k in [
+        "risk_gate_status_v2", "risk_gate_reason_v2", "conviction_v2_base", "conviction_v2_final",
+        "buy_amount_v2", "shares_to_buy_v2", "fund_sources_used_v2", "price_sources_used_v2",
+        "fund_disagreement_score_v2", "price_variance_score_v2"
+    ]:
+        if k not in results.columns:
+            results[k] = np.nan
+
+    # Enforce blocked rows have zero buy and shares
+    if "risk_gate_status_v2" in results.columns:
+        blocked_mask = results["risk_gate_status_v2"] == "blocked"
+        if "buy_amount_v2" in results.columns:
+            results.loc[blocked_mask, "buy_amount_v2"] = 0.0
+        if "shares_to_buy_v2" in results.columns:
+            results.loc[blocked_mask, "shares_to_buy_v2"] = 0
+
+
 # 3e) Apply risk classification and data quality evaluation
 t0 = t_start()
 st.info("🔍 Classifying stocks by risk level and data quality...")
@@ -2684,7 +2714,18 @@ with st.sidebar:
     st.session_state["compact_mode"] = compact_mode
 
 # Apply filters
-rec_df = results[results["סכום קנייה ($)"] > 0].copy()
+# Prefer V2 strict buy amounts for recommendations; fallback to legacy Hebrew buy column
+if "buy_amount_v2" in results.columns:
+    rec_df = results[results["buy_amount_v2"].fillna(0) > 0].copy()
+elif "סכום קנייה ($)" in results.columns:
+    rec_df = results[results["סכום קנייה ($)"].fillna(0) > 0].copy()
+else:
+    # Fallback: empty selection if no buy columns present
+    rec_df = results.copy()
+
+# Explicitly exclude tickers blocked by the strict V2 gate
+if "risk_gate_status_v2" in rec_df.columns:
+    rec_df = rec_df[rec_df["risk_gate_status_v2"] != "blocked"].copy()
 
 if not rec_df.empty:
     # Apply risk filter
@@ -3128,10 +3169,14 @@ else:
     <div class="item"><b>Price Reliability:</b> {price_rel_fmt}</div>
     <div class="item"><b>Fund Reliability:</b> {fund_rel_fmt}</div>
     <!-- Legacy v1 fields removed: showing V2-only UX -->
-    <div class="item"><b>V2 Conviction:</b> <span style="font-weight:700;color:{conv_color}">{conv_v2_fmt}/100</span></div>
-            <div class="item"><b>Recommended Buy ($):</b> {"Legacy only / Strict mode disabled" if gate_status=="blocked" else f'${buy_amt:,.0f}'}</div>
-    <div class="item"><b>Unit Price:</b> {unit_price_fmt}</div>
-    <div class="item"><b>Shares to Buy:</b> {0 if gate_status=="blocked" else shares}</div>
+        <div class="item"><b>V2 Conviction:</b> <span style="font-weight:700;color:{conv_color}">{conv_v2_fmt}/100</span></div>
+        <div class="item"><b>Reliability Score v2:</b> {rel_v2_fmt}/100</div>
+        <div class="item"><b>Reward/Risk v2:</b> {rr_v2_fmt}</div>
+        <div class="item"><b>Risk Gate Status v2:</b> {gate_status or 'N/A'}</div>
+        <div class="item"><b>Risk Gate Reason:</b> {esc(str(gate_reason))}</div>
+        <div class="item"><b>Recommended Buy ($):</b> ${0 if gate_status=="blocked" else f'{buy_amount_v2:,.0f}'}</div>
+        <div class="item"><b>Unit Price:</b> {unit_price_fmt}</div>
+        <div class="item"><b>Shares to Buy:</b> {0 if gate_status=="blocked" else shares_v2}</div>
     <div class="item"><b>Cash Leftover:</b> ${leftover:,.2f}</div>
     <div class="item"><b>📅 Next Earnings:</b> {next_earnings}</div>
     <div class="section-divider">🔬 Advanced Indicators:</div>
@@ -3333,6 +3378,11 @@ else:
             risk_v2 = r.get("risk_meter_v2", np.nan)
             risk_label_v2 = r.get("risk_label_v2", "N/A")
             ml_boost_v2 = r.get("ml_boost", 0.0)
+            # Strict V2 gate fields for speculative cards
+            gate_status = r.get("risk_gate_status_v2", None)
+            gate_reason = r.get("risk_gate_reason_v2", "")
+            buy_amount_v2 = float(r.get("buy_amount_v2", 0.0) or 0.0)
+            shares_v2 = int(r.get("shares_to_buy_v2", 0) or 0)
             
             if np.isfinite(conv_v2):  # Show V2 box if score was computed
                 
@@ -3404,9 +3454,13 @@ else:
     <div class="item"><b>Fund Reliability:</b> {fund_rel_fmt}</div>
     <!-- Legacy v1 fields removed: showing V2-only UX -->
     <div class="item"><b>V2 Conviction:</b> <span style="font-weight:700;color:{conv_color}">{conv_v2_fmt}/100</span></div>
-    <div class="item"><b>Recommended Buy ($):</b> ${buy_amt:,.0f}</div>
+    <div class="item"><b>Reliability Score v2:</b> {rel_v2_fmt}/100</div>
+    <div class="item"><b>Reward/Risk v2:</b> {rr_v2_fmt}</div>
+    <div class="item"><b>Risk Gate Status v2:</b> {gate_status or 'N/A'}</div>
+    <div class="item"><b>Risk Gate Reason:</b> {esc(str(gate_reason))}</div>
+    <div class="item"><b>Recommended Buy ($):</b> ${0 if gate_status=="blocked" else f'{buy_amount_v2:,.0f}'}</div>
     <div class="item"><b>Unit Price:</b> {unit_price_fmt}</div>
-    <div class="item"><b>Shares to Buy:</b> {shares}</div>
+    <div class="item"><b>Shares to Buy:</b> {0 if gate_status=="blocked" else shares_v2}</div>
     <div class="item"><b>Cash Leftover:</b> ${leftover:,.2f}</div>
     <div class="item"><b>📅 Next Earnings:</b> {next_earnings}</div>
     <div class="section-divider">🔬 Advanced Indicators:</div>
@@ -3536,9 +3590,11 @@ hebrew_cols = {
     "conviction_v2_base": "Conviction v2 Base",
     "conviction_v2_final": "Conviction v2 Final",
     "reliability_v2": "Reliability Score v2",
+    "reliability_score_v2": "Reliability Score v2",
     "risk_gate_status_v2": "Risk Gate Status v2",
     "risk_gate_reason_v2": "Risk Gate Reason v2",
     "rr_ratio_v2": "Reward/Risk v2",
+    "reward_risk_v2": "Reward/Risk v2",
     "buy_amount_v2": "Buy Amount v2",
     "shares_to_buy_v2": "Shares to Buy v2",
     "fund_sources_used_v2": "Fund Sources Used",
@@ -3561,10 +3617,12 @@ show_order = [
     "Sources Count",
     "risk_gate_status_v2",  # blocked / severely_reduced / reduced / full
     "risk_gate_penalty_v2",
+    "reliability_score_v2",
     "Score",
     "conviction_v2_base",
     "conviction_v2_final",
     "ml_boost_v2",
+    "reward_risk_v2",
     # Human-friendly V2 export labels (also include raw keys above for robustness)
     "Conviction v2 Base",
     "Conviction v2 Final",

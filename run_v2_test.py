@@ -28,7 +28,7 @@ from core.v2_risk_engine import (
 )
 
 
-def test_ticker_v2(ticker: str, budget: float = 5000.0):
+def run_ticker_v2(ticker: str, budget: float = 5000.0):
     """Test V2 scoring for a single ticker."""
     
     print(f"\n{'='*60}")
@@ -212,4 +212,4 @@ if __name__ == "__main__":
         sys.exit(1)
     
     ticker = sys.argv[1].upper()
-    test_ticker_v2(ticker)
+    run_ticker_v2(ticker)
