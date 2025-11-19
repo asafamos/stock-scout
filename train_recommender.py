@@ -92,7 +92,23 @@ def build_dataset(df: pd.DataFrame, horizon: int, target: str = 'pos') -> pd.Dat
     if rcol not in df.columns:
         raise SystemExit(f"Signals missing column {rcol}")
 
-    feature_cols = [c for c in ['RSI', 'ATR_Pct', 'Overext', 'RR', 'MomCons', 'VolSurge'] if c in df.columns]
+    # Base technical features
+    base_features = ['RSI', 'ATR_Pct', 'Overext', 'RR', 'MomCons', 'VolSurge']
+    
+    # Context features (if available)
+    context_features = [
+        'Market_Trend', 'Market_Volatility', 'SPY_RSI', 
+        'Relative_Strength_20d', 'Dist_From_52w_High',
+        'Vol_Breakout', 'Price_Breakout', 'Mom_Acceleration'
+    ]
+    
+    # Select available features
+    feature_cols = [c for c in base_features if c in df.columns]
+    feature_cols += [c for c in context_features if c in df.columns]
+    
+    if not feature_cols:
+        raise SystemExit("No valid feature columns found in signals")
+    
     X = df[feature_cols].copy()
     
     # Engineer additional features

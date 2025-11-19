@@ -112,8 +112,19 @@ def build_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     # Derived features for ML
     result['RR_MomCons'] = result['RR'] * result['MomCons']
     result['RSI_Neutral'] = (result['RSI'] - 50).abs()
+    result['RSI_Squared'] = result['RSI'] ** 2
     result['Risk_Score'] = result['Overext'].abs() + result['ATR_Pct']
     result['Vol_Mom'] = result['VolSurge'] * result['MomCons']
+    result['Overext_Mom_Div'] = result['Overext'] * result['MomCons']
+    result['RR_Risk_Adj'] = result['RR'] / (1 + result['Overext'].abs())
+    
+    # ATR regime (simplified binning)
+    result['ATR_Regime'] = pd.cut(result['ATR_Pct'], bins=[0, 0.02, 0.04, 1.0], labels=[1, 2, 3]).astype(float)
+    
+    # Timing indicators
+    result['Vol_Breakout'] = volume > (volume.rolling(20).mean() * 1.5)
+    result['Price_Breakout'] = close > close.rolling(20).quantile(0.90)
+    result['Mom_Acceleration'] = (close.pct_change(5) > close.shift(5).pct_change(5))
     
     # Copy price/volume for reference
     result['Close'] = close

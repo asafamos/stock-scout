@@ -28,6 +28,12 @@ from core.unified_logic import (
     compute_technical_score,
     compute_final_score,
 )
+from core.market_context import (
+    fetch_spy_context,
+    compute_relative_strength_vs_spy,
+    get_market_cap_decile,
+    compute_price_distance_from_52w_high,
+)
 
 
 def build_universe(limit: int = 100) -> List[str]:
@@ -56,7 +62,7 @@ def run_backtest(
     
     Returns DataFrame with signals and forward returns.
     """
-    # Download benchmark (SPY)
+    # Download benchmark (SPY) - needed for context
     print("Downloading benchmark (SPY)...")
     lookback_start = (start_date - timedelta(days=400)).strftime('%Y-%m-%d')
     end_str = (end_date + timedelta(days=30)).strftime('%Y-%m-%d')
@@ -65,6 +71,10 @@ def run_backtest(
     if spy_df is None:
         print("⚠ Could not download SPY benchmark")
         spy_df = pd.DataFrame()
+    
+    # Fetch market context once (reuse for all stocks)
+    print("Computing market context features...")
+    spy_context_cache = {}  # Cache by date
     
     all_signals = []
     total_tickers = len(tickers)
@@ -136,7 +146,59 @@ def run_backtest(
             if all(pd.isna(forward_rets.get(f'R_{h}d')) for h in horizons):
                 continue
             
-            # Record signal
+            # Compute market context features for this date
+            date_str = date.strftime('%Y-%m-%d')
+            if date_str not in spy_context_cache:
+                # Get SPY data up to this date
+                spy_up_to_date = spy_df[spy_df.index <= date]
+                if len(spy_up_to_date) >= 50:
+                    sma20 = float(spy_up_to_date['Close'].tail(20).mean())
+                    sma50 = float(spy_up_to_date['Close'].tail(50).mean())
+                    current_spy = float(spy_up_to_date['Close'].iloc[-1])
+                    spy_returns = spy_up_to_date['Close'].pct_change()
+                    spy_vol = float(spy_returns.tail(20).std() * np.sqrt(252))
+                    
+                    # Simple SPY RSI
+                    spy_rsi_val = 50.0
+                    if len(spy_up_to_date) >= 14:
+                        delta = spy_up_to_date['Close'].diff()
+                        gain_val = float(delta.where(delta > 0, 0.0).tail(14).mean())
+                        loss_val = float(-delta.where(delta < 0, 0.0).tail(14).mean())
+                        if not np.isnan(loss_val) and loss_val > 0:
+                            spy_rsi_val = 100 - (100 / (1 + gain_val/loss_val))
+                    
+                    spy_context_cache[date_str] = {
+                        'market_trend': 1.0 if current_spy > sma20 > sma50 else 0.0,
+                        'market_volatility': min(spy_vol, 0.5),
+                        'spy_rsi': spy_rsi_val,
+                    }
+                else:
+                    spy_context_cache[date_str] = {
+                        'market_trend': 0.5,
+                        'market_volatility': 0.2,
+                        'spy_rsi': 50.0,
+                    }
+            
+            context = spy_context_cache[date_str]
+            
+            # Relative strength vs SPY (20-day)
+            ticker_df_up_to_date = ind_df[ind_df.index <= date]
+            spy_up_to_date = spy_df[spy_df.index <= date]
+            if len(ticker_df_up_to_date) >= 21 and len(spy_up_to_date) >= 21:
+                ticker_ret = float((ticker_df_up_to_date['Close'].iloc[-1] / ticker_df_up_to_date['Close'].iloc[-21]) - 1)
+                spy_ret = float((spy_up_to_date['Close'].iloc[-1] / spy_up_to_date['Close'].iloc[-21]) - 1)
+                rel_strength = ticker_ret - spy_ret
+            else:
+                rel_strength = 0.0
+            
+            # Distance from 52w high
+            if len(ticker_df_up_to_date) >= 252:
+                high_52w = ticker_df_up_to_date['High'].tail(252).max()
+            else:
+                high_52w = ticker_df_up_to_date['High'].max()
+            dist_52w = (row['Close'] / high_52w) - 1
+            
+            # Record signal with context features
             signal = {
                 'Ticker': ticker,
                 'Date': date.strftime('%Y-%m-%d'),
@@ -152,6 +214,15 @@ def run_backtest(
                 'PassesSpec': passes_spec,
                 'Tech_Score': tech_score,
                 'Final_Score': final_score,
+                # Context features
+                'Market_Trend': context['market_trend'],
+                'Market_Volatility': context['market_volatility'],
+                'SPY_RSI': context['spy_rsi'],
+                'Relative_Strength_20d': rel_strength,
+                'Dist_From_52w_High': dist_52w,
+                'Vol_Breakout': float(row.get('Vol_Breakout', False)),
+                'Price_Breakout': float(row.get('Price_Breakout', False)),
+                'Mom_Acceleration': float(row.get('Mom_Acceleration', False)),
             }
             
             # Add forward returns
