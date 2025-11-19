@@ -1918,35 +1918,14 @@ if CONFIG["FUNDAMENTAL_ENABLED"] and fundamental_available:
     # Apply enhanced V2 scoring to each ticker
     v2_results = []
     for idx, row in results.iterrows():
-        ticker = row["Ticker"]
-        
-        # Prepare input data for v2 engine
-        ticker_data = {
-            "ticker": ticker,
-            "score_tech": row.get("Score_Tech", 50),
-            "fundamental_score": row.get("Fundamental_S", 50),
-            "rr_ratio": row.get("RR_Ratio", 1.0),
-            "risk_level": row.get("Risk_Level", "speculative"),
-            "price_sources_count": row.get("Price_Sources_Count", 1),
-            "fundamental_sources_count": row.get("Fundamental_Sources_Count", 0),
-            "price_cv": row.get("Price_CV", 0.0),
-            "ml_prob": row.get("ML_Prob", 0.5),
-            "ml_enabled": CONFIG.get("ENABLE_ML", True),
-            # Fundamental completeness: count non-null fundamental fields
-            "fundamental_fields": {
-                "pe": row.get("PE_f"),
-                "ps": row.get("PS_f"),
-                "roe": row.get("ROE_f"),
-                "roic": row.get("ROIC_f"),
-                "gm": row.get("GM_f"),
-                "de": row.get("DE_f"),
-                "rev_g": row.get("RevG_f"),
-                "eps_g": row.get("EPSG_f"),
-            }
-        }
-        
-        # Call enhanced V2 scoring
-        v2_result = score_ticker_v2_enhanced(ticker_data, budget, CONFIG)
+        ticker = row.get("Ticker")
+        v2_result = score_ticker_v2_enhanced(
+            ticker,
+            row,
+            budget_total=float(st.session_state.get("total_budget", CONFIG.get("BUDGET_TOTAL", 5000))),
+            min_position=float(CONFIG.get("MIN_POSITION", 50.0)),
+            enable_ml=bool(CONFIG.get("ENABLE_ML", True))
+        )
         v2_results.append(v2_result)
     
     # Add V2 columns to results DataFrame
@@ -2530,6 +2509,14 @@ if "buy_amount_v2" not in alloc_df.columns:
 else:
     # V2: Use already-computed Buy_Amount
     results = alloc_df.copy()
+    # Ensure Hebrew purchase amount column exists for downstream calculations
+    if "סכום קנייה ($)" not in results.columns:
+        if "Buy_Amount" in results.columns:
+            results["סכום קנייה ($)"] = results["Buy_Amount"].round(2)
+        elif "buy_amount_v2" in results.columns:
+            results["סכום קנייה ($)"] = results["buy_amount_v2"].round(2)
+        else:
+            results["סכום קנייה ($)"] = 0.0
     
 results["מניות לקנייה"] = np.floor(
     np.where(
@@ -3050,7 +3037,21 @@ else:
             risk_v2 = r.get("risk_meter_v2", np.nan)
             risk_label_v2 = r.get("risk_label_v2", "N/A")
             ml_boost_v2 = r.get("ml_boost", 0.0)
-            
+            # Strict gate status and V2 allocations
+            gate_status = r.get("risk_gate_status_v2", None)
+            gate_reason = r.get("risk_gate_reason_v2", "")
+            buy_amount_v2 = float(r.get("buy_amount_v2", 0.0) or 0.0)
+            shares_v2 = int(r.get("shares_to_buy_v2", 0) or 0)
+
+            # Build strict-mode badge
+            badge_html = ""
+            if gate_status == "blocked":
+                badge_html = "<span style='background:#dc2626;color:white;padding:4px 8px;border-radius:6px;font-weight:700;margin-left:8px'>❌ Blocked (Strict Risk Gate)</span>"
+            elif gate_status == "reduced" or gate_status == "severely_reduced":
+                badge_html = "<span style='background:#f59e0b;color:black;padding:4px 8px;border-radius:6px;font-weight:700;margin-left:8px'>⚠️ Reduced (Strict Risk Gate)</span>"
+            elif gate_status == "full":
+                badge_html = "<span style='background:#16a34a;color:white;padding:4px 8px;border-radius:6px;font-weight:700;margin-left:8px'>✅ Full Allocation Allowed (Strict Mode)</span>"
+
             if np.isfinite(conv_v2):  # Show V2 box if score was computed
                 
                 # Format scores
@@ -3079,7 +3080,7 @@ else:
                 
                 v2_html = f"""
     <div style="background:#e0f2fe;border-radius:8px;padding:10px;margin:8px 0;border-left:4px solid #0ea5e9">
-        <div style="font-weight:bold;margin-bottom:6px;color:#0369a1">🚀 V2 SCORING ENGINE</div>
+        <div style="font-weight:bold;margin-bottom:6px;color:#0369a1">🚀 V2 SCORING ENGINE {badge_html}</div>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px;font-size:0.85em">
             <div><b>Conviction:</b> <span style="color:{conv_color};font-weight:bold;font-size:1.2em">{conv_v2_fmt}/100</span></div>
             <div><b>Risk Meter:</b> <span style="color:{risk_color};font-weight:bold">{risk_v2_fmt}/100 ({risk_label_v2})</span></div>
@@ -3088,6 +3089,10 @@ else:
             <div><b>R/R:</b> {rr_v2_fmt}/100</div>
             <div><b>Reliability:</b> {rel_v2_fmt}/100</div>
             <div style="grid-column:span 2"><b>ML Boost:</b> {ml_boost_v2:+.1f}% <span style="font-size:0.9em;color:#64748b">(Base: {conv_v2_base:.0f})</span></div>
+        </div>
+        <div style="margin-top:8px;font-size:0.95em">
+            <b>Risk Gate:</b> {gate_status or 'N/A'} &nbsp; <span style="color:#64748b">Reason: {gate_reason or 'N/A'}</span><br/>
+            <b>Buy Amount v2:</b> ${buy_amount_v2:,.2f} &nbsp; <b>Shares v2:</b> {shares_v2}
         </div>
     </div>"""
             
@@ -3124,9 +3129,9 @@ else:
     <div class="item"><b>Price Reliability:</b> {price_rel_fmt}</div>
     <div class="item"><b>Fund Reliability:</b> {fund_rel_fmt}</div>
     <div class="item"><b>Reliability Score:</b> {rel_score_fmt}</div>
-    <div class="item"><b>Recommended Buy ($):</b> ${buy_amt:,.0f}</div>
+            <div class="item"><b>Recommended Buy ($):</b> {"Legacy only / Strict mode disabled" if gate_status=="blocked" else f'${buy_amt:,.0f}'}</div>
     <div class="item"><b>Unit Price:</b> {unit_price_fmt}</div>
-    <div class="item"><b>Shares to Buy:</b> {shares}</div>
+    <div class="item"><b>Shares to Buy:</b> {0 if gate_status=="blocked" else shares}</div>
     <div class="item"><b>Cash Leftover:</b> ${leftover:,.2f}</div>
     <div class="item"><b>📅 Next Earnings:</b> {next_earnings}</div>
     <div class="section-divider">🔬 Advanced Indicators:</div>
@@ -3526,6 +3531,20 @@ hebrew_cols = {
     "Classification_Warnings": "Warnings",
     "ML_Probability": "ML Probability",
     "ML_Confidence": "ML Confidence"
+    ,
+    # V2 strict columns (export-friendly labels)
+    "conviction_v2_base": "Conviction v2 Base",
+    "conviction_v2_final": "Conviction v2 Final",
+    "reliability_v2": "Reliability Score v2",
+    "risk_gate_status_v2": "Risk Gate Status v2",
+    "risk_gate_reason_v2": "Risk Gate Reason v2",
+    "rr_ratio_v2": "Reward/Risk v2",
+    "buy_amount_v2": "Buy Amount v2",
+    "shares_to_buy_v2": "Shares to Buy v2",
+    "fund_sources_used_v2": "Fund Sources Used",
+    "price_sources_used_v2": "Price Sources Used",
+    "fund_disagreement_score_v2": "Fund Disagreement Score",
+    "price_variance_score_v2": "Price Variance Score",
 }
 show_order = [
     "Ticker",
@@ -3546,6 +3565,19 @@ show_order = [
     "conviction_v2_base",
     "conviction_v2_final",
     "ml_boost_v2",
+    # Human-friendly V2 export labels (also include raw keys above for robustness)
+    "Conviction v2 Base",
+    "Conviction v2 Final",
+    "Reliability Score v2",
+    "Risk Gate Status v2",
+    "Risk Gate Reason v2",
+    "Reward/Risk v2",
+    "Buy Amount v2",
+    "Shares to Buy v2",
+    "Fund Sources Used",
+    "Price Sources Used",
+    "Fund Disagreement Score",
+    "Price Variance Score",
     "Quality Score",
     "Average Price",
     "Unit Price (calc)",

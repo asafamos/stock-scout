@@ -128,6 +128,7 @@ def calculate_reliability_v2(
 def calculate_risk_gate_v2(
     rr_ratio: float,
     reliability_v2: float,
+    fund_sources_count: int = 0,
     quality_score: float = 50.0
 ) -> Tuple[str, float, Dict[str, Any]]:
     """
@@ -156,32 +157,32 @@ def calculate_risk_gate_v2(
         "quality_gate": "unknown"
     }
     
-    # Check R/R ratio
+    # Check R/R ratio (strict)
     if rr_ratio < 1.0:
         rr_gate = "blocked"
         rr_penalty = 0.0
     elif rr_ratio < 1.5:
-        rr_gate = "severely_reduced"
-        rr_penalty = 0.3
+        rr_gate = "reduced"
+        rr_penalty = 0.5
     elif rr_ratio < 2.0:
         rr_gate = "reduced"
-        rr_penalty = 0.6
+        rr_penalty = 0.7
     else:
         rr_gate = "full"
         rr_penalty = 1.0
     
     details["rr_gate"] = rr_gate
     
-    # Check reliability
-    if reliability_v2 < 15:
+    # Check reliability (strict thresholds)
+    if reliability_v2 < 10:
         reliability_gate = "blocked"
         reliability_penalty = 0.0
     elif reliability_v2 < 30:
-        reliability_gate = "severely_reduced"
-        reliability_penalty = 0.3
+        reliability_gate = "reduced"
+        reliability_penalty = 0.5
     elif reliability_v2 < 50:
         reliability_gate = "reduced"
-        reliability_penalty = 0.6
+        reliability_penalty = 0.7
     else:
         reliability_gate = "full"
         reliability_penalty = 1.0
@@ -201,21 +202,31 @@ def calculate_risk_gate_v2(
     
     details["quality_gate"] = quality_gate
     
-    # COMBINED GATE: Take the most restrictive
+    # Special strict rule: if no fund sources -> BLOCK
+    if fund_sources_count <= 0:
+        details["reason"] = "no_fund_sources"
+        details["combined_penalty"] = 0.0
+        return "blocked", 0.0, details
+
+    # Combined conviction factor: more restrictive of rr vs reliability, then scaled by quality
     combined_penalty = min(rr_penalty, reliability_penalty) * quality_penalty
-    
+    details["combined_penalty"] = combined_penalty
+
+    # Map numeric combined_penalty to status (strict mapping)
     if combined_penalty == 0.0:
         gate_status = "blocked"
-    elif combined_penalty <= 0.3:
-        gate_status = "severely_reduced"
-    elif combined_penalty <= 0.6:
+    elif combined_penalty < 0.4:
+        gate_status = "reduced"
+    elif combined_penalty < 0.85:
         gate_status = "reduced"
     else:
         gate_status = "full"
-    
-    details["combined_penalty"] = combined_penalty
-    
-    return gate_status, combined_penalty, details
+
+    # Reason string for CSV/UI
+    reason = f"rr_gate={rr_gate};rel_gate={reliability_gate};quality={quality_gate}"
+    details["reason"] = reason
+
+    return gate_status, float(combined_penalty), details
 
 
 def calculate_position_size_v2(
@@ -362,10 +373,14 @@ def score_ticker_v2_enhanced(
         "ticker": ticker,
         # V2 Reliability
         "reliability_v2": 0.0,
+        "fund_sources_used_v2": [],
+        "price_sources_used_v2": [],
         "fund_sources_count_v2": 0,
         "price_sources_count_v2": 0,
         "fund_completeness_pct": 0.0,
         "price_variance_penalty": 0.0,
+        "fund_disagreement_score_v2": 0.0,
+        "price_variance_score_v2": 0.0,
         
         # V2 Risk Gate
         "rr_ratio_v2": 0.0,
@@ -400,12 +415,15 @@ def score_ticker_v2_enhanced(
         rr_ratio = row.get("RewardRisk", row.get("RR_Ratio", 0.0))
         quality_score = row.get("Quality_Score", row.get("Quality_Score_F", 50.0))
         
+        # Pass the detected number of fund sources to the gate for strict blocking
+        fund_src_count = int(rel_details.get("fund_sources_count", 0))
         gate_status, gate_penalty, gate_details = calculate_risk_gate_v2(
-            rr_ratio, reliability_v2, quality_score
+            rr_ratio, reliability_v2, fund_src_count, quality_score
         )
         result["rr_ratio_v2"] = rr_ratio
         result["risk_gate_status_v2"] = gate_status
         result["risk_gate_penalty_v2"] = gate_penalty
+        result["risk_gate_reason_v2"] = gate_details.get("reason", "")
         
         # 3) Calculate Base Conviction (use existing score as base)
         base_conviction = row.get("Score", row.get("Score_Tech", 50.0))
@@ -455,6 +473,29 @@ def score_ticker_v2_enhanced(
         else:
             shares_v2 = 0
         result["shares_to_buy_v2"] = shares_v2
+
+        # Populate sources lists (JSON-friendly)
+        fund_sources_used = []
+        for src in ["Fund_from_FMP", "Fund_from_Alpha", "Fund_from_Finnhub", "Fund_from_SimFin", "Fund_from_EODHD"]:
+            if bool(row.get(src, False)):
+                fund_sources_used.append(src)
+        result["fund_sources_used_v2"] = fund_sources_used
+
+        price_sources_used = []
+        for pcol in ["Price_Marketstack", "Price_NasdaqDL", "Price_EODHD", "Price_Polygon", "Price_Tiingo", "Price_Yahoo"]:
+            val = row.get(pcol, None)
+            if pd.notna(val) and val not in [0, "", None]:
+                price_sources_used.append(pcol)
+        result["price_sources_used_v2"] = price_sources_used
+
+        # Fund disagreement score: complement of completeness (0-100)
+        fund_disagreement = float(np.clip(100.0 - rel_details.get("fundamental_completeness_pct", 100.0), 0, 100))
+        result["fund_disagreement_score_v2"] = fund_disagreement
+
+        # Price variance score: invert the variance penalty (0-100)
+        pv_pen = rel_details.get("price_variance_penalty", 0.0)
+        price_variance_score = float(np.clip(100.0 - pv_pen, 0, 100))
+        result["price_variance_score_v2"] = price_variance_score
         
     except Exception as e:
         logger.error(f"V2 enhanced scoring failed for {ticker}: {e}")
