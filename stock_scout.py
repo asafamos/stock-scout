@@ -3121,14 +3121,14 @@ else:
     <div class="item"><b>Std Dev:</b> {show_std}</div>
     <div class="item"><b>RSI:</b> {rsi_v if not np.isnan(rsi_v) else 'N/A'}</div>
     <div class="item"><b>Near 52w High:</b> {near52_fmt}%</div>
-    <div class="item"><b>Score:</b> {int(round(score))}</div>
 
     <div class="item"><b>Sources:</b> {sources_esc.replace(' · ','&nbsp;•&nbsp;')}</div>
     <div class="item"><b># Price Sources:</b> {r.get('Price_Sources_Count', 0)}</div>
     <div class="item"><b># Fund Sources:</b> {r.get('Fundamental_Sources_Count', 0)}</div>
     <div class="item"><b>Price Reliability:</b> {price_rel_fmt}</div>
     <div class="item"><b>Fund Reliability:</b> {fund_rel_fmt}</div>
-    <div class="item"><b>Reliability Score:</b> {rel_score_fmt}</div>
+    <!-- Legacy v1 fields removed: showing V2-only UX -->
+    <div class="item"><b>V2 Conviction:</b> <span style="font-weight:700;color:{conv_color}">{conv_v2_fmt}/100</span></div>
             <div class="item"><b>Recommended Buy ($):</b> {"Legacy only / Strict mode disabled" if gate_status=="blocked" else f'${buy_amt:,.0f}'}</div>
     <div class="item"><b>Unit Price:</b> {unit_price_fmt}</div>
     <div class="item"><b>Shares to Buy:</b> {0 if gate_status=="blocked" else shares}</div>
@@ -3397,13 +3397,13 @@ else:
     <div class="item"><b>Std Dev:</b> {show_std}</div>
     <div class="item"><b>RSI:</b> {rsi_v if not np.isnan(rsi_v) else 'N/A'}</div>
     <div class="item"><b>Near 52w High:</b> {near52_fmt}%</div>
-    <div class="item"><b>Score:</b> {int(round(score))}</div>
     <div class="item"><b>Sources:</b> {sources_esc.replace(' · ','&nbsp;•&nbsp;')}</div>
     <div class="item"><b># Price Sources:</b> {r.get('Price_Sources_Count', 0)}</div>
     <div class="item"><b># Fund Sources:</b> {r.get('Fundamental_Sources_Count', 0)}</div>
     <div class="item"><b>Price Reliability:</b> {price_rel_fmt}</div>
     <div class="item"><b>Fund Reliability:</b> {fund_rel_fmt}</div>
-    <div class="item"><b>Reliability Score:</b> {rel_score_fmt}</div>
+    <!-- Legacy v1 fields removed: showing V2-only UX -->
+    <div class="item"><b>V2 Conviction:</b> <span style="font-weight:700;color:{conv_color}">{conv_v2_fmt}/100</span></div>
     <div class="item"><b>Recommended Buy ($):</b> ${buy_amt:,.0f}</div>
     <div class="item"><b>Unit Price:</b> {unit_price_fmt}</div>
     <div class="item"><b>Shares to Buy:</b> {shares}</div>
