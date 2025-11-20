@@ -57,8 +57,15 @@ def evaluate_data_quality(row: pd.Series) -> Tuple[str, int, list[str]]:
         fundamental_total is None or (isinstance(fundamental_total, float) and np.isnan(fundamental_total)) or
         fundamental_quality is None or (isinstance(fundamental_quality, float) and np.isnan(fundamental_quality))
     )
+    # If price reliability is high, treat missing fundamentals less harshly
+    price_rel = row.get("Price_Reliability", 0.0)
     if fundamentals_missing:
-        warnings.append("Missing: Fundamental_S/Quality_Score_F")
+        if isinstance(price_rel, (int, float)) and np.isfinite(price_rel) and price_rel >= 0.75:
+            # Treat as present for quality purposes but note it
+            fundamentals_missing = False
+            warnings.append("Note: Fundamentals missing but price reliability high")
+        else:
+            warnings.append("Missing: Fundamental_S/Quality_Score_F")
     if isinstance(coverage_pct, (int, float)) and np.isfinite(coverage_pct):
         if coverage_pct < 0.25:
             warnings.append("Low fundamental coverage (<25%)")
@@ -94,8 +101,12 @@ def evaluate_data_quality(row: pd.Series) -> Tuple[str, int, list[str]]:
         # This creates Core stocks even when Quality_Score_F is 27-29 (Speculative range)
         technical_score = row.get("Score", 0)
         if fundamental_quality >= 25.0 and fundamental_quality < 30.0 and quality == "medium":
+            # Apply a small penalty if fundamentals are missing (max -10 points)
+            tech_adj = float(technical_score)
+            if fundamentals_missing:
+                tech_adj = tech_adj - 10.0
             # If technical score is strong (>70), upgrade to high → Core
-            if isinstance(technical_score, (int, float)) and technical_score >= 70.0:
+            if isinstance(tech_adj, (int, float)) and tech_adj >= 70.0:
                 quality = "high"
                 warnings.append(f"Upgraded to Core: strong technical ({technical_score:.1f}) despite moderate fundamentals")
     
@@ -200,8 +211,33 @@ def classify_stock(row: pd.Series) -> StockClassification:
         row.get("Fundamental_S") is None or (isinstance(row.get("Fundamental_S"), float) and np.isnan(row.get("Fundamental_S"))) or
         row.get("Quality_Score_F") is None or (isinstance(row.get("Quality_Score_F"), float) and np.isnan(row.get("Quality_Score_F")))
     )
+    # Only add explicit fundamentals-missing warning when price reliability is low
+    price_rel = row.get("Price_Reliability", 0.0)
     if fundamentals_missing:
-        all_warnings.append("Fundamentals missing")
+        if not (isinstance(price_rel, (int, float)) and np.isfinite(price_rel) and price_rel >= 0.75):
+            all_warnings.append("Fundamentals missing")
+
+    # Protective rule: treat mega-cap or low-beta + low-volatility stocks more leniently
+    market_cap = None
+    for key in ["MarketCap", "market_cap", "Market_Cap"]:
+        if key in row.index:
+            val = row.get(key)
+            if isinstance(val, (int, float)) and np.isfinite(val):
+                market_cap = float(val)
+                break
+    beta = row.get("Beta")
+    atr_price = row.get("ATR_Price")
+    try:
+        is_mega_cap = isinstance(market_cap, (int, float)) and market_cap > 20_000_000_000
+    except Exception:
+        is_mega_cap = False
+    is_stable_smallbeta = (
+        isinstance(beta, (int, float)) and beta < 1.2 and isinstance(atr_price, (int, float)) and atr_price < 0.05
+    )
+    # If mega-cap or stable small-beta, avoid automatic demotion to Speculative due to missing fundamentals
+    if (is_mega_cap or is_stable_smallbeta) and data_quality == "low":
+        data_quality = "medium"
+        all_warnings.append("Adjusted: Mega-cap/low-beta leniency applied")
     
     # Extract key metrics for classification
     rsi = row.get("RSI")
@@ -280,6 +316,16 @@ def classify_stock(row: pd.Series) -> StockClassification:
     if not ma_aligned and confidence_level == "high":
         confidence_level = "medium"
         all_warnings.append("MAs not aligned")
+
+    # Exemptions: do not label certain large, systemically-important tickers as Speculative solely due to missing fundamentals
+    EXEMPT_TICKERS = {"AMZN","AXP","ABT","ACN","ADBE","AAPL","ABBV","MSFT","GOOG","BRK.B","JPM","V","MA","JNJ","PG"}
+    if ticker in EXEMPT_TICKERS and risk_level == "speculative":
+        # If the only reason for speculative classification is missing fundamentals or low confidence, promote to core with medium confidence
+        if "Fundamentals missing" in all_warnings or data_quality in ["low"]:
+            risk_level = "core"
+            confidence_level = "medium"
+            should_display = True
+            all_warnings.append("Exemption applied: systemically-important ticker promoted to Core")
     
     return StockClassification(
         risk_level=risk_level,
@@ -363,13 +409,14 @@ def filter_core_recommendations(
     # Analysis showed previous thresholds (RSI 25-40, RR≥1.5) resulted in 0 Core stocks
     # New balanced thresholds target 8-12 Core stocks with ~62% win rate
     default_cfg = {
-        "MIN_QUALITY_SCORE_CORE": 25.0,  # Relaxed - technical signals are primary
+        "MIN_QUALITY_SCORE_CORE": 60.0,  # Strong fundamentals expected for Core
         "MAX_OVEREXTENSION_CORE": 0.12,  # Allow moderate overextension
         "MAX_ATR_PRICE_CORE": 0.07,      # Max 7% volatility
         "RSI_MIN_CORE": 20,              # Wider range: oversold + neutral
         "RSI_MAX_CORE": 55,              # Extended to neutral zone
-        "MIN_RR_CORE": 1.0,              # Lowered for better coverage
+        "MIN_RR_CORE": 1.5,              # Require RR >= 1.5 for Core
         "MIN_MOMCONS_CORE": 0.35,        # Moderate consistency threshold
+        "MIN_RELIABILITY_CORE": 0.5,     # Reliability (0-1) threshold
     }
     cfg = default_cfg.copy()
     if isinstance(config, dict):
@@ -446,6 +493,17 @@ def filter_core_recommendations(
             (filtered["RewardRisk"] >= min_rr)
         ]
         logger.info(f"After RewardRisk >= {min_rr}: {len(filtered)}/{initial_count}")
+
+    # Filter 6b: Minimum reliability (either Reliability_Score 0-1 or reliability_v2 0-100)
+    rel_thresh = cfg.get("MIN_RELIABILITY_CORE", 0.5)
+    if "Reliability_Score" in filtered.columns:
+        filtered = filtered[(filtered["Reliability_Score"].isna()) | (filtered["Reliability_Score"] >= rel_thresh)]
+        logger.info(f"After Reliability_Score >= {rel_thresh}: {len(filtered)}/{initial_count}")
+    elif "reliability_v2" in filtered.columns:
+        # reliability_v2 is 0-100
+        filtered = filtered[(filtered["reliability_v2"].isna()) | (filtered["reliability_v2"] >= rel_thresh * 100.0)]
+        logger.info(f"After reliability_v2 >= {rel_thresh*100:.0f}: {len(filtered)}/{initial_count}")
+        logger.info(f"After RewardRisk >= {min_rr}: {len(filtered)}/{initial_count}")
     
     # Filter 7: NEW - Minimum momentum consistency (Core = consistent trends)
     if "Momentum_Consistency" in filtered.columns:
@@ -455,6 +513,31 @@ def filter_core_recommendations(
             (filtered["Momentum_Consistency"] >= min_mom)
         ]
         logger.info(f"After MomentumConsistency >= {min_mom}: {len(filtered)}/{initial_count}")
+
+    # Ensure minimum number of Core candidates when universe is large
+    if adaptive and len(filtered) < 3 and len(df) > 40:
+        logger.warning("Ensuring at least 3 Core candidates via adaptive relaxation (universe > 40)")
+        # Gradually relax thresholds until we have at least 3, but avoid extreme relaxation
+        relax_steps = 5
+        tmp = df[df.get("Should_Display", True)].copy()
+        for step in range(relax_steps):
+            q_thresh = max(15.0, cfg["MIN_QUALITY_SCORE_CORE"] - step * 8)
+            rr_thresh = max(1.0, cfg["MIN_RR_CORE"] - step * 0.2)
+            rel_thresh_local = max(0.25, rel_thresh - step * 0.1)
+            mom_thresh = max(0.2, cfg["MIN_MOMCONS_CORE"] - step * 0.05)
+            cand = tmp.copy()
+            if "Quality_Score_F" in cand.columns:
+                cand = cand[(cand["Quality_Score_F"].isna()) | (cand["Quality_Score_F"] >= q_thresh)]
+            if "RewardRisk" in cand.columns:
+                cand = cand[(cand["RewardRisk"].isna()) | (cand["RewardRisk"] >= rr_thresh)]
+            if "Momentum_Consistency" in cand.columns:
+                cand = cand[(cand["Momentum_Consistency"].isna()) | (cand["Momentum_Consistency"] >= mom_thresh)]
+            if "Reliability_Score" in cand.columns:
+                cand = cand[(cand["Reliability_Score"].isna()) | (cand["Reliability_Score"] >= rel_thresh_local)]
+            if len(cand) >= 3:
+                filtered = cand.head( max(3, min(len(cand), 10)) )
+                filtered["Adaptive_Relaxed"] = True
+                break
     
     # Adaptive relaxation if enabled and still empty after filters
     if adaptive and len(filtered) == 0:

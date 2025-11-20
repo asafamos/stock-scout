@@ -303,6 +303,7 @@ def apply_v2_conviction_adjustments(
     base_conviction: float,
     reliability_v2: float,
     risk_gate_penalty: float,
+    rr_ratio: Optional[float] = None,
     ml_probability: Optional[float] = None,
     enable_ml_boost: bool = True
 ) -> Tuple[float, float, Dict[str, Any]]:
@@ -338,7 +339,13 @@ def apply_v2_conviction_adjustments(
     conviction_after_risk = conviction_after_reliability * risk_gate_penalty
     details["risk_adjusted"] = conviction_after_risk
     
-    # Step 3: Apply ML boost (bounded ±10%)
+    # Step 3: Incorporate RR as a separate component (15% weight)
+    # RR component normalized: rr=2.0 → 100, rr=1.0 → 50, capped at 5.0
+    rr_component = None
+    if rr_ratio is not None and isinstance(rr_ratio, (int, float)) and not np.isnan(rr_ratio):
+        rr_component = float(np.clip(rr_ratio / 2.0, 0.0, 1.0)) * 100.0
+
+    # Step 4: Apply ML boost (bounded ±10%)
     ml_boost = 0.0
     if enable_ml_boost and ml_probability is not None and np.isfinite(ml_probability):
         # ML boost: -10% to +10% based on probability
@@ -347,8 +354,14 @@ def apply_v2_conviction_adjustments(
         ml_boost = np.clip(ml_boost, -10, 10)
         details["ml_boost"] = ml_boost
     
-    # Apply ML boost to risk-adjusted conviction
-    conviction_v2_final = conviction_after_risk + ml_boost
+    # Mix in RR component if available (weights: 85% existing conviction_after_risk, 15% RR)
+    if rr_component is not None:
+        conviction_mixed = 0.85 * conviction_after_risk + 0.15 * rr_component
+    else:
+        conviction_mixed = conviction_after_risk
+
+    # Apply ML boost to the mixed conviction
+    conviction_v2_final = conviction_mixed + ml_boost
     conviction_v2_final = float(np.clip(conviction_v2_final, 0, 100))
     details["final"] = conviction_v2_final
     
@@ -426,8 +439,27 @@ def score_ticker_v2_enhanced(
         result["risk_gate_reason_v2"] = gate_details.get("reason", "")
         
         # 3) Calculate Base Conviction (use existing score as base)
-        base_conviction = row.get("Score", row.get("Score_Tech", 50.0))
-        result["conviction_v2_base"] = base_conviction
+        # Compose base conviction from fund/tech/RR/reliability with weights:
+        # 35% fund, 35% tech, 15% RR, 15% reliability (0-100 scale)
+        # Normalize available fund score (Quality_Score_F is typically 0-50)
+        raw_fund = row.get("Quality_Score_F", None)
+        if isinstance(raw_fund, (int, float)) and np.isfinite(raw_fund):
+            fund_score = float(raw_fund) / 50.0 * 100.0
+        else:
+            # Try alternate field (Fundamental_S) assumed already 0-100
+            fund_score = float(row.get("Fundamental_S", 50.0)) if np.isfinite(row.get("Fundamental_S", np.nan)) else 50.0
+
+        tech_score = float(row.get("Score_Tech", row.get("Score", 50.0))) if np.isfinite(row.get("Score_Tech", np.nan)) or np.isfinite(row.get("Score", np.nan)) else 50.0
+
+        rr_ratio = row.get("RewardRisk", row.get("RR_Ratio", 0.0))
+        if not (isinstance(rr_ratio, (int, float)) and np.isfinite(rr_ratio)):
+            rr_ratio = 0.0
+        rr_norm = (min(max(float(rr_ratio), 0.0), 5.0) / 5.0) * 100.0
+
+        base_conviction = (
+            0.35 * fund_score + 0.35 * tech_score + 0.15 * rr_norm + 0.15 * float(reliability_v2)
+        )
+        result["conviction_v2_base"] = float(np.clip(base_conviction, 0.0, 100.0))
         
         # 4) Get ML Prediction
         ml_prob = None
@@ -445,8 +477,9 @@ def score_ticker_v2_enhanced(
         result["ml_probability_v2"] = ml_prob
         
         # 5) Apply V2 Conviction Adjustments
+        rr_ratio = rr_ratio = float(row.get("RewardRisk", row.get("RR_Ratio", 0.0)) or 0.0)
         conviction_final, ml_boost, conv_details = apply_v2_conviction_adjustments(
-            base_conviction, reliability_v2, gate_penalty, ml_prob, enable_ml
+            base_conviction, reliability_v2, gate_penalty, rr_ratio, ml_prob, enable_ml
         )
         result["conviction_v2_final"] = conviction_final
         result["ml_boost_v2"] = ml_boost

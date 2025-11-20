@@ -2575,3 +2575,1537 @@ INFO:__main__:Using V2 position sizing with risk gates and reliability penalties
 `use_container_width` will be removed after 2025-12-31.
 
 For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+WARNING:__main__:All 1 attempts failed for URL
+INFO:__main__:✓ Deduplicated 503 → 503 unique companies (removed 0 multi-class tickers)
+INFO:__main__:✓ Loaded 503 unique S&P500 companies from Wikipedia
+2025-11-20 15:37:02.257 Thread 'ThreadPoolExecutor-181_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.257 Thread 'ThreadPoolExecutor-181_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.257 Thread 'ThreadPoolExecutor-181_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.258 Thread 'ThreadPoolExecutor-181_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.258 Thread 'ThreadPoolExecutor-181_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.258 Thread 'ThreadPoolExecutor-181_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.258 Thread 'ThreadPoolExecutor-181_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.259 Thread 'ThreadPoolExecutor-181_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.259 Thread 'ThreadPoolExecutor-181_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.262 Thread 'ThreadPoolExecutor-181_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.263 Thread 'ThreadPoolExecutor-181_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.261 Thread 'ThreadPoolExecutor-181_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.261 Thread 'ThreadPoolExecutor-181_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.260 Thread 'ThreadPoolExecutor-181_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.264 Thread 'ThreadPoolExecutor-181_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.263 Thread 'ThreadPoolExecutor-181_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.263 Thread 'ThreadPoolExecutor-181_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.261 Thread 'ThreadPoolExecutor-181_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.265 Thread 'ThreadPoolExecutor-181_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.266 Thread 'ThreadPoolExecutor-181_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.267 Thread 'ThreadPoolExecutor-181_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.267 Thread 'ThreadPoolExecutor-181_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.269 Thread 'ThreadPoolExecutor-181_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.271 Thread 'ThreadPoolExecutor-181_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.690 Thread 'ThreadPoolExecutor-181_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.690 Thread 'ThreadPoolExecutor-181_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.690 Thread 'ThreadPoolExecutor-181_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.690 Thread 'ThreadPoolExecutor-181_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.691 Thread 'ThreadPoolExecutor-181_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.691 Thread 'ThreadPoolExecutor-181_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.691 Thread 'ThreadPoolExecutor-181_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.700 Thread 'ThreadPoolExecutor-181_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.702 Thread 'ThreadPoolExecutor-181_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.702 Thread 'ThreadPoolExecutor-181_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.703 Thread 'ThreadPoolExecutor-181_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.703 Thread 'ThreadPoolExecutor-181_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.702 Thread 'ThreadPoolExecutor-181_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.704 Thread 'ThreadPoolExecutor-181_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.704 Thread 'ThreadPoolExecutor-181_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.706 Thread 'ThreadPoolExecutor-181_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.705 Thread 'ThreadPoolExecutor-181_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.704 Thread 'ThreadPoolExecutor-181_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.708 Thread 'ThreadPoolExecutor-181_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.711 Thread 'ThreadPoolExecutor-181_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.709 Thread 'ThreadPoolExecutor-181_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.713 Thread 'ThreadPoolExecutor-181_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.714 Thread 'ThreadPoolExecutor-181_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.712 Thread 'ThreadPoolExecutor-181_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.710 Thread 'ThreadPoolExecutor-181_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.708 Thread 'ThreadPoolExecutor-181_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.715 Thread 'ThreadPoolExecutor-181_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.719 Thread 'ThreadPoolExecutor-181_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.717 Thread 'ThreadPoolExecutor-181_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.718 Thread 'ThreadPoolExecutor-181_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.719 Thread 'ThreadPoolExecutor-181_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.716 Thread 'ThreadPoolExecutor-181_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.720 Thread 'ThreadPoolExecutor-181_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.721 Thread 'ThreadPoolExecutor-181_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.728 Thread 'ThreadPoolExecutor-181_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.728 Thread 'ThreadPoolExecutor-181_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.722 Thread 'ThreadPoolExecutor-181_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.726 Thread 'ThreadPoolExecutor-181_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.734 Thread 'ThreadPoolExecutor-181_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.734 Thread 'ThreadPoolExecutor-181_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.735 Thread 'ThreadPoolExecutor-181_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.733 Thread 'ThreadPoolExecutor-181_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.945 Thread 'ThreadPoolExecutor-181_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.946 Thread 'ThreadPoolExecutor-181_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:02.946 Thread 'ThreadPoolExecutor-181_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:03.015 Thread 'ThreadPoolExecutor-181_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:03.015 Thread 'ThreadPoolExecutor-181_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:03.015 Thread 'ThreadPoolExecutor-181_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:03.032 Thread 'ThreadPoolExecutor-181_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:03.032 Thread 'ThreadPoolExecutor-181_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:03.033 Thread 'ThreadPoolExecutor-181_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:03.175 Thread 'ThreadPoolExecutor-181_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:03.182 Thread 'ThreadPoolExecutor-181_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:03.187 Thread 'ThreadPoolExecutor-181_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:03.188 Thread 'ThreadPoolExecutor-181_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:03.235 Thread 'ThreadPoolExecutor-181_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:03.236 Thread 'Thread-1413': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:03.256 Thread 'ThreadPoolExecutor-181_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:03.281 Thread 'Thread-1413': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:03.310 Thread 'Thread-1413': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:03.327 Thread 'ThreadPoolExecutor-181_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:03.327 Thread 'ThreadPoolExecutor-181_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:03.328 Thread 'ThreadPoolExecutor-181_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+INFO:__main__:🔬 Advanced filters pre-pass on 46 stocks...
+INFO:__main__:Dynamic thresholds -> RS:-0.201 MOM:0.250 RR:0.027
+INFO:__main__:Advanced filters dynamic: kept 35/46 catastrophic=11
+2025-11-20 15:37:46.128 Thread 'ThreadPoolExecutor-182_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:46.128 Thread 'ThreadPoolExecutor-182_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:46.128 Thread 'ThreadPoolExecutor-182_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:46.129 Thread 'ThreadPoolExecutor-182_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:46.633 Thread 'Thread-1564': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:46.634 Thread 'Thread-1564': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:46.635 Thread 'Thread-1564': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:46.932 Thread 'ThreadPoolExecutor-182_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:46.933 Thread 'ThreadPoolExecutor-182_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:46.933 Thread 'ThreadPoolExecutor-182_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:47.683 Thread 'ThreadPoolExecutor-184_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:47.686 Thread 'ThreadPoolExecutor-184_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:47.687 Thread 'ThreadPoolExecutor-184_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:47.688 Thread 'ThreadPoolExecutor-184_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:48.190 Thread 'Thread-1566': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:48.191 Thread 'Thread-1566': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:48.191 Thread 'Thread-1566': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:48.490 Thread 'ThreadPoolExecutor-184_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:48.491 Thread 'ThreadPoolExecutor-184_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:48.491 Thread 'ThreadPoolExecutor-184_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:49.158 Thread 'ThreadPoolExecutor-186_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:49.159 Thread 'ThreadPoolExecutor-186_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:49.160 Thread 'ThreadPoolExecutor-186_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:49.161 Thread 'ThreadPoolExecutor-186_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:49.666 Thread 'Thread-1568': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:49.666 Thread 'Thread-1568': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:49.666 Thread 'Thread-1568': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:49.976 Thread 'ThreadPoolExecutor-186_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:49.977 Thread 'ThreadPoolExecutor-186_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:49.977 Thread 'ThreadPoolExecutor-186_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+INFO:__main__:🔍 GOOGL FMP Debug: from_fmp=True, coverage=62%, roe=nan, quality_score_f=NaN
+2025-11-20 15:37:50.745 Thread 'ThreadPoolExecutor-188_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:50.746 Thread 'ThreadPoolExecutor-188_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:50.748 Thread 'ThreadPoolExecutor-188_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:50.748 Thread 'ThreadPoolExecutor-188_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:51.252 Thread 'Thread-1570': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:51.252 Thread 'Thread-1570': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:51.252 Thread 'Thread-1570': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:51.568 Thread 'ThreadPoolExecutor-188_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:51.568 Thread 'ThreadPoolExecutor-188_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:51.569 Thread 'ThreadPoolExecutor-188_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:52.278 Thread 'ThreadPoolExecutor-190_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:52.279 Thread 'ThreadPoolExecutor-190_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:52.279 Thread 'ThreadPoolExecutor-190_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:52.280 Thread 'ThreadPoolExecutor-190_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:52.783 Thread 'Thread-1572': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:52.783 Thread 'Thread-1572': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:52.784 Thread 'Thread-1572': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:53.075 Thread 'ThreadPoolExecutor-190_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:53.076 Thread 'ThreadPoolExecutor-190_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:53.076 Thread 'ThreadPoolExecutor-190_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:53.878 Thread 'ThreadPoolExecutor-192_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:53.878 Thread 'ThreadPoolExecutor-192_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:53.881 Thread 'ThreadPoolExecutor-192_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:53.881 Thread 'ThreadPoolExecutor-192_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:54.386 Thread 'Thread-1574': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:54.387 Thread 'Thread-1574': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:54.387 Thread 'Thread-1574': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:54.720 Thread 'ThreadPoolExecutor-192_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:54.721 Thread 'ThreadPoolExecutor-192_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:54.721 Thread 'ThreadPoolExecutor-192_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:55.367 Thread 'ThreadPoolExecutor-194_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:55.367 Thread 'ThreadPoolExecutor-194_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:55.367 Thread 'ThreadPoolExecutor-194_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:55.369 Thread 'ThreadPoolExecutor-194_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:55.873 Thread 'Thread-1576': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:55.874 Thread 'Thread-1576': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:55.875 Thread 'Thread-1576': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:56.158 Thread 'ThreadPoolExecutor-194_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:56.158 Thread 'ThreadPoolExecutor-194_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:56.159 Thread 'ThreadPoolExecutor-194_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:56.863 Thread 'ThreadPoolExecutor-196_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:56.863 Thread 'ThreadPoolExecutor-196_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:56.864 Thread 'ThreadPoolExecutor-196_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:56.867 Thread 'ThreadPoolExecutor-196_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:57.370 Thread 'Thread-1578': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:57.371 Thread 'Thread-1578': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:57.372 Thread 'Thread-1578': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:57.674 Thread 'ThreadPoolExecutor-196_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:57.674 Thread 'ThreadPoolExecutor-196_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:57.674 Thread 'ThreadPoolExecutor-196_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:58.387 Thread 'ThreadPoolExecutor-198_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:58.389 Thread 'ThreadPoolExecutor-198_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:58.391 Thread 'ThreadPoolExecutor-198_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:58.392 Thread 'ThreadPoolExecutor-198_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:58.895 Thread 'Thread-1580': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:58.895 Thread 'Thread-1580': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:58.896 Thread 'Thread-1580': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:59.213 Thread 'ThreadPoolExecutor-198_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:59.213 Thread 'ThreadPoolExecutor-198_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:59.214 Thread 'ThreadPoolExecutor-198_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:59.922 Thread 'ThreadPoolExecutor-200_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:59.925 Thread 'ThreadPoolExecutor-200_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:59.926 Thread 'ThreadPoolExecutor-200_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:37:59.926 Thread 'ThreadPoolExecutor-200_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:00.429 Thread 'Thread-1582': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:00.429 Thread 'Thread-1582': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:00.430 Thread 'Thread-1582': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:00.725 Thread 'ThreadPoolExecutor-200_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:00.725 Thread 'ThreadPoolExecutor-200_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:00.726 Thread 'ThreadPoolExecutor-200_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:02.191 Thread 'ThreadPoolExecutor-202_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:02.192 Thread 'ThreadPoolExecutor-202_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:02.192 Thread 'ThreadPoolExecutor-202_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:02.193 Thread 'ThreadPoolExecutor-202_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:02.699 Thread 'Thread-1584': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:02.700 Thread 'Thread-1584': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:02.700 Thread 'Thread-1584': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:02.992 Thread 'ThreadPoolExecutor-202_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:02.992 Thread 'ThreadPoolExecutor-202_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:02.992 Thread 'ThreadPoolExecutor-202_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:03.662 Thread 'ThreadPoolExecutor-204_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:03.663 Thread 'ThreadPoolExecutor-204_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:03.665 Thread 'ThreadPoolExecutor-204_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:03.665 Thread 'ThreadPoolExecutor-204_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:04.167 Thread 'Thread-1586': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:04.168 Thread 'Thread-1586': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:04.168 Thread 'Thread-1586': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:04.498 Thread 'ThreadPoolExecutor-204_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:04.498 Thread 'ThreadPoolExecutor-204_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:04.498 Thread 'ThreadPoolExecutor-204_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:05.154 Thread 'ThreadPoolExecutor-206_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:05.154 Thread 'ThreadPoolExecutor-206_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:05.156 Thread 'ThreadPoolExecutor-206_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:05.157 Thread 'ThreadPoolExecutor-206_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:05.660 Thread 'Thread-1588': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:05.661 Thread 'Thread-1588': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:05.661 Thread 'Thread-1588': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:05.970 Thread 'ThreadPoolExecutor-206_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:05.970 Thread 'ThreadPoolExecutor-206_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:05.970 Thread 'ThreadPoolExecutor-206_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:06.647 Thread 'ThreadPoolExecutor-208_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:06.647 Thread 'ThreadPoolExecutor-208_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:06.649 Thread 'ThreadPoolExecutor-208_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:06.650 Thread 'ThreadPoolExecutor-208_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:07.152 Thread 'Thread-1590': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:07.153 Thread 'Thread-1590': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:07.153 Thread 'Thread-1590': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:07.558 Thread 'ThreadPoolExecutor-208_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:07.558 Thread 'ThreadPoolExecutor-208_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:07.558 Thread 'ThreadPoolExecutor-208_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:08.128 Thread 'ThreadPoolExecutor-210_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:08.128 Thread 'ThreadPoolExecutor-210_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:08.130 Thread 'ThreadPoolExecutor-210_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:08.131 Thread 'ThreadPoolExecutor-210_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:08.633 Thread 'Thread-1592': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:08.634 Thread 'Thread-1592': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:08.634 Thread 'Thread-1592': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:08.964 Thread 'ThreadPoolExecutor-210_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:08.964 Thread 'ThreadPoolExecutor-210_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:08.965 Thread 'ThreadPoolExecutor-210_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+INFO:__main__:🔍 AMZN FMP Debug: from_fmp=True, coverage=62%, roe=nan, quality_score_f=NaN
+2025-11-20 15:38:09.643 Thread 'ThreadPoolExecutor-212_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:09.645 Thread 'ThreadPoolExecutor-212_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:09.646 Thread 'ThreadPoolExecutor-212_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:09.647 Thread 'ThreadPoolExecutor-212_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:10.149 Thread 'Thread-1594': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:10.149 Thread 'Thread-1594': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:10.149 Thread 'Thread-1594': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:10.450 Thread 'ThreadPoolExecutor-212_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:10.450 Thread 'ThreadPoolExecutor-212_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:10.450 Thread 'ThreadPoolExecutor-212_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:11.017 Thread 'ThreadPoolExecutor-214_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:11.017 Thread 'ThreadPoolExecutor-214_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:11.018 Thread 'ThreadPoolExecutor-214_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:11.018 Thread 'ThreadPoolExecutor-214_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:11.521 Thread 'Thread-1596': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:11.522 Thread 'Thread-1596': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:11.522 Thread 'Thread-1596': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:11.862 Thread 'ThreadPoolExecutor-214_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:11.862 Thread 'ThreadPoolExecutor-214_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:11.862 Thread 'ThreadPoolExecutor-214_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:12.787 Thread 'ThreadPoolExecutor-216_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:12.789 Thread 'ThreadPoolExecutor-216_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:12.790 Thread 'ThreadPoolExecutor-216_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:12.790 Thread 'ThreadPoolExecutor-216_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:13.293 Thread 'Thread-1598': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:13.293 Thread 'Thread-1598': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:13.293 Thread 'Thread-1598': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:13.609 Thread 'ThreadPoolExecutor-216_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:13.609 Thread 'ThreadPoolExecutor-216_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:13.610 Thread 'ThreadPoolExecutor-216_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:14.305 Thread 'ThreadPoolExecutor-218_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:14.306 Thread 'ThreadPoolExecutor-218_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:14.309 Thread 'ThreadPoolExecutor-218_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:14.309 Thread 'ThreadPoolExecutor-218_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:14.810 Thread 'Thread-1600': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:14.810 Thread 'Thread-1600': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:14.811 Thread 'Thread-1600': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:15.132 Thread 'ThreadPoolExecutor-218_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:15.132 Thread 'ThreadPoolExecutor-218_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:15.133 Thread 'ThreadPoolExecutor-218_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:15.821 Thread 'ThreadPoolExecutor-220_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:15.824 Thread 'ThreadPoolExecutor-220_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:15.826 Thread 'ThreadPoolExecutor-220_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:15.826 Thread 'ThreadPoolExecutor-220_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:16.329 Thread 'Thread-1602': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:16.329 Thread 'Thread-1602': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:16.330 Thread 'Thread-1602': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:16.626 Thread 'ThreadPoolExecutor-220_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:16.626 Thread 'ThreadPoolExecutor-220_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:16.626 Thread 'ThreadPoolExecutor-220_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:17.314 Thread 'ThreadPoolExecutor-222_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:17.314 Thread 'ThreadPoolExecutor-222_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:17.315 Thread 'ThreadPoolExecutor-222_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:17.317 Thread 'ThreadPoolExecutor-222_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:17.822 Thread 'Thread-1604': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:17.822 Thread 'Thread-1604': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:17.823 Thread 'Thread-1604': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:18.136 Thread 'ThreadPoolExecutor-222_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:18.136 Thread 'ThreadPoolExecutor-222_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:18.137 Thread 'ThreadPoolExecutor-222_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:19.405 Thread 'ThreadPoolExecutor-224_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:19.406 Thread 'ThreadPoolExecutor-224_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:19.408 Thread 'ThreadPoolExecutor-224_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:19.409 Thread 'ThreadPoolExecutor-224_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:19.910 Thread 'Thread-1606': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:19.911 Thread 'Thread-1606': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:19.911 Thread 'Thread-1606': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:20.238 Thread 'ThreadPoolExecutor-224_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:20.238 Thread 'ThreadPoolExecutor-224_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:20.239 Thread 'ThreadPoolExecutor-224_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:20.952 Thread 'ThreadPoolExecutor-226_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:20.954 Thread 'ThreadPoolExecutor-226_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:20.954 Thread 'ThreadPoolExecutor-226_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:20.956 Thread 'ThreadPoolExecutor-226_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:21.458 Thread 'Thread-1608': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:21.459 Thread 'Thread-1608': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:21.459 Thread 'Thread-1608': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:21.788 Thread 'ThreadPoolExecutor-226_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:21.788 Thread 'ThreadPoolExecutor-226_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:21.789 Thread 'ThreadPoolExecutor-226_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:22.503 Thread 'ThreadPoolExecutor-228_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:22.503 Thread 'ThreadPoolExecutor-228_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:22.504 Thread 'ThreadPoolExecutor-228_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:22.505 Thread 'ThreadPoolExecutor-228_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:23.009 Thread 'Thread-1610': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:23.010 Thread 'Thread-1610': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:23.010 Thread 'Thread-1610': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:23.317 Thread 'ThreadPoolExecutor-228_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:23.317 Thread 'ThreadPoolExecutor-228_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:23.318 Thread 'ThreadPoolExecutor-228_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:23.991 Thread 'ThreadPoolExecutor-230_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:23.992 Thread 'ThreadPoolExecutor-230_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:23.993 Thread 'ThreadPoolExecutor-230_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:23.993 Thread 'ThreadPoolExecutor-230_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:24.495 Thread 'Thread-1612': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:24.495 Thread 'Thread-1612': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:24.496 Thread 'Thread-1612': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:25.521 Thread 'ThreadPoolExecutor-230_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:25.521 Thread 'ThreadPoolExecutor-230_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:25.522 Thread 'ThreadPoolExecutor-230_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:25.530 Thread 'ThreadPoolExecutor-232_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:25.530 Thread 'ThreadPoolExecutor-232_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:25.531 Thread 'ThreadPoolExecutor-232_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:25.533 Thread 'ThreadPoolExecutor-232_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:26.035 Thread 'Thread-1614': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:26.036 Thread 'Thread-1614': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:26.036 Thread 'Thread-1614': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:26.399 Thread 'ThreadPoolExecutor-232_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:26.399 Thread 'ThreadPoolExecutor-232_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:26.399 Thread 'ThreadPoolExecutor-232_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:27.093 Thread 'ThreadPoolExecutor-234_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:27.094 Thread 'ThreadPoolExecutor-234_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:27.094 Thread 'ThreadPoolExecutor-234_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:27.096 Thread 'ThreadPoolExecutor-234_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:27.598 Thread 'Thread-1616': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:27.598 Thread 'Thread-1616': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:27.599 Thread 'Thread-1616': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:27.898 Thread 'ThreadPoolExecutor-234_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:27.898 Thread 'ThreadPoolExecutor-234_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:27.899 Thread 'ThreadPoolExecutor-234_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:28.591 Thread 'ThreadPoolExecutor-236_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:28.591 Thread 'ThreadPoolExecutor-236_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:28.592 Thread 'ThreadPoolExecutor-236_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:28.594 Thread 'ThreadPoolExecutor-236_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:29.095 Thread 'Thread-1618': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:29.095 Thread 'Thread-1618': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:29.096 Thread 'Thread-1618': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:29.491 Thread 'ThreadPoolExecutor-236_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:29.491 Thread 'ThreadPoolExecutor-236_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:29.491 Thread 'ThreadPoolExecutor-236_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:30.134 Thread 'ThreadPoolExecutor-238_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:30.135 Thread 'ThreadPoolExecutor-238_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:30.135 Thread 'ThreadPoolExecutor-238_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:30.135 Thread 'ThreadPoolExecutor-238_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:30.640 Thread 'Thread-1620': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:30.640 Thread 'Thread-1620': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:30.640 Thread 'Thread-1620': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:30.952 Thread 'ThreadPoolExecutor-238_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:30.952 Thread 'ThreadPoolExecutor-238_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:30.952 Thread 'ThreadPoolExecutor-238_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:31.623 Thread 'ThreadPoolExecutor-240_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:31.625 Thread 'ThreadPoolExecutor-240_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:31.625 Thread 'ThreadPoolExecutor-240_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:31.626 Thread 'ThreadPoolExecutor-240_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:32.130 Thread 'Thread-1622': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:32.130 Thread 'Thread-1622': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:32.130 Thread 'Thread-1622': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:32.434 Thread 'ThreadPoolExecutor-240_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:32.434 Thread 'ThreadPoolExecutor-240_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:32.435 Thread 'ThreadPoolExecutor-240_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:33.093 Thread 'ThreadPoolExecutor-242_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:33.093 Thread 'ThreadPoolExecutor-242_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:33.095 Thread 'ThreadPoolExecutor-242_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:33.096 Thread 'ThreadPoolExecutor-242_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+WARNING:__main__:All 1 attempts failed for URL
+2025-11-20 15:38:33.603 Thread 'Thread-1624': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:33.603 Thread 'Thread-1624': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:33.605 Thread 'Thread-1624': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:33.907 Thread 'ThreadPoolExecutor-242_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:33.908 Thread 'ThreadPoolExecutor-242_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:33.908 Thread 'ThreadPoolExecutor-242_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:34.593 Thread 'ThreadPoolExecutor-244_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:34.593 Thread 'ThreadPoolExecutor-244_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:34.595 Thread 'ThreadPoolExecutor-244_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:34.595 Thread 'ThreadPoolExecutor-244_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+WARNING:__main__:All 1 attempts failed for URL
+2025-11-20 15:38:35.097 Thread 'Thread-1626': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:35.097 Thread 'Thread-1626': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:35.098 Thread 'Thread-1626': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:35.422 Thread 'ThreadPoolExecutor-244_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:35.422 Thread 'ThreadPoolExecutor-244_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:35.422 Thread 'ThreadPoolExecutor-244_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:36.039 Thread 'ThreadPoolExecutor-246_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:36.039 Thread 'ThreadPoolExecutor-246_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:36.039 Thread 'ThreadPoolExecutor-246_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:36.040 Thread 'ThreadPoolExecutor-246_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+WARNING:__main__:All 1 attempts failed for URL
+2025-11-20 15:38:36.543 Thread 'Thread-1628': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:36.544 Thread 'Thread-1628': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:36.544 Thread 'Thread-1628': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:37.095 Thread 'ThreadPoolExecutor-246_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:37.095 Thread 'ThreadPoolExecutor-246_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:37.095 Thread 'ThreadPoolExecutor-246_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:37.516 Thread 'ThreadPoolExecutor-248_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:37.518 Thread 'ThreadPoolExecutor-248_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:37.519 Thread 'ThreadPoolExecutor-248_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:37.519 Thread 'ThreadPoolExecutor-248_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+WARNING:__main__:All 1 attempts failed for URL
+2025-11-20 15:38:38.021 Thread 'Thread-1630': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:38.022 Thread 'Thread-1630': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:38.022 Thread 'Thread-1630': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:39.816 Thread 'ThreadPoolExecutor-248_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:39.816 Thread 'ThreadPoolExecutor-248_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:39.817 Thread 'ThreadPoolExecutor-248_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:39.827 Thread 'ThreadPoolExecutor-250_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:39.828 Thread 'ThreadPoolExecutor-250_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:39.831 Thread 'ThreadPoolExecutor-250_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:39.832 Thread 'ThreadPoolExecutor-250_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+WARNING:__main__:All 1 attempts failed for URL
+2025-11-20 15:38:40.334 Thread 'Thread-1632': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:40.335 Thread 'Thread-1632': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:40.336 Thread 'Thread-1632': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:40.663 Thread 'ThreadPoolExecutor-250_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:40.663 Thread 'ThreadPoolExecutor-250_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 15:38:40.664 Thread 'ThreadPoolExecutor-250_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+INFO:core.ml_integration:✓ ML model loaded from model_xgboost_5d.pkl
+INFO:__main__:✓ Applied V2 risk gates to 35 stocks
+INFO:__main__:  - Blocked: 14 stocks
+INFO:__main__:  - Severely reduced: 0 stocks
+INFO:__main__:  - Reduced: 21 stocks
+INFO:__main__:  - Full allocation: 0 stocks
+INFO:__main__:✓ Scored 35 stocks with V2-enhanced conviction
+INFO:__main__:Columns available: ['Ticker', 'Price_Yahoo', 'Score_Tech', 'RSI', 'Near52w', 'Volx20d', 'OverextRatio', 'ATR_Price', 'RewardRisk', 'ATR14', 'Fundamental_S', 'Sector', 'PE_f', 'PS_f', 'ROE_f', 'ROIC_f', 'GM_f', 'DE_f', 'RevG_f', 'EPSG_f', 'Fund_from_FMP', 'Fund_from_Alpha', 'Fund_from_Finnhub', 'Fund_from_SimFin', 'Fund_from_EODHD', 'Score', 'Beta', 'RS_63d', 'Volume_Surge', 'MA_Aligned', 'Quality_Score', 'RR_Ratio', 'Momentum_Consistency', 'High_Confidence', 'AdvPenalty', 'AdvFlags', 'RejectionReason', 'Quality_Score_F', 'Quality_Label', 'Growth_Score_F', 'Growth_Label', 'Valuation_Score_F', 'Valuation_Label', 'Leverage_Score_F', 'Leverage_Label', 'Fund_Attribution', 'reliability_v2', 'fund_sources_used_v2', 'price_sources_used_v2', 'fund_sources_count_v2', 'price_sources_count_v2', 'fund_completeness_pct', 'price_variance_penalty', 'fund_disagreement_score_v2', 'price_variance_score_v2', 'rr_ratio_v2', 'risk_gate_status_v2', 'risk_gate_penalty_v2', 'conviction_v2_base', 'conviction_v2_final', 'ml_probability_v2', 'ml_boost_v2', 'buy_amount_v2', 'shares_to_buy_v2', 'risk_level', 'quality_score', 'risk_gate_reason_v2', 'risk_meter_v2', 'reward_risk_v2', 'reliability_score_v2']
+INFO:__main__:Sample RS_63d values: [-0.16053274585023147, -0.1734449862867149, -0.16649301091013047, -0.1757563178501499, -0.17418254216498796]
+INFO:__main__:Sample Volume_Surge values: [0.8353735900888142, 0.9011521826613895, 0.5979060239178574, 0.944254250160659, 0.8771520868883952]
+INFO:__main__:Sample RR_Ratio values: [0.1455304544912148, 1.803173816445655, 0.9894714440022968, 3.163730400932968, 3.014217426833766]
+INFO:__main__:Sample Quality_Score values: [9.0, 3.0, 5.0, 10.0, 15.0]
+INFO:__main__:Sample Fundamental_S values: [48.6, 61.7, 68.0, 64.1, 49.1]
+INFO:__main__:Sample Momentum_Consistency values: [0.6666666666666667, 0.375, 0.375, 0.25, 0.4166666666666667]
+[FUND] Missing for AMCR: ['de', 'oper_margin', 'roe']
+[FUND] Missing for GOOG: ['de', 'oper_margin', 'roe']
+[FUND] Missing for GOOGL: ['de', 'oper_margin', 'roe']
+[FUND] Missing for APA: ['de', 'oper_margin', 'roe']
+[FUND] Missing for AMAT: ['de', 'oper_margin', 'roe']
+[FUND] Missing for MMM: ['de', 'oper_margin', 'roe']
+[FUND] Missing for AKAM: ['de', 'oper_margin', 'roe']
+[FUND] Missing for AMGN: ['de', 'oper_margin', 'roe']
+[FUND] Missing for A: ['de', 'oper_margin', 'roe']
+[FUND] Missing for AXP: ['de', 'oper_margin', 'roe']
+[FUND] Missing for MO: ['de', 'oper_margin', 'roe']
+[FUND] Missing for T: ['de', 'oper_margin', 'roe']
+[FUND] Missing for APH: ['de', 'oper_margin', 'roe']
+[FUND] Missing for ALL: ['de', 'oper_margin', 'roe']
+[FUND] Missing for AMZN: ['de', 'oper_margin', 'roe']
+[FUND] Missing for ACGL: ['de', 'oper_margin', 'roe']
+[FUND] Missing for AON: ['de', 'oper_margin', 'roe']
+[FUND] Missing for ABNB: ['de', 'oper_margin', 'roe']
+[FUND] Missing for ALGN: ['de', 'oper_margin', 'roe']
+[FUND] Missing for ADBE: ['de', 'oper_margin', 'roe']
+[FUND] Missing for ACN: ['de', 'oper_margin', 'roe']
+[FUND] Missing for ABT: ['de', 'oper_margin', 'roe']
+[FUND] Missing for AWK: ['de', 'oper_margin', 'roe']
+[FUND] Missing for ATO: ['de', 'oper_margin', 'roe']
+[FUND] Missing for AOS: ['de', 'oper_margin', 'roe']
+[FUND] Missing for APO: ['de', 'oper_margin', 'roe']
+[FUND] Missing for AES: ['de', 'oper_margin', 'roe']
+[FUND] Missing for APTV: ['de', 'oper_margin', 'roe']
+[FUND] Missing for LNT: ['de', 'oper_margin', 'roe']
+[FUND] Missing for AEE: ['de', 'oper_margin', 'roe']
+[FUND] Missing for AMP: ['pe', 'eps_g_yoy', 'de', 'oper_margin', 'roe']
+[FUND] Missing for AMT: ['pe', 'eps_g_yoy', 'de', 'oper_margin', 'roe']
+[FUND] Missing for ADI: ['pe', 'eps_g_yoy', 'de', 'oper_margin', 'roe']
+[FUND] Missing for ADM: ['pe', 'eps_g_yoy', 'de', 'oper_margin', 'roe']
+[FUND] Missing for AIG: ['pe', 'eps_g_yoy', 'de', 'oper_margin', 'roe']
+[2025-11-20 15:38:41] [INFO] [stock_scout.classification] Classified 35 stocks: Core=2, Speculative=33, Hidden=0
+[2025-11-20 15:38:41] [INFO] [stock_scout.classification] 📊 Initial distribution: 2 Core, 0 Speculative (total: 2)
+[2025-11-20 15:38:41] [INFO] [stock_scout.classification] After Core filter: 2/2
+[2025-11-20 15:38:41] [INFO] [stock_scout.classification] After fundamental quality score >= 60.0: 2/2
+[2025-11-20 15:38:41] [INFO] [stock_scout.classification] After overextension <= 0.12: 2/2
+[2025-11-20 15:38:41] [INFO] [stock_scout.classification] After ATR/Price <= 0.07: 2/2
+[2025-11-20 15:38:41] [INFO] [stock_scout.classification] After RSI in [20, 55]: 2/2
+[2025-11-20 15:38:41] [INFO] [stock_scout.classification] After RewardRisk >= 1.5: 2/2
+[2025-11-20 15:38:41] [INFO] [stock_scout.classification] After reliability_v2 >= 50: 2/2
+[2025-11-20 15:38:41] [INFO] [stock_scout.classification] After RewardRisk >= 1.5: 2/2
+[2025-11-20 15:38:41] [INFO] [stock_scout.classification] After MomentumConsistency >= 0.35: 2/2
+[2025-11-20 15:38:41] [INFO] [stock_scout.classification] Final Core recommendations (including adaptive if any): 2/2
+INFO:__main__:Speculative filter: 33 → 21
+INFO:__main__:Applying XGBoost ML scoring...
+INFO:__main__:Core stocks scored: avg probability 0.840
+INFO:__main__:Speculative stocks scored: avg probability 0.836
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+INFO:__main__:Using V2 position sizing with risk gates and reliability penalties
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-11-20 15:39:01.758 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+WARNING:__main__:All 1 attempts failed for URL
+INFO:__main__:✓ Deduplicated 503 → 503 unique companies (removed 0 multi-class tickers)
+INFO:__main__:✓ Loaded 503 unique S&P500 companies from Wikipedia
+INFO:__main__:🔬 Advanced filters pre-pass on 46 stocks...
+INFO:__main__:Dynamic thresholds -> RS:-0.196 MOM:0.250 RR:0.027
+INFO:__main__:Advanced filters dynamic: kept 35/46 catastrophic=11
+INFO:__main__:🔍 GOOGL FMP Debug: from_fmp=True, coverage=62%, roe=nan, quality_score_f=NaN
+INFO:__main__:🔍 AMZN FMP Debug: from_fmp=True, coverage=62%, roe=nan, quality_score_f=NaN
+INFO:__main__:✓ Applied V2 risk gates to 35 stocks
+INFO:__main__:  - Blocked: 14 stocks
+INFO:__main__:  - Severely reduced: 0 stocks
+INFO:__main__:  - Reduced: 21 stocks
+INFO:__main__:  - Full allocation: 0 stocks
+INFO:__main__:✓ Scored 35 stocks with V2-enhanced conviction
+INFO:__main__:Columns available: ['Ticker', 'Price_Yahoo', 'Score_Tech', 'RSI', 'Near52w', 'Volx20d', 'OverextRatio', 'ATR_Price', 'RewardRisk', 'ATR14', 'Fundamental_S', 'Sector', 'PE_f', 'PS_f', 'ROE_f', 'ROIC_f', 'GM_f', 'DE_f', 'RevG_f', 'EPSG_f', 'Fund_from_FMP', 'Fund_from_Alpha', 'Fund_from_Finnhub', 'Fund_from_SimFin', 'Fund_from_EODHD', 'Score', 'Beta', 'RS_63d', 'Volume_Surge', 'MA_Aligned', 'Quality_Score', 'RR_Ratio', 'Momentum_Consistency', 'High_Confidence', 'AdvPenalty', 'AdvFlags', 'RejectionReason', 'Quality_Score_F', 'Quality_Label', 'Growth_Score_F', 'Growth_Label', 'Valuation_Score_F', 'Valuation_Label', 'Leverage_Score_F', 'Leverage_Label', 'Fund_Attribution', 'reliability_v2', 'fund_sources_used_v2', 'price_sources_used_v2', 'fund_sources_count_v2', 'price_sources_count_v2', 'fund_completeness_pct', 'price_variance_penalty', 'fund_disagreement_score_v2', 'price_variance_score_v2', 'rr_ratio_v2', 'risk_gate_status_v2', 'risk_gate_penalty_v2', 'conviction_v2_base', 'conviction_v2_final', 'ml_probability_v2', 'ml_boost_v2', 'buy_amount_v2', 'shares_to_buy_v2', 'risk_level', 'quality_score', 'risk_gate_reason_v2', 'risk_meter_v2', 'reward_risk_v2', 'reliability_score_v2']
+INFO:__main__:Sample RS_63d values: [-0.15638008500261846, -0.1692923254391019, -0.16234035006251746, -0.17160365700253688, -0.17002988131737495]
+INFO:__main__:Sample Volume_Surge values: [0.8353735900888142, 0.9011521826613895, 0.5979060239178574, 0.944254250160659, 0.8771520868883952]
+INFO:__main__:Sample RR_Ratio values: [0.1455304544912148, 1.803173816445655, 0.9894714440022968, 3.163730400932968, 3.014217426833766]
+INFO:__main__:Sample Quality_Score values: [9.0, 3.0, 5.0, 10.0, 15.0]
+INFO:__main__:Sample Fundamental_S values: [48.6, 61.7, 68.0, 64.1, 49.1]
+INFO:__main__:Sample Momentum_Consistency values: [0.6666666666666667, 0.375, 0.375, 0.25, 0.4166666666666667]
+[2025-11-20 15:59:39] [INFO] [stock_scout.classification] Classified 35 stocks: Core=2, Speculative=33, Hidden=0
+[2025-11-20 15:59:39] [INFO] [stock_scout.classification] 📊 Initial distribution: 2 Core, 0 Speculative (total: 2)
+[2025-11-20 15:59:39] [INFO] [stock_scout.classification] After Core filter: 2/2
+[2025-11-20 15:59:39] [INFO] [stock_scout.classification] After fundamental quality score >= 60.0: 2/2
+[2025-11-20 15:59:39] [INFO] [stock_scout.classification] After overextension <= 0.12: 2/2
+[2025-11-20 15:59:39] [INFO] [stock_scout.classification] After ATR/Price <= 0.07: 2/2
+[2025-11-20 15:59:39] [INFO] [stock_scout.classification] After RSI in [20, 55]: 2/2
+[2025-11-20 15:59:39] [INFO] [stock_scout.classification] After RewardRisk >= 1.5: 2/2
+[2025-11-20 15:59:39] [INFO] [stock_scout.classification] After reliability_v2 >= 50: 2/2
+[2025-11-20 15:59:39] [INFO] [stock_scout.classification] After RewardRisk >= 1.5: 2/2
+[2025-11-20 15:59:39] [INFO] [stock_scout.classification] After MomentumConsistency >= 0.35: 2/2
+[2025-11-20 15:59:39] [INFO] [stock_scout.classification] Final Core recommendations (including adaptive if any): 2/2
+INFO:__main__:Speculative filter: 33 → 21
+INFO:__main__:Applying XGBoost ML scoring...
+INFO:__main__:Core stocks scored: avg probability 0.840
+INFO:__main__:Speculative stocks scored: avg probability 0.836
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+INFO:__main__:Using V2 position sizing with risk gates and reliability penalties
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-11-20 16:00:02.614 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+WARNING:__main__:All 1 attempts failed for URL
+INFO:__main__:✓ Deduplicated 503 → 503 unique companies (removed 0 multi-class tickers)
+INFO:__main__:✓ Loaded 503 unique S&P500 companies from Wikipedia
+2025-11-20 17:36:39.719 Thread 'ThreadPoolExecutor-254_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:39.720 Thread 'ThreadPoolExecutor-254_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:39.720 Thread 'ThreadPoolExecutor-254_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:39.720 Thread 'ThreadPoolExecutor-254_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:39.720 Thread 'ThreadPoolExecutor-254_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:39.721 Thread 'ThreadPoolExecutor-254_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:39.721 Thread 'ThreadPoolExecutor-254_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:39.722 Thread 'ThreadPoolExecutor-254_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:39.721 Thread 'ThreadPoolExecutor-254_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:39.722 Thread 'ThreadPoolExecutor-254_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:39.722 Thread 'ThreadPoolExecutor-254_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:39.724 Thread 'ThreadPoolExecutor-254_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:39.721 Thread 'ThreadPoolExecutor-254_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:39.722 Thread 'ThreadPoolExecutor-254_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:39.723 Thread 'ThreadPoolExecutor-254_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:39.722 Thread 'ThreadPoolExecutor-254_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:39.725 Thread 'ThreadPoolExecutor-254_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:39.725 Thread 'ThreadPoolExecutor-254_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:39.726 Thread 'ThreadPoolExecutor-254_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:39.726 Thread 'ThreadPoolExecutor-254_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:39.727 Thread 'ThreadPoolExecutor-254_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:39.728 Thread 'ThreadPoolExecutor-254_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:39.728 Thread 'ThreadPoolExecutor-254_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:39.730 Thread 'ThreadPoolExecutor-254_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.089 Thread 'ThreadPoolExecutor-254_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.089 Thread 'ThreadPoolExecutor-254_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.089 Thread 'ThreadPoolExecutor-254_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.090 Thread 'ThreadPoolExecutor-254_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.090 Thread 'ThreadPoolExecutor-254_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.090 Thread 'ThreadPoolExecutor-254_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.090 Thread 'ThreadPoolExecutor-254_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.230 Thread 'Thread-1738': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.230 Thread 'Thread-1739': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.231 Thread 'Thread-1739': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.230 Thread 'Thread-1738': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.231 Thread 'Thread-1741': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.230 Thread 'Thread-1740': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.231 Thread 'Thread-1739': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.232 Thread 'Thread-1738': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.232 Thread 'Thread-1742': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.232 Thread 'Thread-1741': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.233 Thread 'Thread-1740': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.234 Thread 'Thread-1742': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.234 Thread 'Thread-1741': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.235 Thread 'Thread-1740': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.235 Thread 'Thread-1742': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.263 Thread 'ThreadPoolExecutor-254_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.263 Thread 'ThreadPoolExecutor-254_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.264 Thread 'ThreadPoolExecutor-254_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.264 Thread 'ThreadPoolExecutor-254_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.264 Thread 'ThreadPoolExecutor-254_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.265 Thread 'ThreadPoolExecutor-254_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.265 Thread 'ThreadPoolExecutor-254_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.427 Thread 'ThreadPoolExecutor-254_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.427 Thread 'ThreadPoolExecutor-254_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.428 Thread 'ThreadPoolExecutor-254_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.428 Thread 'ThreadPoolExecutor-254_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.429 Thread 'ThreadPoolExecutor-254_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.429 Thread 'ThreadPoolExecutor-254_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.430 Thread 'ThreadPoolExecutor-254_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.431 Thread 'ThreadPoolExecutor-254_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.435 Thread 'ThreadPoolExecutor-254_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.438 Thread 'ThreadPoolExecutor-254_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.438 Thread 'ThreadPoolExecutor-254_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.435 Thread 'ThreadPoolExecutor-254_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.439 Thread 'ThreadPoolExecutor-254_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.439 Thread 'ThreadPoolExecutor-254_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.438 Thread 'ThreadPoolExecutor-254_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.440 Thread 'ThreadPoolExecutor-254_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.441 Thread 'ThreadPoolExecutor-254_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.441 Thread 'ThreadPoolExecutor-254_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.443 Thread 'ThreadPoolExecutor-254_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.442 Thread 'ThreadPoolExecutor-254_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.443 Thread 'ThreadPoolExecutor-254_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.443 Thread 'ThreadPoolExecutor-254_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.442 Thread 'ThreadPoolExecutor-254_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.444 Thread 'ThreadPoolExecutor-254_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.444 Thread 'ThreadPoolExecutor-254_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.444 Thread 'ThreadPoolExecutor-254_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.444 Thread 'ThreadPoolExecutor-254_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.445 Thread 'ThreadPoolExecutor-254_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.490 Thread 'ThreadPoolExecutor-254_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.490 Thread 'ThreadPoolExecutor-254_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.490 Thread 'ThreadPoolExecutor-254_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.534 Thread 'ThreadPoolExecutor-254_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.534 Thread 'ThreadPoolExecutor-254_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.534 Thread 'ThreadPoolExecutor-254_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.744 Thread 'ThreadPoolExecutor-254_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.745 Thread 'ThreadPoolExecutor-254_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.745 Thread 'ThreadPoolExecutor-254_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.763 Thread 'ThreadPoolExecutor-254_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.789 Thread 'ThreadPoolExecutor-254_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.790 Thread 'ThreadPoolExecutor-254_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.889 Thread 'ThreadPoolExecutor-254_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.892 Thread 'ThreadPoolExecutor-254_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.889 Thread 'ThreadPoolExecutor-254_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.938 Thread 'Thread-1745': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.942 Thread 'Thread-1745': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.942 Thread 'Thread-1745': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.947 Thread 'ThreadPoolExecutor-254_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.947 Thread 'ThreadPoolExecutor-254_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:36:40.949 Thread 'ThreadPoolExecutor-254_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+INFO:__main__:🔬 Advanced filters pre-pass on 47 stocks...
+INFO:__main__:Dynamic thresholds -> RS:-0.163 MOM:0.233 RR:0.024
+INFO:__main__:Advanced filters dynamic: kept 35/47 catastrophic=12
+2025-11-20 17:37:33.048 Thread 'ThreadPoolExecutor-255_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:33.049 Thread 'ThreadPoolExecutor-255_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:33.050 Thread 'ThreadPoolExecutor-255_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:33.051 Thread 'ThreadPoolExecutor-255_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:33.552 Thread 'Thread-1898': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:33.552 Thread 'Thread-1898': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:33.552 Thread 'Thread-1898': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:33.902 Thread 'ThreadPoolExecutor-255_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:33.903 Thread 'ThreadPoolExecutor-255_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:33.903 Thread 'ThreadPoolExecutor-255_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:40.171 Thread 'ThreadPoolExecutor-257_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:40.171 Thread 'ThreadPoolExecutor-257_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:40.172 Thread 'ThreadPoolExecutor-257_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:40.173 Thread 'ThreadPoolExecutor-257_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:40.179 Thread 'ThreadPoolExecutor-257_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:40.180 Thread 'ThreadPoolExecutor-257_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:40.180 Thread 'ThreadPoolExecutor-257_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:40.180 Thread 'ThreadPoolExecutor-257_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:40.674 Thread 'Thread-1900': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:40.675 Thread 'Thread-1900': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:40.676 Thread 'Thread-1900': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:40.682 Thread 'Thread-1901': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:40.682 Thread 'Thread-1901': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:40.682 Thread 'Thread-1901': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+WARNING:__main__:All 2 attempts failed for URL
+2025-11-20 17:37:42.827 Thread 'ThreadPoolExecutor-257_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:42.828 Thread 'ThreadPoolExecutor-257_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:42.828 Thread 'ThreadPoolExecutor-257_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:42.857 Thread 'ThreadPoolExecutor-257_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:42.857 Thread 'ThreadPoolExecutor-257_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:42.857 Thread 'ThreadPoolExecutor-257_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:43.621 Thread 'ThreadPoolExecutor-259_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:43.623 Thread 'ThreadPoolExecutor-259_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:43.624 Thread 'ThreadPoolExecutor-259_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:43.624 Thread 'ThreadPoolExecutor-259_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:44.127 Thread 'Thread-1903': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:44.127 Thread 'Thread-1903': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:44.128 Thread 'Thread-1903': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:44.454 Thread 'ThreadPoolExecutor-259_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:44.454 Thread 'ThreadPoolExecutor-259_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:44.454 Thread 'ThreadPoolExecutor-259_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:45.127 Thread 'ThreadPoolExecutor-261_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:45.127 Thread 'ThreadPoolExecutor-261_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:45.128 Thread 'ThreadPoolExecutor-261_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:45.129 Thread 'ThreadPoolExecutor-261_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:45.632 Thread 'Thread-1905': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:45.632 Thread 'Thread-1905': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:45.633 Thread 'Thread-1905': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:45.959 Thread 'ThreadPoolExecutor-261_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:45.959 Thread 'ThreadPoolExecutor-261_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:45.960 Thread 'ThreadPoolExecutor-261_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:46.858 Thread 'ThreadPoolExecutor-263_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:46.859 Thread 'ThreadPoolExecutor-263_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:46.860 Thread 'ThreadPoolExecutor-263_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:46.861 Thread 'ThreadPoolExecutor-263_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:47.364 Thread 'Thread-1907': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:47.365 Thread 'Thread-1907': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:47.365 Thread 'Thread-1907': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:47.833 Thread 'ThreadPoolExecutor-263_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:47.833 Thread 'ThreadPoolExecutor-263_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:47.834 Thread 'ThreadPoolExecutor-263_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:48.401 Thread 'ThreadPoolExecutor-265_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:48.404 Thread 'ThreadPoolExecutor-265_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:48.406 Thread 'ThreadPoolExecutor-265_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:48.408 Thread 'ThreadPoolExecutor-265_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:48.910 Thread 'Thread-1909': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:48.910 Thread 'Thread-1909': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:48.911 Thread 'Thread-1909': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:49.270 Thread 'ThreadPoolExecutor-265_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:49.270 Thread 'ThreadPoolExecutor-265_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:49.270 Thread 'ThreadPoolExecutor-265_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:50.276 Thread 'ThreadPoolExecutor-267_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:50.276 Thread 'ThreadPoolExecutor-267_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:50.278 Thread 'ThreadPoolExecutor-267_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:50.278 Thread 'ThreadPoolExecutor-267_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:50.780 Thread 'Thread-1911': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:50.781 Thread 'Thread-1911': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:50.781 Thread 'Thread-1911': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:51.204 Thread 'ThreadPoolExecutor-267_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:51.204 Thread 'ThreadPoolExecutor-267_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:51.204 Thread 'ThreadPoolExecutor-267_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:51.784 Thread 'ThreadPoolExecutor-269_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:51.786 Thread 'ThreadPoolExecutor-269_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:51.786 Thread 'ThreadPoolExecutor-269_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:51.787 Thread 'ThreadPoolExecutor-269_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:52.289 Thread 'Thread-1913': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:52.289 Thread 'Thread-1913': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:52.289 Thread 'Thread-1913': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:52.585 Thread 'ThreadPoolExecutor-269_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:52.585 Thread 'ThreadPoolExecutor-269_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:52.585 Thread 'ThreadPoolExecutor-269_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+INFO:__main__:🔍 AAPL FMP Debug: from_fmp=True, coverage=62%, roe=nan, quality_score_f=NaN
+2025-11-20 17:37:53.683 Thread 'ThreadPoolExecutor-271_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:53.683 Thread 'ThreadPoolExecutor-271_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:53.684 Thread 'ThreadPoolExecutor-271_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:53.685 Thread 'ThreadPoolExecutor-271_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:54.187 Thread 'Thread-1915': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:54.187 Thread 'Thread-1915': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:54.188 Thread 'Thread-1915': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:54.575 Thread 'ThreadPoolExecutor-271_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:54.575 Thread 'ThreadPoolExecutor-271_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:54.575 Thread 'ThreadPoolExecutor-271_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:58.149 Thread 'ThreadPoolExecutor-273_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:58.149 Thread 'ThreadPoolExecutor-273_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:58.150 Thread 'ThreadPoolExecutor-273_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:58.151 Thread 'ThreadPoolExecutor-273_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:58.652 Thread 'Thread-1917': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:58.652 Thread 'Thread-1917': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:37:58.653 Thread 'Thread-1917': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:02.248 Thread 'ThreadPoolExecutor-273_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:02.248 Thread 'ThreadPoolExecutor-273_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:02.248 Thread 'ThreadPoolExecutor-273_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:02.253 Thread 'ThreadPoolExecutor-275_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:02.254 Thread 'ThreadPoolExecutor-275_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:02.255 Thread 'ThreadPoolExecutor-275_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:02.256 Thread 'ThreadPoolExecutor-275_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:02.762 Thread 'Thread-1919': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:02.763 Thread 'Thread-1919': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:02.763 Thread 'Thread-1919': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:03.113 Thread 'ThreadPoolExecutor-275_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:03.113 Thread 'ThreadPoolExecutor-275_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:03.113 Thread 'ThreadPoolExecutor-275_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:03.715 Thread 'ThreadPoolExecutor-277_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:03.715 Thread 'ThreadPoolExecutor-277_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:03.717 Thread 'ThreadPoolExecutor-277_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:03.717 Thread 'ThreadPoolExecutor-277_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:04.223 Thread 'Thread-1921': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:04.223 Thread 'Thread-1921': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:04.223 Thread 'Thread-1921': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:04.603 Thread 'ThreadPoolExecutor-277_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:04.604 Thread 'ThreadPoolExecutor-277_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:04.608 Thread 'ThreadPoolExecutor-277_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:05.314 Thread 'ThreadPoolExecutor-279_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:05.315 Thread 'ThreadPoolExecutor-279_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:05.316 Thread 'ThreadPoolExecutor-279_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:05.317 Thread 'ThreadPoolExecutor-279_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:05.822 Thread 'Thread-1923': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:05.824 Thread 'Thread-1923': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:05.824 Thread 'Thread-1923': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:06.204 Thread 'ThreadPoolExecutor-279_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:06.204 Thread 'ThreadPoolExecutor-279_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:06.205 Thread 'ThreadPoolExecutor-279_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:06.836 Thread 'ThreadPoolExecutor-281_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:06.837 Thread 'ThreadPoolExecutor-281_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:06.838 Thread 'ThreadPoolExecutor-281_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:06.838 Thread 'ThreadPoolExecutor-281_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:07.339 Thread 'Thread-1925': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:07.340 Thread 'Thread-1925': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:07.340 Thread 'Thread-1925': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:07.684 Thread 'ThreadPoolExecutor-281_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:07.686 Thread 'ThreadPoolExecutor-281_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:07.687 Thread 'ThreadPoolExecutor-281_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:08.389 Thread 'ThreadPoolExecutor-283_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:08.391 Thread 'ThreadPoolExecutor-283_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:08.392 Thread 'ThreadPoolExecutor-283_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:08.392 Thread 'ThreadPoolExecutor-283_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:08.900 Thread 'Thread-1927': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:08.900 Thread 'Thread-1927': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:08.901 Thread 'Thread-1927': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:09.260 Thread 'ThreadPoolExecutor-283_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:09.260 Thread 'ThreadPoolExecutor-283_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:09.261 Thread 'ThreadPoolExecutor-283_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:10.701 Thread 'ThreadPoolExecutor-285_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:10.702 Thread 'ThreadPoolExecutor-285_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:10.703 Thread 'ThreadPoolExecutor-285_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:10.703 Thread 'ThreadPoolExecutor-285_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:11.204 Thread 'Thread-1929': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:11.205 Thread 'Thread-1929': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:11.205 Thread 'Thread-1929': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:11.511 Thread 'ThreadPoolExecutor-285_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:11.512 Thread 'ThreadPoolExecutor-285_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:11.512 Thread 'ThreadPoolExecutor-285_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+INFO:__main__:🔍 AMZN FMP Debug: from_fmp=True, coverage=62%, roe=nan, quality_score_f=NaN
+2025-11-20 17:38:12.166 Thread 'ThreadPoolExecutor-287_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:12.168 Thread 'ThreadPoolExecutor-287_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:12.168 Thread 'ThreadPoolExecutor-287_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:12.168 Thread 'ThreadPoolExecutor-287_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:12.672 Thread 'Thread-1931': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:12.672 Thread 'Thread-1931': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:12.673 Thread 'Thread-1931': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:12.994 Thread 'ThreadPoolExecutor-287_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:12.994 Thread 'ThreadPoolExecutor-287_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:12.995 Thread 'ThreadPoolExecutor-287_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:13.657 Thread 'ThreadPoolExecutor-289_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:13.657 Thread 'ThreadPoolExecutor-289_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:13.658 Thread 'ThreadPoolExecutor-289_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:13.659 Thread 'ThreadPoolExecutor-289_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:14.161 Thread 'Thread-1933': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:14.161 Thread 'Thread-1933': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:14.162 Thread 'Thread-1933': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:14.490 Thread 'ThreadPoolExecutor-289_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:14.490 Thread 'ThreadPoolExecutor-289_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:14.490 Thread 'ThreadPoolExecutor-289_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:15.147 Thread 'ThreadPoolExecutor-291_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:15.147 Thread 'ThreadPoolExecutor-291_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:15.148 Thread 'ThreadPoolExecutor-291_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:15.149 Thread 'ThreadPoolExecutor-291_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:15.652 Thread 'Thread-1935': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:15.652 Thread 'Thread-1935': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:15.652 Thread 'Thread-1935': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:17.025 Thread 'ThreadPoolExecutor-291_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:17.025 Thread 'ThreadPoolExecutor-291_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:17.025 Thread 'ThreadPoolExecutor-291_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:17.636 Thread 'ThreadPoolExecutor-293_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:17.637 Thread 'ThreadPoolExecutor-293_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:17.637 Thread 'ThreadPoolExecutor-293_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:17.637 Thread 'ThreadPoolExecutor-293_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:17.646 Thread 'ThreadPoolExecutor-293_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:17.646 Thread 'ThreadPoolExecutor-293_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:17.646 Thread 'ThreadPoolExecutor-293_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:17.646 Thread 'ThreadPoolExecutor-293_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:18.140 Thread 'Thread-1937': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:18.140 Thread 'Thread-1937': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:18.140 Thread 'Thread-1937': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:18.147 Thread 'Thread-1938': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:18.147 Thread 'Thread-1938': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:18.147 Thread 'Thread-1938': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:18.481 Thread 'ThreadPoolExecutor-293_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:18.481 Thread 'ThreadPoolExecutor-293_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:18.481 Thread 'ThreadPoolExecutor-293_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+WARNING:__main__:All 2 attempts failed for URL
+2025-11-20 17:38:18.989 Thread 'ThreadPoolExecutor-293_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:18.989 Thread 'ThreadPoolExecutor-293_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:18.990 Thread 'ThreadPoolExecutor-293_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:25.078 Thread 'ThreadPoolExecutor-295_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:25.078 Thread 'ThreadPoolExecutor-295_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:25.079 Thread 'ThreadPoolExecutor-295_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:25.079 Thread 'ThreadPoolExecutor-295_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:25.582 Thread 'Thread-1940': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:25.582 Thread 'Thread-1940': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:25.583 Thread 'Thread-1940': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:25.919 Thread 'ThreadPoolExecutor-295_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:25.920 Thread 'ThreadPoolExecutor-295_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:25.920 Thread 'ThreadPoolExecutor-295_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:26.857 Thread 'ThreadPoolExecutor-297_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:26.858 Thread 'ThreadPoolExecutor-297_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:26.858 Thread 'ThreadPoolExecutor-297_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:26.859 Thread 'ThreadPoolExecutor-297_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:27.360 Thread 'Thread-1942': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:27.360 Thread 'Thread-1942': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:27.361 Thread 'Thread-1942': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:28.090 Thread 'ThreadPoolExecutor-297_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:28.090 Thread 'ThreadPoolExecutor-297_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:28.090 Thread 'ThreadPoolExecutor-297_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:28.406 Thread 'ThreadPoolExecutor-299_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:28.406 Thread 'ThreadPoolExecutor-299_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:28.406 Thread 'ThreadPoolExecutor-299_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:28.408 Thread 'ThreadPoolExecutor-299_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:28.909 Thread 'Thread-1944': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:28.909 Thread 'Thread-1944': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:28.910 Thread 'Thread-1944': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:29.232 Thread 'ThreadPoolExecutor-299_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:29.232 Thread 'ThreadPoolExecutor-299_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:29.232 Thread 'ThreadPoolExecutor-299_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:29.850 Thread 'ThreadPoolExecutor-301_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:29.852 Thread 'ThreadPoolExecutor-301_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:29.852 Thread 'ThreadPoolExecutor-301_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:29.853 Thread 'ThreadPoolExecutor-301_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:30.355 Thread 'Thread-1946': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:30.355 Thread 'Thread-1946': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:30.355 Thread 'Thread-1946': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:30.681 Thread 'ThreadPoolExecutor-301_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:30.681 Thread 'ThreadPoolExecutor-301_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:30.681 Thread 'ThreadPoolExecutor-301_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:35.534 Thread 'ThreadPoolExecutor-303_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:35.536 Thread 'ThreadPoolExecutor-303_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:35.536 Thread 'ThreadPoolExecutor-303_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:35.537 Thread 'ThreadPoolExecutor-303_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:36.042 Thread 'Thread-1948': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:36.043 Thread 'Thread-1948': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:36.043 Thread 'Thread-1948': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:37.608 Thread 'ThreadPoolExecutor-303_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:37.608 Thread 'ThreadPoolExecutor-303_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:37.609 Thread 'ThreadPoolExecutor-303_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:38.037 Thread 'ThreadPoolExecutor-305_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:38.037 Thread 'ThreadPoolExecutor-305_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:38.037 Thread 'ThreadPoolExecutor-305_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:38.038 Thread 'ThreadPoolExecutor-305_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:38.540 Thread 'Thread-1950': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:38.540 Thread 'Thread-1950': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:38.541 Thread 'Thread-1950': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:38.842 Thread 'ThreadPoolExecutor-305_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:38.843 Thread 'ThreadPoolExecutor-305_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:38.845 Thread 'ThreadPoolExecutor-305_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:39.570 Thread 'ThreadPoolExecutor-307_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:39.571 Thread 'ThreadPoolExecutor-307_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:39.571 Thread 'ThreadPoolExecutor-307_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:39.572 Thread 'ThreadPoolExecutor-307_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:40.073 Thread 'Thread-1952': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:40.073 Thread 'Thread-1952': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:40.074 Thread 'Thread-1952': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:40.374 Thread 'ThreadPoolExecutor-307_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:40.374 Thread 'ThreadPoolExecutor-307_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:40.375 Thread 'ThreadPoolExecutor-307_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:41.018 Thread 'ThreadPoolExecutor-309_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:41.018 Thread 'ThreadPoolExecutor-309_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:41.019 Thread 'ThreadPoolExecutor-309_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:41.020 Thread 'ThreadPoolExecutor-309_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:41.522 Thread 'Thread-1954': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:41.523 Thread 'Thread-1954': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:41.523 Thread 'Thread-1954': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:45.511 Thread 'ThreadPoolExecutor-309_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:45.511 Thread 'ThreadPoolExecutor-309_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:45.511 Thread 'ThreadPoolExecutor-309_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:45.516 Thread 'ThreadPoolExecutor-311_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:45.517 Thread 'ThreadPoolExecutor-311_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:45.518 Thread 'ThreadPoolExecutor-311_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:45.519 Thread 'ThreadPoolExecutor-311_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:46.021 Thread 'Thread-1956': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:46.022 Thread 'Thread-1956': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:46.022 Thread 'Thread-1956': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:46.324 Thread 'ThreadPoolExecutor-311_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:46.324 Thread 'ThreadPoolExecutor-311_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:46.325 Thread 'ThreadPoolExecutor-311_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:47.068 Thread 'ThreadPoolExecutor-313_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:47.071 Thread 'ThreadPoolExecutor-313_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:47.072 Thread 'ThreadPoolExecutor-313_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:47.073 Thread 'ThreadPoolExecutor-313_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:47.575 Thread 'Thread-1958': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:47.575 Thread 'Thread-1958': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:47.575 Thread 'Thread-1958': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:47.894 Thread 'ThreadPoolExecutor-313_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:47.894 Thread 'ThreadPoolExecutor-313_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:47.895 Thread 'ThreadPoolExecutor-313_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:48.576 Thread 'ThreadPoolExecutor-315_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:48.579 Thread 'ThreadPoolExecutor-315_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:48.579 Thread 'ThreadPoolExecutor-315_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:48.581 Thread 'ThreadPoolExecutor-315_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:49.084 Thread 'Thread-1960': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:49.085 Thread 'Thread-1960': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:49.085 Thread 'Thread-1960': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:49.578 Thread 'ThreadPoolExecutor-315_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:49.579 Thread 'ThreadPoolExecutor-315_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:49.579 Thread 'ThreadPoolExecutor-315_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:50.091 Thread 'ThreadPoolExecutor-317_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:50.091 Thread 'ThreadPoolExecutor-317_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:50.092 Thread 'ThreadPoolExecutor-317_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:50.093 Thread 'ThreadPoolExecutor-317_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:50.597 Thread 'Thread-1962': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:50.598 Thread 'Thread-1962': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:50.598 Thread 'Thread-1962': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:50.906 Thread 'ThreadPoolExecutor-317_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:50.906 Thread 'ThreadPoolExecutor-317_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:50.906 Thread 'ThreadPoolExecutor-317_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:51.683 Thread 'ThreadPoolExecutor-319_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:51.685 Thread 'ThreadPoolExecutor-319_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:51.686 Thread 'ThreadPoolExecutor-319_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:51.687 Thread 'ThreadPoolExecutor-319_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:52.189 Thread 'Thread-1964': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:52.190 Thread 'Thread-1964': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:52.190 Thread 'Thread-1964': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:52.509 Thread 'ThreadPoolExecutor-319_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:52.509 Thread 'ThreadPoolExecutor-319_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:52.510 Thread 'ThreadPoolExecutor-319_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:53.245 Thread 'ThreadPoolExecutor-321_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:53.247 Thread 'ThreadPoolExecutor-321_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:53.248 Thread 'ThreadPoolExecutor-321_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:53.249 Thread 'ThreadPoolExecutor-321_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:53.752 Thread 'Thread-1966': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:53.752 Thread 'Thread-1966': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:53.753 Thread 'Thread-1966': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:54.048 Thread 'ThreadPoolExecutor-321_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:54.048 Thread 'ThreadPoolExecutor-321_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:54.049 Thread 'ThreadPoolExecutor-321_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:54.682 Thread 'ThreadPoolExecutor-323_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:54.685 Thread 'ThreadPoolExecutor-323_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:54.686 Thread 'ThreadPoolExecutor-323_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:54.686 Thread 'ThreadPoolExecutor-323_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:55.189 Thread 'Thread-1968': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:55.190 Thread 'Thread-1968': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:55.190 Thread 'Thread-1968': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:58.065 Thread 'ThreadPoolExecutor-323_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:58.065 Thread 'ThreadPoolExecutor-323_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 17:38:58.066 Thread 'ThreadPoolExecutor-323_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+INFO:core.ml_integration:✓ ML model loaded from model_xgboost_5d.pkl
+INFO:__main__:✓ Applied V2 risk gates to 35 stocks
+INFO:__main__:  - Blocked: 12 stocks
+INFO:__main__:  - Severely reduced: 0 stocks
+INFO:__main__:  - Reduced: 23 stocks
+INFO:__main__:  - Full allocation: 0 stocks
+INFO:__main__:✓ Scored 35 stocks with V2-enhanced conviction
+INFO:__main__:Columns available: ['Ticker', 'Price_Yahoo', 'Score_Tech', 'RSI', 'Near52w', 'Volx20d', 'OverextRatio', 'ATR_Price', 'RewardRisk', 'ATR14', 'Fundamental_S', 'Sector', 'PE_f', 'PS_f', 'ROE_f', 'ROIC_f', 'GM_f', 'DE_f', 'RevG_f', 'EPSG_f', 'Fund_from_FMP', 'Fund_from_Alpha', 'Fund_from_Finnhub', 'Fund_from_SimFin', 'Fund_from_EODHD', 'Score', 'Beta', 'RS_63d', 'Volume_Surge', 'MA_Aligned', 'Quality_Score', 'RR_Ratio', 'Momentum_Consistency', 'High_Confidence', 'AdvPenalty', 'AdvFlags', 'RejectionReason', 'Quality_Score_F', 'Quality_Label', 'Growth_Score_F', 'Growth_Label', 'Valuation_Score_F', 'Valuation_Label', 'Leverage_Score_F', 'Leverage_Label', 'Fund_Attribution', 'reliability_v2', 'fund_sources_used_v2', 'price_sources_used_v2', 'fund_sources_count_v2', 'price_sources_count_v2', 'fund_completeness_pct', 'price_variance_penalty', 'fund_disagreement_score_v2', 'price_variance_score_v2', 'rr_ratio_v2', 'risk_gate_status_v2', 'risk_gate_penalty_v2', 'conviction_v2_base', 'conviction_v2_final', 'ml_probability_v2', 'ml_boost_v2', 'buy_amount_v2', 'shares_to_buy_v2', 'risk_level', 'quality_score', 'risk_gate_reason_v2', 'risk_meter_v2', 'reward_risk_v2', 'reliability_score_v2']
+INFO:__main__:Sample RS_63d values: [-0.09712822490975626, -0.14004613934308596, -0.12974901855742593, -0.15971176084357075, -0.15261929937222884]
+INFO:__main__:Sample Volume_Surge values: [0.7473371496553447, 0.7741050530357931, 0.5261848249303076, 0.8641878377627946, 1.074221451823233]
+INFO:__main__:Sample RR_Ratio values: [0.06564288466823671, 3.590783532097193, 0.8583864720565615, 3.282748324765139, 1.8138707258119922]
+INFO:__main__:Sample Quality_Score values: [9.0, 15.0, 0.0, 10.0, 3.0]
+INFO:__main__:Sample Fundamental_S values: [48.6, 49.1, 68.0, 64.3, 71.8]
+INFO:__main__:Sample Momentum_Consistency values: [0.5833333333333334, 0.4583333333333333, 0.375, 0.25, 0.25]
+[FUND] Missing for AMCR: ['de', 'oper_margin', 'roe']
+[FUND] Missing for ALB: ['pe', 'eps_g_yoy', 'de', 'oper_margin', 'roe']
+[FUND] Missing for APA: ['de', 'oper_margin', 'roe']
+[FUND] Missing for AMAT: ['de', 'oper_margin', 'roe']
+[FUND] Missing for AKAM: ['de', 'oper_margin', 'roe']
+[FUND] Missing for ABBV: ['de', 'oper_margin', 'roe']
+[FUND] Missing for APH: ['de', 'oper_margin', 'roe']
+[FUND] Missing for AAPL: ['de', 'oper_margin', 'roe']
+[FUND] Missing for LNT: ['de', 'oper_margin', 'roe']
+[FUND] Missing for AXP: ['de', 'oper_margin', 'roe']
+[FUND] Missing for AFL: ['de', 'oper_margin', 'roe']
+[FUND] Missing for A: ['de', 'oper_margin', 'roe']
+[FUND] Missing for MO: ['de', 'oper_margin', 'roe']
+[FUND] Missing for AEE: ['de', 'oper_margin', 'roe']
+[FUND] Missing for MMM: ['de', 'oper_margin', 'roe']
+[FUND] Missing for AMZN: ['de', 'oper_margin', 'roe']
+[FUND] Missing for ALL: ['de', 'oper_margin', 'roe']
+[FUND] Missing for T: ['de', 'oper_margin', 'roe']
+[FUND] Missing for AON: ['de', 'oper_margin', 'roe']
+[FUND] Missing for APD: ['pe', 'de', 'oper_margin', 'roe']
+[FUND] Missing for ACGL: ['de', 'oper_margin', 'roe']
+[FUND] Missing for ATO: ['de', 'oper_margin', 'roe']
+[FUND] Missing for ALGN: ['de', 'oper_margin', 'roe']
+[FUND] Missing for AES: ['de', 'oper_margin', 'roe']
+[FUND] Missing for ADBE: ['de', 'oper_margin', 'roe']
+[FUND] Missing for ACN: ['de', 'oper_margin', 'roe']
+[FUND] Missing for ABT: ['de', 'oper_margin', 'roe']
+[FUND] Missing for AWK: ['de', 'oper_margin', 'roe']
+[FUND] Missing for AOS: ['de', 'oper_margin', 'roe']
+[FUND] Missing for APTV: ['de', 'oper_margin', 'roe']
+[FUND] Missing for APO: ['de', 'oper_margin', 'roe']
+[FUND] Missing for AMP: ['de', 'oper_margin', 'roe']
+[FUND] Missing for ADI: ['de', 'oper_margin', 'roe']
+[FUND] Missing for ADM: ['de', 'oper_margin', 'roe']
+[FUND] Missing for ABNB: ['de', 'oper_margin', 'roe']
+[2025-11-20 17:38:58] [INFO] [stock_scout.classification] Classified 35 stocks: Core=1, Speculative=34, Hidden=0
+[2025-11-20 17:38:58] [INFO] [stock_scout.classification] 📊 Initial distribution: 1 Core, 0 Speculative (total: 1)
+[2025-11-20 17:38:58] [INFO] [stock_scout.classification] After Core filter: 1/1
+[2025-11-20 17:38:58] [INFO] [stock_scout.classification] After fundamental quality score >= 60.0: 1/1
+[2025-11-20 17:38:58] [INFO] [stock_scout.classification] After overextension <= 0.12: 1/1
+[2025-11-20 17:38:58] [INFO] [stock_scout.classification] After ATR/Price <= 0.07: 1/1
+[2025-11-20 17:38:58] [INFO] [stock_scout.classification] After RSI in [20, 55]: 1/1
+[2025-11-20 17:38:58] [INFO] [stock_scout.classification] After RewardRisk >= 1.5: 1/1
+[2025-11-20 17:38:58] [INFO] [stock_scout.classification] After reliability_v2 >= 50: 1/1
+[2025-11-20 17:38:58] [INFO] [stock_scout.classification] After RewardRisk >= 1.5: 1/1
+[2025-11-20 17:38:58] [INFO] [stock_scout.classification] After MomentumConsistency >= 0.35: 1/1
+[2025-11-20 17:38:58] [INFO] [stock_scout.classification] Final Core recommendations (including adaptive if any): 1/1
+INFO:__main__:Speculative filter: 34 → 20
+INFO:__main__:Applying XGBoost ML scoring...
+INFO:__main__:Core stocks scored: avg probability 0.768
+INFO:__main__:Speculative stocks scored: avg probability 0.779
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+INFO:__main__:Using V2 position sizing with risk gates and reliability penalties
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-11-20 17:39:18.403 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+WARNING:__main__:All 1 attempts failed for URL
+INFO:__main__:✓ Deduplicated 503 → 503 unique companies (removed 0 multi-class tickers)
+INFO:__main__:✓ Loaded 503 unique S&P500 companies from Wikipedia
+2025-11-20 19:45:04.209 Thread 'ThreadPoolExecutor-326_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.209 Thread 'ThreadPoolExecutor-326_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.210 Thread 'ThreadPoolExecutor-326_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.210 Thread 'ThreadPoolExecutor-326_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.210 Thread 'ThreadPoolExecutor-326_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.212 Thread 'ThreadPoolExecutor-326_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.211 Thread 'ThreadPoolExecutor-326_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.213 Thread 'ThreadPoolExecutor-326_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.214 Thread 'ThreadPoolExecutor-326_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.212 Thread 'ThreadPoolExecutor-326_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.215 Thread 'ThreadPoolExecutor-326_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.215 Thread 'ThreadPoolExecutor-326_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.210 Thread 'ThreadPoolExecutor-326_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.215 Thread 'ThreadPoolExecutor-326_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.212 Thread 'ThreadPoolExecutor-326_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.212 Thread 'ThreadPoolExecutor-326_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.215 Thread 'ThreadPoolExecutor-326_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.214 Thread 'ThreadPoolExecutor-326_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.216 Thread 'ThreadPoolExecutor-326_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.216 Thread 'ThreadPoolExecutor-326_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.216 Thread 'ThreadPoolExecutor-326_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.218 Thread 'ThreadPoolExecutor-326_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.220 Thread 'ThreadPoolExecutor-326_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.223 Thread 'ThreadPoolExecutor-326_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.718 Thread 'Thread-1998': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.718 Thread 'Thread-1998': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.719 Thread 'Thread-1998': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.719 Thread 'Thread-1999': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.720 Thread 'Thread-1999': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.720 Thread 'Thread-1999': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.718 Thread 'Thread-2000': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.720 Thread 'Thread-2001': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.722 Thread 'Thread-2001': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.721 Thread 'Thread-2000': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.722 Thread 'Thread-2001': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.722 Thread 'Thread-2002': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.723 Thread 'Thread-2002': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.723 Thread 'Thread-2002': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.722 Thread 'Thread-2000': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.724 Thread 'Thread-2003': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.724 Thread 'Thread-2003': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:04.724 Thread 'Thread-2003': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.482 Thread 'ThreadPoolExecutor-326_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.482 Thread 'ThreadPoolExecutor-326_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.482 Thread 'ThreadPoolExecutor-326_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.483 Thread 'ThreadPoolExecutor-326_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.483 Thread 'ThreadPoolExecutor-326_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.483 Thread 'ThreadPoolExecutor-326_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.484 Thread 'ThreadPoolExecutor-326_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.527 Thread 'ThreadPoolExecutor-326_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.527 Thread 'ThreadPoolExecutor-326_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.528 Thread 'ThreadPoolExecutor-326_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.528 Thread 'ThreadPoolExecutor-326_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.529 Thread 'ThreadPoolExecutor-326_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.529 Thread 'ThreadPoolExecutor-326_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.529 Thread 'ThreadPoolExecutor-326_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.531 Thread 'ThreadPoolExecutor-326_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.531 Thread 'ThreadPoolExecutor-326_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.531 Thread 'ThreadPoolExecutor-326_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.531 Thread 'ThreadPoolExecutor-326_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.532 Thread 'ThreadPoolExecutor-326_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.532 Thread 'ThreadPoolExecutor-326_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.533 Thread 'ThreadPoolExecutor-326_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.594 Thread 'ThreadPoolExecutor-326_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.595 Thread 'ThreadPoolExecutor-326_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.595 Thread 'ThreadPoolExecutor-326_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.595 Thread 'ThreadPoolExecutor-326_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.595 Thread 'ThreadPoolExecutor-326_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.596 Thread 'ThreadPoolExecutor-326_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.596 Thread 'ThreadPoolExecutor-326_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.603 Thread 'ThreadPoolExecutor-326_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.604 Thread 'ThreadPoolExecutor-326_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.604 Thread 'ThreadPoolExecutor-326_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.604 Thread 'ThreadPoolExecutor-326_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.604 Thread 'ThreadPoolExecutor-326_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.605 Thread 'ThreadPoolExecutor-326_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.605 Thread 'ThreadPoolExecutor-326_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.606 Thread 'ThreadPoolExecutor-326_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.606 Thread 'ThreadPoolExecutor-326_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.605 Thread 'ThreadPoolExecutor-326_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.606 Thread 'ThreadPoolExecutor-326_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.606 Thread 'ThreadPoolExecutor-326_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.607 Thread 'ThreadPoolExecutor-326_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.607 Thread 'ThreadPoolExecutor-326_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.817 Thread 'ThreadPoolExecutor-326_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.818 Thread 'ThreadPoolExecutor-326_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.818 Thread 'ThreadPoolExecutor-326_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.819 Thread 'ThreadPoolExecutor-326_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.819 Thread 'ThreadPoolExecutor-326_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.819 Thread 'ThreadPoolExecutor-326_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.971 Thread 'ThreadPoolExecutor-326_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.972 Thread 'ThreadPoolExecutor-326_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:05.972 Thread 'ThreadPoolExecutor-326_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:06.100 Thread 'Thread-2007': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:06.100 Thread 'Thread-2007': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:06.100 Thread 'Thread-2007': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:06.107 Thread 'Thread-2008': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:06.107 Thread 'Thread-2008': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:06.108 Thread 'Thread-2008': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:06.109 Thread 'Thread-2009': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:06.109 Thread 'Thread-2009': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:06.110 Thread 'Thread-2009': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:06.780 Thread 'ThreadPoolExecutor-326_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:06.781 Thread 'ThreadPoolExecutor-326_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:06.781 Thread 'ThreadPoolExecutor-326_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:06.782 Thread 'ThreadPoolExecutor-326_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:06.781 Thread 'ThreadPoolExecutor-326_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:06.782 Thread 'ThreadPoolExecutor-326_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:06.794 Thread 'ThreadPoolExecutor-326_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:06.794 Thread 'ThreadPoolExecutor-326_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-20 19:45:06.795 Thread 'ThreadPoolExecutor-326_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+INFO:__main__:🔬 Advanced filters pre-pass on 47 stocks...
+INFO:__main__:Dynamic thresholds -> RS:-0.162 MOM:0.233 RR:0.024
+INFO:__main__:Advanced filters dynamic: kept 35/47 catastrophic=12
+INFO:__main__:🔍 AAPL FMP Debug: from_fmp=True, coverage=62%, roe=nan, quality_score_f=NaN
+INFO:__main__:🔍 AMZN FMP Debug: from_fmp=True, coverage=62%, roe=nan, quality_score_f=NaN
+INFO:__main__:✓ Applied V2 risk gates to 35 stocks
+INFO:__main__:  - Blocked: 12 stocks
+INFO:__main__:  - Severely reduced: 0 stocks
+INFO:__main__:  - Reduced: 23 stocks
+INFO:__main__:  - Full allocation: 0 stocks
+INFO:__main__:✓ Scored 35 stocks with V2-enhanced conviction
+INFO:__main__:Columns available: ['Ticker', 'Price_Yahoo', 'Score_Tech', 'RSI', 'Near52w', 'Volx20d', 'OverextRatio', 'ATR_Price', 'RewardRisk', 'ATR14', 'Fundamental_S', 'Sector', 'PE_f', 'PS_f', 'ROE_f', 'ROIC_f', 'GM_f', 'DE_f', 'RevG_f', 'EPSG_f', 'Fund_from_FMP', 'Fund_from_Alpha', 'Fund_from_Finnhub', 'Fund_from_SimFin', 'Fund_from_EODHD', 'Score', 'Beta', 'RS_63d', 'Volume_Surge', 'MA_Aligned', 'Quality_Score', 'RR_Ratio', 'Momentum_Consistency', 'High_Confidence', 'AdvPenalty', 'AdvFlags', 'RejectionReason', 'Quality_Score_F', 'Quality_Label', 'Growth_Score_F', 'Growth_Label', 'Valuation_Score_F', 'Valuation_Label', 'Leverage_Score_F', 'Leverage_Label', 'Fund_Attribution', 'reliability_v2', 'fund_sources_used_v2', 'price_sources_used_v2', 'fund_sources_count_v2', 'price_sources_count_v2', 'fund_completeness_pct', 'price_variance_penalty', 'fund_disagreement_score_v2', 'price_variance_score_v2', 'rr_ratio_v2', 'risk_gate_status_v2', 'risk_gate_penalty_v2', 'conviction_v2_base', 'conviction_v2_final', 'ml_probability_v2', 'ml_boost_v2', 'buy_amount_v2', 'shares_to_buy_v2', 'risk_level', 'quality_score', 'risk_gate_reason_v2', 'risk_meter_v2', 'reward_risk_v2', 'reliability_score_v2']
+INFO:__main__:Sample RS_63d values: [-0.09701895689589524, -0.13993687132922494, -0.1296397505435649, -0.15960249282970973, -0.15251003135836783]
+INFO:__main__:Sample Volume_Surge values: [0.7473371496553447, 0.7741050530357931, 0.5261848249303076, 0.8641878377627946, 1.074221451823233]
+INFO:__main__:Sample RR_Ratio values: [0.06564288466823671, 3.590783532097193, 0.8583864720565615, 3.282748324765139, 1.8138707258119922]
+INFO:__main__:Sample Quality_Score values: [9.0, 15.0, 0.0, 10.0, 3.0]
+INFO:__main__:Sample Fundamental_S values: [48.6, 49.1, 68.0, 64.3, 71.8]
+INFO:__main__:Sample Momentum_Consistency values: [0.5833333333333334, 0.4583333333333333, 0.375, 0.25, 0.25]
+[2025-11-20 19:45:43] [INFO] [stock_scout.classification] Classified 35 stocks: Core=1, Speculative=34, Hidden=0
+[2025-11-20 19:45:43] [INFO] [stock_scout.classification] 📊 Initial distribution: 1 Core, 0 Speculative (total: 1)
+[2025-11-20 19:45:43] [INFO] [stock_scout.classification] After Core filter: 1/1
+[2025-11-20 19:45:43] [INFO] [stock_scout.classification] After fundamental quality score >= 60.0: 1/1
+[2025-11-20 19:45:43] [INFO] [stock_scout.classification] After overextension <= 0.12: 1/1
+[2025-11-20 19:45:43] [INFO] [stock_scout.classification] After ATR/Price <= 0.07: 1/1
+[2025-11-20 19:45:43] [INFO] [stock_scout.classification] After RSI in [20, 55]: 1/1
+[2025-11-20 19:45:43] [INFO] [stock_scout.classification] After RewardRisk >= 1.5: 1/1
+[2025-11-20 19:45:43] [INFO] [stock_scout.classification] After reliability_v2 >= 50: 1/1
+[2025-11-20 19:45:43] [INFO] [stock_scout.classification] After RewardRisk >= 1.5: 1/1
+[2025-11-20 19:45:43] [INFO] [stock_scout.classification] After MomentumConsistency >= 0.35: 1/1
+[2025-11-20 19:45:43] [INFO] [stock_scout.classification] Final Core recommendations (including adaptive if any): 1/1
+INFO:__main__:Speculative filter: 34 → 20
+INFO:__main__:Applying XGBoost ML scoring...
+INFO:__main__:Core stocks scored: avg probability 0.768
+INFO:__main__:Speculative stocks scored: avg probability 0.779
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+INFO:__main__:Using V2 position sizing with risk gates and reliability penalties
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-11-20 19:46:03.410 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+INFO:__main__:✓ Deduplicated 503 → 503 unique companies (removed 0 multi-class tickers)
+INFO:__main__:✓ Loaded 503 unique S&P500 companies from Wikipedia
+INFO:__main__:🔬 Advanced filters pre-pass on 47 stocks...
+INFO:__main__:Dynamic thresholds -> RS:-0.162 MOM:0.233 RR:0.024
+INFO:__main__:Advanced filters dynamic: kept 35/47 catastrophic=12
+INFO:__main__:🔍 AAPL FMP Debug: from_fmp=True, coverage=62%, roe=nan, quality_score_f=NaN
+INFO:__main__:🔍 AMZN FMP Debug: from_fmp=True, coverage=62%, roe=nan, quality_score_f=NaN
+INFO:__main__:✓ Applied V2 risk gates to 35 stocks
+INFO:__main__:  - Blocked: 12 stocks
+INFO:__main__:  - Severely reduced: 0 stocks
+INFO:__main__:  - Reduced: 23 stocks
+INFO:__main__:  - Full allocation: 0 stocks
+INFO:__main__:✓ Scored 35 stocks with V2-enhanced conviction
+INFO:__main__:Columns available: ['Ticker', 'Price_Yahoo', 'Score_Tech', 'RSI', 'Near52w', 'Volx20d', 'OverextRatio', 'ATR_Price', 'RewardRisk', 'ATR14', 'Fundamental_S', 'Sector', 'PE_f', 'PS_f', 'ROE_f', 'ROIC_f', 'GM_f', 'DE_f', 'RevG_f', 'EPSG_f', 'Fund_from_FMP', 'Fund_from_Alpha', 'Fund_from_Finnhub', 'Fund_from_SimFin', 'Fund_from_EODHD', 'Score', 'Beta', 'RS_63d', 'Volume_Surge', 'MA_Aligned', 'Quality_Score', 'RR_Ratio', 'Momentum_Consistency', 'High_Confidence', 'AdvPenalty', 'AdvFlags', 'RejectionReason', 'Quality_Score_F', 'Quality_Label', 'Growth_Score_F', 'Growth_Label', 'Valuation_Score_F', 'Valuation_Label', 'Leverage_Score_F', 'Leverage_Label', 'Fund_Attribution', 'reliability_v2', 'fund_sources_used_v2', 'price_sources_used_v2', 'fund_sources_count_v2', 'price_sources_count_v2', 'fund_completeness_pct', 'price_variance_penalty', 'fund_disagreement_score_v2', 'price_variance_score_v2', 'rr_ratio_v2', 'risk_gate_status_v2', 'risk_gate_penalty_v2', 'conviction_v2_base', 'conviction_v2_final', 'ml_probability_v2', 'ml_boost_v2', 'buy_amount_v2', 'shares_to_buy_v2', 'risk_level', 'quality_score', 'risk_gate_reason_v2', 'risk_meter_v2', 'reward_risk_v2', 'reliability_score_v2']
+INFO:__main__:Sample RS_63d values: [-0.09690797412680374, -0.13982588856013345, -0.12952876777447342, -0.15949151006061824, -0.15239904858927633]
+INFO:__main__:Sample Volume_Surge values: [0.7473371496553447, 0.7741050530357931, 0.5261848249303076, 0.8641878377627946, 1.074221451823233]
+INFO:__main__:Sample RR_Ratio values: [0.06564288466823671, 3.590783532097193, 0.8583864720565615, 3.282748324765139, 1.8138707258119922]
+INFO:__main__:Sample Quality_Score values: [9.0, 15.0, 0.0, 10.0, 3.0]
+INFO:__main__:Sample Fundamental_S values: [48.6, 49.1, 68.0, 64.3, 71.8]
+INFO:__main__:Sample Momentum_Consistency values: [0.5833333333333334, 0.4583333333333333, 0.375, 0.25, 0.25]
+[2025-11-20 20:03:28] [INFO] [stock_scout.classification] Classified 35 stocks: Core=1, Speculative=34, Hidden=0
+[2025-11-20 20:03:28] [INFO] [stock_scout.classification] 📊 Initial distribution: 1 Core, 0 Speculative (total: 1)
+[2025-11-20 20:03:28] [INFO] [stock_scout.classification] After Core filter: 1/1
+[2025-11-20 20:03:28] [INFO] [stock_scout.classification] After fundamental quality score >= 60.0: 1/1
+[2025-11-20 20:03:28] [INFO] [stock_scout.classification] After overextension <= 0.12: 1/1
+[2025-11-20 20:03:28] [INFO] [stock_scout.classification] After ATR/Price <= 0.07: 1/1
+[2025-11-20 20:03:28] [INFO] [stock_scout.classification] After RSI in [20, 55]: 1/1
+[2025-11-20 20:03:28] [INFO] [stock_scout.classification] After RewardRisk >= 1.5: 1/1
+[2025-11-20 20:03:28] [INFO] [stock_scout.classification] After reliability_v2 >= 50: 1/1
+[2025-11-20 20:03:28] [INFO] [stock_scout.classification] After RewardRisk >= 1.5: 1/1
+[2025-11-20 20:03:28] [INFO] [stock_scout.classification] After MomentumConsistency >= 0.35: 1/1
+[2025-11-20 20:03:28] [INFO] [stock_scout.classification] Final Core recommendations (including adaptive if any): 1/1
+INFO:__main__:Speculative filter: 34 → 20
+INFO:__main__:Applying XGBoost ML scoring...
+INFO:__main__:Core stocks scored: avg probability 0.768
+INFO:__main__:Speculative stocks scored: avg probability 0.779
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+INFO:__main__:Using V2 position sizing with risk gates and reliability penalties
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-11-20 20:03:44.393 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+INFO:__main__:✓ Deduplicated 503 → 503 unique companies (removed 0 multi-class tickers)
+INFO:__main__:✓ Loaded 503 unique S&P500 companies from Wikipedia
+INFO:__main__:🔬 Advanced filters pre-pass on 47 stocks...
+INFO:__main__:Dynamic thresholds -> RS:-0.163 MOM:0.233 RR:0.024
+INFO:__main__:Advanced filters dynamic: kept 35/47 catastrophic=12
+INFO:__main__:🔍 AAPL FMP Debug: from_fmp=True, coverage=62%, roe=nan, quality_score_f=NaN
+INFO:__main__:🔍 AMZN FMP Debug: from_fmp=True, coverage=62%, roe=nan, quality_score_f=NaN
+INFO:__main__:✓ Applied V2 risk gates to 35 stocks
+INFO:__main__:  - Blocked: 12 stocks
+INFO:__main__:  - Severely reduced: 0 stocks
+INFO:__main__:  - Reduced: 23 stocks
+INFO:__main__:  - Full allocation: 0 stocks
+INFO:__main__:✓ Scored 35 stocks with V2-enhanced conviction
+INFO:__main__:Columns available: ['Ticker', 'Price_Yahoo', 'Score_Tech', 'RSI', 'Near52w', 'Volx20d', 'OverextRatio', 'ATR_Price', 'RewardRisk', 'ATR14', 'Fundamental_S', 'Sector', 'PE_f', 'PS_f', 'ROE_f', 'ROIC_f', 'GM_f', 'DE_f', 'RevG_f', 'EPSG_f', 'Fund_from_FMP', 'Fund_from_Alpha', 'Fund_from_Finnhub', 'Fund_from_SimFin', 'Fund_from_EODHD', 'Score', 'Beta', 'RS_63d', 'Volume_Surge', 'MA_Aligned', 'Quality_Score', 'RR_Ratio', 'Momentum_Consistency', 'High_Confidence', 'AdvPenalty', 'AdvFlags', 'RejectionReason', 'Quality_Score_F', 'Quality_Label', 'Growth_Score_F', 'Growth_Label', 'Valuation_Score_F', 'Valuation_Label', 'Leverage_Score_F', 'Leverage_Label', 'Fund_Attribution', 'reliability_v2', 'fund_sources_used_v2', 'price_sources_used_v2', 'fund_sources_count_v2', 'price_sources_count_v2', 'fund_completeness_pct', 'price_variance_penalty', 'fund_disagreement_score_v2', 'price_variance_score_v2', 'rr_ratio_v2', 'risk_gate_status_v2', 'risk_gate_penalty_v2', 'conviction_v2_base', 'conviction_v2_final', 'ml_probability_v2', 'ml_boost_v2', 'buy_amount_v2', 'shares_to_buy_v2', 'risk_level', 'quality_score', 'risk_gate_reason_v2', 'risk_meter_v2', 'reward_risk_v2', 'reliability_score_v2']
+INFO:__main__:Sample RS_63d values: [-0.09714384823519051, -0.14006176266852022, -0.1297646418828602, -0.159727384169005, -0.1526349226976631]
+INFO:__main__:Sample Volume_Surge values: [0.7473371496553447, 0.7741050530357931, 0.5261848249303076, 0.8641878377627946, 1.074221451823233]
+INFO:__main__:Sample RR_Ratio values: [0.06564288466823671, 3.590783532097193, 0.8583864720565615, 3.282748324765139, 1.8138707258119922]
+INFO:__main__:Sample Quality_Score values: [9.0, 15.0, 0.0, 10.0, 3.0]
+INFO:__main__:Sample Fundamental_S values: [48.6, 49.1, 68.0, 64.3, 71.8]
+INFO:__main__:Sample Momentum_Consistency values: [0.5833333333333334, 0.4583333333333333, 0.375, 0.25, 0.25]
+[2025-11-20 20:04:50] [INFO] [stock_scout.classification] Classified 35 stocks: Core=1, Speculative=34, Hidden=0
+[2025-11-20 20:04:50] [INFO] [stock_scout.classification] 📊 Initial distribution: 1 Core, 0 Speculative (total: 1)
+[2025-11-20 20:04:50] [INFO] [stock_scout.classification] After Core filter: 1/1
+[2025-11-20 20:04:50] [INFO] [stock_scout.classification] After fundamental quality score >= 60.0: 1/1
+[2025-11-20 20:04:50] [INFO] [stock_scout.classification] After overextension <= 0.12: 1/1
+[2025-11-20 20:04:50] [INFO] [stock_scout.classification] After ATR/Price <= 0.07: 1/1
+[2025-11-20 20:04:50] [INFO] [stock_scout.classification] After RSI in [20, 55]: 1/1
+[2025-11-20 20:04:50] [INFO] [stock_scout.classification] After RewardRisk >= 1.5: 1/1
+[2025-11-20 20:04:50] [INFO] [stock_scout.classification] After reliability_v2 >= 50: 1/1
+[2025-11-20 20:04:50] [INFO] [stock_scout.classification] After RewardRisk >= 1.5: 1/1
+[2025-11-20 20:04:50] [INFO] [stock_scout.classification] After MomentumConsistency >= 0.35: 1/1
+[2025-11-20 20:04:50] [INFO] [stock_scout.classification] Final Core recommendations (including adaptive if any): 1/1
+INFO:__main__:Speculative filter: 34 → 20
+INFO:__main__:Applying XGBoost ML scoring...
+INFO:__main__:Core stocks scored: avg probability 0.768
+INFO:__main__:Speculative stocks scored: avg probability 0.779
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+INFO:__main__:Using V2 position sizing with risk gates and reliability penalties
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-11-20 20:05:04.599 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+WARNING:__main__:All 1 attempts failed for URL
+INFO:__main__:✓ Deduplicated 503 → 503 unique companies (removed 0 multi-class tickers)
+INFO:__main__:✓ Loaded 503 unique S&P500 companies from Wikipedia
+INFO:__main__:🔬 Advanced filters pre-pass on 47 stocks...
+INFO:__main__:Dynamic thresholds -> RS:-0.162 MOM:0.233 RR:0.024
+INFO:__main__:Advanced filters dynamic: kept 35/47 catastrophic=12
+INFO:__main__:🔍 AAPL FMP Debug: from_fmp=True, coverage=62%, roe=nan, quality_score_f=NaN
+INFO:__main__:🔍 AMZN FMP Debug: from_fmp=True, coverage=62%, roe=nan, quality_score_f=NaN
+INFO:__main__:✓ Applied V2 risk gates to 35 stocks
+INFO:__main__:  - Blocked: 12 stocks
+INFO:__main__:  - Severely reduced: 0 stocks
+INFO:__main__:  - Reduced: 23 stocks
+INFO:__main__:  - Full allocation: 0 stocks
+INFO:__main__:✓ Scored 35 stocks with V2-enhanced conviction
+INFO:__main__:Columns available: ['Ticker', 'Price_Yahoo', 'Score_Tech', 'RSI', 'Near52w', 'Volx20d', 'OverextRatio', 'ATR_Price', 'RewardRisk', 'ATR14', 'Fundamental_S', 'Sector', 'PE_f', 'PS_f', 'ROE_f', 'ROIC_f', 'GM_f', 'DE_f', 'RevG_f', 'EPSG_f', 'Fund_from_FMP', 'Fund_from_Alpha', 'Fund_from_Finnhub', 'Fund_from_SimFin', 'Fund_from_EODHD', 'Score', 'Beta', 'RS_63d', 'Volume_Surge', 'MA_Aligned', 'Quality_Score', 'RR_Ratio', 'Momentum_Consistency', 'High_Confidence', 'AdvPenalty', 'AdvFlags', 'RejectionReason', 'Quality_Score_F', 'Quality_Label', 'Growth_Score_F', 'Growth_Label', 'Valuation_Score_F', 'Valuation_Label', 'Leverage_Score_F', 'Leverage_Label', 'Fund_Attribution', 'reliability_v2', 'fund_sources_used_v2', 'price_sources_used_v2', 'fund_sources_count_v2', 'price_sources_count_v2', 'fund_completeness_pct', 'price_variance_penalty', 'fund_disagreement_score_v2', 'price_variance_score_v2', 'rr_ratio_v2', 'risk_gate_status_v2', 'risk_gate_penalty_v2', 'conviction_v2_base', 'conviction_v2_final', 'ml_probability_v2', 'ml_boost_v2', 'buy_amount_v2', 'shares_to_buy_v2', 'risk_level', 'quality_score', 'risk_gate_reason_v2', 'risk_meter_v2', 'reward_risk_v2', 'reliability_score_v2']
+INFO:__main__:Sample RS_63d values: [-0.09672239950518113, -0.13964031393851084, -0.1293431931528508, -0.15930593543899563, -0.15221347396765372]
+INFO:__main__:Sample Volume_Surge values: [0.7473371496553447, 0.7741050530357931, 0.5261848249303076, 0.8641878377627946, 1.074221451823233]
+INFO:__main__:Sample RR_Ratio values: [0.06564288466823671, 3.590783532097193, 0.8583864720565615, 3.282748324765139, 1.8138707258119922]
+INFO:__main__:Sample Quality_Score values: [9.0, 15.0, 0.0, 10.0, 3.0]
+INFO:__main__:Sample Fundamental_S values: [48.6, 49.1, 68.0, 64.3, 71.8]
+INFO:__main__:Sample Momentum_Consistency values: [0.5833333333333334, 0.4583333333333333, 0.375, 0.25, 0.25]
+[2025-11-20 20:12:12] [INFO] [stock_scout.classification] Classified 35 stocks: Core=1, Speculative=34, Hidden=0
+[2025-11-20 20:12:12] [INFO] [stock_scout.classification] 📊 Initial distribution: 1 Core, 0 Speculative (total: 1)
+[2025-11-20 20:12:12] [INFO] [stock_scout.classification] After Core filter: 1/1
+[2025-11-20 20:12:12] [INFO] [stock_scout.classification] After fundamental quality score >= 60.0: 1/1
+[2025-11-20 20:12:12] [INFO] [stock_scout.classification] After overextension <= 0.12: 1/1
+[2025-11-20 20:12:12] [INFO] [stock_scout.classification] After ATR/Price <= 0.07: 1/1
+[2025-11-20 20:12:12] [INFO] [stock_scout.classification] After RSI in [20, 55]: 1/1
+[2025-11-20 20:12:12] [INFO] [stock_scout.classification] After RewardRisk >= 1.5: 1/1
+[2025-11-20 20:12:12] [INFO] [stock_scout.classification] After reliability_v2 >= 50: 1/1
+[2025-11-20 20:12:12] [INFO] [stock_scout.classification] After RewardRisk >= 1.5: 1/1
+[2025-11-20 20:12:12] [INFO] [stock_scout.classification] After MomentumConsistency >= 0.35: 1/1
+[2025-11-20 20:12:12] [INFO] [stock_scout.classification] Final Core recommendations (including adaptive if any): 1/1
+INFO:__main__:Speculative filter: 34 → 20
+INFO:__main__:Applying XGBoost ML scoring...
+INFO:__main__:Core stocks scored: avg probability 0.768
+INFO:__main__:Speculative stocks scored: avg probability 0.779
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+INFO:__main__:Using V2 position sizing with risk gates and reliability penalties
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"

@@ -51,21 +51,23 @@ import yfinance as yf
 def fetch_price(ticker):
     try:
         t = yf.Ticker(ticker)
-        h = t.history(period="1mo", actions=False)
+        # Fetch 1y history to allow ATR / 52-week high estimation
+        h = t.history(period="1y", actions=False)
         if h.empty:
             return None, None
         close = float(h['Close'].iloc[-1])
-        std = float(h['Close'].pct_change().dropna().std() * close) if len(h) > 1 else close*0.01
-        return close, std
+        std = float(h['Close'].pct_change().dropna().std() * close) if len(h) > 1 else close * 0.01
+        return close, std, h
     except Exception:
-        return None, None
+        return None, None, None
 
 rows = []
 for i, tkr in enumerate(tickers, 1):
-    price, std = fetch_price(tkr)
+    price, std, history = fetch_price(tkr)
     if price is None:
         price = 100.0
         std = 1.0
+        history = None
     # Minimal row expected by V2 engine
     row = {
         "Ticker": tkr,
@@ -85,6 +87,34 @@ for i, tkr in enumerate(tickers, 1):
         "RevenueGrowthYoY": 5.0,
         "Score": 50.0,
     }
+    # Estimate ATR and 52-week high to compute RewardRisk if possible
+    try:
+        atr_est = None
+        target_price = None
+        if history is not None and not history.empty:
+            # ATR ~ mean(high-low) over last 14 days
+            if 'High' in history.columns and 'Low' in history.columns:
+                last = history.tail(14)
+                atr_est = float((last['High'] - last['Low']).abs().dropna().mean())
+            # 52-week high
+            if 'High' in history.columns:
+                window = history.tail(252)
+                if not window.empty:
+                    target_price = float(window['High'].max())
+        # Fall back conservative target if missing
+        if target_price is None:
+            target_price = price * 1.10
+        # Use ATR fallback to 1% of price if missing
+        if not (isinstance(atr_est, (int, float)) and not np.isnan(atr_est) and atr_est > 0):
+            atr_est = max(price * 0.01, 0.01)
+        # RewardRisk approx
+        reward = max(0.0, target_price - price)
+        risk = max(atr_est * 2.0, price * 0.01)
+        rr = 0.0 if risk <= 0 else reward / risk
+        rr = float(np.clip(rr, 0.0, 5.0))
+        row['RewardRisk'] = rr
+    except Exception:
+        row['RewardRisk'] = 0.0
     try:
         res = score_ticker_v2_enhanced(tkr, pd.Series(row), budget_total=5000.0, min_position=50.0, enable_ml=True)
     except Exception as e:

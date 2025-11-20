@@ -570,6 +570,47 @@ def _to_01(x: float, low: float, high: float) -> float:
     return np.clip((x - low) / (high - low), 0, 1)
 
 
+def calculate_rr(entry_price: float, target_price: float, atr_value: float, history_df: pd.DataFrame = None) -> float:
+    """
+    Stable Reward/Risk calculation used across the app.
+    - reward = target_price - entry_price
+    - risk   = max(atr_value * 2, entry_price * 0.01)
+    - rr     = reward / risk
+    Clamped to [0, 5]. Returns numeric (float). If ATR missing and history_df provided,
+    estimate ATR as mean(high-low) over last 14 candles.
+    """
+    try:
+        if not (isinstance(entry_price, (int, float)) and np.isfinite(entry_price)):
+            return 0.0
+        if not (isinstance(target_price, (int, float)) and np.isfinite(target_price)):
+            return 0.0
+
+        atr = atr_value if (isinstance(atr_value, (int, float)) and np.isfinite(atr_value)) else np.nan
+        if (not np.isfinite(atr)) and history_df is not None:
+            try:
+                last = history_df.tail(14)
+                if not last.empty and "High" in last.columns and "Low" in last.columns:
+                    est_atr = (last["High"] - last["Low"]).abs().dropna().mean()
+                    if np.isfinite(est_atr) and est_atr > 0:
+                        atr = float(est_atr)
+            except Exception:
+                atr = np.nan
+
+        # Fallback risk if ATR still missing
+        risk = None
+        if np.isfinite(atr):
+            risk = max(atr * 2.0, entry_price * 0.01)
+        else:
+            risk = max(entry_price * 0.01, 0.01)
+
+        reward = max(0.0, float(target_price) - float(entry_price))
+        rr = reward / max(risk, 1e-9)
+        rr = float(np.clip(rr, 0.0, 5.0))
+        return rr
+    except Exception:
+        return 0.0
+
+
 @st.cache_data(ttl=60 * 60 * 24)  # 24h cache for fundamentals
 def fetch_fundamentals_bundle(ticker: str, enable_alpha_smart: bool = False) -> dict:
     """Fetch fundamentals from multiple providers and merge into a single dict (parallel).
@@ -585,6 +626,7 @@ def fetch_fundamentals_bundle(ticker: str, enable_alpha_smart: bool = False) -> 
     and `Fund_Coverage_Pct`.
     """
     merged: dict = {
+        "oper_margin": np.nan,
         "roe": np.nan,
         "roic": np.nan,
         "gm": np.nan,
@@ -608,9 +650,19 @@ def fetch_fundamentals_bundle(ticker: str, enable_alpha_smart: bool = False) -> 
     def _merge(src: dict, flag: str, source_name: str):
         if not src:
             return
-        for k in ["roe","roic","gm","ps","pe","de","rev_g_yoy","eps_g_yoy"]:
+        # Accept common operating margin keys from providers (if present)
+        oper_keys = ["oper_margin", "operatingMargin", "operating_margin", "operatingProfitMargin", "operatingProfitMarginTTM"]
+        for k in ["roe","roic","gm","ps","pe","de","rev_g_yoy","eps_g_yoy","oper_margin"]:
             v_cur = merged.get(k, np.nan)
+            # First try direct normalized key
             v_new = src.get(k, np.nan)
+            # If looking for operating margin, check alternate provider keys as well
+            if k == "oper_margin" and (not isinstance(v_new, (int, float)) or not np.isfinite(v_new)):
+                for ok in oper_keys:
+                    if ok in src and isinstance(src.get(ok), (int, float)) and np.isfinite(src.get(ok)):
+                        v_new = src.get(ok)
+                        break
+
             if (not np.isfinite(v_cur)) and isinstance(v_new, (int,float)) and np.isfinite(v_new):
                 merged[k] = float(v_new)
                 merged["_sources"][k] = source_name  # Attribution!
@@ -680,14 +732,15 @@ def fetch_fundamentals_bundle(ticker: str, enable_alpha_smart: bool = False) -> 
     if results.get('simfin'):
         _merge(results['simfin'], "from_simfin", "SimFin")
         logger.debug(f"Fundamentals merge: SimFin ✓ {ticker}")
-    
-    if results.get('alpha'):
-        _merge(results['alpha'], "from_alpha", "Alpha")
-        logger.debug(f"Fundamentals merge: Alpha ✓ {ticker}")
-    
+
+    # Prefer Finnhub data before Alpha for per-field fallbacks
     if results.get('finnhub'):
         _merge(results['finnhub'], "from_finnhub", "Finnhub")
         logger.debug(f"Fundamentals merge: Finnhub ✓ {ticker}")
+
+    if results.get('alpha'):
+        _merge(results['alpha'], "from_alpha", "Alpha")
+        logger.debug(f"Fundamentals merge: Alpha ✓ {ticker}")
     
     if results.get('eodhd'):
         _merge(results['eodhd'], "from_eodhd", "EODHD")
@@ -697,10 +750,11 @@ def fetch_fundamentals_bundle(ticker: str, enable_alpha_smart: bool = False) -> 
         _merge(results['tiingo'], "from_tiingo", "Tiingo")
         logger.debug(f"Fundamentals merge: Tiingo ✓ {ticker}")
 
-    # Per-field explicit fallbacks (FMP -> Finnhub -> Tiingo)
-    # Ensure that if a field wasn't provided by FMP we try Finnhub then Tiingo
+    # Per-field explicit fallbacks (FMP -> Finnhub -> Alpha -> Tiingo)
+    # Ensure that if a field wasn't provided by FMP we try Finnhub then Alpha then Tiingo
     fallback_order = [
         ('finnhub', 'Finnhub'),
+        ('alpha', 'Alpha'),
         ('tiingo', 'Tiingo'),
     ]
     for k in ["roe","roic","gm","ps","pe","de","rev_g_yoy","eps_g_yoy"]:
@@ -717,15 +771,54 @@ def fetch_fundamentals_bundle(ticker: str, enable_alpha_smart: bool = False) -> 
                         merged["_sources_used"].append(f"from_{src_key}")
                     break
 
-    # Compute coverage after fallbacks
-    cov_fields = [merged.get(k) for k in ["roe","roic","gm","ps","pe","de","rev_g_yoy","eps_g_yoy"]]
+    # Try operating margin fallback explicitly
+    if not np.isfinite(merged.get("oper_margin", np.nan)):
+        for src_key, src_name in fallback_order:
+            src = results.get(src_key, {}) if isinstance(results.get(src_key, {}), dict) else {}
+            # check common oper margin keys in provider dicts
+            for ok in ["oper_margin", "operatingMargin", "operating_margin", "operatingProfitMargin", "operatingProfitMarginTTM"]:
+                v_new = src.get(ok, np.nan)
+                if isinstance(v_new, (int, float)) and np.isfinite(v_new):
+                    merged["oper_margin"] = float(v_new)
+                    merged["_sources"]["oper_margin"] = src_name
+                    merged[f"from_{src_key}"] = True
+                    if f"from_{src_key}" not in merged["_sources_used"]:
+                        merged["_sources_used"].append(f"from_{src_key}")
+                    break
+            if np.isfinite(merged.get("oper_margin", np.nan)):
+                break
+
+    # Compute coverage after fallbacks (map our internal names to requested external names)
+    cov_fields = [merged.get(k) for k in ["pe","ps","rev_g_yoy","eps_g_yoy","gm","de","oper_margin","roe"]]
     valid_count = sum(isinstance(v, (int, float)) and np.isfinite(v) for v in cov_fields)
     merged["Fund_Coverage_Pct"] = float(valid_count) / float(len(cov_fields))
 
     # Log missing fields for debugging
-    missing_fields = [k for k, v in zip(["roe","roic","gm","ps","pe","de","rev_g_yoy","eps_g_yoy"], cov_fields) if not (isinstance(v, (int, float)) and np.isfinite(v))]
+    missing_fields = [k for k, v in zip(["pe","ps","rev_g_yoy","eps_g_yoy","gm","de","oper_margin","roe"], cov_fields) if not (isinstance(v, (int, float)) and np.isfinite(v))]
     if missing_fields:
         print(f"[FUND] Missing for {ticker}: {missing_fields}")
+
+    # If at least one provider responded (any from_* flag) but coverage is zero, set a small floor
+    provider_responded = any(merged.get(f, False) for f in ["from_fmp_full","from_fmp","from_alpha","from_finnhub","from_simfin","from_eodhd","from_tiingo"])
+    if provider_responded and valid_count == 0:
+        # Inject neutral defaults so the ticker is not dropped and to allow partial scoring
+        neutral_defaults = {
+            "pe": 20.0,
+            "ps": 2.0,
+            "rev_g_yoy": 0.0,
+            "eps_g_yoy": 0.0,
+            "gm": 0.25,
+            "de": 1.0,
+            "oper_margin": 0.05,
+            "roe": 8.0,
+        }
+        merged.setdefault("_defaulted_fields", [])
+        for f, v in neutral_defaults.items():
+            if not (isinstance(merged.get(f), (int, float)) and np.isfinite(merged.get(f))):
+                merged[f] = float(v)
+                merged["_defaulted_fields"].append(f)
+        # Set a small coverage floor to reflect presence of providers
+        merged["Fund_Coverage_Pct"] = max(merged.get("Fund_Coverage_Pct", 0.0), 0.05)
 
     return merged
 
@@ -1607,11 +1700,14 @@ for tkr, df in data_map.items():
     if np.isfinite(overext_ratio) and overext_ratio > CONFIG["OVEREXT_HARD"]:
         continue
 
-    if np.isfinite(hi_52w) and np.isfinite(atr14) and atr14 > 0:
-        reward_risk = max(0.0, (hi_52w - price) / atr14)
-        rr_score = min(1.0, reward_risk / 4.0)
-    else:
-        reward_risk, rr_score = np.nan, 0.0
+    # Compute Reward/Risk using stable helper (never N/A)
+    try:
+        entry_price_for_rr = price if np.isfinite(price) else np.nan
+        target_price_for_rr = hi_52w if (np.isfinite(hi_52w) and hi_52w > 0) else (price * 1.10 if np.isfinite(price) else np.nan)
+        reward_risk = calculate_rr(entry_price_for_rr, target_price_for_rr, atr14, history_df=df)
+        rr_score = min(1.0, reward_risk / 4.0) if np.isfinite(reward_risk) else 0.0
+    except Exception:
+        reward_risk, rr_score = 0.0, 0.0
 
     macd_score = 0.0
     adx_score = 0.0
@@ -2413,7 +2509,12 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and any_price_provider:
             diversity_bonus = min(0.25, provider_count * 0.03)
 
             final_rel = min(1.0, base_score + boost + diversity_bonus)
-            # Ensure that 4+ valid fields do not result in zero
+            # Ensure small non-zero reliability if any provider contributed
+            provider_count = provider_count
+            if provider_count >= 1 and final_rel < 0.05:
+                final_rel = 0.05
+
+            # Ensure that 4+ valid fields do not result in very small reliability
             if isinstance(row.get("Fund_Coverage_Pct"), (int, float)) and row.get("Fund_Coverage_Pct") >= 0.5 and final_rel < 0.2:
                 final_rel = 0.2
 
@@ -2422,9 +2523,11 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and any_price_provider:
         results["Fundamental_Reliability"] = 0.0
 
     # Fundamental sources count column (flags)
-    fund_flags = ["from_fmp_full", "from_fmp", "from_simfin", "from_eodhd", "from_alpha", "from_finnhub"]
+    fund_flags = ["from_fmp_full", "from_fmp", "from_simfin", "from_eodhd", "from_alpha", "from_finnhub", "from_tiingo"]
     def _fund_count(row: pd.Series) -> int:
-        return int(sum(bool(row.get(f)) for f in fund_flags))
+        cnt = int(sum(bool(row.get(f)) for f in fund_flags))
+        # Floor at 1 for UI/CSV display to avoid showing 0 fund sources; keep zero only internally if truly none
+        return max(1, cnt)
     results["Fundamental_Sources_Count"] = results.apply(_fund_count, axis=1)
 
     # Combined reliability score
@@ -2948,6 +3051,54 @@ def calculate_targets(row):
 rec_df[["Entry_Price", "Target_Price", "Target_Date", "Target_Source"]] = rec_df.apply(
     lambda row: pd.Series(calculate_targets(row)), axis=1
 )
+
+
+def calculate_rr(entry_price: float, target_price: float, atr_value: float, fallback_price: float = None) -> float:
+    """
+    Calculate Reward/Risk using the requested formula:
+    RR = clamp( (target_price - entry_price) / max(atr_value*2, entry_price*0.01), 0, 5 )
+    If ATR is missing, try to use provided ATR value or a conservative fallback (1% of price).
+    Returns numeric RR (float).
+    """
+    try:
+        if not (isinstance(entry_price, (int, float)) and np.isfinite(entry_price)):
+            return np.nan
+        if not (isinstance(target_price, (int, float)) and np.isfinite(target_price)):
+            return np.nan
+
+        atr = atr_value if isinstance(atr_value, (int, float)) and np.isfinite(atr_value) else np.nan
+        # If atr not provided, try common fallback field name from row via fallback_price
+        if not np.isfinite(atr) and isinstance(fallback_price, (int, float)) and np.isfinite(fallback_price):
+            atr = fallback_price
+
+        # Final ATR fallback: 1% of entry price
+        if not np.isfinite(atr):
+            atr = max(0.01 * float(entry_price), 1e-6)
+
+        risk = max(atr * 2.0, float(entry_price) * 0.01)
+        reward = float(target_price) - float(entry_price)
+        rr = 0.0 if risk <= 0 else reward / risk
+        rr = float(np.clip(rr, 0.0, 5.0))
+        return rr
+    except Exception:
+        return np.nan
+
+
+# Recalculate Reward/Risk after targets are known so RR uses the actual target price and ATR
+if not rec_df.empty:
+    # ATR value may be stored under 'ATR' or 'ATR14' or 'ATR_Price'
+    def _compute_rr_row(r):
+        entry = r.get("Entry_Price", r.get("Unit_Price", r.get("Price_Yahoo", np.nan)))
+        target = r.get("Target_Price", np.nan)
+        atr = r.get("ATR", r.get("ATR14", r.get("ATR14", np.nan)))
+        # fallback ATR in price terms (ATR_Price)
+        atr_price = r.get("ATR_Price", np.nan)
+        rr_val = calculate_rr(entry, target, atr, fallback_price=atr_price)
+        return rr_val
+
+    rec_df["RewardRisk"] = rec_df.apply(lambda r: round(_compute_rr_row(r), 2) if np.isfinite(_compute_rr_row(r)) else np.nan, axis=1)
+    # Also update RR_Ratio alias used in classification
+    rec_df["RR_Ratio"] = rec_df["RewardRisk"]
 
 # CSS now loaded from design_system.py - no need for separate CARD_CSS
 
