@@ -99,6 +99,23 @@ def get_ml_prediction(features: Dict[str, float]) -> Optional[float]:
             logger.warning(f"ML probability out of range: {prob_win}")
             return None
         
+        # CALIBRATION FIX: Spread probabilities to use full range
+        # Issue: Model returns very uniform 0.79-0.86 range
+        # Solution: Apply non-linear transformation to spread values
+        # This is a temporary fix until model is retrained with proper feature scaling
+        
+        # Map [0.7, 0.9] → [0.5, 1.0] to expand variance
+        if 0.7 <= prob_win <= 0.9:
+            # Linear stretch within this range
+            prob_win = 0.5 + ((prob_win - 0.7) / 0.2) * 0.5
+        # Map [0.5, 0.7) → [0.3, 0.5] to expand low end
+        elif 0.5 <= prob_win < 0.7:
+            prob_win = 0.3 + ((prob_win - 0.5) / 0.2) * 0.2
+        # Map [0.3, 0.5) → [0.1, 0.3]
+        elif 0.3 <= prob_win < 0.5:
+            prob_win = 0.1 + ((prob_win - 0.3) / 0.2) * 0.2
+        # Keep very low/high as is
+        
         return prob_win
         
     except Exception as e:

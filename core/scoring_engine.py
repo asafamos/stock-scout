@@ -275,12 +275,17 @@ def calculate_rr_score(
     """
     # If RR ratio is provided directly
     if rr_ratio is not None and np.isfinite(rr_ratio):
-        # Penalize RR < 1.5
-        if rr_ratio < 1.5:
-            rr_score = normalize_score(rr_ratio, 0, 1.5, 0) * 0.5  # Max 50 points
+        # STRONGER penalization for RR < 1.5 (was 0.5x, now 0.3x max)
+        # This creates more spread in conviction scores
+        if rr_ratio < 1.0:
+            rr_score = normalize_score(rr_ratio, 0, 1.0, 0) * 0.2  # Max 20 points for very poor RR
+        elif rr_ratio < 1.5:
+            rr_score = normalize_score(rr_ratio, 1.0, 1.5, 0) * 0.4 + 20  # 20-40 points
+        elif rr_ratio < 2.0:
+            rr_score = normalize_score(rr_ratio, 1.5, 2.0, 0) * 0.3 + 40  # 40-70 points
         else:
-            # RR 1.5-5.0 is good
-            rr_score = normalize_score(np.clip(rr_ratio, 1.5, 5.0), 1.5, 5.0, 50)
+            # RR 2.0-5.0+ is excellent
+            rr_score = normalize_score(np.clip(rr_ratio, 2.0, 5.0), 2.0, 5.0, 0) * 0.3 + 70  # 70-100 points
         
         confidence = 80.0  # Moderate confidence if only RR provided
         return float(np.clip(rr_score, 0, 100)), confidence
@@ -405,10 +410,13 @@ def calculate_conviction_score(
     rr_score = np.clip(rr_score, 0, 100)
     reliability_score = np.clip(reliability_score, 0, 100)
     
-    # Apply confidence weighting (low confidence = pull toward 50)
-    fundamental_weighted = fundamental_score * (fundamental_confidence / 100.0) + 50 * (1 - fundamental_confidence / 100.0)
-    momentum_weighted = momentum_score * (momentum_confidence / 100.0) + 50 * (1 - momentum_confidence / 100.0)
-    rr_weighted = rr_score * (rr_confidence / 100.0) + 50 * (1 - rr_confidence / 100.0)
+    # Apply confidence weighting (REDUCED pull toward 50 to increase spread)
+    # Old: full pull to 50 when confidence low
+    # New: only 30% pull to 50 (reduced from 100% to allow more variance)
+    pull_strength = 0.3  # Reduced from 1.0 to allow scores to vary more
+    fundamental_weighted = fundamental_score * (fundamental_confidence / 100.0) + 50 * pull_strength * (1 - fundamental_confidence / 100.0)
+    momentum_weighted = momentum_score * (momentum_confidence / 100.0) + 50 * pull_strength * (1 - momentum_confidence / 100.0)
+    rr_weighted = rr_score * (rr_confidence / 100.0) + 50 * pull_strength * (1 - rr_confidence / 100.0)
     
     # Calculate base conviction (before ML)
     base_conviction = (
@@ -453,66 +461,95 @@ def calculate_risk_meter(
     Calculate risk meter (0-100) with label.
     
     Higher number = higher risk
+    Enhanced with stronger penalties and better spread (10-90 range)
     
     Returns:
         (risk_score, risk_label)
     """
     risk_components = []
+    weights = []
     
-    # RR ratio: lower RR = higher risk
+    # RR ratio: lower RR = higher risk (40% weight - most important)
     if rr_ratio is not None and np.isfinite(rr_ratio):
-        if rr_ratio < 1.5:
-            risk_components.append(80.0)  # High risk
-        elif rr_ratio < 2.0:
-            risk_components.append(60.0)  # Moderate-high risk
-        elif rr_ratio < 3.0:
-            risk_components.append(40.0)  # Moderate risk
-        else:
+        if rr_ratio < 0.8:
+            risk_components.append(95.0)  # Very high risk
+        elif rr_ratio < 1.2:
+            risk_components.append(75.0)  # High risk
+        elif rr_ratio < 1.8:
+            risk_components.append(55.0)  # Moderate-high risk
+        elif rr_ratio < 2.5:
+            risk_components.append(35.0)  # Moderate risk
+        elif rr_ratio < 3.5:
             risk_components.append(20.0)  # Low risk
+        else:
+            risk_components.append(10.0)  # Very low risk
+        weights.append(0.40)
     
-    # Beta: > 1.5 is high risk
+    # Beta: market sensitivity (25% weight)
     if beta is not None and np.isfinite(beta):
-        if beta > 1.5:
-            risk_components.append(70.0)
-        elif beta > 1.2:
-            risk_components.append(50.0)
-        elif beta < 0.8:
-            risk_components.append(30.0)
+        if beta > 1.8:
+            risk_components.append(85.0)  # Very volatile
+        elif beta > 1.4:
+            risk_components.append(65.0)  # High volatility
+        elif beta > 1.1:
+            risk_components.append(50.0)  # Moderate-high
+        elif beta > 0.9:
+            risk_components.append(40.0)  # Market-like
+        elif beta > 0.6:
+            risk_components.append(25.0)  # Defensive
         else:
-            risk_components.append(40.0)
+            risk_components.append(15.0)  # Very defensive
+        weights.append(0.25)
     
-    # ATR/Price: high volatility = high risk
+    # ATR/Price: intraday volatility (20% weight)
     if atr_pct is not None and np.isfinite(atr_pct):
-        if atr_pct > 0.05:
-            risk_components.append(70.0)
+        if atr_pct > 0.08:
+            risk_components.append(90.0)  # Extreme volatility
+        elif atr_pct > 0.05:
+            risk_components.append(70.0)  # High volatility
         elif atr_pct > 0.03:
-            risk_components.append(50.0)
+            risk_components.append(50.0)  # Moderate
+        elif atr_pct > 0.02:
+            risk_components.append(30.0)  # Low
         else:
-            risk_components.append(30.0)
+            risk_components.append(15.0)  # Very low
+        weights.append(0.20)
     
-    # Debt/Equity: high leverage = high risk
+    # Debt/Equity: leverage risk (15% weight)
     if leverage is not None and np.isfinite(leverage):
-        if leverage > 2.0:
-            risk_components.append(70.0)
-        elif leverage > 1.0:
-            risk_components.append(50.0)
+        if leverage > 3.0:
+            risk_components.append(85.0)  # Very high leverage
+        elif leverage > 2.0:
+            risk_components.append(65.0)  # High leverage
+        elif leverage > 1.5:
+            risk_components.append(50.0)  # Moderate-high
+        elif leverage > 0.8:
+            risk_components.append(35.0)  # Moderate
+        elif leverage > 0.3:
+            risk_components.append(20.0)  # Low
         else:
-            risk_components.append(30.0)
+            risk_components.append(10.0)  # Minimal debt
+        weights.append(0.15)
     
     if not risk_components:
         return 50.0, "MODERATE"
     
-    risk_score = float(np.mean(risk_components))
+    # Weighted average
+    risk_score = float(np.average(risk_components, weights=weights))
     
-    # Assign label
-    if risk_score >= 70:
+    # Assign label with tighter thresholds
+    if risk_score >= 75:
+        label = "VERY HIGH"
+    elif risk_score >= 60:
         label = "HIGH"
-    elif risk_score >= 50:
+    elif risk_score >= 45:
         label = "MODERATE-HIGH"
-    elif risk_score >= 35:
+    elif risk_score >= 30:
         label = "MODERATE"
-    else:
+    elif risk_score >= 20:
         label = "LOW"
+    else:
+        label = "VERY LOW"
     
     return risk_score, label
 

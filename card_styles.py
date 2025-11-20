@@ -102,6 +102,22 @@ body {
     border: 1px solid #EF4444;
 }
 
+.badge-partial {
+    background: #FEF3C7;
+    color: #92400E;
+    border: 1px solid #F59E0B;
+    font-size: 0.75rem;
+    padding: 0.25rem 0.625rem;
+}
+
+.badge-missing {
+    background: #FEE2E2;
+    color: #991B1B;
+    border: 1px solid #EF4444;
+    font-size: 0.75rem;
+    padding: 0.25rem 0.625rem;
+}
+
 .warning-box {
     background: #FEF3C7;
     border: 1px solid #F59E0B;
@@ -125,6 +141,8 @@ body {
     border-radius: 8px;
     border: 1px solid #F3F4F6;
     font-size: 0.875rem;
+    direction: ltr;
+    text-align: left;
 }
 
 .item b {
@@ -132,6 +150,13 @@ body {
     font-weight: 600;
     display: block;
     margin-bottom: 0.25rem;
+    text-align: left;
+}
+
+.item .value {
+    direction: ltr;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
 }
 
 .section-divider {

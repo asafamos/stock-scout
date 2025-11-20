@@ -2375,6 +2375,18 @@ results["Price_Mean"] = np.nan
 results["Price_STD"] = np.nan
 results["Source_List"] = "🟡Yahoo"
 
+# Compute standard deviation from historical price data (last 20-30 candles)
+results["Historical_StdDev"] = np.nan
+for i, row in results.iterrows():
+    ticker = row.get("Ticker", "")
+    if ticker in data_map:
+        hist = data_map[ticker]
+        if len(hist) >= 5:  # Minimum 5 candles
+            # Use last 20-30 candles for std dev
+            recent = hist["Close"].tail(min(30, len(hist)))
+            if len(recent) >= 5:
+                results.at[i, "Historical_StdDev"] = float(recent.std())
+
 
 def _fetch_external_for(
     tkr: str, py: float
@@ -2479,7 +2491,7 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and any_price_provider:
                 pstd,
                 " · ".join(srcs),
             ]
-    # Price reliability metric
+    # Price reliability metric (enhanced with better spread: 0.1-1.0)
     results["Price_Reliability"] = np.nan
     for i, row in results.iterrows():
         pmean = row.get("Price_Mean", np.nan)
@@ -2487,14 +2499,46 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and any_price_provider:
         providers = str(row.get("Source_List", "")).split(" · ") if isinstance(row.get("Source_List"), str) else []
         providers = [p for p in providers if p]
         count = len(providers)
+        
         if np.isfinite(pmean) and pmean > 0 and np.isfinite(pstd):
             pct_std = pstd / pmean
-            base = min(1.0, count / 5.0)
-            disp = 1.0 / (1.0 + (pct_std / 2.0))  # lower dispersion → higher reliability
-            results.at[i, "Price_Reliability"] = round(base * disp, 4)
+            
+            # Source count component (0-4 sources → 0.2-1.0)
+            if count == 1:
+                source_score = 0.2
+            elif count == 2:
+                source_score = 0.5
+            elif count == 3:
+                source_score = 0.75
+            else:  # 4+
+                source_score = 1.0
+            
+            # Variance component (lower variance = higher reliability)
+            # 0% variance → 1.0, 5% variance → 0.5, 10%+ variance → 0.2
+            if pct_std < 0.01:  # <1%
+                variance_score = 1.0
+            elif pct_std < 0.03:  # 1-3%
+                variance_score = 0.85
+            elif pct_std < 0.05:  # 3-5%
+                variance_score = 0.65
+            elif pct_std < 0.10:  # 5-10%
+                variance_score = 0.4
+            else:  # >10%
+                variance_score = 0.2
+            
+            # Combined: 60% source count, 40% variance
+            reliability = (source_score * 0.6) + (variance_score * 0.4)
+            results.at[i, "Price_Reliability"] = round(np.clip(reliability, 0.1, 1.0), 4)
         else:
-            # fallback: minimal reliability if only Yahoo present
-            results.at[i, "Price_Reliability"] = min(1.0, count / 8.0)
+            # Fallback based on source count only
+            if count == 1:
+                results.at[i, "Price_Reliability"] = 0.15
+            elif count == 2:
+                results.at[i, "Price_Reliability"] = 0.35
+            elif count == 3:
+                results.at[i, "Price_Reliability"] = 0.55
+            else:
+                results.at[i, "Price_Reliability"] = 0.75
 
     # Price sources count column
     results["Price_Sources_Count"] = results["Source_List"].apply(lambda s: len(str(s).split(" · ")) if isinstance(s, str) and s else 0)
@@ -2997,6 +3041,8 @@ def calculate_targets(row):
     rr = row.get("RewardRisk", np.nan)
     rsi = row.get("RSI", np.nan)
     momentum = row.get("Momentum_63d", np.nan)
+    sector = row.get("Sector", "")
+    ml_prob = row.get("ml_probability", 0.5)
     
     if np.isfinite(current_price) and current_price > 0:
         # Entry price: current - 0.5*ATR (wait for slight pullback)
@@ -3004,6 +3050,24 @@ def calculate_targets(row):
             entry_price = current_price - (0.5 * atr)
         else:
             entry_price = current_price * 0.98  # 2% below if no ATR
+        
+        # Calculate volatility factor for date variability
+        atr_pct = (atr / current_price) if (np.isfinite(atr) and current_price > 0) else 0.02
+        volatility_factor = np.clip(atr_pct / 0.03, 0.5, 2.5)  # 0.5x to 2.5x multiplier
+        
+        # Sector-based offset (defensive sectors slower, growth sectors faster)
+        sector_offsets = {
+            "Utilities": 1.3, "Consumer Defensive": 1.2, "Real Estate": 1.15,
+            "Financials": 1.1, "Healthcare": 1.0, "Industrials": 0.95,
+            "Energy": 0.9, "Consumer Cyclical": 0.85, "Technology": 0.75,
+            "Communication Services": 0.8
+        }
+        sector_mult = sector_offsets.get(sector, 1.0)
+        
+        # ML probability influence (higher confidence = shorter timeline)
+        ml_mult = 1.0
+        if isinstance(ml_prob, (int, float)) and np.isfinite(ml_prob):
+            ml_mult = 1.2 - (ml_prob * 0.4)  # 0.5→1.0, 1.0→0.8 (high conf = faster)
         
         # Calculate fallback days from multiple factors (more dynamic)
         if np.isfinite(rr):
@@ -3023,9 +3087,19 @@ def calculate_targets(row):
             elif np.isfinite(momentum) and momentum < -0.05:
                 base_days *= 1.2  # Weak trend, slower
             
-            days = int(min(90, max(14, base_days)))
+            # Apply volatility, sector, and ML multipliers
+            base_days *= volatility_factor * sector_mult * ml_mult
+            
+            # Add ticker-specific variance (hash-based to keep consistent per ticker)
+            ticker_seed = sum(ord(c) for c in ticker) % 20
+            base_days += ticker_seed
+            
+            days = int(min(180, max(14, base_days)))
         else:
-            days = 30
+            # Fallback: use volatility factor for diverse dates (30-180 days)
+            base_days = 60 * volatility_factor * sector_mult * ml_mult
+            ticker_seed = sum(ord(c) for c in ticker) % 30
+            days = int(min(180, max(30, base_days + ticker_seed)))
         
         # Try OpenAI-enhanced target (returns both price and days)
         ai_result = None
@@ -3123,6 +3197,30 @@ if not rec_df.empty:
     # Also update RR_Ratio alias used in classification
     rec_df["RR_Ratio"] = rec_df["RewardRisk"]
 
+    # Propagate recalculated RewardRisk back into the main `results` frame so
+    # downstream fields (rr alias, rr_score_v2, conviction) use the updated values.
+    try:
+        rr_map = rec_df.set_index("Ticker")["RewardRisk"].to_dict()
+        # Only update tickers present in the map; keep existing values otherwise
+        results["RewardRisk"] = results["Ticker"].map(rr_map).fillna(results.get("RewardRisk", np.nan))
+        results["RR_Ratio"] = results["RewardRisk"]
+        # alias used elsewhere
+        results["rr"] = results["RewardRisk"]
+        # Recompute normalized rr_score_v2 (0-100) for any updated rr values
+        def _norm_rr_local(x):
+            try:
+                xr = float(x)
+                if not np.isfinite(xr):
+                    return np.nan
+                xr = min(max(xr, 0.0), 5.0)
+                return float((xr / 5.0) * 100.0)
+            except Exception:
+                return np.nan
+        results["rr_score_v2"] = results["rr"].apply(_norm_rr_local)
+    except Exception:
+        # if anything goes wrong, leave results unchanged
+        pass
+
 # CSS now loaded from design_system.py - no need for separate CARD_CSS
 
 def format_rel(val) -> str:
@@ -3148,6 +3246,20 @@ else:
     if not core_df.empty:
         st.markdown("### 🛡️ Core Stocks — Lower Relative Risk")
         st.caption(f"✅ {len(core_df)} stocks with high data quality and balanced risk profile")
+        
+        # Sector diversification warning
+        if "Sector" in core_df.columns:
+            sector_counts = core_df["Sector"].value_counts()
+            total_stocks = len(core_df)
+            concentrated_sectors = []
+            for sector, count in sector_counts.items():
+                pct = (count / total_stocks) * 100
+                if pct > 30:
+                    concentrated_sectors.append(f"{sector} ({count}/{total_stocks}, {pct:.0f}%)")
+            
+            if concentrated_sectors:
+                st.warning(f"⚠️ **Sector Concentration Alert:** {', '.join(concentrated_sectors)}. Consider diversifying across more sectors to reduce correlation risk.")
+        
         st.markdown("""
 <div style='direction:ltr;text-align:left;font-size:0.75em;margin:4px 0 10px 0'>
 <b>Reliability legend:</b> <span style='color:#16a34a;font-weight:600'>High ≥ 0.75</span> · <span style='color:#f59e0b;font-weight:600'>Medium 0.40–0.74</span> · <span style='color:#dc2626;font-weight:600'>Low &lt; 0.40</span>
@@ -3157,8 +3269,10 @@ else:
         for _, r in core_df.iterrows():
             mean = r.get("מחיר ממוצע", np.nan)
             std = r.get("סטיית תקן", np.nan)
+            hist_std = r.get("Historical_StdDev", np.nan)  # NEW: Use historical price std dev
             show_mean = mean if not np.isnan(mean) else r["Price_Yahoo"]
-            show_std = std if not np.isnan(std) else "N/A"
+            # Prefer Historical_StdDev if available, fallback to old std
+            show_std = f"${hist_std:.2f}" if np.isfinite(hist_std) else (f"${std:.2f}" if np.isfinite(std) else "N/A")
             sources = r.get("מקורות מחיר", "N/A")
             buy_amt = float(r.get("סכום קנייה ($)", 0.0))
             horizon = r.get("טווח החזקה", "N/A")
@@ -3217,8 +3331,10 @@ else:
                     ml_badge_color = "#dc2626"  # red
                     ml_badge_text = "⚠️ נמוך"
                 ml_badge_html = f"""<span style='display:inline-block;padding:3px 8px;border-radius:4px;background:{ml_badge_color};color:white;font-weight:bold;font-size:0.85em;margin-left:8px'>ML: {ml_badge_text} ({ml_prob*100:.0f}%)</span>"""
+                ml_status_esc = f"{ml_badge_text} ({ml_prob*100:.0f}%)"
             else:
                 ml_badge_html = ""
+                ml_status_esc = "N/A"
 
             show_mean_fmt = f"{show_mean:.2f}" if np.isfinite(show_mean) else "N/A"
             unit_price_fmt = f"{unit_price:.2f}" if np.isfinite(unit_price) else "N/A"
@@ -3265,6 +3381,21 @@ else:
             growth_color = label_color(growth_label, ['Fast', 'Moderate'])
             val_color = label_color(val_label, ['Cheap', 'Fair'])
             lev_color = label_color(lev_label, ['Low', 'Medium'])
+
+            # Detect missing fundamental data
+            missing_fundamental_count = 0
+            fundamental_fields = ['ROE_f', 'ROIC_f', 'DE_f', 'PE_f', 'GM_f']
+            for field in fundamental_fields:
+                val = r.get(field, np.nan)
+                if not np.isfinite(val):
+                    missing_fundamental_count += 1
+            
+            # Create partial data badge if applicable
+            data_quality_badge = ""
+            if missing_fundamental_count >= 4:
+                data_quality_badge = "<span class='modern-badge badge-missing'>⚠️ Missing Data</span>"
+            elif missing_fundamental_count >= 2:
+                data_quality_badge = "<span class='modern-badge badge-partial'>📊 Partial Data</span>"
 
             esc = html_escape.escape
             ticker = esc(str(r["Ticker"]))
@@ -3372,29 +3503,30 @@ else:
         <span class="modern-badge {quality_badge_class}">{quality_icon} Quality: {quality_pct}</span>
         <span class="modern-badge badge-primary" style="font-size:0.8em">Confidence: {confidence_badge}</span>
         {ml_badge_html}
+        {data_quality_badge}
         {badge_html}
     </h3>
     <div class="modern-grid">
     <div class="item" style="grid-column:span 2;background:#e0f2fe;padding:8px;border-radius:6px;border-left:3px solid #0ea5e9"><b>🎯 Target:</b> {target_price_fmt}{target_badge} <span style="color:#64748b">by {target_date}</span></div>
     <div class="item" style="grid-column:span 2;background:#dbeafe;padding:8px;border-radius:6px"><b>📈 Potential:</b> <span style="color:{gain_color};font-weight:700;font-size:1.1em">{gain_fmt}</span></div>
     <div class="item"><b>Entry Price:</b> {entry_price_fmt}</div>
-    <div class="item"><b>Average Price:</b> {show_mean_fmt}</div>
-    <div class="item"><b>Std Dev:</b> {show_std}</div>
-    <div class="item"><b>RSI:</b> {rsi_v if not np.isnan(rsi_v) else 'N/A'}</div>
-    <div class="item"><b>Near 52w High:</b> {near52_fmt}%</div>
-
-    <div class="item"><b>Sources:</b> {sources_esc.replace(' · ','&nbsp;•&nbsp;')}</div>
-    <div class="item"><b># Price Sources:</b> {r.get('Price_Sources_Count', 0)}</div>
-    <div class="item"><b># Fund Sources:</b> {r.get('Fundamental_Sources_Count', 0)}</div>
-    <div class="item"><b>Price Reliability:</b> {price_rel_fmt}</div>
-    <div class="item"><b>Fund Reliability:</b> {fund_rel_fmt}</div>
+    <div class="item"><b>RR Score:</b> {rr_fmt}</div>
     
     <div class="section-divider">🚀 V2 Conviction & Risk:</div>
     <div class="item"><b>Conviction Score:</b> <span style="font-weight:700;color:{conv_color};font-size:1.15em">{conv_v2_fmt}/100</span></div>
-    <div class="item"><b>Risk Meter:</b> <span style="font-weight:700;color:{risk_color}">{risk_v2_fmt}/100 ({risk_label_v2})</span></div>
-    <div class="item"><b>Reliability:</b> {rel_v2_fmt}/100</div>
-    <div class="item"><b>R/R Score:</b> {rr_v2_fmt}/100</div>
-    <div class="item"><b>Risk Gate Status:</b> {gate_status or 'N/A'}</div>
+    <div class="item"><b>Reliability:</b> {rel_score_fmt}<br/><small style="color:#64748b">Price: {price_rel_fmt} | Fund: {fund_rel_fmt}</small></div>
+    <div class="item"><b>Risk Meter:</b> <span style="color:{risk_color};font-weight:600">{risk_v2:.0f}/100</span> ({risk_label_v2})</div>
+    <div class="item"><b>ML Status:</b> {ml_status_esc}</div>
+    
+    <details style="margin-top:8px;padding:8px;background:#f8fafc;border-radius:6px">
+    <summary style="cursor:pointer;font-weight:600;color:#475569">📊 Additional Details</summary>
+    <div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:0.9em">
+    <div><b>Average Price:</b> {show_mean_fmt}</div>
+    <div><b>Std Dev:</b> {show_std}</div>
+    <div><b>RSI:</b> {rsi_v if not np.isnan(rsi_v) else 'N/A'}</div>
+    <div><b>Near 52w High:</b> {near52_fmt}%</div>
+    <div><b># Price Sources:</b> {r.get('Price_Sources_Count', 0)}</div>
+    <div><b># Fund Sources:</b> {r.get('Fundamental_Sources_Count', 0)}</div>
     
     <div class="section-divider">💵 Allocation (V2 Strict):</div>
     <div class="item"><b>Recommended Buy:</b> ${0 if gate_status=="blocked" else f'{buy_amount_v2:,.0f}'}</div>
@@ -3443,13 +3575,29 @@ else:
     if not spec_df.empty:
         st.markdown("### ⚡ Speculative Stocks — High Upside, High Risk")
         st.caption(f"⚠️ {len(spec_df)} stocks with a higher risk profile")
+        
+        # Sector diversification warning
+        if "Sector" in spec_df.columns:
+            sector_counts = spec_df["Sector"].value_counts()
+            total_stocks = len(spec_df)
+            concentrated_sectors = []
+            for sector, count in sector_counts.items():
+                pct = (count / total_stocks) * 100
+                if pct > 30:
+                    concentrated_sectors.append(f"{sector} ({count}/{total_stocks}, {pct:.0f}%)")
+            
+            if concentrated_sectors:
+                st.warning(f"⚠️ **Sector Concentration Alert:** {', '.join(concentrated_sectors)}. Consider diversifying across more sectors to reduce correlation risk.")
+        
         st.warning("🔔 Warning: These stocks are classified as speculative due to partial data or elevated risk factors. Suitable for experienced investors only.")
         
         for _, r in spec_df.iterrows():
             mean = r.get("מחיר ממוצע", np.nan)
             std = r.get("סטיית תקן", np.nan)
+            hist_std = r.get("Historical_StdDev", np.nan)  # NEW: Use historical price std dev
             show_mean = mean if not np.isnan(mean) else r["Price_Yahoo"]
-            show_std = std if not np.isnan(std) else "N/A"
+            # Prefer Historical_StdDev if available, fallback to old std
+            show_std = f"${hist_std:.2f}" if np.isfinite(hist_std) else (f"${std:.2f}" if np.isfinite(std) else "N/A")
             sources = r.get("מקורות מחיר", "N/A")
             buy_amt = float(r.get("סכום קנייה ($)", 0.0))
             horizon = r.get("טווח החזקה", "N/A")
@@ -3504,8 +3652,10 @@ else:
                     ml_badge_color = "#dc2626"  # red
                     ml_badge_text = "⚠️ נמוך"
                 ml_badge_html = f"""<span style='display:inline-block;padding:3px 8px;border-radius:4px;background:{ml_badge_color};color:white;font-weight:bold;font-size:0.85em;margin-left:8px'>ML: {ml_badge_text} ({ml_prob*100:.0f}%)</span>"""
+                ml_status_esc = f"{ml_badge_text} ({ml_prob*100:.0f}%)"
             else:
                 ml_badge_html = ""
+                ml_status_esc = "N/A"
             
             show_mean_fmt = f"{show_mean:.2f}" if np.isfinite(show_mean) else "N/A"
             unit_price_fmt = f"{unit_price:.2f}" if np.isfinite(unit_price) else "N/A"
@@ -3547,6 +3697,21 @@ else:
             growth_color = label_color(growth_label, ['Fast', 'Moderate'])
             val_color = label_color(val_label, ['Cheap', 'Fair'])
             lev_color = label_color(lev_label, ['Low', 'Medium'])
+            
+            # Detect missing fundamental data
+            missing_fundamental_count = 0
+            fundamental_fields = ['ROE_f', 'ROIC_f', 'DE_f', 'PE_f', 'GM_f']
+            for field in fundamental_fields:
+                val = r.get(field, np.nan)
+                if not np.isfinite(val):
+                    missing_fundamental_count += 1
+            
+            # Create partial data badge if applicable
+            data_quality_badge = ""
+            if missing_fundamental_count >= 4:
+                data_quality_badge = "<span class='modern-badge badge-missing'>⚠️ Missing Data</span>"
+            elif missing_fundamental_count >= 2:
+                data_quality_badge = "<span class='modern-badge badge-partial'>📊 Partial Data</span>"
             
             # Reliability scores formatting (same as Core section)
             def format_rel(val):
@@ -3654,6 +3819,7 @@ else:
         <span class="modern-badge {quality_badge_class}">{quality_icon} Quality: {quality_pct}</span>
         <span class="modern-badge badge-danger" style="font-size:0.8em">Confidence: {confidence_badge}</span>
         {ml_badge_html}
+        {data_quality_badge}
         {badge_html_spec}
     </h3>
     {f'<div class="warning-box"><b>⚠️ Warnings:</b> {warnings_esc}</div>' if warnings_esc else ''}
@@ -3661,22 +3827,23 @@ else:
     <div class="item" style="grid-column:span 2;background:#fef3c7;padding:8px;border-radius:6px;border-left:3px solid #f59e0b"><b>🎯 Target:</b> {target_price_fmt}{target_badge_spec} <span style="color:#64748b">by {target_date}</span></div>
     <div class="item" style="grid-column:span 2;background:#fef9c3;padding:8px;border-radius:6px"><b>📈 Potential:</b> <span style="color:{gain_color};font-weight:700;font-size:1.1em">{gain_fmt}</span></div>
     <div class="item"><b>Entry Price:</b> {entry_price_fmt}</div>
-    <div class="item"><b>Average Price:</b> {show_mean_fmt}</div>
-    <div class="item"><b>Std Dev:</b> {show_std}</div>
-    <div class="item"><b>RSI:</b> {rsi_v if not np.isnan(rsi_v) else 'N/A'}</div>
-    <div class="item"><b>Near 52w High:</b> {near52_fmt}%</div>
-    <div class="item"><b>Sources:</b> {sources_esc.replace(' · ','&nbsp;•&nbsp;')}</div>
-    <div class="item"><b># Price Sources:</b> {r.get('Price_Sources_Count', 0)}</div>
-    <div class="item"><b># Fund Sources:</b> {r.get('Fundamental_Sources_Count', 0)}</div>
-    <div class="item"><b>Price Reliability:</b> {price_rel_fmt}</div>
-    <div class="item"><b>Fund Reliability:</b> {fund_rel_fmt}</div>
+    <div class="item"><b>RR Score:</b> {rr_fmt}</div>
     
     <div class="section-divider">🚀 V2 Conviction & Risk:</div>
     <div class="item"><b>Conviction Score:</b> <span style="font-weight:700;color:{conv_color};font-size:1.15em">{conv_v2_fmt}/100</span></div>
-    <div class="item"><b>Risk Meter:</b> <span style="font-weight:700;color:{risk_color}">{risk_v2_fmt}/100 ({risk_label_v2})</span></div>
-    <div class="item"><b>Reliability:</b> {rel_v2_fmt}/100</div>
-    <div class="item"><b>R/R Score:</b> {rr_v2_fmt}/100</div>
-    <div class="item"><b>Risk Gate Status:</b> {gate_status or 'N/A'}</div>
+    <div class="item"><b>Reliability:</b> {rel_score_fmt}<br/><small style="color:#64748b">Price: {price_rel_fmt} | Fund: {fund_rel_fmt}</small></div>
+    <div class="item"><b>Risk Meter:</b> <span style="color:{risk_color};font-weight:600">{risk_v2_fmt}/100</span> ({risk_label_v2})</div>
+    <div class="item"><b>ML Status:</b> {ml_status_esc}</div>
+    
+    <details style="margin-top:8px;padding:8px;background:#f8fafc;border-radius:6px">
+    <summary style="cursor:pointer;font-weight:600;color:#475569">📊 Additional Details</summary>
+    <div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:0.9em">
+    <div><b>Average Price:</b> {show_mean_fmt}</div>
+    <div><b>Std Dev:</b> {show_std}</div>
+    <div><b>RSI:</b> {rsi_v if not np.isnan(rsi_v) else 'N/A'}</div>
+    <div><b>Near 52w High:</b> {near52_fmt}%</div>
+    <div><b># Price Sources:</b> {r.get('Price_Sources_Count', 0)}</div>
+    <div><b># Fund Sources:</b> {r.get('Fundamental_Sources_Count', 0)}</div>
     
     <div class="section-divider">💵 Allocation (V2 Strict):</div>
     <div class="item"><b>Recommended Buy:</b> ${0 if gate_status=="blocked" else f'{buy_amount_v2:,.0f}'}</div>
