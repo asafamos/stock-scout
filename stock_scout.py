@@ -1752,7 +1752,8 @@ for tkr, df in data_map.items():
             if np.isfinite(overext_ratio)
             else np.nan,
             "ATR_Price": round(vol_rel, 4) if np.isfinite(vol_rel) else np.nan,
-            "RewardRisk": round(reward_risk, 2) if np.isfinite(reward_risk) else np.nan,
+            # Always show numeric RewardRisk (force 0.0 when missing)
+            "RewardRisk": round(float(reward_risk) if np.isfinite(reward_risk) else 0.0, 2),
             "ATR14": atr14,
         }
     )
@@ -1999,6 +2000,12 @@ if CONFIG["FUNDAMENTAL_ENABLED"] and fundamental_available:
         results.loc[idx, "Fund_from_Finnhub"] = d.get("from_finnhub", False)
         results.loc[idx, "Fund_from_SimFin"] = d.get("from_simfin", False)
         results.loc[idx, "Fund_from_EODHD"] = d.get("from_eodhd", False)
+        # Also store canonical per-provider boolean flags (used later for reliability calculation)
+        for _flag in [
+            'from_fmp_full', 'from_fmp', 'from_alpha', 'from_finnhub',
+            'from_simfin', 'from_eodhd', 'from_tiingo'
+        ]:
+            results.loc[idx, _flag] = bool(d.get(_flag, False))
         
         # Get detailed breakdown using new function
         fund_result = compute_fundamental_score_with_breakdown(d)
@@ -2478,56 +2485,43 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and any_price_provider:
     results["Price_Sources_Count"] = results["Source_List"].apply(lambda s: len(str(s).split(" · ")) if isinstance(s, str) and s else 0)
 
     # Fundamental reliability metric
+    # Simplified Fundamental reliability metric based on number of distinct
+    # fundamental providers that contributed any field. Mapping:
+    #   0 -> 0.0
+    #   1 -> 0.33
+    #   2 -> 0.66
+    #  >=3 -> 1.0
+    def _map_sources_to_reliability(n: int) -> float:
+        if n <= 0:
+            return 0.0
+        if n == 1:
+            return 0.33
+        if n == 2:
+            return 0.66
+        return 1.0
+
     if "Fund_Coverage_Pct" in results.columns:
         results["Fundamental_Reliability"] = 0.0
+        fund_flags = [
+            'from_fmp_full', 'from_fmp', 'from_simfin', 'from_eodhd',
+            'from_alpha', 'from_finnhub', 'from_tiingo'
+        ]
         for i, row in results.iterrows():
+            # Count providers that truly contributed (flags are written earlier)
+            provider_count = int(sum(bool(row.get(f)) for f in fund_flags))
+            # If coverage indicates data but flags are zero, treat as 1 source
             cov = row.get("Fund_Coverage_Pct", np.nan)
-            if not isinstance(cov, (int, float)) or not np.isfinite(cov):
-                results.at[i, "Fundamental_Reliability"] = 0.0
-                continue
-            # Map coverage (0-1) to a partial reliability band [0.2, 0.6]
-            # so partial data receives a meaningful non-zero reliability.
-            base_score = 0.2 + 0.4 * float(cov)
-
-            # Boost for premium sources
-            boost = 0.0
-            if bool(row.get("from_fmp_full")):
-                boost += 0.05
-            if bool(row.get("from_simfin")):
-                boost += 0.03
-
-            # Count provider diversity (prefer flags set by fetch merging)
-            provider_count = sum([
-                bool(row.get("from_fmp_full")),
-                bool(row.get("from_fmp")),
-                bool(row.get("from_alpha")),
-                bool(row.get("from_finnhub")),
-                bool(row.get("from_simfin")),
-                bool(row.get("from_eodhd")),
-                bool(row.get("from_tiingo")),
-            ])
-            diversity_bonus = min(0.25, provider_count * 0.03)
-
-            final_rel = min(1.0, base_score + boost + diversity_bonus)
-            # Ensure small non-zero reliability if any provider contributed
-            provider_count = provider_count
-            if provider_count >= 1 and final_rel < 0.05:
-                final_rel = 0.05
-
-            # Ensure that 4+ valid fields do not result in very small reliability
-            if isinstance(row.get("Fund_Coverage_Pct"), (int, float)) and row.get("Fund_Coverage_Pct") >= 0.5 and final_rel < 0.2:
-                final_rel = 0.2
-
+            if provider_count == 0 and isinstance(cov, (int, float)) and np.isfinite(cov) and cov > 0:
+                provider_count = 1
+            final_rel = _map_sources_to_reliability(provider_count)
             results.at[i, "Fundamental_Reliability"] = round(final_rel, 4)
     else:
         results["Fundamental_Reliability"] = 0.0
 
-    # Fundamental sources count column (flags)
+    # Fundamental sources count column (flags) — exact count (0 allowed if truly none)
     fund_flags = ["from_fmp_full", "from_fmp", "from_simfin", "from_eodhd", "from_alpha", "from_finnhub", "from_tiingo"]
     def _fund_count(row: pd.Series) -> int:
-        cnt = int(sum(bool(row.get(f)) for f in fund_flags))
-        # Floor at 1 for UI/CSV display to avoid showing 0 fund sources; keep zero only internally if truly none
-        return max(1, cnt)
+        return int(sum(bool(row.get(f)) for f in fund_flags))
     results["Fundamental_Sources_Count"] = results.apply(_fund_count, axis=1)
 
     # Combined reliability score
