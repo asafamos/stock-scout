@@ -697,8 +697,36 @@ def fetch_fundamentals_bundle(ticker: str, enable_alpha_smart: bool = False) -> 
         _merge(results['tiingo'], "from_tiingo", "Tiingo")
         logger.debug(f"Fundamentals merge: Tiingo ✓ {ticker}")
 
+    # Per-field explicit fallbacks (FMP -> Finnhub -> Tiingo)
+    # Ensure that if a field wasn't provided by FMP we try Finnhub then Tiingo
+    fallback_order = [
+        ('finnhub', 'Finnhub'),
+        ('tiingo', 'Tiingo'),
+    ]
+    for k in ["roe","roic","gm","ps","pe","de","rev_g_yoy","eps_g_yoy"]:
+        if not isinstance(merged.get(k), (int, float)) or not np.isfinite(merged.get(k)):
+            for src_key, src_name in fallback_order:
+                src = results.get(src_key, {}) if isinstance(results.get(src_key, {}), dict) else {}
+                v_new = src.get(k, np.nan)
+                if isinstance(v_new, (int, float)) and np.isfinite(v_new):
+                    merged[k] = float(v_new)
+                    merged["_sources"][k] = src_name
+                    # mark source flag and record
+                    merged[f"from_{src_key}"] = True
+                    if f"from_{src_key}" not in merged["_sources_used"]:
+                        merged["_sources_used"].append(f"from_{src_key}")
+                    break
+
+    # Compute coverage after fallbacks
     cov_fields = [merged.get(k) for k in ["roe","roic","gm","ps","pe","de","rev_g_yoy","eps_g_yoy"]]
-    merged["Fund_Coverage_Pct"] = float(sum(isinstance(v,(int,float)) and np.isfinite(v) for v in cov_fields))/float(len(cov_fields))
+    valid_count = sum(isinstance(v, (int, float)) and np.isfinite(v) for v in cov_fields)
+    merged["Fund_Coverage_Pct"] = float(valid_count) / float(len(cov_fields))
+
+    # Log missing fields for debugging
+    missing_fields = [k for k, v in zip(["roe","roic","gm","ps","pe","de","rev_g_yoy","eps_g_yoy"], cov_fields) if not (isinstance(v, (int, float)) and np.isfinite(v))]
+    if missing_fields:
+        print(f"[FUND] Missing for {ticker}: {missing_fields}")
+
     return merged
 
 
@@ -2361,27 +2389,35 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and any_price_provider:
             if not isinstance(cov, (int, float)) or not np.isfinite(cov):
                 results.at[i, "Fundamental_Reliability"] = 0.0
                 continue
-            # Base score from coverage (0-1)
-            base_score = float(cov)
-            
+            # Map coverage (0-1) to a partial reliability band [0.2, 0.6]
+            # so partial data receives a meaningful non-zero reliability.
+            base_score = 0.2 + 0.4 * float(cov)
+
             # Boost for premium sources
             boost = 0.0
             if bool(row.get("from_fmp_full")):
                 boost += 0.05
             if bool(row.get("from_simfin")):
                 boost += 0.03
-            
-            # Count provider diversity
+
+            # Count provider diversity (prefer flags set by fetch merging)
             provider_count = sum([
-                bool(row.get("Fund_from_FMP")),
-                bool(row.get("Fund_from_Alpha")),
-                bool(row.get("Fund_from_Finnhub")),
-                bool(row.get("Fund_from_SimFin")),
-                bool(row.get("Fund_from_EODHD"))
+                bool(row.get("from_fmp_full")),
+                bool(row.get("from_fmp")),
+                bool(row.get("from_alpha")),
+                bool(row.get("from_finnhub")),
+                bool(row.get("from_simfin")),
+                bool(row.get("from_eodhd")),
+                bool(row.get("from_tiingo")),
             ])
-            diversity_bonus = min(0.15, provider_count * 0.03)
-            
-            results.at[i, "Fundamental_Reliability"] = min(1.0, base_score + boost + diversity_bonus)
+            diversity_bonus = min(0.25, provider_count * 0.03)
+
+            final_rel = min(1.0, base_score + boost + diversity_bonus)
+            # Ensure that 4+ valid fields do not result in zero
+            if isinstance(row.get("Fund_Coverage_Pct"), (int, float)) and row.get("Fund_Coverage_Pct") >= 0.5 and final_rel < 0.2:
+                final_rel = 0.2
+
+            results.at[i, "Fundamental_Reliability"] = round(final_rel, 4)
     else:
         results["Fundamental_Reliability"] = 0.0
 
@@ -2610,11 +2646,17 @@ with st.sidebar:
     # OpenAI target price enhancement (ENABLED BY DEFAULT)
     if OPENAI_AVAILABLE and (os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")):
         enable_openai_targets = st.checkbox(
-            "🤖 Enable AI-enhanced target prices",
+            "🤖 Enable AI-enhanced target prices & timing",
             value=bool(st.session_state.get("enable_openai_targets", True)),
-            help="Use OpenAI GPT-4 to predict target prices based on fundamentals + technicals. Shows holding period and expected sell price."
+            help="Use OpenAI GPT-4o-mini to predict target prices AND holding periods based on fundamentals + technicals. Without this, timing is calculated from RR + RSI + Momentum."
         )
         st.session_state["enable_openai_targets"] = enable_openai_targets
+        
+        # Show status
+        if enable_openai_targets:
+            st.success("✅ AI predictions ACTIVE - target dates will be AI-generated")
+        else:
+            st.info("ℹ️ AI predictions OFF - using technical calculation (RR + RSI + Momentum)")
     else:
         st.session_state["enable_openai_targets"] = False
         if not OPENAI_AVAILABLE:
@@ -2760,10 +2802,10 @@ rec_df["Overall_Rank"] = range(1, len(rec_df) + 1)
 from datetime import datetime, timedelta
 
 @st.cache_data(ttl=3600)
-def get_openai_target_prediction(ticker: str, current_price: float, fundamentals: dict, technicals: dict) -> Optional[float]:
+def get_openai_target_prediction(ticker: str, current_price: float, fundamentals: dict, technicals: dict) -> Optional[Tuple[float, int]]:
     """
-    Use OpenAI to predict realistic target price based on fundamentals and technicals.
-    Returns None if API unavailable or request fails.
+    Use OpenAI to predict realistic target price AND holding period based on fundamentals and technicals.
+    Returns (target_price, days_to_target) tuple or None if API unavailable or request fails.
     """
     if not OPENAI_AVAILABLE:
         return None
@@ -2787,31 +2829,35 @@ Fundamentals: {fund_str}
 
 Technical Indicators: {tech_str}
 
-Provide a realistic 3-month target price as a single number (just the price, no explanation). Consider:
-- Growth trends and valuation metrics
-- Technical momentum and support/resistance
-- Risk/reward ratio
-- Market conditions
+Provide TWO predictions as a JSON object:
+1. Target Price: realistic price target considering growth trends, valuation, momentum, and risk/reward
+2. Days to Target: estimated holding period in days to reach this target (typically 7-180 days based on momentum and catalysts)
 
-Target Price:"""
+Return ONLY a JSON object with this exact format:
+{{"target_price": <number>, "days_to_target": <integer>}}
+
+JSON:"""
         
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
-            max_tokens=50
+            max_tokens=100
         )
         
-        # Extract number from response
+        # Extract JSON from response
         answer = response.choices[0].message.content.strip()
-        # Try to parse as number
+        import json
         import re
-        match = re.search(r'\$?([\d,]+\.?\d*)', answer)
-        if match:
-            target = float(match.group(1).replace(',', ''))
-            # Sanity check: target should be within -50% to +200% of current
-            if current_price * 0.5 <= target <= current_price * 3.0:
-                return target
+        # Try to extract JSON from response
+        json_match = re.search(r'\{[^}]+\}', answer)
+        if json_match:
+            data = json.loads(json_match.group(0))
+            target = float(data.get("target_price", 0))
+            days = int(data.get("days_to_target", 20))
+            # Sanity checks
+            if current_price * 0.5 <= target <= current_price * 3.0 and 7 <= days <= 365:
+                return (target, days)
     except Exception as e:
         logger.warning(f"OpenAI target prediction failed for {ticker}: {e}")
     
@@ -2823,16 +2869,8 @@ def calculate_targets(row):
     current_price = row.get("Unit_Price", row.get("Price_Yahoo", np.nan))
     atr = row.get("ATR", np.nan)
     rr = row.get("RewardRisk", np.nan)
-    horizon_str = row.get("טווח החזקה", "20d")
-    
-    # Parse holding horizon
-    try:
-        if isinstance(horizon_str, str) and horizon_str.endswith("d"):
-            days = int(horizon_str.replace("d", "").strip())
-        else:
-            days = 20  # default
-    except:
-        days = 20
+    rsi = row.get("RSI", np.nan)
+    momentum = row.get("Momentum_63d", np.nan)
     
     if np.isfinite(current_price) and current_price > 0:
         # Entry price: current - 0.5*ATR (wait for slight pullback)
@@ -2841,8 +2879,30 @@ def calculate_targets(row):
         else:
             entry_price = current_price * 0.98  # 2% below if no ATR
         
-        # Try OpenAI-enhanced target first
-        ai_target = None
+        # Calculate fallback days from multiple factors (more dynamic)
+        if np.isfinite(rr):
+            # Base days from RR
+            base_days = 20 + (rr * 10)
+            
+            # Adjust based on RSI: oversold (< 40) = faster, overbought (> 70) = slower
+            if np.isfinite(rsi):
+                if rsi < 40:
+                    base_days *= 0.75  # Strong momentum, faster target
+                elif rsi > 70:
+                    base_days *= 1.3   # Overbought, slower target
+            
+            # Adjust based on momentum: strong momentum = faster
+            if np.isfinite(momentum) and momentum > 0.05:
+                base_days *= 0.9  # Strong uptrend, faster
+            elif np.isfinite(momentum) and momentum < -0.05:
+                base_days *= 1.2  # Weak trend, slower
+            
+            days = int(min(90, max(14, base_days)))
+        else:
+            days = 30
+        
+        # Try OpenAI-enhanced target (returns both price and days)
+        ai_result = None
         if st.session_state.get("enable_openai_targets", False):
             fundamentals = {
                 "PE": row.get("PERatio", np.nan),
@@ -2852,27 +2912,33 @@ def calculate_targets(row):
                 "RevenueGrowth": row.get("RevenueGrowthYoY", np.nan)
             }
             technicals = {
-                "RSI": row.get("RSI", np.nan),
-                "Momentum_63d": row.get("Momentum_63d", np.nan),
+                "RSI": rsi,
+                "Momentum_63d": momentum,
                 "RewardRisk": rr,
                 "ATR": atr
             }
-            ai_target = get_openai_target_prediction(ticker, current_price, fundamentals, technicals)
+            try:
+                ai_result = get_openai_target_prediction(ticker, current_price, fundamentals, technicals)
+            except Exception as e:
+                logger.warning(f"OpenAI call failed for {ticker}: {e}")
+                ai_result = None
         
-        if ai_target is not None:
-            # Use AI prediction as target
-            target_price = ai_target
+        if ai_result is not None:
+            # Use AI prediction for both target price AND timing
+            target_price, days = ai_result
             target_source = "AI"
         elif np.isfinite(atr) and np.isfinite(rr):
             # Fallback to technical calculation: entry + (RR * ATR)
             target_price = entry_price + (rr * atr)
             target_source = "Technical"
+            # days already calculated above from RR + RSI + momentum
         else:
             # Conservative default: 10% above entry
             target_price = entry_price * 1.10
             target_source = "Default"
+            # days already set to 30
         
-        # Target date: today + holding horizon
+        # Target date: today + holding horizon (now from AI or calculated)
         target_date = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
         
         return entry_price, target_price, target_date, target_source
@@ -3093,49 +3159,35 @@ else:
             elif gate_status == "full":
                 badge_html = "<span style='background:#16a34a;color:white;padding:4px 8px;border-radius:6px;font-weight:700;margin-left:8px'>✅ Full Allocation Allowed (Strict Mode)</span>"
 
-            if np.isfinite(conv_v2):  # Show V2 box if score was computed
-                
-                # Format scores
-                conv_v2_fmt = f"{conv_v2:.0f}" if np.isfinite(conv_v2) else "N/A"
-                fund_v2_fmt = f"{fund_v2:.0f}" if np.isfinite(fund_v2) else "N/A"
-                tech_v2_fmt = f"{tech_v2:.0f}" if np.isfinite(tech_v2) else "N/A"
-                rr_v2_fmt = f"{rr_v2:.0f}" if np.isfinite(rr_v2) else "N/A"
-                rel_v2_fmt = f"{rel_v2:.0f}" if np.isfinite(rel_v2) else "N/A"
-                risk_v2_fmt = f"{risk_v2:.0f}" if np.isfinite(risk_v2) else "N/A"
-                
-                # Conviction meter color
+            # Format V2 scores for inline display
+            conv_v2_fmt = f"{conv_v2:.0f}" if np.isfinite(conv_v2) else "N/A"
+            fund_v2_fmt = f"{fund_v2:.0f}" if np.isfinite(fund_v2) else "N/A"
+            tech_v2_fmt = f"{tech_v2:.0f}" if np.isfinite(tech_v2) else "N/A"
+            rr_v2_fmt = f"{rr_v2:.0f}" if np.isfinite(rr_v2) else "N/A"
+            rel_v2_fmt = f"{rel_v2:.0f}" if np.isfinite(rel_v2) else "N/A"
+            risk_v2_fmt = f"{risk_v2:.0f}" if np.isfinite(risk_v2) else "N/A"
+            
+            # Conviction meter color
+            if np.isfinite(conv_v2):
                 if conv_v2 >= 75:
                     conv_color = "#16a34a"  # green
                 elif conv_v2 >= 60:
                     conv_color = "#f59e0b"  # orange
                 else:
                     conv_color = "#dc2626"  # red
-                
-                # Risk meter color (inverted: low risk = green)
+            else:
+                conv_color = "#6b7280"
+            
+            # Risk meter color (inverted: low risk = green)
+            if np.isfinite(risk_v2):
                 if risk_v2 < 35:
                     risk_color = "#16a34a"  # green
                 elif risk_v2 < 65:
                     risk_color = "#f59e0b"  # orange
                 else:
                     risk_color = "#dc2626"  # red
-                
-                v2_html = f"""
-    <div style="background:#e0f2fe;border-radius:8px;padding:10px;margin:8px 0;border-left:4px solid #0ea5e9">
-        <div style="font-weight:bold;margin-bottom:6px;color:#0369a1">🚀 V2 SCORING ENGINE {badge_html}</div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px;font-size:0.85em">
-            <div><b>Conviction:</b> <span style="color:{conv_color};font-weight:bold;font-size:1.2em">{conv_v2_fmt}/100</span></div>
-            <div><b>Risk Meter:</b> <span style="color:{risk_color};font-weight:bold">{risk_v2_fmt}/100 ({risk_label_v2})</span></div>
-            <div><b>Fundamentals:</b> {fund_v2_fmt}/100</div>
-            <div><b>Technical:</b> {tech_v2_fmt}/100</div>
-            <div><b>R/R:</b> {rr_v2_fmt}/100</div>
-            <div><b>Reliability:</b> {rel_v2_fmt}/100</div>
-            <div style="grid-column:span 2"><b>ML Boost:</b> {ml_boost_v2:+.1f}% <span style="font-size:0.9em;color:#64748b">(Base: {conv_v2_base:.0f})</span></div>
-        </div>
-        <div style="margin-top:8px;font-size:0.95em">
-            <b>Risk Gate:</b> {gate_status or 'N/A'} &nbsp; <span style="color:#64748b">Reason: {gate_reason or 'N/A'}</span><br/>
-            <b>Buy Amount v2:</b> ${buy_amount_v2:,.2f} &nbsp; <b>Shares v2:</b> {shares_v2}
-        </div>
-    </div>"""
+            else:
+                risk_color = "#6b7280"
             
             card_html = get_card_css() + f"""
 <div class="modern-card card-core">
@@ -3146,18 +3198,12 @@ else:
         <span class="modern-badge {quality_badge_class}">{quality_icon} Quality: {quality_pct}</span>
         <span class="modern-badge badge-primary" style="font-size:0.8em">Confidence: {confidence_badge}</span>
         {ml_badge_html}
+        {badge_html}
     </h3>
-    <div style="background:#f8fafc;border-radius:8px;padding:10px;margin:8px 0;border-left:4px solid #8b5cf6">
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;font-size:0.9em">
-            <div><b>💰 מחיר קניה מומלץ:</b><br/><span style="font-size:1.1em;color:#3b82f6;font-weight:bold">{entry_price_fmt}</span></div>
-            <div><b>🎯 מחיר יעד:</b><br/><span style="font-size:1.1em;color:{gain_color};font-weight:bold">{target_price_fmt}</span>{target_badge}</div>
-            <div><b>📈 פוטנציאל רווח:</b><br/><span style="font-size:1.1em;color:{gain_color};font-weight:bold">{gain_fmt}</span></div>
-            <div><b>📅 תזמון יעד:</b><br/><span style="font-size:1.1em;color:#6366f1;font-weight:bold">{target_date}</span></div>
-            <div><b>⏱️ טווח אחזקה:</b><br/><span style="font-size:1.1em;color:#8b5cf6;font-weight:bold">{horizon}</span></div>
-        </div>
-    </div>
-    {v2_html}
     <div class="modern-grid">
+    <div class="item" style="grid-column:span 2;background:#e0f2fe;padding:8px;border-radius:6px;border-left:3px solid #0ea5e9"><b>🎯 Target:</b> {target_price_fmt}{target_badge} <span style="color:#64748b">by {target_date}</span></div>
+    <div class="item" style="grid-column:span 2;background:#dbeafe;padding:8px;border-radius:6px"><b>📈 Potential:</b> <span style="color:{gain_color};font-weight:700;font-size:1.1em">{gain_fmt}</span></div>
+    <div class="item"><b>Entry Price:</b> {entry_price_fmt}</div>
     <div class="item"><b>Average Price:</b> {show_mean_fmt}</div>
     <div class="item"><b>Std Dev:</b> {show_std}</div>
     <div class="item"><b>RSI:</b> {rsi_v if not np.isnan(rsi_v) else 'N/A'}</div>
@@ -3168,17 +3214,21 @@ else:
     <div class="item"><b># Fund Sources:</b> {r.get('Fundamental_Sources_Count', 0)}</div>
     <div class="item"><b>Price Reliability:</b> {price_rel_fmt}</div>
     <div class="item"><b>Fund Reliability:</b> {fund_rel_fmt}</div>
-    <!-- Legacy v1 fields removed: showing V2-only UX -->
-        <div class="item"><b>V2 Conviction:</b> <span style="font-weight:700;color:{conv_color}">{conv_v2_fmt}/100</span></div>
-        <div class="item"><b>Reliability Score v2:</b> {rel_v2_fmt}/100</div>
-        <div class="item"><b>Reward/Risk v2:</b> {rr_v2_fmt}</div>
-        <div class="item"><b>Risk Gate Status v2:</b> {gate_status or 'N/A'}</div>
-        <div class="item"><b>Risk Gate Reason:</b> {esc(str(gate_reason))}</div>
-        <div class="item"><b>Recommended Buy ($):</b> ${0 if gate_status=="blocked" else f'{buy_amount_v2:,.0f}'}</div>
-        <div class="item"><b>Unit Price:</b> {unit_price_fmt}</div>
-        <div class="item"><b>Shares to Buy:</b> {0 if gate_status=="blocked" else shares_v2}</div>
+    
+    <div class="section-divider">🚀 V2 Conviction & Risk:</div>
+    <div class="item"><b>Conviction Score:</b> <span style="font-weight:700;color:{conv_color};font-size:1.15em">{conv_v2_fmt}/100</span></div>
+    <div class="item"><b>Risk Meter:</b> <span style="font-weight:700;color:{risk_color}">{risk_v2_fmt}/100 ({risk_label_v2})</span></div>
+    <div class="item"><b>Reliability:</b> {rel_v2_fmt}/100</div>
+    <div class="item"><b>R/R Score:</b> {rr_v2_fmt}/100</div>
+    <div class="item"><b>Risk Gate Status:</b> {gate_status or 'N/A'}</div>
+    
+    <div class="section-divider">💵 Allocation (V2 Strict):</div>
+    <div class="item"><b>Recommended Buy:</b> ${0 if gate_status=="blocked" else f'{buy_amount_v2:,.0f}'}</div>
+    <div class="item"><b>Unit Price:</b> {unit_price_fmt}</div>
+    <div class="item"><b>Shares to Buy:</b> {0 if gate_status=="blocked" else shares_v2}</div>
     <div class="item"><b>Cash Leftover:</b> ${leftover:,.2f}</div>
     <div class="item"><b>📅 Next Earnings:</b> {next_earnings}</div>
+    
     <div class="section-divider">🔬 Advanced Indicators:</div>
     <div class="item"><b>Market vs (3M):</b> <span style="color:{'#16a34a' if np.isfinite(rs_63d) and rs_63d > 0 else '#dc2626'}">{rs_fmt}</span></div>
     <div class="item"><b>Volume Surge:</b> {vol_surge_fmt}</div>
@@ -3188,6 +3238,7 @@ else:
     <div class="item"><b>Momentum Consistency:</b> {mom_fmt}</div>
     <div class="item"><b>ATR/Price:</b> {atrp_fmt}</div>
     <div class="item"><b>Overextension:</b> {overx_fmt}</div>
+    
     <div class="section-divider">💎 Fundamental Breakdown:</div>
     <div class="item"><b>Quality:</b> <span style="color:{qual_color};font-weight:600">{qual_fmt}</span></div>
     <div class="item"><b>Growth:</b> <span style="color:{growth_color};font-weight:600">{growth_fmt}</span></div>
@@ -3368,7 +3419,6 @@ else:
             # Inject CSS for iframe isolation
             
             # V2 SCORES (NOW ALWAYS ENABLED AS DEFAULT)
-            v2_html_spec = ""
             conv_v2 = r.get("conviction_v2_final", np.nan)
             conv_v2_base = r.get("conviction_v2_base", np.nan)
             fund_v2 = r.get("fundamental_score_v2", np.nan)
@@ -3384,42 +3434,42 @@ else:
             buy_amount_v2 = float(r.get("buy_amount_v2", 0.0) or 0.0)
             shares_v2 = int(r.get("shares_to_buy_v2", 0) or 0)
             
-            if np.isfinite(conv_v2):  # Show V2 box if score was computed
-                
-                conv_v2_fmt = f"{conv_v2:.0f}" if np.isfinite(conv_v2) else "N/A"
-                fund_v2_fmt = f"{fund_v2:.0f}" if np.isfinite(fund_v2) else "N/A"
-                tech_v2_fmt = f"{tech_v2:.0f}" if np.isfinite(tech_v2) else "N/A"
-                rr_v2_fmt = f"{rr_v2:.0f}" if np.isfinite(rr_v2) else "N/A"
-                rel_v2_fmt = f"{rel_v2:.0f}" if np.isfinite(rel_v2) else "N/A"
-                risk_v2_fmt = f"{risk_v2:.0f}" if np.isfinite(risk_v2) else "N/A"
-                
+            # Format V2 scores for inline display
+            conv_v2_fmt = f"{conv_v2:.0f}" if np.isfinite(conv_v2) else "N/A"
+            fund_v2_fmt = f"{fund_v2:.0f}" if np.isfinite(fund_v2) else "N/A"
+            tech_v2_fmt = f"{tech_v2:.0f}" if np.isfinite(tech_v2) else "N/A"
+            rr_v2_fmt = f"{rr_v2:.0f}" if np.isfinite(rr_v2) else "N/A"
+            rel_v2_fmt = f"{rel_v2:.0f}" if np.isfinite(rel_v2) else "N/A"
+            risk_v2_fmt = f"{risk_v2:.0f}" if np.isfinite(risk_v2) else "N/A"
+            
+            if np.isfinite(conv_v2):
                 if conv_v2 >= 75:
                     conv_color = "#16a34a"
                 elif conv_v2 >= 60:
                     conv_color = "#f59e0b"
                 else:
                     conv_color = "#dc2626"
-                
+            else:
+                conv_color = "#6b7280"
+            
+            if np.isfinite(risk_v2):
                 if risk_v2 < 35:
                     risk_color = "#16a34a"
                 elif risk_v2 < 65:
                     risk_color = "#f59e0b"
                 else:
                     risk_color = "#dc2626"
-                
-                v2_html_spec = f"""
-    <div style="background:#fef3c7;border-radius:8px;padding:10px;margin:8px 0;border-left:4px solid #f59e0b">
-        <div style="font-weight:bold;margin-bottom:6px;color:#d97706">🚀 V2 SCORING ENGINE</div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px;font-size:0.85em">
-            <div><b>Conviction:</b> <span style="color:{conv_color};font-weight:bold;font-size:1.2em">{conv_v2_fmt}/100</span></div>
-            <div><b>Risk Meter:</b> <span style="color:{risk_color};font-weight:bold">{risk_v2_fmt}/100 ({risk_label_v2})</span></div>
-            <div><b>Fundamentals:</b> {fund_v2_fmt}/100</div>
-            <div><b>Technical:</b> {tech_v2_fmt}/100</div>
-            <div><b>R/R:</b> {rr_v2_fmt}/100</div>
-            <div><b>Reliability:</b> {rel_v2_fmt}/100</div>
-            <div style="grid-column:span 2"><b>ML Boost:</b> {ml_boost_v2:+.1f}% <span style="font-size:0.9em;color:#64748b">(Base: {conv_v2_base:.0f})</span></div>
-        </div>
-    </div>"""
+            else:
+                risk_color = "#6b7280"
+            
+            # Build strict-mode badge for speculative
+            badge_html_spec = ""
+            if gate_status == "blocked":
+                badge_html_spec = "<span style='background:#dc2626;color:white;padding:4px 8px;border-radius:6px;font-weight:700;margin-left:8px'>❌ Blocked (Strict Risk Gate)</span>"
+            elif gate_status == "reduced" or gate_status == "severely_reduced":
+                badge_html_spec = "<span style='background:#f59e0b;color:black;padding:4px 8px;border-radius:6px;font-weight:700;margin-left:8px'>⚠️ Reduced (Strict Risk Gate)</span>"
+            elif gate_status == "full":
+                badge_html_spec = "<span style='background:#16a34a;color:white;padding:4px 8px;border-radius:6px;font-weight:700;margin-left:8px'>✅ Full Allocation Allowed (Strict Mode)</span>"
             
             card_html = get_card_css() + f"""
 <div class="modern-card card-speculative">
@@ -3430,19 +3480,13 @@ else:
         <span class="modern-badge {quality_badge_class}">{quality_icon} Quality: {quality_pct}</span>
         <span class="modern-badge badge-danger" style="font-size:0.8em">Confidence: {confidence_badge}</span>
         {ml_badge_html}
+        {badge_html_spec}
     </h3>
     {f'<div class="warning-box"><b>⚠️ Warnings:</b> {warnings_esc}</div>' if warnings_esc else ''}
-    <div style="background:#fef3c7;border-radius:8px;padding:10px;margin:8px 0;border-left:4px solid #f59e0b">
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;font-size:0.9em">
-            <div><b>💰 מחיר קניה מומלץ:</b><br/><span style="font-size:1.1em;color:#3b82f6;font-weight:bold">{entry_price_fmt}</span></div>
-            <div><b>🎯 מחיר יעד:</b><br/><span style="font-size:1.1em;color:{gain_color};font-weight:bold">{target_price_fmt}</span>{target_badge_spec}</div>
-            <div><b>📈 פוטנציאל רווח:</b><br/><span style="font-size:1.1em;color:{gain_color};font-weight:bold">{gain_fmt}</span></div>
-            <div><b>📅 תזמון יעד:</b><br/><span style="font-size:1.1em;color:#6366f1;font-weight:bold">{target_date}</span></div>
-            <div><b>⏱️ טווח אחזקה:</b><br/><span style="font-size:1.1em;color:#f59e0b;font-weight:bold">{horizon}</span></div>
-        </div>
-    </div>
-    {v2_html_spec}
     <div class="modern-grid">
+    <div class="item" style="grid-column:span 2;background:#fef3c7;padding:8px;border-radius:6px;border-left:3px solid #f59e0b"><b>🎯 Target:</b> {target_price_fmt}{target_badge_spec} <span style="color:#64748b">by {target_date}</span></div>
+    <div class="item" style="grid-column:span 2;background:#fef9c3;padding:8px;border-radius:6px"><b>📈 Potential:</b> <span style="color:{gain_color};font-weight:700;font-size:1.1em">{gain_fmt}</span></div>
+    <div class="item"><b>Entry Price:</b> {entry_price_fmt}</div>
     <div class="item"><b>Average Price:</b> {show_mean_fmt}</div>
     <div class="item"><b>Std Dev:</b> {show_std}</div>
     <div class="item"><b>RSI:</b> {rsi_v if not np.isnan(rsi_v) else 'N/A'}</div>
@@ -3452,13 +3496,16 @@ else:
     <div class="item"><b># Fund Sources:</b> {r.get('Fundamental_Sources_Count', 0)}</div>
     <div class="item"><b>Price Reliability:</b> {price_rel_fmt}</div>
     <div class="item"><b>Fund Reliability:</b> {fund_rel_fmt}</div>
-    <!-- Legacy v1 fields removed: showing V2-only UX -->
-    <div class="item"><b>V2 Conviction:</b> <span style="font-weight:700;color:{conv_color}">{conv_v2_fmt}/100</span></div>
-    <div class="item"><b>Reliability Score v2:</b> {rel_v2_fmt}/100</div>
-    <div class="item"><b>Reward/Risk v2:</b> {rr_v2_fmt}</div>
-    <div class="item"><b>Risk Gate Status v2:</b> {gate_status or 'N/A'}</div>
-    <div class="item"><b>Risk Gate Reason:</b> {esc(str(gate_reason))}</div>
-    <div class="item"><b>Recommended Buy ($):</b> ${0 if gate_status=="blocked" else f'{buy_amount_v2:,.0f}'}</div>
+    
+    <div class="section-divider">🚀 V2 Conviction & Risk:</div>
+    <div class="item"><b>Conviction Score:</b> <span style="font-weight:700;color:{conv_color};font-size:1.15em">{conv_v2_fmt}/100</span></div>
+    <div class="item"><b>Risk Meter:</b> <span style="font-weight:700;color:{risk_color}">{risk_v2_fmt}/100 ({risk_label_v2})</span></div>
+    <div class="item"><b>Reliability:</b> {rel_v2_fmt}/100</div>
+    <div class="item"><b>R/R Score:</b> {rr_v2_fmt}/100</div>
+    <div class="item"><b>Risk Gate Status:</b> {gate_status or 'N/A'}</div>
+    
+    <div class="section-divider">💵 Allocation (V2 Strict):</div>
+    <div class="item"><b>Recommended Buy:</b> ${0 if gate_status=="blocked" else f'{buy_amount_v2:,.0f}'}</div>
     <div class="item"><b>Unit Price:</b> {unit_price_fmt}</div>
     <div class="item"><b>Shares to Buy:</b> {0 if gate_status=="blocked" else shares_v2}</div>
     <div class="item"><b>Cash Leftover:</b> ${leftover:,.2f}</div>

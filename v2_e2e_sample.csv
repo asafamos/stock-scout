@@ -1,0 +1,26 @@
+Ticker,scenario,rr_ratio_v2,reliability_v2,fund_sources_count_v2,risk_gate_status_v2,risk_gate_reason_v2,conviction_v2_base,conviction_v2_final,buy_amount_v2,shares_to_buy_v2,fund_sources_used_v2,price_sources_used_v2,fund_disagreement_score_v2,price_variance_score_v2
+MMM,RR_LT_1,0.9,86.74106475558922,3,blocked,rr_gate=blocked;rel_gate=full;quality=good,60.0,1.9999999999999996,0.0,0,"[""Fund_from_FMP"", ""Fund_from_Finnhub"", ""Fund_from_SimFin""]",[],18.75,87.41064755589215
+AOS,RR_LT_1,0.9,87.11783240758467,3,blocked,rr_gate=blocked;rel_gate=full;quality=good,60.0,1.9999999999999996,0.0,0,"[""Fund_from_FMP"", ""Fund_from_Finnhub"", ""Fund_from_SimFin""]",[],18.75,91.17832407584677
+ABT,RR_LT_1,0.9,87.31478329359764,3,blocked,rr_gate=blocked;rel_gate=full;quality=good,60.0,1.9999999999999996,0.0,0,"[""Fund_from_FMP"", ""Fund_from_Finnhub"", ""Fund_from_SimFin""]",[],18.75,93.14783293597638
+ABBV,RR_LT_1,0.9,86.9851965510721,3,blocked,rr_gate=blocked;rel_gate=full;quality=good,60.0,1.9999999999999996,0.0,0,"[""Fund_from_FMP"", ""Fund_from_Finnhub"", ""Fund_from_SimFin""]",[],18.75,89.8519655107209
+ACN,RR_LT_1,0.9,87.08179271889092,3,blocked,rr_gate=blocked;rel_gate=full;quality=good,60.0,1.9999999999999996,0.0,0,"[""Fund_from_FMP"", ""Fund_from_Finnhub"", ""Fund_from_SimFin""]",[],18.75,90.81792718890918
+ADBE,NO_FUNDS,1.5,61.37906195057791,0,blocked,no_fund_sources,60.0,1.9999999999999996,0.0,0,[],[],18.75,88.79061950577912
+AMD,NO_FUNDS,1.5,60.08105181022017,0,blocked,no_fund_sources,60.0,1.9999999999999996,0.0,0,[],[],18.75,75.81051810220166
+AES,NO_FUNDS,1.5,61.4293012048248,0,blocked,no_fund_sources,60.0,1.9999999999999996,0.0,0,[],[],18.75,89.293012048248
+AFL,NO_FUNDS,1.5,61.81472832983882,0,blocked,no_fund_sources,60.0,1.9999999999999996,0.0,0,[],[],18.75,93.1472832983882
+A,NO_FUNDS,1.5,61.723023173390516,0,blocked,no_fund_sources,60.0,1.9999999999999996,0.0,0,[],[],18.75,92.23023173390513
+APD,LOW_REL,1.2,52.16120537404486,2,reduced,rr_gate=reduced;rel_gate=full;quality=good,60.0,24.82418080610673,190.2015067175561,0,"[""Fund_from_Finnhub"", ""Fund_from_SimFin""]",[],93.75,86.61205374044863
+ABNB,LOW_REL,1.2,52.697974596181325,2,reduced,rr_gate=reduced;rel_gate=full;quality=good,60.0,24.9046961894272,190.87246824522666,1,"[""Fund_from_Finnhub"", ""Fund_from_SimFin""]",[],93.75,91.97974596181321
+AKAM,LOW_REL,1.2,51.29032519540637,2,reduced,rr_gate=reduced;rel_gate=full;quality=good,60.0,24.693548779310955,189.11290649425797,2,"[""Fund_from_Finnhub"", ""Fund_from_SimFin""]",[],93.75,77.90325195406368
+ALB,LOW_REL,1.2,50.76337202483053,2,reduced,rr_gate=reduced;rel_gate=full;quality=good,60.0,24.61450580372458,188.45421503103816,1,"[""Fund_from_Finnhub"", ""Fund_from_SimFin""]",[],93.75,72.63372024830534
+ARE,LOW_REL,1.2,50.704715031289886,2,reduced,rr_gate=reduced;rel_gate=full;quality=good,60.0,24.60570725469348,188.38089378911235,3,"[""Fund_from_Finnhub"", ""Fund_from_SimFin""]",[],93.75,72.04715031289885
+ALGN,SPEC_CAP,1.5,86.74430021571605,3,reduced,rr_gate=reduced;rel_gate=full;quality=good,60.0,41.216303045300364,150.0,1,"[""Fund_from_FMP"", ""Fund_from_Finnhub"", ""Fund_from_SimFin""]",[],18.75,87.44300215716058
+ALLE,SPEC_CAP,1.5,87.2104603784952,3,reduced,rr_gate=reduced;rel_gate=full;quality=good,60.0,41.31419667948399,150.0,0,"[""Fund_from_FMP"", ""Fund_from_Finnhub"", ""Fund_from_SimFin""]",[],18.75,92.10460378495203
+LNT,SPEC_CAP,1.5,87.56591393763343,3,reduced,rr_gate=reduced;rel_gate=full;quality=good,60.0,41.38884192690301,150.0,2,"[""Fund_from_FMP"", ""Fund_from_Finnhub"", ""Fund_from_SimFin""]",[],18.75,95.65913937633425
+ALL,SPEC_CAP,1.5,87.33320209820258,3,reduced,rr_gate=reduced;rel_gate=full;quality=good,60.0,41.33997244062254,150.0,0,"[""Fund_from_FMP"", ""Fund_from_Finnhub"", ""Fund_from_SimFin""]",[],18.75,93.33202098202572
+GOOGL,SPEC_CAP,1.5,86.71131920807073,3,reduced,rr_gate=reduced;rel_gate=full;quality=good,60.0,41.20937703369485,150.0,0,"[""Fund_from_FMP"", ""Fund_from_Finnhub"", ""Fund_from_SimFin""]",[],18.75,87.11319208070739
+GOOG,CORE_GOOD,2.0,86.74212775612882,3,full,rr_gate=full;rel_gate=full;quality=good,60.0,58.02263832683865,466.8553193903221,1,"[""Fund_from_FMP"", ""Fund_from_Finnhub"", ""Fund_from_SimFin""]",[],18.75,87.4212775612882
+MO,CORE_GOOD,2.0,86.84582568128037,3,full,rr_gate=full;rel_gate=full;quality=good,60.0,58.053747704384115,467.114564203201,7,"[""Fund_from_FMP"", ""Fund_from_Finnhub"", ""Fund_from_SimFin""]",[],18.75,88.45825681280371
+AMZN,CORE_GOOD,2.0,86.2307465973119,3,full,rr_gate=full;rel_gate=full;quality=good,60.0,57.86922397919358,465.5768664932798,2,"[""Fund_from_FMP"", ""Fund_from_Finnhub"", ""Fund_from_SimFin""]",[],18.75,82.30746597311912
+AMCR,CORE_GOOD,2.0,87.09307228735145,3,full,rr_gate=full;rel_gate=full;quality=good,60.0,58.12792168620543,467.7326807183786,55,"[""Fund_from_FMP"", ""Fund_from_Finnhub"", ""Fund_from_SimFin""]",[],18.75,90.9307228735145
+AEE,CORE_GOOD,2.0,87.46183953662944,3,full,rr_gate=full;rel_gate=full;quality=good,60.0,58.23855186098883,468.65459884157355,4,"[""Fund_from_FMP"", ""Fund_from_Finnhub"", ""Fund_from_SimFin""]",[],18.75,94.6183953662944
