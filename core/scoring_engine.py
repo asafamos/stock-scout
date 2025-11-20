@@ -52,6 +52,47 @@ def safe_divide(numerator: float, denominator: float, default: float = 0.0) -> f
     return numerator / denominator
 
 
+def evaluate_rr_unified(rr_ratio: Optional[float]) -> Tuple[float, float, str]:
+    """
+    UNIFIED RR evaluation function used across all contexts.
+    
+    This is the SINGLE source of truth for RR evaluation.
+    All warnings, penalties, and displays must use this.
+    
+    Args:
+        rr_ratio: Reward/Risk ratio
+        
+    Returns:
+        (rr_score_0_100, rr_ratio_float, rr_band_label)
+        - rr_score_0_100: Normalized score 0-100 with tiered penalties
+        - rr_ratio_float: The actual ratio (or 0.0 if invalid)
+        - rr_band_label: "Excellent", "Good", "Fair", "Poor", "Very Poor"
+    """
+    if rr_ratio is None or not np.isfinite(rr_ratio) or rr_ratio < 0:
+        return 0.0, 0.0, "N/A"
+    
+    ratio = float(np.clip(rr_ratio, 0, 10.0))
+    
+    # Tiered scoring with strong penalties for poor RR
+    if ratio < 1.0:
+        score = normalize_score(ratio, 0, 1.0, 0) * 0.2  # Max 20 points
+        band = "Very Poor"
+    elif ratio < 1.5:
+        score = normalize_score(ratio, 1.0, 1.5, 0) * 0.2 + 20  # 20-40 points
+        band = "Poor"
+    elif ratio < 2.0:
+        score = normalize_score(ratio, 1.5, 2.0, 0) * 0.3 + 40  # 40-70 points
+        band = "Fair"
+    elif ratio < 3.0:
+        score = normalize_score(ratio, 2.0, 3.0, 0) * 0.2 + 70  # 70-90 points
+        band = "Good"
+    else:
+        score = normalize_score(np.clip(ratio, 3.0, 5.0), 3.0, 5.0, 0) * 0.1 + 90  # 90-100 points
+        band = "Excellent"
+    
+    return float(np.clip(score, 0, 100)), ratio, band
+
+
 def calculate_fundamental_score(
     pe: Optional[float] = None,
     ps: Optional[float] = None,
@@ -275,18 +316,8 @@ def calculate_rr_score(
     """
     # If RR ratio is provided directly
     if rr_ratio is not None and np.isfinite(rr_ratio):
-        # STRONGER penalization for RR < 1.5 (was 0.5x, now 0.3x max)
-        # This creates more spread in conviction scores
-        if rr_ratio < 1.0:
-            rr_score = normalize_score(rr_ratio, 0, 1.0, 0) * 0.2  # Max 20 points for very poor RR
-        elif rr_ratio < 1.5:
-            rr_score = normalize_score(rr_ratio, 1.0, 1.5, 0) * 0.4 + 20  # 20-40 points
-        elif rr_ratio < 2.0:
-            rr_score = normalize_score(rr_ratio, 1.5, 2.0, 0) * 0.3 + 40  # 40-70 points
-        else:
-            # RR 2.0-5.0+ is excellent
-            rr_score = normalize_score(np.clip(rr_ratio, 2.0, 5.0), 2.0, 5.0, 0) * 0.3 + 70  # 70-100 points
-        
+        # Use unified RR evaluation
+        rr_score, _, _ = evaluate_rr_unified(rr_ratio)
         confidence = 80.0  # Moderate confidence if only RR provided
         return float(np.clip(rr_score, 0, 100)), confidence
     

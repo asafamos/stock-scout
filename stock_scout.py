@@ -48,6 +48,78 @@ from core.classification import apply_classification, filter_core_recommendation
 from core.scoring.fundamental import compute_fundamental_score_with_breakdown
 from core.v2_risk_engine import score_ticker_v2_enhanced
 from indicators import rsi, atr, macd_line, adx, _sigmoid
+from core.scoring_engine import evaluate_rr_unified
+
+# Helper: build clean minimal card
+
+def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
+    esc = html_escape.escape
+    ticker = esc(str(row.get('Ticker','N/A')))
+    overall_rank = row.get('Overall_Rank','N/A')
+    overall_score = row.get('overall_score', row.get('conviction_v2_final', np.nan))
+    target_price = row.get('Target_Price', np.nan)
+    entry_price = row.get('Entry_Price', np.nan)
+    target_date = row.get('Target_Date','N/A')
+    target_source = row.get('Target_Source','N/A')
+    rr_ratio = row.get('rr', np.nan)
+    rr_score = row.get('rr_score_v2', np.nan)
+    rr_band = row.get('rr_band','')
+    risk_meter = row.get('risk_meter_v2', np.nan)
+    risk_label = row.get('risk_label_v2','N/A')
+    rel_score = row.get('Reliability_Score', row.get('reliability_score_v2', np.nan))
+    price_rel = row.get('Price_Reliability', np.nan)
+    fund_rel = row.get('Fundamental_Reliability', np.nan)
+    ml_conf = row.get('ml_status', row.get('ML_Confidence','N/A'))
+    conv_base = row.get('conviction_v2_base', np.nan)
+
+    def fmt_money(v):
+        return f"${v:.2f}" if np.isfinite(v) else 'N/A'
+    def fmt_pct(v):
+        return f"{v:.1f}%" if np.isfinite(v) else 'N/A'
+    def fmt_int(v):
+        return f"{int(v)}" if np.isfinite(v) else 'N/A'
+
+    entry_fmt = fmt_money(entry_price)
+    target_fmt = fmt_money(target_price)
+    if np.isfinite(entry_price) and np.isfinite(target_price) and entry_price>0:
+        potential_gain_pct = ((target_price-entry_price)/entry_price)*100
+        potential_fmt = f"+{potential_gain_pct:.1f}%"
+    else:
+        potential_fmt = 'N/A'
+    target_badge = ''
+    if target_source == 'AI':
+        target_badge = '<span class="badge ai">AI</span>'
+    elif target_source == 'Technical':
+        target_badge = '<span class="badge tech">Tech</span>'
+
+    reliability_fmt = fmt_pct(rel_score)
+    price_rel_fmt = fmt_pct(price_rel)
+    fund_rel_fmt = fmt_pct(fund_rel)
+    risk_fmt = f"{risk_meter:.0f}" if np.isfinite(risk_meter) else 'N/A'
+    rr_ratio_fmt = f"{rr_ratio:.2f}" if np.isfinite(rr_ratio) else 'N/A'
+    rr_score_fmt = f"{rr_score:.0f}" if np.isfinite(rr_score) else 'N/A'
+    conv_base_fmt = f"{conv_base:.0f}" if np.isfinite(conv_base) else 'N/A'
+    overall_score_fmt = f"{overall_score:.0f}" if np.isfinite(overall_score) else 'N/A'
+
+    type_badge = 'SPEC' if speculative else 'CORE'
+
+    return f"""
+<div class='clean-card { 'speculative' if speculative else 'core' }'>
+  <div class='card-header'>
+    <h2 class='overall-score'>Overall Score: {overall_score_fmt}/100</h2>
+    <div class='meta-line'><span class='rank-badge'>#{overall_rank}</span><span class='ticker-badge'>{ticker}</span><span class='type-badge'>{type_badge}</span></div>
+  </div>
+  <div class='top-grid'>
+    <div class='field'><span class='label'>Target / Potential</span><span class='value'>{target_fmt} {target_badge} | {potential_fmt}</span></div>
+    <div class='field'><span class='label'>Risk/Reward</span><span class='value'>{rr_ratio_fmt} ({rr_score_fmt}) {rr_band}</span></div>
+    <div class='field'><span class='label'>Risk Meter</span><span class='value'>{risk_fmt} ({risk_label})</span></div>
+    <div class='field'><span class='label'>Reliability</span><span class='value'>{reliability_fmt} | P:{price_rel_fmt} F:{fund_rel_fmt}</span></div>
+    <div class='field'><span class='label'>ML Confidence</span><span class='value'>{ml_conf}</span></div>
+    <div class='field'><span class='label'>Conviction Base</span><span class='value'>{conv_base_fmt}</span></div>
+  </div>
+</div>
+"""
+
 
 # OpenAI for enhanced target price predictions
 try:
@@ -2106,20 +2178,32 @@ if CONFIG["FUNDAMENTAL_ENABLED"] and fundamental_available:
         if k not in results.columns:
             results[k] = np.nan
 
-    # Make sure a simple 'rr' alias (raw ratio) and 'rr_score_v2' (0-100 normalized) exist
-    # Raw Reward/Risk ratio (e.g., 1.78)
+    # Unified RR evaluation (raw ratio + penalized score + band)
     results["rr"] = results.get("RewardRisk", results.get("RR_Ratio", np.nan))
-    # Normalized RR score used in conviction (0-100). Map ratio 0-5 -> 0-100
-    def _norm_rr(x):
+    def _rr_eval(row_rr):
         try:
-            xr = float(x)
-            if not np.isfinite(xr):
-                return np.nan
-            xr = min(max(xr, 0.0), 5.0)
-            return float((xr / 5.0) * 100.0)
+            score, ratio_adj, band = evaluate_rr_unified(float(row_rr))
+            return score, band
         except Exception:
-            return np.nan
-    results["rr_score_v2"] = results["rr"].apply(_norm_rr)
+            return np.nan, "N/A"
+    rr_evals = results["rr"].apply(_rr_eval)
+    results["rr_score_v2"] = [e[0] for e in rr_evals]
+    results["rr_band"] = [e[1] for e in rr_evals]
+
+    # Unified overall score + component transparency columns (do NOT alter formula)
+    # overall_score is an alias of conviction_v2_final
+    if "conviction_v2_final" in results.columns:
+        results["overall_score"] = results["conviction_v2_final"].astype(float)
+    else:
+        results["overall_score"] = np.nan
+
+    # Component breakdowns (fallback to legacy names if needed)
+    results["fund_score"] = results.get("fundamental_score_v2", results.get("Fundamental Score", np.nan))
+    results["tech_score"] = results.get("technical_score_v2", results.get("Tech Score", np.nan))
+    results["rr_score"] = results.get("rr_score_v2", np.nan)
+    results["reliability_score"] = results.get("reliability_score_v2", results.get("Reliability Score", np.nan))
+    base_conv = results.get("conviction_v2_base", results.get("conviction_v2_final", np.nan))
+    results["ml_delta"] = results["overall_score"] - base_conv
 
     # Enforce blocked rows have zero buy and shares
     if "risk_gate_status_v2" in results.columns:
@@ -3494,62 +3578,7 @@ else:
             else:
                 risk_color = "#6b7280"
             
-            card_html = get_card_css() + f"""
-<div class="modern-card card-core">
-    <h3 class="flex-wrap" style="margin:0 0 6px 0">
-        <span class="modern-badge" style="background:#8b5cf6;color:white;font-weight:bold">#{overall_rank}</span>
-        <span class="modern-badge">{ticker}</span>
-        <span class="modern-badge badge-success">🛡️ Core</span>
-        <span class="modern-badge {quality_badge_class}">{quality_icon} Quality: {quality_pct}</span>
-        <span class="modern-badge badge-primary" style="font-size:0.8em">Confidence: {confidence_badge}</span>
-        {ml_badge_html}
-        {data_quality_badge}
-        {badge_html}
-    </h3>
-    <div class="modern-grid">
-    <div class="item" style="grid-column:span 2;background:#e0f2fe;padding:8px;border-radius:6px;border-left:3px solid #0ea5e9"><b>🎯 Target:</b> {target_price_fmt}{target_badge} <span style="color:#64748b">by {target_date}</span></div>
-    <div class="item" style="grid-column:span 2;background:#dbeafe;padding:8px;border-radius:6px"><b>📈 Potential:</b> <span style="color:{gain_color};font-weight:700;font-size:1.1em">{gain_fmt}</span></div>
-    <div class="item"><b>Entry Price:</b> {entry_price_fmt}</div>
-    <div class="item"><b>RR Score:</b> {rr_fmt}</div>
-    
-    <div class="section-divider">🚀 V2 Conviction & Risk:</div>
-    <div class="item"><b>Conviction Score:</b> <span style="font-weight:700;color:{conv_color};font-size:1.15em">{conv_v2_fmt}/100</span></div>
-    <div class="item"><b>Reliability:</b> {rel_score_fmt}<br/><small style="color:#64748b">Price: {price_rel_fmt} | Fund: {fund_rel_fmt}</small></div>
-    <div class="item"><b>Risk Meter:</b> <span style="color:{risk_color};font-weight:600">{risk_v2:.0f}/100</span> ({risk_label_v2})</div>
-    <div class="item"><b>ML Status:</b> {ml_status_esc}</div>
-    
-    <details style="margin-top:8px;padding:8px;background:#f8fafc;border-radius:6px">
-    <summary style="cursor:pointer;font-weight:600;color:#475569">📊 Additional Details</summary>
-    <div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:0.9em">
-    <div><b>Average Price:</b> {show_mean_fmt}</div>
-    <div><b>Std Dev:</b> {show_std}</div>
-    <div><b>RSI:</b> {rsi_v if not np.isnan(rsi_v) else 'N/A'}</div>
-    <div><b>Near 52w High:</b> {near52_fmt}%</div>
-    <div><b># Price Sources:</b> {r.get('Price_Sources_Count', 0)}</div>
-    <div><b># Fund Sources:</b> {r.get('Fundamental_Sources_Count', 0)}</div>
-    
-    <div class="section-divider">💵 Allocation (V2 Strict):</div>
-    <div class="item"><b>Recommended Buy:</b> ${0 if gate_status=="blocked" else f'{buy_amount_v2:,.0f}'}</div>
-    <div class="item"><b>Unit Price:</b> {unit_price_fmt}</div>
-    <div class="item"><b>Shares to Buy:</b> {0 if gate_status=="blocked" else shares_v2}</div>
-    <div class="item"><b>Cash Leftover:</b> ${leftover:,.2f}</div>
-    <div class="item"><b>📅 Next Earnings:</b> {next_earnings}</div>
-    
-    <div class="section-divider">🔬 Advanced Indicators:</div>
-    <div class="item"><b>Market vs (3M):</b> <span style="color:{'#16a34a' if np.isfinite(rs_63d) and rs_63d > 0 else '#dc2626'}">{rs_fmt}</span></div>
-    <div class="item"><b>Volume Surge:</b> {vol_surge_fmt}</div>
-    <div class="item"><b>MA Alignment:</b> {ma_status}</div>
-    <div class="item"><b>Quality Score:</b> {quality_fmt}</div>
-    <div class="item"><b>Risk/Reward Ratio:</b> {rr_ratio_fmt}</div>
-    <div class="item"><b>Momentum Consistency:</b> {mom_fmt}</div>
-    <div class="item"><b>ATR/Price:</b> {atrp_fmt}</div>
-    <div class="item"><b>Overextension:</b> {overx_fmt}</div>
-    
-    <div class="section-divider">💎 Fundamental Breakdown:</div>
-    <div class="item"><b>Quality:</b> <span style="color:{qual_color};font-weight:600">{qual_fmt}</span></div>
-    <div class="item"><b>Growth:</b> <span style="color:{growth_color};font-weight:600">{growth_fmt}</span></div>
-    <div class="item"><b>Valuation:</b> <span style="color:{val_color};font-weight:600">{val_fmt}</span></div>
-    <div class="item"><b>Leverage:</b> <span style="color:{lev_color};font-weight:600">{lev_fmt}</span></div>"""
+            card_html = get_card_css() + build_clean_card(r, speculative=False)
             
             # Add provider attribution if available (Core cards)
             attribution = r.get("Fund_Attribution", "")
@@ -3810,61 +3839,11 @@ else:
             elif gate_status == "full":
                 badge_html_spec = "<span style='background:#16a34a;color:white;padding:4px 8px;border-radius:6px;font-weight:700;margin-left:8px'>✅ Full Allocation Allowed (Strict Mode)</span>"
             
-            card_html = get_card_css() + f"""
-<div class="modern-card card-speculative">
-    <h3 class="flex-wrap" style="margin:0 0 6px 0">
-        <span class="modern-badge" style="background:#f59e0b;color:white;font-weight:bold">#{overall_rank}</span>
-        <span class="modern-badge">{ticker}</span>
-        <span class="modern-badge badge-warning">⚡ Speculative</span>
-        <span class="modern-badge {quality_badge_class}">{quality_icon} Quality: {quality_pct}</span>
-        <span class="modern-badge badge-danger" style="font-size:0.8em">Confidence: {confidence_badge}</span>
-        {ml_badge_html}
-        {data_quality_badge}
-        {badge_html_spec}
-    </h3>
-    {f'<div class="warning-box"><b>⚠️ Warnings:</b> {warnings_esc}</div>' if warnings_esc else ''}
-    <div class="modern-grid">
-    <div class="item" style="grid-column:span 2;background:#fef3c7;padding:8px;border-radius:6px;border-left:3px solid #f59e0b"><b>🎯 Target:</b> {target_price_fmt}{target_badge_spec} <span style="color:#64748b">by {target_date}</span></div>
-    <div class="item" style="grid-column:span 2;background:#fef9c3;padding:8px;border-radius:6px"><b>📈 Potential:</b> <span style="color:{gain_color};font-weight:700;font-size:1.1em">{gain_fmt}</span></div>
-    <div class="item"><b>Entry Price:</b> {entry_price_fmt}</div>
-    <div class="item"><b>RR Score:</b> {rr_fmt}</div>
-    
-    <div class="section-divider">🚀 V2 Conviction & Risk:</div>
-    <div class="item"><b>Conviction Score:</b> <span style="font-weight:700;color:{conv_color};font-size:1.15em">{conv_v2_fmt}/100</span></div>
-    <div class="item"><b>Reliability:</b> {rel_score_fmt}<br/><small style="color:#64748b">Price: {price_rel_fmt} | Fund: {fund_rel_fmt}</small></div>
-    <div class="item"><b>Risk Meter:</b> <span style="color:{risk_color};font-weight:600">{risk_v2_fmt}/100</span> ({risk_label_v2})</div>
-    <div class="item"><b>ML Status:</b> {ml_status_esc}</div>
-    
-    <details style="margin-top:8px;padding:8px;background:#f8fafc;border-radius:6px">
-    <summary style="cursor:pointer;font-weight:600;color:#475569">📊 Additional Details</summary>
-    <div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:0.9em">
-    <div><b>Average Price:</b> {show_mean_fmt}</div>
-    <div><b>Std Dev:</b> {show_std}</div>
-    <div><b>RSI:</b> {rsi_v if not np.isnan(rsi_v) else 'N/A'}</div>
-    <div><b>Near 52w High:</b> {near52_fmt}%</div>
-    <div><b># Price Sources:</b> {r.get('Price_Sources_Count', 0)}</div>
-    <div><b># Fund Sources:</b> {r.get('Fundamental_Sources_Count', 0)}</div>
-    
-    <div class="section-divider">💵 Allocation (V2 Strict):</div>
-    <div class="item"><b>Recommended Buy:</b> ${0 if gate_status=="blocked" else f'{buy_amount_v2:,.0f}'}</div>
-    <div class="item"><b>Unit Price:</b> {unit_price_fmt}</div>
-    <div class="item"><b>Shares to Buy:</b> {0 if gate_status=="blocked" else shares_v2}</div>
-    <div class="item"><b>Cash Leftover:</b> ${leftover:,.2f}</div>
-    <div class="item"><b>📅 Next Earnings:</b> {next_earnings}</div>
-    <div class="section-divider">🔬 Advanced Indicators:</div>
-    <div class="item"><b>Market vs (3M):</b> <span style="color:{'#16a34a' if np.isfinite(rs_63d) and rs_63d > 0 else '#dc2626'}">{rs_fmt}</span></div>
-    <div class="item"><b>Volume Surge:</b> {vol_surge_fmt}</div>
-    <div class="item"><b>MA Alignment:</b> {ma_status}</div>
-    <div class="item"><b>Quality Score:</b> {quality_fmt}</div>
-    <div class="item"><b>Risk/Reward Ratio:</b> {rr_ratio_fmt}</div>
-    <div class="item"><b>Momentum Consistency:</b> {mom_fmt}</div>
-    <div class="item"><b>ATR/Price:</b> {atrp_fmt}</div>
-    <div class="item"><b>Overextension:</b> {overx_fmt}</div>
-    <div class="section-divider">💎 Fundamental Breakdown:</div>
-    <div class="item"><b>Quality:</b> <span style="color:{qual_color};font-weight:600">{qual_fmt}</span></div>
-    <div class="item"><b>Growth:</b> <span style="color:{growth_color};font-weight:600">{growth_fmt}</span></div>
-    <div class="item"><b>Valuation:</b> <span style="color:{val_color};font-weight:600">{val_fmt}</span></div>
-    <div class="item"><b>Leverage:</b> <span style="color:{lev_color};font-weight:600">{lev_fmt}</span></div>"""
+            # Minimal speculative card
+            overall_score_val = r.get("overall_score", conv_v2)
+            rr_ratio_val = r.get("rr", np.nan)
+            rr_band = r.get('rr_band', '')
+            card_html = get_card_css() + build_clean_card(r, speculative=True)
             
             # Add provider attribution if available (Speculative cards)
             attribution_spec = r.get("Fund_Attribution", "")
@@ -3989,6 +3968,13 @@ hebrew_cols = {
     "price_sources_used_v2": "Price Sources Used",
     "fund_disagreement_score_v2": "Fund Disagreement Score",
     "price_variance_score_v2": "Price Variance Score",
+    # Newly exposed transparency columns
+    "overall_score": "Overall Score",
+    "fund_score": "Fund Score",
+    "tech_score": "Tech Score",
+    "rr_score": "RR Score",
+    "reliability_score": "Reliability Score (Unified)",
+    "ml_delta": "ML Delta",
 }
 show_order = [
     "Ticker",
@@ -4007,6 +3993,12 @@ show_order = [
     "risk_gate_penalty_v2",
     "reliability_score_v2",
     "Score",
+    "overall_score",
+    "fund_score",
+    "tech_score",
+    "rr_score",
+    "reliability_score",
+    "ml_delta",
     "conviction_v2_base",
     "conviction_v2_final",
     "ml_boost_v2",

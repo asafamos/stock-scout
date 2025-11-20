@@ -1,11 +1,4 @@
-"""
-Embedded CSS for recommendation cards (used in st_html iframes)
-Since st_html creates isolated iframes, we need to inject CSS directly into each card
-"""
 
-def get_card_css():
-    """Returns CSS to be embedded in each card HTML"""
-    return """
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 body { font-family: 'Inter', system-ui, sans-serif; font-size:14px; line-height:1.5; }
@@ -29,4 +22,18 @@ body { font-family: 'Inter', system-ui, sans-serif; font-size:14px; line-height:
 .badge.ai { background:#10B981; color:#fff; padding:2px 4px; border-radius:4px; font-size:0.6rem; }
 .badge.tech { background:#6366f1; color:#fff; padding:2px 4px; border-radius:4px; font-size:0.6rem; }
 </style>
-"""
+
+<div class='clean-card core'>
+  <div class='card-header'>
+    <h2 class='overall-score'>Overall Score: 86/100</h2>
+    <div class='meta-line'><span class='rank-badge'>#1</span><span class='ticker-badge'>AAPL</span><span class='type-badge'>CORE</span></div>
+  </div>
+  <div class='top-grid'>
+    <div class='field'><span class='label'>Target / Potential</span><span class='value'>$225.00 <span class="badge ai">AI</span> | +15.4%</span></div>
+    <div class='field'><span class='label'>Risk/Reward</span><span class='value'>2.80 (82) Good</span></div>
+    <div class='field'><span class='label'>Risk Meter</span><span class='value'>35 (Low)</span></div>
+    <div class='field'><span class='label'>Reliability</span><span class='value'>92.3% | P:95.0% F:89.5%</span></div>
+    <div class='field'><span class='label'>ML Confidence</span><span class='value'>High (88%)</span></div>
+    <div class='field'><span class='label'>Conviction Base</span><span class='value'>83</span></div>
+  </div>
+</div>
