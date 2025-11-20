@@ -116,6 +116,28 @@ def compute_fundamental_score_with_breakdown(data: dict) -> FundamentalScore:
     )
 
 
+def compute_fund_reliability(n_sources: int) -> float:
+    """Simple mapping from number of distinct fundamental sources to reliability (0-1).
+
+    Mapping:
+      0 -> 0.0
+      1 -> 0.33
+      2 -> 0.66
+      >=3 -> 1.0
+    """
+    try:
+        n = int(n_sources)
+    except Exception:
+        return 0.0
+    if n <= 0:
+        return 0.0
+    if n == 1:
+        return 0.33
+    if n == 2:
+        return 0.66
+    return 1.0
+
+
 def _quality_label(score: float) -> str:
     """Convert quality score to human-friendly label."""
     if score >= 70:

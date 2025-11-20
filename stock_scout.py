@@ -2106,6 +2106,21 @@ if CONFIG["FUNDAMENTAL_ENABLED"] and fundamental_available:
         if k not in results.columns:
             results[k] = np.nan
 
+    # Make sure a simple 'rr' alias (raw ratio) and 'rr_score_v2' (0-100 normalized) exist
+    # Raw Reward/Risk ratio (e.g., 1.78)
+    results["rr"] = results.get("RewardRisk", results.get("RR_Ratio", np.nan))
+    # Normalized RR score used in conviction (0-100). Map ratio 0-5 -> 0-100
+    def _norm_rr(x):
+        try:
+            xr = float(x)
+            if not np.isfinite(xr):
+                return np.nan
+            xr = min(max(xr, 0.0), 5.0)
+            return float((xr / 5.0) * 100.0)
+        except Exception:
+            return np.nan
+    results["rr_score_v2"] = results["rr"].apply(_norm_rr)
+
     # Enforce blocked rows have zero buy and shares
     if "risk_gate_status_v2" in results.columns:
         blocked_mask = results["risk_gate_status_v2"] == "blocked"
@@ -2523,6 +2538,20 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and any_price_provider:
     def _fund_count(row: pd.Series) -> int:
         return int(sum(bool(row.get(f)) for f in fund_flags))
     results["Fundamental_Sources_Count"] = results.apply(_fund_count, axis=1)
+
+    # Expose canonical fund reliability field using the simple mapping helper
+    try:
+        from core.scoring.fundamental import compute_fund_reliability
+    except Exception:
+        compute_fund_reliability = None
+
+    if compute_fund_reliability is not None:
+        results["fund_reliability"] = results["Fundamental_Sources_Count"].apply(lambda n: float(compute_fund_reliability(n)))
+        # Keep legacy column name in sync
+        results["Fundamental_Reliability"] = results["fund_reliability"].copy()
+    else:
+        # Fallback: copy existing value or 0.0
+        results["fund_reliability"] = results.get("Fundamental_Reliability", 0.0)
 
     # Combined reliability score
     if "Price_Reliability" in results.columns and "Fundamental_Reliability" in results.columns:
