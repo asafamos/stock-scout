@@ -1580,71 +1580,117 @@ marketstack_key = _env("MARKETSTACK_API_KEY") if CONFIG.get("ENABLE_MARKETSTACK"
 nasdaq_key = (_env("NASDAQ_API_KEY") or _env("NASDAQ_DL_API_KEY")) if CONFIG.get("ENABLE_NASDAQ_DL") else None
 eodhd_key = (_env("EODHD_API_KEY") or _env("EODHD_TOKEN")) if CONFIG.get("ENABLE_EODHD") else None
 
-providers_status = []
-def add_provider(name, price_ok, fund_ok, reason):
-    providers_status.append({
-        "source": name,
-        "price": "🟢" if price_ok else "🔴",
-        "fundamentals": "🟢" if fund_ok else "🔴",
-        "reason": reason
-    })
+###############################
+# Canonical Data Sources Table
+###############################
+st.markdown("### 🔌 Data Sources Overview")
 
-def _std_reason(name: str, price_ok: bool, fund_ok: bool, has_key: bool, base: bool=False) -> str:
-    if base:
-        return "Base"
-    if price_ok or fund_ok:
-        return "OK"
-    if not has_key:
-        return "No API Key"
-    return "Unavailable"
+# NOTE: Tiingo fundamentals presently lightly used; price fallback + occasional fundamental fields.
+# TODO: integrate broader Tiingo fundamentals (ratios, growth) into scoring engine.
+# NOTE: SimFin deprecated (row kept for transparency when key present).
 
-# Yahoo baseline always price only
-add_provider("Yahoo", True, False, _std_reason("Yahoo", True, False, True, base=True))
-add_provider("FMP", False, fmp_ok, _std_reason("FMP", False, fmp_ok, fmp_ok))
-add_provider("Alpha Vantage", alpha_ok, alpha_ok, _std_reason("Alpha Vantage", alpha_ok, alpha_ok, bool(_env("ALPHA_VANTAGE_API_KEY"))))
-add_provider("Finnhub", finn_ok, finn_ok, _std_reason("Finnhub", finn_ok, finn_ok, bool(_env("FINNHUB_API_KEY"))))
-add_provider("Polygon", poly_ok, False, _std_reason("Polygon", poly_ok, False, bool(_env("POLYGON_API_KEY"))))
-add_provider("Tiingo", tiin_ok, tiin_ok, _std_reason("Tiingo", tiin_ok, tiin_ok, bool(_env("TIINGO_API_KEY"))))  # Now supports fundamentals!
-add_provider("SimFin", False, bool(_env("SIMFIN_API_KEY")), "Deprecated" if not _env("SIMFIN_API_KEY") else "OK")
-add_provider("Marketstack", False, False, "Usage Limit Reached")
-add_provider("NasdaqDL", False, False, "Access Blocked")
-add_provider("EODHD", False, bool(_env("EODHD_API_KEY")), "No API Key" if not _env("EODHD_API_KEY") else "OK")
+DATA_SOURCES = {
+    "Yahoo": {
+        "uses_price": True,
+        "uses_fundamentals": False,
+        "uses_ml": False,
+        "env_keys": [],
+    },
+    "FMP": {
+        "uses_price": False,  # fundamentals only (primary)
+        "uses_fundamentals": bool(fmp_ok),
+        "uses_ml": False,
+        "env_keys": ["FMP_API_KEY"],
+    },
+    "Alpha Vantage": {
+        "uses_price": bool(alpha_ok),
+        "uses_fundamentals": bool(alpha_ok),  # OVERVIEW endpoints
+        "uses_ml": False,
+        "env_keys": ["ALPHA_VANTAGE_API_KEY"],
+    },
+    "Finnhub": {
+        "uses_price": bool(finn_ok),  # occasionally price verify
+        "uses_fundamentals": bool(finn_ok),
+        "uses_ml": False,
+        "env_keys": ["FINNHUB_API_KEY"],
+    },
+    "Polygon": {
+        "uses_price": bool(poly_ok),
+        "uses_fundamentals": False,
+        "uses_ml": False,
+        "env_keys": ["POLYGON_API_KEY"],
+    },
+    "Tiingo": {
+        "uses_price": bool(tiin_ok),
+        "uses_fundamentals": bool(tiin_ok),  # limited usage currently
+        "uses_ml": False,
+        "env_keys": ["TIINGO_API_KEY"],
+    },
+    "SimFin": {
+        "uses_price": False,
+        "uses_fundamentals": bool(_env("SIMFIN_API_KEY")),
+        "uses_ml": False,
+        "env_keys": ["SIMFIN_API_KEY"],
+    },
+    "Marketstack": {
+        "uses_price": False,  # disabled
+        "uses_fundamentals": False,
+        "uses_ml": False,
+        "env_keys": ["MARKETSTACK_API_KEY"],
+    },
+    "NasdaqDL": {
+        "uses_price": False,
+        "uses_fundamentals": False,
+        "uses_ml": False,
+        "env_keys": ["NASDAQ_API_KEY", "NASDAQ_DL_API_KEY"],
+    },
+    "EODHD": {
+        "uses_price": False,
+        "uses_fundamentals": bool(_env("EODHD_API_KEY")),
+        "uses_ml": False,
+        "env_keys": ["EODHD_API_KEY"],
+    },
+    "OpenAI": {
+        "uses_price": False,
+        "uses_fundamentals": False,
+        "uses_ml": bool(OPENAI_AVAILABLE and (os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY"))),
+        "env_keys": ["OPENAI_API_KEY"],
+    },
+}
 
-status_df = pd.DataFrame(providers_status)
-st.markdown("### 🔌 Data Sources Status")
-_provider_css = """
+def _is_active(entry: dict) -> bool:
+    for k in entry.get("env_keys", []):
+        if _env(k) or os.getenv(k) or st.secrets.get(k):
+            return True
+    # Built-ins like Yahoo active by default
+    if not entry.get("env_keys"):
+        return True
+    return False
+
+dot_on = "<span style='color:#16a34a;font-weight:700'>●</span>"
+dot_off = "<span style='color:#94a3b8'>●</span>"
+
+table_rows = ["<tr><th style='text-align:left'>Provider</th><th>Price</th><th>Fundamentals</th><th>ML/AI</th><th>Active</th></tr>"]
+for name, meta in DATA_SOURCES.items():
+    price_dot = dot_on if meta["uses_price"] else dot_off
+    fund_dot = dot_on if meta["uses_fundamentals"] else dot_off
+    ml_dot = dot_on if meta["uses_ml"] else dot_off
+    active_dot = dot_on if _is_active(meta) else dot_off
+    table_rows.append(
+        f"<tr><td style='text-align:left'>{name}</td><td>{price_dot}</td><td>{fund_dot}</td><td>{ml_dot}</td><td>{active_dot}</td></tr>"
+    )
+
+sources_css = """
 <style>
-.provider-table-container {overflow-x:auto;}
-.provider-table-container table {width:100%; border-collapse:collapse; table-layout:fixed;}
-.provider-table-container th, .provider-table-container td {padding:6px 8px; text-align:center; font-size:14px;}
-.provider-table-container th:nth-child(1), .provider-table-container td:nth-child(1){text-align:center; min-width:130px;}
-@media (max-width:600px){
-    .provider-table-container th, .provider-table-container td {padding:4px 6px; font-size:12px;}
-    .provider-table-container th:nth-child(1), .provider-table-container td:nth-child(1){min-width:140px;}
-}
-@media (max-width:480px){
-    /* Stack rows into cards, hide header and Reason column */
-    .provider-table-container table, .provider-table-container thead, .provider-table-container tbody, .provider-table-container th, .provider-table-container td, .provider-table-container tr {display:block;}
-    .provider-table-container tr {margin:0 0 10px 0; border:1px solid #e5e7eb; border-radius:8px; padding:6px; background:#ffffff;}
-    .provider-table-container th {display:none;}
-    .provider-table-container td {text-align:right; padding:4px 8px; font-size:13px; border:none;}
-    .provider-table-container td:nth-child(4){display:none;} /* hide Reason for compact view */
-    .provider-table-container td::before {font-weight:600; display:inline-block; margin-left:4px;}
-    .provider-table-container td:nth-child(1)::before {content:'Source: ';}
-    .provider-table-container td:nth-child(2)::before {content:'Price: ';}
-    .provider-table-container td:nth-child(3)::before {content:'Fund: ';}
-}
+.sources-overview table {width:100%; border-collapse:collapse; margin:4px 0 12px 0;}
+.sources-overview th, .sources-overview td {padding:4px 6px; font-size:12px; text-align:center; border-bottom:1px solid #e5e7eb;}
+.sources-overview th {background:#f8fafc; font-weight:600; font-size:11px; letter-spacing:0.5px;}
+.sources-overview tr:last-child td {border-bottom:none;}
+.sources-overview td:first-child, .sources-overview th:first-child {text-align:left;}
+@media (max-width:600px){.sources-overview th,.sources-overview td{font-size:11px;padding:3px 4px;}}
 </style>
 """
-st.markdown(_provider_css, unsafe_allow_html=True)
-html_rows = []
-html_rows.append("<tr><th>Source</th><th>Price</th><th>Fundamentals</th><th>Reason</th></tr>")
-for r in providers_status:
-        html_rows.append(
-                f"<tr><td>{r['source']}</td><td>{r['price']}</td><td>{r['fundamentals']}</td><td>{r['reason']}</td></tr>"
-        )
-providers_html = "<div class='provider-table-container'><table>" + "".join(html_rows) + "</table></div>"
-st.markdown(providers_html, unsafe_allow_html=True)
+st.markdown(sources_css + "<div class='sources-overview'><table>" + "".join(table_rows) + "</table></div>", unsafe_allow_html=True)
 
 # Utility buttons row
 col_secrets, col_cache, _ = st.columns([1, 1, 3])
@@ -3826,7 +3872,8 @@ else:
             # Reduced iframe height to tighten vertical spacing between cards.
             # Previous fixed height (700) created large empty gaps below content.
             # 430 provides enough space for collapsed + expanded details without excess.
-            st_html(card_html, height=430, scrolling=True)
+            # Render card directly (no inner scroll iframe) so expanding details pushes subsequent cards down.
+            st.markdown(card_html, unsafe_allow_html=True)
     
     # Display Speculative recommendations
     if not spec_df.empty:
@@ -4088,7 +4135,7 @@ else:
 </div>
 """
             # Match reduced height for speculative cards to remove large gaps.
-            st_html(card_html, height=430, scrolling=True)
+            st.markdown(card_html, unsafe_allow_html=True)
 
 # Inject compact mode JS to hide advanced/fundamental sections
 if st.session_state.get("compact_mode"):
