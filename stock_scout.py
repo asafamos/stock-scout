@@ -162,12 +162,12 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
       <div class='field'><span class='label'>Entry</span><span class='value'>{entry_fmt}</span></div>
       <div class='field'><span class='label'>Target Date</span><span class='value'>{target_date}</span></div>
       <div class='field'><span class='label'>Fundamental Score</span><span class='value'>{fmt_score(fund_score)}</span></div>
-      <div class='field'><span class='label'>Technical Score</span><span class='value'>{fmt_score(tech_score)}</span></div>
-            <div class='field'><span class='label'>ML Probability</span><span class='value'>{fmt_pct(ml_prob * 100) if np.isfinite(ml_prob) else 'N/A'}</span></div>
-            <div class='field'><span class='label'>Price Reliability</span><span class='value'>{fmt_pct((row.get('Price_Reliability', np.nan) * 100) if np.isfinite(row.get('Price_Reliability', np.nan)) else np.nan)}</span></div>
-            <div class='field'><span class='label'>Fund Reliability</span><span class='value'>{fmt_pct((row.get('Fundamental_Reliability', np.nan) * 100) if np.isfinite(row.get('Fundamental_Reliability', np.nan)) else np.nan)}</span></div>
-      <div class='field'><span class='label'>Base Conviction</span><span class='value'>{fmt_score(conv_base)}</span></div>
-            <div class='field' style='grid-column:span 2'><span class='label'>Sources</span><span class='value'>{html_escape.escape(sources_line) if sources_line else 'N/A'}</span></div>
+      <div class='field'><span class='label'>ML Probability</span><span class='value'>{fmt_pct(ml_prob * 100) if np.isfinite(ml_prob) else 'N/A'}</span></div>
+      <div class='field'><span class='label'>Price Reliability</span><span class='value'>{fmt_pct((row.get('Price_Reliability', np.nan) * 100) if np.isfinite(row.get('Price_Reliability', np.nan)) else np.nan)}</span></div>
+      <div class='field'><span class='label'>Fund Reliability</span><span class='value'>{fmt_pct((row.get('Fundamental_Reliability', np.nan) * 100) if np.isfinite(row.get('Fundamental_Reliability', np.nan)) else np.nan)}</span></div>
+      <div class='field'><span class='label'>Base Conviction</span><span class='value'>{fmt_score(conv_base)}</span></div>"""
+    + (f"""
+      <div class='field' style='grid-column:span 2'><span class='label'>Sources</span><span class='value'>{html_escape.escape(sources_line)}</span></div>""" if sources_line else "") + """
     </div>
   </details>
 </div>
