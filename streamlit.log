@@ -5943,3 +5943,108 @@ INFO:__main__:Using V2 position sizing with risk gates and reliability penalties
 `use_container_width` will be removed after 2025-12-31.
 
 For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+WARNING:__main__:All 1 attempts failed for URL
+INFO:__main__:✓ Deduplicated 503 → 503 unique companies (removed 0 multi-class tickers)
+INFO:__main__:✓ Loaded 503 unique S&P500 companies from Wikipedia
+INFO:__main__:🔬 Advanced filters pre-pass on 47 stocks...
+INFO:__main__:Dynamic thresholds -> RS:-0.162 MOM:0.233 RR:0.061
+INFO:__main__:Advanced filters dynamic: kept 35/47 catastrophic=12
+INFO:__main__:🔍 GOOGL FMP Debug: from_fmp=True, coverage=62%, roe=nan, quality_score_f=NaN
+INFO:__main__:🔍 AAPL FMP Debug: from_fmp=True, coverage=62%, roe=nan, quality_score_f=NaN
+INFO:__main__:🔍 AMZN FMP Debug: from_fmp=True, coverage=62%, roe=nan, quality_score_f=NaN
+INFO:core.ml_integration:✓ ML model loaded from model_xgboost_5d.pkl
+INFO:__main__:✓ Applied V2 risk gates to 35 stocks
+INFO:__main__:  - Blocked: 13 stocks
+INFO:__main__:  - Severely reduced: 0 stocks
+INFO:__main__:  - Reduced: 22 stocks
+INFO:__main__:  - Full allocation: 0 stocks
+INFO:__main__:✓ Scored 35 stocks with V2-enhanced conviction
+INFO:__main__:Score mapping: raw [35.8, 48.6] → pretty [60, 90]
+INFO:__main__:Columns available: ['Ticker', 'Price_Yahoo', 'Score_Tech', 'RSI', 'Near52w', 'Volx20d', 'OverextRatio', 'ATR_Price', 'RewardRisk', 'ATR14', 'Fundamental_S', 'Sector', 'PE_f', 'PS_f', 'ROE_f', 'ROIC_f', 'GM_f', 'DE_f', 'RevG_f', 'EPSG_f', 'Fund_from_FMP', 'Fund_from_Alpha', 'Fund_from_Finnhub', 'Fund_from_SimFin', 'Fund_from_EODHD', 'Score', 'Beta', 'RS_63d', 'Volume_Surge', 'MA_Aligned', 'Quality_Score', 'RR_Ratio', 'Momentum_Consistency', 'High_Confidence', 'AdvPenalty', 'AdvFlags', 'RejectionReason', 'from_fmp_full', 'from_fmp', 'from_alpha', 'from_finnhub', 'from_simfin', 'from_eodhd', 'from_tiingo', 'Quality_Score_F', 'Quality_Label', 'Growth_Score_F', 'Growth_Label', 'Valuation_Score_F', 'Valuation_Label', 'Leverage_Score_F', 'Leverage_Label', 'Fund_Attribution', 'reliability_v2', 'fund_sources_used_v2', 'price_sources_used_v2', 'fund_sources_count_v2', 'price_sources_count_v2', 'fund_completeness_pct', 'price_variance_penalty', 'fund_disagreement_score_v2', 'price_variance_score_v2', 'rr_ratio_v2', 'risk_gate_status_v2', 'risk_gate_penalty_v2', 'conviction_v2_base', 'conviction_v2_final', 'ml_probability_v2', 'ml_boost_v2', 'buy_amount_v2', 'shares_to_buy_v2', 'risk_level', 'quality_score', 'risk_gate_reason_v2', 'risk_meter_v2', 'reward_risk_v2', 'reliability_score_v2', 'rr', 'rr_score_v2', 'rr_band', 'overall_score', 'fund_component', 'tech_component', 'rr_component', 'reliability_component', 'base_score', 'ml_delta', 'score_before_penalties', 'penalty_total', 'overall_score_raw', 'overall_score_pretty', 'reliability_pct', 'reliability_band', 'risk_band', 'ml_conf_band', 'fund_score', 'tech_score', 'rr_score', 'reliability_score']
+INFO:__main__:Sample RS_63d values: [-0.10229058097440002, -0.1367406117602562, -0.15836581591342613, -0.12095343092071908, -0.15205131160333685]
+INFO:__main__:Sample Volume_Surge values: [0.8229197512585135, 0.8347503042466426, 0.9702322575848985, 0.6112331156636526, 1.188846564988934]
+INFO:__main__:Sample RR_Ratio values: [0.24346824196486397, 3.8392558693315717, 3.346827367788115, 0.7499993336119329, 1.9015970819061279]
+INFO:__main__:Sample Quality_Score values: [4.0, 15.0, 10.0, 0.0, 3.0]
+INFO:__main__:Sample Fundamental_S values: [48.6, 49.1, 64.3, 68.0, 71.8]
+INFO:__main__:Sample Momentum_Consistency values: [0.5833333333333334, 0.4583333333333333, 0.25, 0.375, 0.25]
+[2025-11-21 08:35:55] [INFO] [stock_scout.classification] Classified 35 stocks: Core=2, Speculative=33, Hidden=0
+[2025-11-21 08:35:55] [INFO] [stock_scout.classification] 📊 Initial distribution: 2 Core, 0 Speculative (total: 2)
+[2025-11-21 08:35:55] [INFO] [stock_scout.classification] After Core filter: 2/2
+[2025-11-21 08:35:55] [INFO] [stock_scout.classification] After fundamental quality score >= 60.0: 2/2
+[2025-11-21 08:35:55] [INFO] [stock_scout.classification] After overextension <= 0.12: 2/2
+[2025-11-21 08:35:55] [INFO] [stock_scout.classification] After ATR/Price <= 0.07: 2/2
+[2025-11-21 08:35:55] [INFO] [stock_scout.classification] After RSI in [20, 55]: 2/2
+[2025-11-21 08:35:55] [INFO] [stock_scout.classification] After RewardRisk >= 1.5: 2/2
+[2025-11-21 08:35:55] [INFO] [stock_scout.classification] After reliability_v2 >= 50: 2/2
+[2025-11-21 08:35:55] [INFO] [stock_scout.classification] After RewardRisk >= 1.5: 2/2
+[2025-11-21 08:35:55] [INFO] [stock_scout.classification] After MomentumConsistency >= 0.35: 2/2
+[2025-11-21 08:35:55] [INFO] [stock_scout.classification] Final Core recommendations (including adaptive if any): 2/2
+INFO:__main__:Speculative filter: 33 → 19
+INFO:__main__:Applying XGBoost ML scoring...
+INFO:__main__:Core stocks scored: avg probability 0.846
+INFO:__main__:Speculative stocks scored: avg probability 0.834
+INFO:__main__:Core quality: {'High': 2}
+INFO:__main__:Spec quality: {'Medium': 7, 'High': 6, 'Low': 6}
+2025-11-21 08:35:55.969 Thread 'ThreadPoolExecutor-368_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 08:35:55.971 Thread 'ThreadPoolExecutor-368_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 08:35:55.973 Thread 'ThreadPoolExecutor-368_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 08:35:55.975 Thread 'ThreadPoolExecutor-368_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 08:35:56.238 Thread 'ThreadPoolExecutor-368_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 08:35:56.238 Thread 'ThreadPoolExecutor-368_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 08:35:56.239 Thread 'ThreadPoolExecutor-368_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 08:35:56.252 Thread 'ThreadPoolExecutor-368_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 08:35:56.252 Thread 'ThreadPoolExecutor-368_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 08:35:56.254 Thread 'ThreadPoolExecutor-368_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 08:35:56.256 Thread 'ThreadPoolExecutor-368_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 08:35:56.257 Thread 'ThreadPoolExecutor-368_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 08:35:56.257 Thread 'ThreadPoolExecutor-368_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 08:35:56.985 Thread 'ThreadPoolExecutor-368_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 08:35:57.008 Thread 'ThreadPoolExecutor-368_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+WARNING:__main__:All 1 attempts failed for URL
+2025-11-21 08:35:57.014 Thread 'ThreadPoolExecutor-368_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 08:35:57.019 Thread 'ThreadPoolExecutor-368_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+WARNING:__main__:All 1 attempts failed for URL
+2025-11-21 08:35:57.916 Thread 'ThreadPoolExecutor-368_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+2025-11-21 08:35:58.017 Thread 'ThreadPoolExecutor-368_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+WARNING:__main__:All 1 attempts failed for URL
+2025-11-21 08:35:58.019 Thread 'ThreadPoolExecutor-368_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 08:35:58.024 Thread 'ThreadPoolExecutor-368_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+INFO:__main__:Using V2 position sizing with risk gates and reliability penalties
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-11-21 08:36:15.624 Uncaught app execution
+Traceback (most recent call last):
+  File "/home/vscode/.local/lib/python3.11/site-packages/streamlit/runtime/scriptrunner/exec_code.py", line 129, in exec_func_with_error_handling
+    result = func()
+             ^^^^^^
+  File "/home/vscode/.local/lib/python3.11/site-packages/streamlit/runtime/scriptrunner/script_runner.py", line 669, in code_to_exec
+    exec(code, module.__dict__)  # noqa: S102
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/stock-scout-2/stock_scout.py", line 3744, in <module>
+    risk_color = "#6b7280"
+                           
+  File "/workspaces/stock-scout-2/stock_scout.py", line 149, in build_clean_card
+    <div class='field'><span class='label'>Fundamental Score</span><span class='value'>{fmt_score(fund_score)}</span></div>
+                                                                                     ^^^^^^^
+NameError: name 'fmt_pct' is not defined

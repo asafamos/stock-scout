@@ -73,12 +73,15 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
     rr_ratio = row.get('rr', np.nan)
     rr_score = row.get('rr_score_v2', np.nan)
     rr_band = row.get('rr_band','')
+    
+    # Get display bands
     risk_meter = row.get('risk_meter_v2', np.nan)
-    risk_label = row.get('risk_label_v2','N/A')
-    rel_score = row.get('Reliability_Score', row.get('reliability_score_v2', np.nan))
-    price_rel = row.get('Price_Reliability', np.nan)
-    fund_rel = row.get('Fundamental_Reliability', np.nan)
-    ml_conf = row.get('ml_status', row.get('ML_Confidence','N/A'))
+    risk_band_label = row.get('risk_band', 'N/A')
+    reliability_pct = row.get('reliability_pct', np.nan)
+    reliability_band_label = row.get('reliability_band', 'N/A')
+    ml_prob = row.get('ML_Probability', np.nan)
+    ml_conf_band_label = row.get('ml_conf_band', 'N/A')
+    
     quality_level = row.get('Quality_Level', 'N/A')
     quality_score = row.get('Quality_Score_Numeric', np.nan)
     conv_base = row.get('conviction_v2_base', np.nan)
@@ -86,7 +89,6 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
     # Component scores for <details>
     fund_score = row.get('Fundamental_S', np.nan)
     tech_score = row.get('Technical_S', np.nan)
-    ml_prob = row.get('ML_Probability', np.nan)
 
     def fmt_money(v):
         return f"${v:.2f}" if np.isfinite(v) else 'N/A'
@@ -109,11 +111,14 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
     elif target_source == 'Technical':
         target_badge = '<span class="badge tech">Tech</span>'
 
-    reliability_fmt = fmt_pct(rel_score)
-    risk_fmt = fmt_score(risk_meter)
     rr_ratio_fmt = f"{rr_ratio:.2f}" if np.isfinite(rr_ratio) else 'N/A'
     overall_score_fmt = fmt_score(overall_score)
     quality_score_fmt = f"{quality_score:.2f}" if np.isfinite(quality_score) else 'N/A'
+    
+    # Format display values with bands
+    risk_fmt = f"{fmt_score(risk_meter)} ({risk_band_label})"
+    reliability_fmt = f"{fmt_score(reliability_pct)}% ({reliability_band_label})"
+    ml_fmt = f"{ml_conf_band_label} (p={ml_prob:.2f})" if np.isfinite(ml_prob) else "N/A"
 
     type_badge = 'SPEC' if speculative else 'CORE'
     
@@ -131,9 +136,9 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
   <div class='top-grid'>
     <div class='field'><span class='label'>Target</span><span class='value tabular'>{target_fmt} {target_badge} ({potential_fmt})</span></div>
     <div class='field'><span class='label'>R/R</span><span class='value tabular'>{rr_ratio_fmt} <span class='band'>{rr_band}</span></span></div>
-    <div class='field'><span class='label'>Risk</span><span class='value tabular'>{risk_fmt} <span class='band'>{risk_label}</span></span></div>
+    <div class='field'><span class='label'>Risk</span><span class='value tabular'>{risk_fmt}</span></div>
     <div class='field'><span class='label'>Reliability</span><span class='value tabular'>{reliability_fmt}</span></div>
-    <div class='field'><span class='label'>ML</span><span class='value tabular'>{ml_conf}</span></div>
+    <div class='field'><span class='label'>ML</span><span class='value tabular'>{ml_fmt}</span></div>
     <div class='field'><span class='label'>Quality</span><span class='value tabular'>{quality_level} ({quality_score_fmt})</span></div>
   </div>
   <details class='more-info'>
@@ -143,9 +148,9 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
       <div class='field'><span class='label'>Target Date</span><span class='value'>{target_date}</span></div>
       <div class='field'><span class='label'>Fundamental Score</span><span class='value'>{fmt_score(fund_score)}</span></div>
       <div class='field'><span class='label'>Technical Score</span><span class='value'>{fmt_score(tech_score)}</span></div>
-      <div class='field'><span class='label'>ML Probability</span><span class='value'>{fmt_pct(ml_prob * 100) if np.isfinite(ml_prob) else 'N/A'}</span></div>
-      <div class='field'><span class='label'>Price Reliability</span><span class='value'>{fmt_pct(price_rel)}</span></div>
-      <div class='field'><span class='label'>Fund Reliability</span><span class='value'>{fmt_pct(fund_rel)}</span></div>
+            <div class='field'><span class='label'>ML Probability</span><span class='value'>{fmt_pct(ml_prob * 100) if np.isfinite(ml_prob) else 'N/A'}</span></div>
+            <div class='field'><span class='label'>Price Reliability</span><span class='value'>{fmt_pct((row.get('Price_Reliability', np.nan) * 100) if np.isfinite(row.get('Price_Reliability', np.nan)) else np.nan)}</span></div>
+            <div class='field'><span class='label'>Fund Reliability</span><span class='value'>{fmt_pct((row.get('Fundamental_Reliability', np.nan) * 100) if np.isfinite(row.get('Fundamental_Reliability', np.nan)) else np.nan)}</span></div>
       <div class='field'><span class='label'>Base Conviction</span><span class='value'>{fmt_score(conv_base)}</span></div>
     </div>
   </details>
@@ -2230,6 +2235,19 @@ if CONFIG["FUNDAMENTAL_ENABLED"] and fundamental_available:
     results["rr_score_v2"] = [e[0] for e in rr_evals]
     results["rr_band"] = [e[1] for e in rr_evals]
 
+    # Provide canonical aliases expected by unified scoring engine
+    # RR_Score (0-100), RR ratio (RR), Reliability_v2 (0-100)
+    results["RR_Score"] = results["rr_score_v2"].copy()
+    # Ensure raw ratio alias RR for penalty logic; fall back gracefully
+    if "rr" in results.columns:
+        results["RR"] = results["rr"].copy()
+    else:
+        results["RR"] = results.get("RewardRisk", results.get("RR_Ratio", np.nan))
+    if "reliability_v2" in results.columns:
+        results["Reliability_v2"] = results["reliability_v2"].copy()
+    else:
+        results["Reliability_v2"] = results.get("reliability_score_v2", np.nan)
+
     # === COMPUTE OVERALL SCORE WITH EXPLICIT FORMULA ===
     # Use the new compute_overall_score function from scoring_engine
     # Formula: 35% fund + 35% tech + 15% RR + 15% reliability ± ML (max ±10%)
@@ -2287,6 +2305,59 @@ if CONFIG["FUNDAMENTAL_ENABLED"] and fundamental_available:
         results["overall_score_pretty"] = pretty.clip(0, 100)
     
     logger.info(f"Score mapping: raw [{s_min:.1f}, {s_max:.1f}] → pretty [60, 90]")
+
+    # === ADD DISPLAY BANDS FOR UI ===
+    # Reliability band (High/Medium/Low)
+    def reliability_band(x):
+        if pd.isna(x) or not np.isfinite(x):
+            return "N/A"
+        if x >= 75:
+            return "High"
+        if x >= 40:
+            return "Medium"
+        return "Low"
+    
+    # Get reliability score (0-100 scale)
+    rel_col = results.get("reliability_v2", results.get("Reliability_v2", results.get("Reliability Score v2", np.nan)))
+    if isinstance(rel_col, pd.Series):
+        results["reliability_pct"] = rel_col.clip(0, 100)
+    else:
+        results["reliability_pct"] = 50.0
+    results["reliability_band"] = results["reliability_pct"].apply(reliability_band)
+    
+    # Risk band (Low/Medium/High/Very High)
+    def risk_band(v):
+        if pd.isna(v) or not np.isfinite(v):
+            return "N/A"
+        if v < 45:
+            return "Low"
+        if v < 60:
+            return "Medium"
+        if v < 75:
+            return "High"
+        return "Very High"
+    
+    risk_col = results.get("risk_meter_v2", results.get("RiskMeter", np.nan))
+    if isinstance(risk_col, pd.Series):
+        results["risk_band"] = risk_col.apply(risk_band)
+    else:
+        results["risk_band"] = "N/A"
+    
+    # ML Confidence band (Low/Medium/High)
+    def ml_conf_band(p):
+        if pd.isna(p) or not np.isfinite(p):
+            return "N/A"
+        if p < 0.60:
+            return "Low"
+        if p < 0.75:
+            return "Medium"
+        return "High"
+    
+    ml_prob_col = results.get("ML_Probability", np.nan)
+    if isinstance(ml_prob_col, pd.Series):
+        results["ml_conf_band"] = ml_prob_col.apply(ml_conf_band)
+    else:
+        results["ml_conf_band"] = "N/A"
 
     # Component breakdowns (fallback to legacy names if needed)
     results["fund_score"] = results.get("fundamental_score_v2", results.get("Fundamental Score", np.nan))
@@ -2889,17 +2960,19 @@ results["Unit_Price"] = np.where(
 )
 results["Unit_Price"] = pd.to_numeric(results["Unit_Price"], errors="coerce")
 
-TOPN = min(int(st.session_state.get("topn_recs", CONFIG["TOPN_RESULTS"])), len(results))
+# Show ALL stocks that passed filters (no limit)
+TOPN = len(results)
 
-# Apply ML confidence threshold BEFORE taking topN
+# Apply ML confidence threshold
 ml_threshold_value = float(st.session_state.get("ml_threshold", 0)) / 100.0
 if ml_threshold_value > 0 and "ML_Prob" in results.columns:
     before_ml = len(results)
     results = results[results["ML_Prob"] >= ml_threshold_value].copy()
     after_ml = len(results)
     logger.info(f"ML confidence filter: {before_ml} → {after_ml} stocks (threshold={ml_threshold_value:.0%})")
+    TOPN = len(results)  # Update TOPN after filtering
 
-alloc_df = results.head(TOPN).reset_index(drop=True).copy()
+alloc_df = results.reset_index(drop=True).copy()
 
 # V2 ALLOCATION: Use buy_amount_v2 from risk engine (already has gates + penalties applied)
 # For backward compatibility, keep old AllocScore but use buy_amount_v2 as primary allocation
@@ -3036,17 +3109,6 @@ with st.sidebar:
 
     st.markdown("---")
     st.subheader("💰 Allocation")
-    
-    # Number of recommendations
-    topn_recs = st.slider(
-        "Max recommendations", 
-        min_value=5, 
-        max_value=50, 
-        value=int(st.session_state.get("topn_recs", CONFIG["TOPN_RESULTS"])), 
-        step=5,
-        help="Maximum number of stocks to allocate budget to"
-    )
-    st.session_state["topn_recs"] = int(topn_recs)
     
     # ML confidence threshold
     ml_threshold = st.slider(
@@ -3417,6 +3479,11 @@ if not rec_df.empty:
             except Exception:
                 return np.nan
         results["rr_score_v2"] = results["rr"].apply(_norm_rr_local)
+        # Keep canonical RR_Score alias in sync if present
+        results["RR_Score"] = results["rr_score_v2"].copy()
+        results["RR"] = results["rr"].copy()
+    except Exception:
+        pass
     except Exception:
         # if anything goes wrong, leave results unchanged
         pass
@@ -4112,6 +4179,10 @@ show_order = [
     "overall_score",
     "overall_score_raw",  # True model score (internal logic)
     "overall_score_pretty",  # Display score (60-90 range)
+    "reliability_pct",  # Reliability percentage (0-100)
+    "reliability_band",  # High/Medium/Low
+    "risk_band",  # Low/Medium/High/Very High
+    "ml_conf_band",  # ML confidence band (Low/Medium/High)
     "fund_score",
     "tech_score",
     "rr_score",
