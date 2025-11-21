@@ -64,7 +64,8 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
     esc = html_escape.escape
     ticker = esc(str(row.get('Ticker','N/A')))
     overall_rank = row.get('Overall_Rank','N/A')
-    overall_score = row.get('overall_score', row.get('conviction_v2_final', np.nan))
+    # Use pretty score for display (60-90 range), raw score for internal logic
+    overall_score = row.get('overall_score_pretty', row.get('overall_score', row.get('conviction_v2_final', np.nan)))
     target_price = row.get('Target_Price', np.nan)
     entry_price = row.get('Entry_Price', np.nan)
     target_date = row.get('Target_Date','N/A')
@@ -2267,6 +2268,26 @@ if CONFIG["FUNDAMENTAL_ENABLED"] and fundamental_available:
     overall_components = results.apply(_compute_overall, axis=1)
     results = pd.concat([results, overall_components], axis=1)
 
+    # === PRESERVE RAW SCORE + COMPUTE PRETTY SCORE FOR DISPLAY ===
+    # Keep overall_score as the raw model score for all internal logic
+    results["overall_score_raw"] = results["overall_score"].copy()
+    
+    # Compute "pretty" score in 60-90 range for display only
+    raw_scores = results["overall_score_raw"]
+    s_min = float(raw_scores.min())
+    s_max = float(raw_scores.max())
+    
+    if s_max == s_min:
+        # All scores are identical, use neutral value
+        results["overall_score_pretty"] = 75.0
+    else:
+        # Normalize to 0-1, then scale to 60-90
+        normalized = (raw_scores - s_min) / (s_max - s_min)
+        pretty = 60.0 + normalized * 30.0
+        results["overall_score_pretty"] = pretty.clip(0, 100)
+    
+    logger.info(f"Score mapping: raw [{s_min:.1f}, {s_max:.1f}] → pretty [60, 90]")
+
     # Component breakdowns (fallback to legacy names if needed)
     results["fund_score"] = results.get("fundamental_score_v2", results.get("Fundamental Score", np.nan))
     results["tech_score"] = results.get("technical_score_v2", results.get("Tech Score", np.nan))
@@ -4089,6 +4110,8 @@ show_order = [
     "reliability_score_v2",
     "Score",
     "overall_score",
+    "overall_score_raw",  # True model score (internal logic)
+    "overall_score_pretty",  # Display score (60-90 range)
     "fund_score",
     "tech_score",
     "rr_score",
