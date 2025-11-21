@@ -80,7 +80,16 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
     reliability_pct = row.get('reliability_pct', np.nan)
     reliability_band_label = row.get('reliability_band', 'N/A')
     ml_prob = row.get('ML_Probability', np.nan)
-    ml_conf_band_label = row.get('ml_conf_band', 'N/A')
+    # Derive confidence band with explicit Low/Medium/High thresholds; fallback message if missing
+    def ml_conf_band(p: float) -> str:
+        if not np.isfinite(p):
+            return 'N/A'
+        if p < 0.60:
+            return 'Low'
+        if p < 0.75:
+            return 'Medium'
+        return 'High'
+    ml_conf_band_label = row.get('ml_conf_band', ml_conf_band(ml_prob))
     
     quality_level = row.get('Quality_Level', 'N/A')
     quality_score = row.get('Quality_Score_Numeric', np.nan)
@@ -89,6 +98,12 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
     # Component scores for <details>
     fund_score = row.get('Fundamental_S', np.nan)
     tech_score = row.get('Technical_S', np.nan)
+    # Compressed data sources line (prices + fundamentals providers if available)
+    price_sources = row.get('Price_Sources_Line', '')  # expected precomputed concise string
+    fund_sources = row.get('Fund_Sources_Line', '')
+    sources_line = ''
+    if price_sources or fund_sources:
+        sources_line = f"Data sources: Prices – {price_sources or 'N/A'}; Fundamentals – {fund_sources or 'N/A'}"
 
     def fmt_money(v):
         return f"${v:.2f}" if np.isfinite(v) else 'N/A'
@@ -118,7 +133,7 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
     # Format display values with bands
     risk_fmt = f"{fmt_score(risk_meter)} ({risk_band_label})"
     reliability_fmt = f"{fmt_score(reliability_pct)}% ({reliability_band_label})"
-    ml_fmt = f"{ml_conf_band_label} (p={ml_prob:.2f})" if np.isfinite(ml_prob) else "N/A"
+    ml_fmt = f"{ml_conf_band_label} (p={ml_prob:.2f})" if np.isfinite(ml_prob) else "N/A (no model data)"
 
     type_badge = 'SPEC' if speculative else 'CORE'
     
@@ -141,7 +156,7 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
     <div class='field'><span class='label'>ML</span><span class='value tabular'>{ml_fmt}</span></div>
     <div class='field'><span class='label'>Quality</span><span class='value tabular'>{quality_level} ({quality_score_fmt})</span></div>
   </div>
-  <details class='more-info'>
+    <details class='more-info'>
     <summary>More Details</summary>
     <div class='detail-grid'>
       <div class='field'><span class='label'>Entry</span><span class='value'>{entry_fmt}</span></div>
@@ -152,6 +167,7 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
             <div class='field'><span class='label'>Price Reliability</span><span class='value'>{fmt_pct((row.get('Price_Reliability', np.nan) * 100) if np.isfinite(row.get('Price_Reliability', np.nan)) else np.nan)}</span></div>
             <div class='field'><span class='label'>Fund Reliability</span><span class='value'>{fmt_pct((row.get('Fundamental_Reliability', np.nan) * 100) if np.isfinite(row.get('Fundamental_Reliability', np.nan)) else np.nan)}</span></div>
       <div class='field'><span class='label'>Base Conviction</span><span class='value'>{fmt_score(conv_base)}</span></div>
+            <div class='field' style='grid-column:span 2'><span class='label'>Sources</span><span class='value'>{html_escape.escape(sources_line) if sources_line else 'N/A'}</span></div>
     </div>
   </details>
 </div>
@@ -2540,24 +2556,36 @@ if XGBOOST_MODEL is not None:
     # Score Core stocks
     if not core_filtered.empty:
         core_filtered['ML_Probability'] = core_filtered.apply(score_with_xgboost, axis=1)
-        core_filtered['ML_Confidence'] = core_filtered['ML_Probability'].apply(assign_confidence_tier)
+        def _ml_band(p: float) -> str:
+            if not np.isfinite(p):
+                return 'N/A'
+            if p < 0.60:
+                return 'Low'
+            if p < 0.75:
+                return 'Medium'
+            return 'High'
+        core_filtered['ml_conf_band'] = core_filtered['ML_Probability'].apply(_ml_band)
+        core_filtered['ML_Confidence'] = core_filtered['ml_conf_band']
         core_filtered = core_filtered.sort_values('ML_Probability', ascending=False)
         logger.info(f"Core stocks scored: avg probability {core_filtered['ML_Probability'].mean():.3f}")
     
     # Score Speculative stocks
     if not spec_filtered.empty:
         spec_filtered['ML_Probability'] = spec_filtered.apply(score_with_xgboost, axis=1)
-        spec_filtered['ML_Confidence'] = spec_filtered['ML_Probability'].apply(assign_confidence_tier)
+        spec_filtered['ml_conf_band'] = spec_filtered['ML_Probability'].apply(_ml_band)
+        spec_filtered['ML_Confidence'] = spec_filtered['ml_conf_band']
         spec_filtered = spec_filtered.sort_values('ML_Probability', ascending=False)
         logger.info(f"Speculative stocks scored: avg probability {spec_filtered['ML_Probability'].mean():.3f}")
 else:
     logger.info("ML scoring skipped - model not available")
     if not core_filtered.empty:
-        core_filtered['ML_Probability'] = 0.5
-        core_filtered['ML_Confidence'] = "N/A"
+        core_filtered['ML_Probability'] = np.nan
+        core_filtered['ml_conf_band'] = 'N/A'
+        core_filtered['ML_Confidence'] = 'N/A'
     if not spec_filtered.empty:
-        spec_filtered['ML_Probability'] = 0.5
-        spec_filtered['ML_Confidence'] = "N/A"
+        spec_filtered['ML_Probability'] = np.nan
+        spec_filtered['ml_conf_band'] = 'N/A'
+        spec_filtered['ML_Confidence'] = 'N/A'
 
 # === CALCULATE QUALITY SCORE FOR ALL STOCKS ===
 from core.scoring_engine import calculate_quality_score
@@ -3036,6 +3064,20 @@ results["עודף ($)"] = np.round(
     results["סכום קנייה ($)"] - results["מניות לקנייה"] * results["Unit_Price"], 2
 )
 
+# === Global budget cap enforcement (scaling if needed) ===
+total_budget_value = float(st.session_state.get('total_budget', CONFIG['BUDGET_TOTAL']))
+results['position_value'] = results['Unit_Price'].fillna(0) * results['מניות לקנייה']
+total_alloc = float(results['position_value'].sum())
+if total_alloc > total_budget_value and total_alloc > 0:
+    scale = total_budget_value / total_alloc
+    scaled_shares = (results['מניות לקנייה'] * scale).apply(lambda x: max(int(round(x)), 0))
+    results['מניות לקנייה'] = scaled_shares
+    results['position_value'] = results['Unit_Price'].fillna(0) * results['מניות לקנייה']
+    # Recompute leftover and purchase amount columns to reflect scaled allocation
+    results['סכום קנייה ($)'] = results['position_value'].round(2)
+    results['עודף ($)'] = 0.0  # leftover per row not tracked post-scale
+
+
 # KPI
 budget_used = float(
     results["מניות לקנייה"].to_numpy() @ results["Unit_Price"].fillna(0).to_numpy()
@@ -3043,8 +3085,10 @@ budget_used = float(
 k0, k1, k2, k3 = st.columns(4)
 k0.metric("Universe size after history filtering", len(data_map))
 k1.metric("Results after filtering", len(results))
+total_budget_value = float(st.session_state.get('total_budget', CONFIG['BUDGET_TOTAL']))
+budget_used = min(budget_used, total_budget_value)  # safety clamp
 k2.metric("Budget used (≈$)", f"{budget_used:,.0f}")
-k3.metric("Remaining budget (≈$)", f"{max(0.0, float(st.session_state.get('total_budget', CONFIG['BUDGET_TOTAL'])) - budget_used):,.0f}")
+k3.metric("Remaining budget (≈$)", f"{max(0.0, total_budget_value - budget_used):,.0f}")
 
 # Timings
 st.subheader("⏱️ Execution Times")
@@ -3772,16 +3816,17 @@ else:
                     raw_html = html_escape.escape(str(raw_sources))
                     card_html += f"""
     <div class="item" style="grid-column:span 5;font-size:0.7em;color:#334155;background:#f1f5f9;border:1px dashed #cbd5e1;border-radius:6px;padding:4px;margin-top:4px"><b>RAW _sources:</b> {raw_html}</div>"""
-            if attribution:
-                card_html += f"""
-    <div class="item" style="grid-column:span 5;font-size:0.75em;color:#6b7280;border-top:1px solid #e5e7eb;margin-top:4px;padding-top:4px"><b>📊 Data Sources:</b> {esc(attribution)}</div>"""
+            # Remove top-level data sources line (moved to details section inside card)
             
             card_html += """
   </div>
 </div>
 """
             # Use reasonable height with scrolling enabled to prevent text cutoff
-            st_html(card_html, height=700, scrolling=True)
+            # Reduced iframe height to tighten vertical spacing between cards.
+            # Previous fixed height (700) created large empty gaps below content.
+            # 430 provides enough space for collapsed + expanded details without excess.
+            st_html(card_html, height=430, scrolling=True)
     
     # Display Speculative recommendations
     if not spec_df.empty:
@@ -4030,9 +4075,7 @@ else:
             
             # Add provider attribution if available (Speculative cards)
             attribution_spec = r.get("Fund_Attribution", "")
-            if attribution_spec:
-                card_html += f"""
-    <div class="item" style="grid-column:span 5;font-size:0.75em;color:#6b7280;border-top:1px solid #e5e7eb;margin-top:4px;padding-top:4px"><b>📊 Data Sources:</b> {esc(attribution_spec)}</div>"""
+            # Remove top-level data sources line for speculative cards as well
             if show_debug_attr:
                 raw_sources = r.get("_sources", {})
                 if raw_sources:
@@ -4044,7 +4087,8 @@ else:
   </div>
 </div>
 """
-            st_html(card_html, height=700, scrolling=True)
+            # Match reduced height for speculative cards to remove large gaps.
+            st_html(card_html, height=430, scrolling=True)
 
 # Inject compact mode JS to hide advanced/fundamental sections
 if st.session_state.get("compact_mode"):
