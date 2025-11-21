@@ -234,10 +234,22 @@ def classify_stock(row: pd.Series) -> StockClassification:
     is_stable_smallbeta = (
         isinstance(beta, (int, float)) and beta < 1.2 and isinstance(atr_price, (int, float)) and atr_price < 0.05
     )
+    
+    # Check if fundamentals are missing (new v2 check)
+    fund_sources_v2 = row.get("fund_sources_used_v2", 0)
+    fund_reliability_v2 = row.get("Fundamental_Reliability_v2", 0.0)
+    missing_fundamentals = (fund_sources_v2 == 0) or (fund_reliability_v2 < 20.0)
+    
     # If mega-cap or stable small-beta, avoid automatic demotion to Speculative due to missing fundamentals
-    if (is_mega_cap or is_stable_smallbeta) and data_quality == "low":
-        data_quality = "medium"
-        all_warnings.append("Adjusted: Mega-cap/low-beta leniency applied")
+    # Mega-cap stocks (AAPL, MSFT, GOOGL, etc.) should not be penalized for temporary fundamental data gaps
+    if (is_mega_cap or is_stable_smallbeta) and (data_quality == "low" or missing_fundamentals):
+        # Upgrade data quality if fundamentals are the only issue
+        if data_quality == "low" and missing_fundamentals:
+            data_quality = "medium"
+            all_warnings.append("Adjusted: Mega-cap/low-beta leniency applied (missing fundamentals ignored)")
+        elif data_quality == "low":
+            data_quality = "medium"
+            all_warnings.append("Adjusted: Mega-cap/low-beta leniency applied")
     
     # Extract key metrics for classification
     rsi = row.get("RSI")

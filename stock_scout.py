@@ -24,6 +24,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Tuple
 
 import numpy as np
+from core.data_sources_v2 import aggregate_fundamentals as agg_fund_v2, fetch_price_multi_source as fetch_price_multi_v2, aggregate_price as aggregate_price_v2
 import pandas as pd
 import requests
 import yfinance as yf
@@ -110,7 +111,16 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
     def fmt_pct(v):
         return f"{v:.1f}%" if np.isfinite(v) else 'N/A'
     def fmt_score(v):
-        return f"{v:.0f}" if np.isfinite(v) else 'N/A'
+        # Handle lists by taking first element or count
+        if isinstance(v, (list, tuple)):
+            if len(v) == 0:
+                return '0'
+            v = len(v) if all(isinstance(x, str) for x in v) else v[0]
+        # Handle non-numeric types
+        try:
+            return f"{float(v):.0f}" if np.isfinite(float(v)) else 'N/A'
+        except (TypeError, ValueError):
+            return str(v) if v is not None else 'N/A'
 
     entry_fmt = fmt_money(entry_price)
     target_fmt = fmt_money(target_price)
@@ -130,9 +140,15 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
     overall_score_fmt = fmt_score(overall_score)
     quality_score_fmt = f"{quality_score:.2f}" if np.isfinite(quality_score) else 'N/A'
     
+    # Get Fund and Price reliability separately for detailed display
+    fund_reliability = row.get('Fundamental_Reliability_v2', row.get('Fundamental_Reliability', np.nan))
+    price_reliability = row.get('Price_Reliability_v2', row.get('Price_Reliability', np.nan))
+    fund_rel_fmt = fmt_score(fund_reliability) if np.isfinite(fund_reliability) else 'N/A'
+    price_rel_fmt = fmt_score(price_reliability) if np.isfinite(price_reliability) else 'N/A'
+    
     # Format display values with bands
     risk_fmt = f"{fmt_score(risk_meter)} ({risk_band_label})"
-    reliability_fmt = f"{fmt_score(reliability_pct)}% ({reliability_band_label})"
+    reliability_fmt = f"{reliability_band_label} (F:{fund_rel_fmt}% / P:{price_rel_fmt}%)"
     ml_fmt = f"{ml_conf_band_label} (p={ml_prob:.2f})" if np.isfinite(ml_prob) else "N/A (no model data)"
 
     type_badge = 'SPEC' if speculative else 'CORE'
@@ -163,9 +179,10 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
       <div class='field'><span class='label'>Target Date</span><span class='value'>{target_date}</span></div>
       <div class='field'><span class='label'>Fundamental Score</span><span class='value'>{fmt_score(fund_score)}</span></div>
       <div class='field'><span class='label'>ML Probability</span><span class='value'>{fmt_pct(ml_prob * 100) if np.isfinite(ml_prob) else 'N/A'}</span></div>
-      <div class='field'><span class='label'>Price Reliability</span><span class='value'>{fmt_pct((row.get('Price_Reliability', np.nan) * 100) if np.isfinite(row.get('Price_Reliability', np.nan)) else np.nan)}</span></div>
-      <div class='field'><span class='label'>Fund Reliability</span><span class='value'>{fmt_pct((row.get('Fundamental_Reliability', np.nan) * 100) if np.isfinite(row.get('Fundamental_Reliability', np.nan)) else np.nan)}</span></div>
-      <div class='field'><span class='label'>Base Conviction</span><span class='value'>{fmt_score(conv_base)}</span></div>"""
+      <div class='field'><span class='label'>Base Conviction</span><span class='value'>{fmt_score(conv_base)}</span></div>
+    <div class='field'><span class='label'>Fund Sources</span><span class='value'>{fmt_score(row.get('fund_sources_used_v2', 0))}</span></div>
+    <div class='field'><span class='label'>Price Sources</span><span class='value'>{fmt_score(row.get('price_sources_used_v2', 0))}</span></div>
+      <div class='field'><span class='label'>Price Std Dev</span><span class='value'>{fmt_money(row.get('Price_STD_v2', np.nan))}</span></div>"""
     + (f"""
       <div class='field' style='grid-column:span 2'><span class='label'>Sources</span><span class='value'>{html_escape.escape(sources_line)}</span></div>""" if sources_line else "") + """
     </div>
@@ -231,6 +248,12 @@ CONFIG = {
     "ENABLE_MARKETSTACK": False,  # Monthly usage limit reached (free tier exhausted)
     "ENABLE_NASDAQ_DL": False,    # API access blocked (403 Forbidden)
     "ENABLE_EODHD": False,        # Requires paid subscription (402 Payment Required)
+    # --- Performance / Fast Mode Flags ---
+    "PERF_FAST_MODE": False,          # Set True to reduce external waits for interactive exploration
+    "PERF_MULTI_SOURCE_TOP_N": 8,     # In fast mode: only compute multi-source reliability for top N by score
+    "PERF_ALPHA_ENABLED": True,       # In fast mode we force this False to skip Alpha Vantage entirely
+    "PERF_FUND_TIMEOUT": 15,          # Normal per-provider future timeout
+    "PERF_FUND_TIMEOUT_FAST": 6,      # Fast mode per-provider future timeout
 }
 
 # Load environment variables
@@ -845,9 +868,10 @@ def fetch_fundamentals_bundle(ticker: str, enable_alpha_smart: bool = False) -> 
         
         # Collect results with timeout
         results = {}
+        fund_timeout = CONFIG.get("PERF_FUND_TIMEOUT_FAST") if CONFIG.get("PERF_FAST_MODE") else CONFIG.get("PERF_FUND_TIMEOUT")
         for source, fut in futures.items():
             try:
-                results[source] = fut.result(timeout=15)
+                results[source] = fut.result(timeout=fund_timeout)
             except Exception as e:
                 logger.warning(f"Parallel fetch failed for {source}/{ticker}: {e}")
                 results[source] = {}
@@ -2161,6 +2185,9 @@ if CONFIG["FUNDAMENTAL_ENABLED"] and fundamental_available:
         rank = list(results.index).index(idx) + 1  # 1-based rank
         # Smart Alpha: enable only for top 15 to respect 25/day rate limit
         use_alpha = (rank <= 15)
+        # Fast mode disables Alpha entirely to avoid throttle sleeps
+        if CONFIG.get("PERF_FAST_MODE"):
+            use_alpha = False
         d = fetch_fundamentals_bundle(tkr, enable_alpha_smart=use_alpha)
         
         # DEBUG: Log FMP data quality for key tickers (transparency check)
@@ -2219,6 +2246,108 @@ if CONFIG["FUNDAMENTAL_ENABLED"] and fundamental_available:
         results.loc[idx, "RevG_f"] = d.get("rev_g_yoy", np.nan)
         results.loc[idx, "EPSG_f"] = d.get("eps_g_yoy", np.nan)
         results.loc[idx, "Sector"] = d.get("sector") or "Unknown"
+
+# --- Multi-Source Aggregation & Reliability Injection (v2) ---
+# Apply after initial per-ticker fundamentals fetch; enrich with multi-source merged view
+multi_sources_fields = [
+    "pe", "ps", "pb", "roe", "margin", "rev_yoy", "eps_yoy", "debt_equity", "market_cap", "beta"
+]
+
+fund_sources_used_list = []
+fund_disagreement_list = []
+fund_coverage_pct_list = []
+fund_reliability_list = []
+price_sources_used_list = []
+price_variance_score_list = []
+price_reliability_list = []
+price_mean_list = []
+price_std_list = []
+
+for idx in results.index:
+    tkr = results.at[idx, "Ticker"]
+    pos = list(results.index).index(idx)
+    fast_mode = CONFIG.get("PERF_FAST_MODE")
+    top_n_limit = CONFIG.get("PERF_MULTI_SOURCE_TOP_N", 0)
+    # If fast mode and beyond top N tickers: skip heavy multi-source calls, append neutral defaults
+    if fast_mode and top_n_limit > 0 and pos >= top_n_limit:
+        fund_sources_used_list.append(0)
+        fund_disagreement_list.append(1.0)
+        fund_coverage_pct_list.append(0.0)
+        fund_reliability_list.append(np.nan)
+        price_sources_used_list.append(0)
+        price_variance_score_list.append(1.0)
+        price_reliability_list.append(np.nan)
+        price_mean_list.append(np.nan)
+        price_std_list.append(np.nan)
+        continue
+    try:
+        agg_fund = agg_fund_v2(tkr)
+    except Exception:
+        agg_fund = {"sources_used": [], "coverage": {}, "disagreement_score": 1.0}
+    # Fundamentals source metrics
+    f_sources = agg_fund.get("sources_used", []) or []
+    f_disagreement = float(agg_fund.get("disagreement_score", 1.0) or 1.0)
+    coverage_dict = agg_fund.get("coverage", {}) or {}
+    covered_fields = sum(1 for f in multi_sources_fields if coverage_dict.get(f))
+    coverage_pct = covered_fields / float(len(multi_sources_fields)) if multi_sources_fields else 0.0
+    # Fundamental reliability formula:
+    #   base = coverage_pct * (1 - disagreement)
+    #   source_factor = 0.5 + 0.5 * min(count/4, 1)
+    #   reliability_raw = base * source_factor
+    #   floor 0.15 if at least one source
+    source_factor = 0.5 + 0.5 * min(len(f_sources) / 4.0, 1.0)
+    fund_raw = coverage_pct * (1.0 - f_disagreement) * source_factor
+    if len(f_sources) >= 1:
+        fund_raw = max(fund_raw, 0.15 * source_factor)  # ensure partial reliability when any source contributes
+    fund_reliability_pct = max(0.0, min(fund_raw * 100.0, 100.0))
+
+    # Price multi-source
+    try:
+        prices_map = fetch_price_multi_v2(tkr)
+    except Exception:
+        prices_map = {}
+    mean_price, std_price, price_count = aggregate_price_v2(prices_map)
+    if mean_price and mean_price > 0 and np.isfinite(std_price):
+        variance_ratio = min(std_price / mean_price, 1.0)
+    else:
+        variance_ratio = 1.0
+    # Price reliability:
+    #   stability = (1 - variance_ratio)
+    #   source_factor_price = min(price_count/5, 1)
+    #   reliability_raw = stability * (0.4 + 0.6*source_factor_price)
+    #   floor 0.20 if any source
+    source_factor_price = min(price_count / 5.0, 1.0)
+    price_raw = (1.0 - variance_ratio) * (0.4 + 0.6 * source_factor_price)
+    if price_count >= 1:
+        price_raw = max(price_raw, 0.20 * (0.4 + 0.6 * source_factor_price))
+    price_reliability_pct = max(0.0, min(price_raw * 100.0, 100.0))
+
+    # Append lists
+    fund_sources_used_list.append(len(f_sources))
+    fund_disagreement_list.append(f_disagreement)
+    fund_coverage_pct_list.append(coverage_pct)
+    fund_reliability_list.append(fund_reliability_pct)
+    price_sources_used_list.append(price_count)
+    price_variance_score_list.append(variance_ratio)
+    price_reliability_list.append(price_reliability_pct)
+    price_mean_list.append(mean_price)
+    price_std_list.append(std_price)
+
+# Inject columns
+results["fund_sources_used_v2"] = fund_sources_used_list
+results["fund_disagreement_score_v2"] = fund_disagreement_list
+results["fund_coverage_pct_v2"] = fund_coverage_pct_list
+results["Fundamental_Reliability_v2"] = fund_reliability_list
+results["price_sources_used_v2"] = price_sources_used_list
+results["price_variance_score_v2"] = price_variance_score_list
+results["Price_Reliability_v2"] = price_reliability_list
+results["Price_Mean_v2"] = price_mean_list
+results["Price_STD_v2"] = price_std_list
+
+# Combined reliability (override or create reliability_v2)
+if "reliability_v2" not in results.columns or results["reliability_v2"].isna().all():
+    combined_rel = 0.6 * results["Fundamental_Reliability_v2"] + 0.4 * results["Price_Reliability_v2"]
+    results["reliability_v2"] = combined_rel.clip(0, 100)
     
     # V2 RISK ENGINE: Apply FULL risk gates, reliability penalties, and position sizing
     st.info("🚨 Applying V2 risk gates and reliability enforcement...")
@@ -4262,6 +4391,15 @@ show_order = [
     "reliability_v2",  # raw V2 reliability (0-100)
     "Fund Reliability",
     "Price Reliability",
+    "Fundamental_Reliability_v2",  # New multi-source fund reliability
+    "Price_Reliability_v2",  # New multi-source price reliability
+    "fund_sources_used_v2",  # Number of fundamental sources
+    "price_sources_used_v2",  # Number of price sources
+    "fund_disagreement_score_v2",  # Disagreement between sources
+    "price_variance_score_v2",  # Price variance ratio
+    "fund_coverage_pct_v2",  # Field coverage percentage
+    "Price_Mean_v2",  # Multi-source mean price
+    "Price_STD_v2",  # Multi-source price std deviation
     "Sources Count",
     "risk_gate_status_v2",  # blocked / severely_reduced / reduced / full
     "risk_gate_penalty_v2",
