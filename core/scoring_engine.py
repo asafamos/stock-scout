@@ -93,6 +93,249 @@ def evaluate_rr_unified(rr_ratio: Optional[float]) -> Tuple[float, float, str]:
     return float(np.clip(score, 0, 100)), ratio, band
 
 
+def compute_overall_score(row: pd.Series) -> Tuple[float, Dict[str, float]]:
+    """
+    Compute mathematically correct overall score with explicit weights and penalties.
+    
+    Formula: 35% fund + 35% tech + 15% RR + 15% reliability ± ML (max ±10%)
+    
+    Applies penalties BEFORE final normalization for realistic spread:
+    - RR ratio penalties: <1.0 strong, 1.0-1.5 medium, 1.5-2.0 mild
+    - RiskMeter >65 penalty
+    - Reliability <0.75 penalty
+    - Missing data penalty
+    
+    Target distributions:
+    - Core opportunities: 60-80
+    - Speculative: 45-60
+    - Problematic: 20-45
+    
+    Args:
+        row: DataFrame row with scoring components
+    
+    Returns:
+        (overall_score 0-100, components_dict with all breakdowns)
+    """
+    # Extract base components (0-100 each)
+    fund_score = float(row.get("Fundamental_S", 50.0))
+    tech_score = float(row.get("Technical_S", 50.0))
+    rr_score = float(row.get("RR_Score", 50.0))
+    reliability = float(row.get("Reliability_v2", 50.0))
+    
+    # Extract ML probability (0-1 range)
+    ml_prob = row.get("ML_Probability", None)
+    if ml_prob is not None and np.isfinite(ml_prob):
+        ml_prob = float(np.clip(ml_prob, 0, 1))
+    else:
+        ml_prob = None
+    
+    # Calculate base score (before ML, before penalties)
+    base_score = (
+        fund_score * 0.35 +
+        tech_score * 0.35 +
+        rr_score * 0.15 +
+        reliability * 0.15
+    )
+    
+    # Calculate ML adjustment (bounded to ±10% of base)
+    ml_delta = 0.0
+    if ml_prob is not None:
+        # ML prob 0.5 = neutral (0 adjustment)
+        # ML prob 1.0 = +10%
+        # ML prob 0.0 = -10%
+        ml_delta = (ml_prob - 0.5) * 2.0 * 10.0  # Range: -10 to +10
+        ml_delta = float(np.clip(ml_delta, -10, 10))
+    
+    # Score before penalties
+    score_before_penalties = base_score + ml_delta
+    
+    # === APPLY PENALTIES FOR REALISTIC SPREAD ===
+    penalty_total = 0.0
+    penalty_breakdown = {}
+    
+    # 1. RR ratio penalties
+    rr_ratio = float(row.get("RR", 2.0))
+    if rr_ratio < 1.0:
+        penalty = 15.0  # Strong penalty
+        penalty_breakdown["rr_below_1"] = penalty
+    elif rr_ratio < 1.5:
+        penalty = 8.0  # Medium penalty
+        penalty_breakdown["rr_below_1.5"] = penalty
+    elif rr_ratio < 2.0:
+        penalty = 3.0  # Mild penalty
+        penalty_breakdown["rr_below_2"] = penalty
+    else:
+        penalty = 0.0
+    penalty_total += penalty
+    
+    # 2. RiskMeter penalty (high risk = lower score)
+    risk_meter = float(row.get("RiskMeter", 50.0))
+    if risk_meter > 65:
+        penalty = (risk_meter - 65) * 0.3  # Up to 10.5 penalty at risk=100
+        penalty_breakdown["high_risk"] = penalty
+        penalty_total += penalty
+    
+    # 3. Reliability penalty (low reliability = lower score)
+    if reliability < 75:
+        penalty = (75 - reliability) * 0.2  # Up to 15 penalty at reliability=0
+        penalty_breakdown["low_reliability"] = penalty
+        penalty_total += penalty
+    
+    # 4. Missing data penalty (check key fundamentals)
+    missing_count = 0
+    for field in ["PE_f", "ROE_f", "GM_f", "DE_f", "RevG_f"]:
+        val = row.get(field)
+        if pd.isna(val) or val == 0 or val == "N/A":
+            missing_count += 1
+    
+    if missing_count > 0:
+        penalty = missing_count * 2.0  # 2 points per missing key metric
+        penalty_breakdown["missing_data"] = penalty
+        penalty_total += penalty
+    
+    # Apply penalties
+    final_score = score_before_penalties - penalty_total
+    final_score = float(np.clip(final_score, 0, 100))
+    
+    # Build component breakdown for transparency
+    components = {
+        "fund_component": fund_score * 0.35,
+        "tech_component": tech_score * 0.35,
+        "rr_component": rr_score * 0.15,
+        "reliability_component": reliability * 0.15,
+        "base_score": base_score,
+        "ml_delta": ml_delta,
+        "score_before_penalties": score_before_penalties,
+        "penalty_total": penalty_total,
+        "final_score": final_score,
+    }
+    
+    # Add penalty breakdown
+    for key, val in penalty_breakdown.items():
+        components[f"penalty_{key}"] = val
+    
+    return final_score, components
+
+
+def calculate_quality_score(row: pd.Series) -> Tuple[float, str]:
+    """
+    Calculate quality score (0-1) based on fundamental health metrics.
+    
+    Converts to 3-level system:
+    - High: ≥0.7 (strong fundamentals)
+    - Medium: 0.4-0.69 (acceptable fundamentals)
+    - Low: <0.4 (weak fundamentals)
+    
+    Quality components:
+    - Margins (ROE, Gross Margin, Profit Margin): Higher is better
+    - Growth (Revenue YoY, EPS YoY): Higher is better
+    - Debt (D/E ratio): Lower is better
+    
+    Args:
+        row: DataFrame row with fundamental metrics
+    
+    Returns:
+        (quality_score 0-1, quality_level "High"/"Medium"/"Low")
+    """
+    scores = []
+    weights = []
+    
+    # 1. Margin Quality (40% weight)
+    # ROE
+    roe = row.get("ROE_f")
+    if pd.notna(roe) and roe != 0:
+        roe_pct = roe * 100 if abs(roe) < 2 else roe
+        # ROE > 15% = good, < 5% = poor
+        roe_score = np.clip((roe_pct - 5) / 10, 0, 1)  # Normalize 5-15% to 0-1
+        scores.append(roe_score)
+        weights.append(0.20)
+    
+    # Gross Margin
+    gm = row.get("GM_f")
+    if pd.notna(gm) and gm != 0:
+        gm_pct = gm * 100 if abs(gm) < 2 else gm
+        # GM > 30% = good, < 10% = poor
+        gm_score = np.clip((gm_pct - 10) / 20, 0, 1)  # Normalize 10-30% to 0-1
+        scores.append(gm_score)
+        weights.append(0.10)
+    
+    # Profit Margin
+    pm = row.get("ProfitMargin")
+    if pd.notna(pm) and pm != 0:
+        pm_pct = pm * 100 if abs(pm) < 2 else pm
+        # PM > 10% = good, < 0% = poor
+        pm_score = np.clip(pm_pct / 10, 0, 1)  # Normalize 0-10% to 0-1
+        scores.append(pm_score)
+        weights.append(0.10)
+    
+    # 2. Growth Quality (40% weight)
+    # Revenue Growth
+    rev_g = row.get("RevG_f") or row.get("RevenueGrowthYoY")
+    if pd.notna(rev_g) and rev_g != 0:
+        rev_pct = rev_g * 100 if abs(rev_g) < 2 else rev_g
+        # Rev growth > 20% = great, 0-20% = acceptable, < 0% = poor
+        if rev_pct >= 20:
+            rev_score = 1.0
+        elif rev_pct >= 0:
+            rev_score = 0.5 + (rev_pct / 20) * 0.5  # 0.5-1.0 for 0-20%
+        else:
+            rev_score = max(0.0, 0.5 + (rev_pct / 20))  # Below 0.5 for negative
+        scores.append(rev_score)
+        weights.append(0.20)
+    
+    # EPS Growth
+    eps_g = row.get("EPSG_f") or row.get("EPSGrowthYoY")
+    if pd.notna(eps_g) and eps_g != 0:
+        eps_pct = eps_g * 100 if abs(eps_g) < 2 else eps_g
+        # EPS growth > 25% = great, 0-25% = acceptable, < 0% = poor
+        if eps_pct >= 25:
+            eps_score = 1.0
+        elif eps_pct >= 0:
+            eps_score = 0.5 + (eps_pct / 25) * 0.5
+        else:
+            eps_score = max(0.0, 0.5 + (eps_pct / 25))
+        scores.append(eps_score)
+        weights.append(0.20)
+    
+    # 3. Debt Quality (20% weight)
+    de = row.get("DE_f")
+    if pd.notna(de) and de >= 0:
+        # D/E < 0.5 = excellent, 0.5-1.5 = acceptable, > 1.5 = concerning
+        if de < 0.5:
+            de_score = 1.0
+        elif de < 1.5:
+            de_score = 1.0 - ((de - 0.5) / 1.0) * 0.4  # 1.0 to 0.6
+        elif de < 3.0:
+            de_score = 0.6 - ((de - 1.5) / 1.5) * 0.4  # 0.6 to 0.2
+        else:
+            de_score = 0.2
+        scores.append(de_score)
+        weights.append(0.20)
+    
+    # Calculate weighted quality score
+    if not scores:
+        # No data = neutral/medium quality
+        return 0.5, "Medium"
+    
+    total_weight = sum(weights)
+    if total_weight == 0:
+        return 0.5, "Medium"
+    
+    normalized_weights = [w / total_weight for w in weights]
+    quality_score = sum(s * w for s, w in zip(scores, normalized_weights))
+    quality_score = float(np.clip(quality_score, 0, 1))
+    
+    # Convert to level
+    if quality_score >= 0.7:
+        level = "High"
+    elif quality_score >= 0.4:
+        level = "Medium"
+    else:
+        level = "Low"
+    
+    return quality_score, level
+
+
 def calculate_fundamental_score(
     pe: Optional[float] = None,
     ps: Optional[float] = None,

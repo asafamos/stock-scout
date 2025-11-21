@@ -53,6 +53,14 @@ from core.scoring_engine import evaluate_rr_unified
 # Helper: build clean minimal card
 
 def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
+    """
+    Build professional minimal card with:
+    - Header: Ticker, Badge, Overall Score only
+    - Top 6 fields: Target, RR, Risk, Reliability, ML, Quality
+    - Rest in <details> collapsible section
+    - No emojis except ⚠️ for warnings
+    - Tabular numbers, consistent formatting
+    """
     esc = html_escape.escape
     ticker = esc(str(row.get('Ticker','N/A')))
     overall_rank = row.get('Overall_Rank','N/A')
@@ -70,14 +78,21 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
     price_rel = row.get('Price_Reliability', np.nan)
     fund_rel = row.get('Fundamental_Reliability', np.nan)
     ml_conf = row.get('ml_status', row.get('ML_Confidence','N/A'))
+    quality_level = row.get('Quality_Level', 'N/A')
+    quality_score = row.get('Quality_Score_Numeric', np.nan)
     conv_base = row.get('conviction_v2_base', np.nan)
+    
+    # Component scores for <details>
+    fund_score = row.get('Fundamental_S', np.nan)
+    tech_score = row.get('Technical_S', np.nan)
+    ml_prob = row.get('ML_Probability', np.nan)
 
     def fmt_money(v):
         return f"${v:.2f}" if np.isfinite(v) else 'N/A'
     def fmt_pct(v):
         return f"{v:.1f}%" if np.isfinite(v) else 'N/A'
-    def fmt_int(v):
-        return f"{int(v)}" if np.isfinite(v) else 'N/A'
+    def fmt_score(v):
+        return f"{v:.0f}" if np.isfinite(v) else 'N/A'
 
     entry_fmt = fmt_money(entry_price)
     target_fmt = fmt_money(target_price)
@@ -86,6 +101,7 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
         potential_fmt = f"+{potential_gain_pct:.1f}%"
     else:
         potential_fmt = 'N/A'
+    
     target_badge = ''
     if target_source == 'AI':
         target_badge = '<span class="badge ai">AI</span>'
@@ -93,30 +109,45 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
         target_badge = '<span class="badge tech">Tech</span>'
 
     reliability_fmt = fmt_pct(rel_score)
-    price_rel_fmt = fmt_pct(price_rel)
-    fund_rel_fmt = fmt_pct(fund_rel)
-    risk_fmt = f"{risk_meter:.0f}" if np.isfinite(risk_meter) else 'N/A'
+    risk_fmt = fmt_score(risk_meter)
     rr_ratio_fmt = f"{rr_ratio:.2f}" if np.isfinite(rr_ratio) else 'N/A'
-    rr_score_fmt = f"{rr_score:.0f}" if np.isfinite(rr_score) else 'N/A'
-    conv_base_fmt = f"{conv_base:.0f}" if np.isfinite(conv_base) else 'N/A'
-    overall_score_fmt = f"{overall_score:.0f}" if np.isfinite(overall_score) else 'N/A'
+    overall_score_fmt = fmt_score(overall_score)
+    quality_score_fmt = f"{quality_score:.2f}" if np.isfinite(quality_score) else 'N/A'
 
     type_badge = 'SPEC' if speculative else 'CORE'
+    
+    # Warning indicator
+    warning = ''
+    if rr_ratio < 1.5 or (np.isfinite(risk_meter) and risk_meter > 70):
+        warning = ' ⚠️'
 
     return f"""
 <div class='clean-card { 'speculative' if speculative else 'core' }'>
   <div class='card-header'>
-    <h2 class='overall-score'>Overall Score: {overall_score_fmt}/100</h2>
-    <div class='meta-line'><span class='rank-badge'>#{overall_rank}</span><span class='ticker-badge'>{ticker}</span><span class='type-badge'>{type_badge}</span></div>
+    <div class='ticker-line'><span class='ticker-badge'>{ticker}</span><span class='type-badge'>{type_badge}</span></div>
+    <h2 class='overall-score'>{overall_score_fmt}<span class='score-label'>/100</span>{warning}</h2>
   </div>
   <div class='top-grid'>
-    <div class='field'><span class='label'>Target / Potential</span><span class='value'>{target_fmt} {target_badge} | {potential_fmt}</span></div>
-    <div class='field'><span class='label'>Risk/Reward</span><span class='value'>{rr_ratio_fmt} ({rr_score_fmt}) {rr_band}</span></div>
-    <div class='field'><span class='label'>Risk Meter</span><span class='value'>{risk_fmt} ({risk_label})</span></div>
-    <div class='field'><span class='label'>Reliability</span><span class='value'>{reliability_fmt} | P:{price_rel_fmt} F:{fund_rel_fmt}</span></div>
-    <div class='field'><span class='label'>ML Confidence</span><span class='value'>{ml_conf}</span></div>
-    <div class='field'><span class='label'>Conviction Base</span><span class='value'>{conv_base_fmt}</span></div>
+    <div class='field'><span class='label'>Target</span><span class='value tabular'>{target_fmt} {target_badge} ({potential_fmt})</span></div>
+    <div class='field'><span class='label'>R/R</span><span class='value tabular'>{rr_ratio_fmt} <span class='band'>{rr_band}</span></span></div>
+    <div class='field'><span class='label'>Risk</span><span class='value tabular'>{risk_fmt} <span class='band'>{risk_label}</span></span></div>
+    <div class='field'><span class='label'>Reliability</span><span class='value tabular'>{reliability_fmt}</span></div>
+    <div class='field'><span class='label'>ML</span><span class='value tabular'>{ml_conf}</span></div>
+    <div class='field'><span class='label'>Quality</span><span class='value tabular'>{quality_level} ({quality_score_fmt})</span></div>
   </div>
+  <details class='more-info'>
+    <summary>More Details</summary>
+    <div class='detail-grid'>
+      <div class='field'><span class='label'>Entry</span><span class='value'>{entry_fmt}</span></div>
+      <div class='field'><span class='label'>Target Date</span><span class='value'>{target_date}</span></div>
+      <div class='field'><span class='label'>Fundamental Score</span><span class='value'>{fmt_score(fund_score)}</span></div>
+      <div class='field'><span class='label'>Technical Score</span><span class='value'>{fmt_score(tech_score)}</span></div>
+      <div class='field'><span class='label'>ML Probability</span><span class='value'>{fmt_pct(ml_prob * 100) if np.isfinite(ml_prob) else 'N/A'}</span></div>
+      <div class='field'><span class='label'>Price Reliability</span><span class='value'>{fmt_pct(price_rel)}</span></div>
+      <div class='field'><span class='label'>Fund Reliability</span><span class='value'>{fmt_pct(fund_rel)}</span></div>
+      <div class='field'><span class='label'>Base Conviction</span><span class='value'>{fmt_score(conv_base)}</span></div>
+    </div>
+  </details>
 </div>
 """
 
@@ -250,11 +281,19 @@ def score_with_xgboost(row: pd.Series) -> float:
 
 
 def assign_confidence_tier(prob: float) -> str:
+    """
+    Assign ML confidence tier based on probability.
+    
+    Recalibrated thresholds for realistic diversity:
+    - High: ≥0.75 (strong prediction)
+    - Medium: 0.60-0.74 (moderate confidence)
+    - Low: <0.60 (weak prediction)
+    """
     if not isinstance(prob, (int, float)) or not np.isfinite(prob):
         return "N/A"
-    if prob >= 0.50:
+    if prob >= 0.75:
         return "High"
-    if prob >= 0.30:
+    if prob >= 0.60:
         return "Medium"
     return "Low"
 
@@ -2190,16 +2229,48 @@ if CONFIG["FUNDAMENTAL_ENABLED"] and fundamental_available:
     results["rr_score_v2"] = [e[0] for e in rr_evals]
     results["rr_band"] = [e[1] for e in rr_evals]
 
-    # Unified overall score + component transparency columns (do NOT alter formula)
-    # overall_score is an alias of conviction_v2_final
-    if "conviction_v2_final" in results.columns:
-        results["overall_score"] = results["conviction_v2_final"].astype(float)
-    else:
-        results["overall_score"] = np.nan
+    # === COMPUTE OVERALL SCORE WITH EXPLICIT FORMULA ===
+    # Use the new compute_overall_score function from scoring_engine
+    # Formula: 35% fund + 35% tech + 15% RR + 15% reliability ± ML (max ±10%)
+    # Includes penalties for realistic spread
+    
+    def _compute_overall(row):
+        try:
+            from core.scoring_engine import compute_overall_score
+            score, components = compute_overall_score(row)
+            return pd.Series({
+                'overall_score': score,
+                'fund_component': components.get('fund_component', 0.0),
+                'tech_component': components.get('tech_component', 0.0),
+                'rr_component': components.get('rr_component', 0.0),
+                'reliability_component': components.get('reliability_component', 0.0),
+                'base_score': components.get('base_score', 0.0),
+                'ml_delta': components.get('ml_delta', 0.0),
+                'score_before_penalties': components.get('score_before_penalties', 0.0),
+                'penalty_total': components.get('penalty_total', 0.0),
+            })
+        except Exception as e:
+            logger.warning(f"compute_overall_score failed: {e}")
+            # Fallback to old logic
+            return pd.Series({
+                'overall_score': row.get('conviction_v2_final', 50.0),
+                'fund_component': 0.0,
+                'tech_component': 0.0,
+                'rr_component': 0.0,
+                'reliability_component': 0.0,
+                'base_score': 0.0,
+                'ml_delta': 0.0,
+                'score_before_penalties': 0.0,
+                'penalty_total': 0.0,
+            })
+    
+    overall_components = results.apply(_compute_overall, axis=1)
+    results = pd.concat([results, overall_components], axis=1)
 
     # Component breakdowns (fallback to legacy names if needed)
     results["fund_score"] = results.get("fundamental_score_v2", results.get("Fundamental Score", np.nan))
     results["tech_score"] = results.get("technical_score_v2", results.get("Tech Score", np.nan))
+
     results["rr_score"] = results.get("rr_score_v2", np.nan)
     results["reliability_score"] = results.get("reliability_score_v2", results.get("Reliability Score", np.nan))
     base_conv = results.get("conviction_v2_base", results.get("conviction_v2_final", np.nan))
@@ -2395,6 +2466,30 @@ else:
     if not spec_filtered.empty:
         spec_filtered['ML_Probability'] = 0.5
         spec_filtered['ML_Confidence'] = "N/A"
+
+# === CALCULATE QUALITY SCORE FOR ALL STOCKS ===
+from core.scoring_engine import calculate_quality_score
+
+def _calc_quality(row):
+    try:
+        score, level = calculate_quality_score(row)
+        return pd.Series({'Quality_Score_Numeric': score, 'Quality_Level': level})
+    except Exception as e:
+        logger.warning(f"Quality calculation failed: {e}")
+        return pd.Series({'Quality_Score_Numeric': 0.5, 'Quality_Level': "Medium"})
+
+if not core_filtered.empty:
+    quality_data = core_filtered.apply(_calc_quality, axis=1)
+    core_filtered['Quality_Score_Numeric'] = quality_data['Quality_Score_Numeric']
+    core_filtered['Quality_Level'] = quality_data['Quality_Level']
+    logger.info(f"Core quality: {core_filtered['Quality_Level'].value_counts().to_dict()}")
+
+if not spec_filtered.empty:
+    quality_data = spec_filtered.apply(_calc_quality, axis=1)
+    spec_filtered['Quality_Score_Numeric'] = quality_data['Quality_Score_Numeric']
+    spec_filtered['Quality_Level'] = quality_data['Quality_Level']
+    logger.info(f"Spec quality: {spec_filtered['Quality_Level'].value_counts().to_dict()}")
+
 if spec_before_filter > 0:
     st.write(f"⚡ **Speculative filter:** {spec_before_filter} → {spec_after_filter} passed relaxed filters")
 

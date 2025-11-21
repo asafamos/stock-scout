@@ -8,25 +8,30 @@ def get_card_css():
     return """
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
-body { font-family: 'Inter', system-ui, sans-serif; font-size:14px; line-height:1.5; }
-.clean-card { border:1px solid #e5e7eb; border-radius:12px; padding:1rem 1.25rem; background:#fff; margin-bottom:1rem; }
+body { font-family: 'Inter', system-ui, sans-serif; font-size:14px; line-height:1.5; color:#1e293b; }
+.clean-card { border:1px solid #e2e8f0; border-radius:12px; padding:1.25rem; background:#fff; margin-bottom:1rem; box-shadow:0 1px 3px rgba(0,0,0,0.05); }
 .clean-card.core { border-left:4px solid #10B981; }
 .clean-card.speculative { border-left:4px solid #F59E0B; }
-.card-header { margin-bottom:0.75rem; }
-.overall-score { font-size:1.15rem; font-weight:600; margin:0 0 0.25rem 0; }
-.meta-line { display:flex; gap:0.5rem; align-items:center; font-size:0.75rem; font-weight:600; }
-.rank-badge, .ticker-badge, .type-badge { background:#f1f5f9; padding:2px 6px; border-radius:4px; }
-.type-badge { background:#e2e8f0; }
-.top-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:6px; }
-.field { display:flex; justify-content:space-between; padding:6px 8px; background:#f8fafc; border-radius:6px; font-size:0.8rem; }
-.field .label { color:#475569; font-weight:500; }
-.field .value { font-family:'Roboto Mono', 'Courier New', monospace; font-variant-numeric:tabular-nums; color:#0f172a; }
-.details-block { margin-top:8px; }
-.details-block summary { cursor:pointer; font-weight:600; color:#334155; }
-.details-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:6px; margin-top:6px; }
-.details-grid > div { display:flex; justify-content:space-between; background:#f1f5f9; padding:4px 6px; border-radius:4px; font-size:0.7rem; }
-.warning-box { background:#FEF3C7; border:1px solid #F59E0B; border-radius:6px; padding:6px 8px; font-size:0.75rem; margin-top:4px; }
-.badge.ai { background:#10B981; color:#fff; padding:2px 4px; border-radius:4px; font-size:0.6rem; }
-.badge.tech { background:#6366f1; color:#fff; padding:2px 4px; border-radius:4px; font-size:0.6rem; }
+.card-header { margin-bottom:1rem; display:flex; justify-content:space-between; align-items:flex-start; }
+.ticker-line { display:flex; gap:0.5rem; align-items:center; }
+.ticker-badge { font-size:1.1rem; font-weight:700; color:#0f172a; font-family:'SF Mono', 'Roboto Mono', monospace; }
+.type-badge { background:#e2e8f0; color:#475569; padding:3px 8px; border-radius:6px; font-size:0.65rem; font-weight:600; text-transform:uppercase; }
+.overall-score { font-size:2rem; font-weight:700; color:#0f172a; font-variant-numeric:tabular-nums; margin:0; text-align:right; }
+.score-label { font-size:1rem; font-weight:400; color:#64748b; margin-left:4px; }
+.top-grid { display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; margin-bottom:0.75rem; }
+.field { display:flex; flex-direction:column; gap:4px; padding:10px 12px; background:#f8fafc; border-radius:8px; border:1px solid #f1f5f9; }
+.field .label { color:#64748b; font-size:0.7rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; }
+.field .value { font-family:'SF Mono', 'Roboto Mono', monospace; font-size:0.9rem; font-weight:500; color:#0f172a; }
+.value.tabular { font-variant-numeric:tabular-nums; }
+.value .band { color:#64748b; font-size:0.75rem; font-weight:400; }
+details.more-info { margin-top:0.75rem; }
+details summary { cursor:pointer; font-weight:600; color:#475569; font-size:0.8rem; padding:6px 0; border-top:1px solid #e2e8f0; user-select:none; }
+details summary:hover { color:#0f172a; }
+.detail-grid { display:grid; grid-template-columns:repeat(2, 1fr); gap:8px; margin-top:8px; padding-top:8px; }
+.detail-grid .field { background:#fafbfc; border:1px solid #f1f5f9; padding:8px 10px; }
+.detail-grid .field .label { font-size:0.65rem; }
+.detail-grid .field .value { font-size:0.8rem; }
+.badge.ai { background:#10B981; color:#fff; padding:3px 6px; border-radius:4px; font-size:0.65rem; font-weight:600; margin-left:4px; }
+.badge.tech { background:#6366f1; color:#fff; padding:3px 6px; border-radius:4px; font-size:0.65rem; font-weight:600; margin-left:4px; }
 </style>
 """
