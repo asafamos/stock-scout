@@ -1388,3 +1388,256 @@ INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1
 `use_container_width` will be removed after 2025-12-31.
 
 For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+WARNING:__main__:All 1 attempts failed for URL
+INFO:__main__:✓ Deduplicated 503 → 503 unique companies (removed 0 multi-class tickers)
+INFO:__main__:✓ Loaded 503 unique S&P500 companies from Wikipedia
+INFO:__main__:🔬 Advanced filters pre-pass on 47 stocks...
+INFO:__main__:Dynamic thresholds -> RS:-0.154 MOM:0.233 RR:0.036
+INFO:__main__:Advanced filters dynamic: kept 35/47 catastrophic=12
+INFO:__main__:🔍 AAPL FMP Debug: from_fmp=True, coverage=75%, roe=1.714, quality_score_f=NaN
+INFO:__main__:🔍 GOOGL FMP Debug: from_fmp=True, coverage=75%, roe=0.354, quality_score_f=NaN
+INFO:__main__:🔍 AMZN FMP Debug: from_fmp=True, coverage=62%, roe=nan, quality_score_f=NaN
+WARNING:core.data_sources_v2:No fundamental data available for ALB
+WARNING:core.data_sources_v2:No fundamental data available for AMCR
+WARNING:core.data_sources_v2:No fundamental data available for AAPL
+WARNING:core.data_sources_v2:No fundamental data available for GOOGL
+WARNING:core.data_sources_v2:No fundamental data available for GOOG
+WARNING:core.data_sources_v2:No fundamental data available for AMGN
+WARNING:core.data_sources_v2:No fundamental data available for AEP
+WARNING:core.data_sources_v2:No fundamental data available for AKAM
+WARNING:core.data_sources_v2:No fundamental data available for A
+WARNING:core.data_sources_v2:No fundamental data available for AXP
+WARNING:core.data_sources_v2:No fundamental data available for MMM
+WARNING:core.data_sources_v2:No fundamental data available for LNT
+WARNING:core.data_sources_v2:No fundamental data available for APA
+WARNING:core.data_sources_v2:No fundamental data available for APH
+WARNING:core.data_sources_v2:No fundamental data available for AME
+WARNING:core.data_sources_v2:No fundamental data available for AEE
+WARNING:core.data_sources_v2:No fundamental data available for MO
+WARNING:core.data_sources_v2:No fundamental data available for AON
+WARNING:core.data_sources_v2:No fundamental data available for ABBV
+WARNING:core.data_sources_v2:No fundamental data available for ABT
+WARNING:core.data_sources_v2:No fundamental data available for ALGN
+WARNING:core.data_sources_v2:No fundamental data available for T
+WARNING:core.data_sources_v2:No fundamental data available for APD
+WARNING:core.data_sources_v2:No fundamental data available for ATO
+WARNING:core.data_sources_v2:No fundamental data available for AES
+WARNING:core.data_sources_v2:No fundamental data available for AMZN
+WARNING:core.data_sources_v2:No fundamental data available for AWK
+WARNING:core.data_sources_v2:No fundamental data available for ACGL
+WARNING:core.data_sources_v2:No fundamental data available for ADBE
+WARNING:core.data_sources_v2:No fundamental data available for ADM
+WARNING:core.data_sources_v2:No fundamental data available for AOS
+WARNING:core.data_sources_v2:No fundamental data available for ADI
+WARNING:core.data_sources_v2:No fundamental data available for ABNB
+WARNING:core.data_sources_v2:No fundamental data available for AMT
+WARNING:core.data_sources_v2:No fundamental data available for APTV
+INFO:__main__:✓ Applied V2 risk gates to 35 stocks
+INFO:__main__:  - Blocked: 16 stocks
+INFO:__main__:  - Severely reduced: 0 stocks
+INFO:__main__:  - Reduced: 19 stocks
+INFO:__main__:  - Full allocation: 0 stocks
+INFO:__main__:✓ Scored 35 stocks with V2-enhanced conviction
+INFO:__main__:Score mapping: raw [18.5, 58.5] → pretty [60, 90]
+INFO:__main__:Columns available: ['Ticker', 'Price_Yahoo', 'Score_Tech', 'RSI', 'Near52w', 'Volx20d', 'OverextRatio', 'ATR_Price', 'RewardRisk', 'ATR14', 'Fundamental_S', 'Sector', 'PE_f', 'PS_f', 'ROE_f', 'ROIC_f', 'GM_f', 'DE_f', 'RevG_f', 'EPSG_f', 'Fund_from_FMP', 'Fund_from_Alpha', 'Fund_from_Finnhub', 'Fund_from_SimFin', 'Fund_from_EODHD', 'Score', 'Beta', 'RS_63d', 'Volume_Surge', 'MA_Aligned', 'Quality_Score', 'RR_Ratio', 'Momentum_Consistency', 'High_Confidence', 'AdvPenalty', 'AdvFlags', 'RejectionReason', 'from_fmp_full', 'from_fmp', 'from_alpha', 'from_finnhub', 'from_simfin', 'from_eodhd', 'from_tiingo', 'Quality_Score_F', 'Quality_Label', 'Growth_Score_F', 'Growth_Label', 'Valuation_Score_F', 'Valuation_Label', 'Leverage_Score_F', 'Leverage_Label', 'Fund_Attribution', 'fund_sources_used_v2', 'fund_disagreement_score_v2', 'fund_coverage_pct_v2', 'Fundamental_Reliability_v2', 'price_sources_used_v2', 'price_variance_score_v2', 'Price_Reliability_v2', 'Price_Mean_v2', 'Price_STD_v2', 'reliability_v2', 'fund_sources_count_v2', 'price_sources_count_v2', 'fund_completeness_pct', 'price_variance_penalty', 'rr_ratio_v2', 'risk_gate_status_v2', 'risk_gate_penalty_v2', 'conviction_v2_base', 'conviction_v2_final', 'ml_probability_v2', 'ml_boost_v2', 'buy_amount_v2', 'shares_to_buy_v2', 'risk_level', 'quality_score', 'risk_gate_reason_v2', 'risk_meter_v2', 'reward_risk_v2', 'reliability_score_v2', 'rr', 'rr_score_v2', 'rr_band', 'RR_Score', 'RR', 'Reliability_v2', 'overall_score', 'fund_component', 'tech_component', 'rr_component', 'reliability_component', 'base_score', 'ml_delta', 'score_before_penalties', 'penalty_total', 'overall_score_raw', 'overall_score_pretty', 'reliability_pct', 'reliability_band', 'risk_band', 'ml_conf_band', 'fund_score', 'tech_score', 'rr_score', 'reliability_score']
+INFO:__main__:Sample RS_63d values: [-0.023149936503870316, -0.13376622228058832, -0.15054445354763202, -0.10638093770826407, -0.10696756314850087]
+INFO:__main__:Sample Volume_Surge values: [0.8753807459718205, 0.8011322391606788, 0.8932935306811336, 0.6520353349910363, 0.9913081407615217]
+INFO:__main__:Sample RR_Ratio values: [0.1333632828838319, 3.50280530114049, 1.5053892168015708, 0.32015339239318985, 2.331744047518473]
+INFO:__main__:Sample Quality_Score values: [4.0, 15.0, 3.0, 0.0, 6.0]
+INFO:__main__:Sample Fundamental_S values: [48.1, 49.1, 54.2, 67.9, 64.1]
+INFO:__main__:Sample Momentum_Consistency values: [0.5833333333333334, 0.4583333333333333, 0.2916666666666667, 0.45833333333333337, 0.25]
+[2025-11-21 20:58:06] [INFO] [stock_scout.classification] Classified 35 stocks: Core=0, Speculative=35, Hidden=1
+INFO:__main__:Hidden 1 stocks due to very low data quality
+[2025-11-21 20:58:06] [INFO] [stock_scout.classification] 📊 Initial distribution: 5 Core, 0 Speculative (total: 5)
+[2025-11-21 20:58:06] [INFO] [stock_scout.classification] After Core filter: 5/5
+[2025-11-21 20:58:06] [INFO] [stock_scout.classification] After fundamental quality score >= 60.0: 5/5
+[2025-11-21 20:58:06] [INFO] [stock_scout.classification] After overextension <= 0.12: 5/5
+[2025-11-21 20:58:06] [INFO] [stock_scout.classification] After ATR/Price <= 0.07: 5/5
+[2025-11-21 20:58:06] [INFO] [stock_scout.classification] After RSI in [20, 55]: 4/5
+[2025-11-21 20:58:06] [INFO] [stock_scout.classification] After RewardRisk >= 1.5: 1/5
+[2025-11-21 20:58:06] [INFO] [stock_scout.classification] After reliability_v2 >= 50: 1/5
+[2025-11-21 20:58:06] [INFO] [stock_scout.classification] After RewardRisk >= 1.5: 1/5
+[2025-11-21 20:58:06] [INFO] [stock_scout.classification] After MomentumConsistency >= 0.35: 1/5
+[2025-11-21 20:58:06] [INFO] [stock_scout.classification] Final Core recommendations (including adaptive if any): 1/5
+INFO:__main__:Speculative filter: 29 → 14
+INFO:__main__:Applying XGBoost ML scoring...
+INFO:__main__:Core stocks scored: avg probability 0.806
+INFO:__main__:Speculative stocks scored: avg probability 0.812
+INFO:__main__:Core quality: {'Medium': 1}
+INFO:__main__:Spec quality: {'Medium': 5, 'High': 5, 'Low': 4}
+2025-11-21 20:58:06.225 Thread 'ThreadPoolExecutor-76_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 20:58:06.226 Thread 'ThreadPoolExecutor-76_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 20:58:06.227 Thread 'ThreadPoolExecutor-76_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 20:58:06.228 Thread 'ThreadPoolExecutor-76_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 20:58:06.605 Thread 'ThreadPoolExecutor-76_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 20:58:06.606 Thread 'ThreadPoolExecutor-76_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 20:58:06.606 Thread 'ThreadPoolExecutor-76_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 20:58:06.612 Thread 'ThreadPoolExecutor-76_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 20:58:06.612 Thread 'ThreadPoolExecutor-76_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 20:58:06.612 Thread 'ThreadPoolExecutor-76_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 20:58:06.719 Thread 'ThreadPoolExecutor-76_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 20:58:06.719 Thread 'ThreadPoolExecutor-76_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 20:58:06.720 Thread 'ThreadPoolExecutor-76_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 20:58:06.806 Thread 'ThreadPoolExecutor-76_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 20:58:06.806 Thread 'ThreadPoolExecutor-76_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 20:58:06.806 Thread 'ThreadPoolExecutor-76_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 20:58:07.519 Thread 'ThreadPoolExecutor-76_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 20:58:07.532 Thread 'ThreadPoolExecutor-76_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 20:58:07.578 Thread 'ThreadPoolExecutor-76_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 20:58:07.693 Thread 'ThreadPoolExecutor-76_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+WARNING:__main__:All 1 attempts failed for URL
+2025-11-21 20:58:08.696 Thread 'ThreadPoolExecutor-76_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+WARNING:__main__:All 1 attempts failed for URL
+2025-11-21 20:58:08.728 Thread 'ThreadPoolExecutor-76_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+WARNING:__main__:All 1 attempts failed for URL
+2025-11-21 20:58:08.984 Thread 'ThreadPoolExecutor-76_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+WARNING:__main__:All 1 attempts failed for URL
+2025-11-21 20:58:08.988 Thread 'ThreadPoolExecutor-76_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+INFO:__main__:Using V2 position sizing with risk gates and reliability penalties
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-11-21 20:58:21.992 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+INFO:__main__:✓ Deduplicated 503 → 503 unique companies (removed 0 multi-class tickers)
+INFO:__main__:✓ Loaded 503 unique S&P500 companies from Wikipedia
+INFO:__main__:🔬 Advanced filters pre-pass on 47 stocks...
+INFO:__main__:Dynamic thresholds -> RS:-0.155 MOM:0.233 RR:0.036
+INFO:__main__:Advanced filters dynamic: kept 35/47 catastrophic=12
+INFO:__main__:🔍 AAPL FMP Debug: from_fmp=True, coverage=75%, roe=1.714, quality_score_f=NaN
+INFO:__main__:🔍 GOOGL FMP Debug: from_fmp=True, coverage=75%, roe=0.354, quality_score_f=NaN
+INFO:__main__:🔍 AMZN FMP Debug: from_fmp=True, coverage=62%, roe=nan, quality_score_f=NaN
+WARNING:core.data_sources_v2:No fundamental data available for ALB
+WARNING:core.data_sources_v2:No fundamental data available for AMCR
+WARNING:core.data_sources_v2:No fundamental data available for AAPL
+WARNING:core.data_sources_v2:No fundamental data available for GOOGL
+WARNING:core.data_sources_v2:No fundamental data available for GOOG
+WARNING:core.data_sources_v2:No fundamental data available for AMGN
+WARNING:core.data_sources_v2:No fundamental data available for AEP
+WARNING:core.data_sources_v2:No fundamental data available for AKAM
+WARNING:core.data_sources_v2:No fundamental data available for A
+WARNING:core.data_sources_v2:No fundamental data available for AXP
+WARNING:core.data_sources_v2:No fundamental data available for MMM
+WARNING:core.data_sources_v2:No fundamental data available for LNT
+WARNING:core.data_sources_v2:No fundamental data available for APA
+WARNING:core.data_sources_v2:No fundamental data available for APH
+WARNING:core.data_sources_v2:No fundamental data available for AME
+WARNING:core.data_sources_v2:No fundamental data available for AEE
+WARNING:core.data_sources_v2:No fundamental data available for MO
+WARNING:core.data_sources_v2:No fundamental data available for AON
+WARNING:core.data_sources_v2:No fundamental data available for ABBV
+WARNING:core.data_sources_v2:No fundamental data available for ABT
+WARNING:core.data_sources_v2:No fundamental data available for ALGN
+WARNING:core.data_sources_v2:No fundamental data available for T
+WARNING:core.data_sources_v2:No fundamental data available for APD
+WARNING:core.data_sources_v2:No fundamental data available for ATO
+WARNING:core.data_sources_v2:No fundamental data available for AES
+WARNING:core.data_sources_v2:No fundamental data available for AMZN
+WARNING:core.data_sources_v2:No fundamental data available for AWK
+WARNING:core.data_sources_v2:No fundamental data available for ACGL
+WARNING:core.data_sources_v2:No fundamental data available for ADBE
+WARNING:core.data_sources_v2:No fundamental data available for ADM
+WARNING:core.data_sources_v2:No fundamental data available for AOS
+WARNING:core.data_sources_v2:No fundamental data available for ADI
+WARNING:core.data_sources_v2:No fundamental data available for ABNB
+WARNING:core.data_sources_v2:No fundamental data available for AMT
+WARNING:core.data_sources_v2:No fundamental data available for APTV
+INFO:__main__:✓ Applied V2 risk gates to 35 stocks
+INFO:__main__:  - Blocked: 16 stocks
+INFO:__main__:  - Severely reduced: 0 stocks
+INFO:__main__:  - Reduced: 19 stocks
+INFO:__main__:  - Full allocation: 0 stocks
+INFO:__main__:✓ Scored 35 stocks with V2-enhanced conviction
+INFO:__main__:Score mapping: raw [18.5, 58.5] → pretty [60, 90]
+INFO:__main__:Columns available: ['Ticker', 'Price_Yahoo', 'Score_Tech', 'RSI', 'Near52w', 'Volx20d', 'OverextRatio', 'ATR_Price', 'RewardRisk', 'ATR14', 'Fundamental_S', 'Sector', 'PE_f', 'PS_f', 'ROE_f', 'ROIC_f', 'GM_f', 'DE_f', 'RevG_f', 'EPSG_f', 'Fund_from_FMP', 'Fund_from_Alpha', 'Fund_from_Finnhub', 'Fund_from_SimFin', 'Fund_from_EODHD', 'Score', 'Beta', 'RS_63d', 'Volume_Surge', 'MA_Aligned', 'Quality_Score', 'RR_Ratio', 'Momentum_Consistency', 'High_Confidence', 'AdvPenalty', 'AdvFlags', 'RejectionReason', 'from_fmp_full', 'from_fmp', 'from_alpha', 'from_finnhub', 'from_simfin', 'from_eodhd', 'from_tiingo', 'Quality_Score_F', 'Quality_Label', 'Growth_Score_F', 'Growth_Label', 'Valuation_Score_F', 'Valuation_Label', 'Leverage_Score_F', 'Leverage_Label', 'Fund_Attribution', 'fund_sources_used_v2', 'fund_disagreement_score_v2', 'fund_coverage_pct_v2', 'Fundamental_Reliability_v2', 'price_sources_used_v2', 'price_variance_score_v2', 'Price_Reliability_v2', 'Price_Mean_v2', 'Price_STD_v2', 'reliability_v2', 'fund_sources_count_v2', 'price_sources_count_v2', 'fund_completeness_pct', 'price_variance_penalty', 'rr_ratio_v2', 'risk_gate_status_v2', 'risk_gate_penalty_v2', 'conviction_v2_base', 'conviction_v2_final', 'ml_probability_v2', 'ml_boost_v2', 'buy_amount_v2', 'shares_to_buy_v2', 'risk_level', 'quality_score', 'risk_gate_reason_v2', 'risk_meter_v2', 'reward_risk_v2', 'reliability_score_v2', 'rr', 'rr_score_v2', 'rr_band', 'RR_Score', 'RR', 'Reliability_v2', 'overall_score', 'fund_component', 'tech_component', 'rr_component', 'reliability_component', 'base_score', 'ml_delta', 'score_before_penalties', 'penalty_total', 'overall_score_raw', 'overall_score_pretty', 'reliability_pct', 'reliability_band', 'risk_band', 'ml_conf_band', 'fund_score', 'tech_score', 'rr_score', 'reliability_score']
+INFO:__main__:Sample RS_63d values: [-0.023895970329446348, -0.13451225610616435, -0.15129048737320805, -0.1071269715338401, -0.1077135969740769]
+INFO:__main__:Sample Volume_Surge values: [0.8753807459718205, 0.8011322391606788, 0.8932935306811336, 0.6520353349910363, 0.9913081407615217]
+INFO:__main__:Sample RR_Ratio values: [0.1333632828838319, 3.50280530114049, 1.5053892168015708, 0.32015339239318985, 2.331744047518473]
+INFO:__main__:Sample Quality_Score values: [4.0, 15.0, 3.0, 0.0, 6.0]
+INFO:__main__:Sample Fundamental_S values: [48.1, 49.1, 54.2, 67.9, 64.1]
+INFO:__main__:Sample Momentum_Consistency values: [0.5833333333333334, 0.4583333333333333, 0.2916666666666667, 0.45833333333333337, 0.25]
+[2025-11-21 21:01:56] [INFO] [stock_scout.classification] Classified 35 stocks: Core=0, Speculative=35, Hidden=1
+INFO:__main__:Hidden 1 stocks due to very low data quality
+[2025-11-21 21:01:56] [INFO] [stock_scout.classification] 📊 Initial distribution: 5 Core, 0 Speculative (total: 5)
+[2025-11-21 21:01:56] [INFO] [stock_scout.classification] After Core filter: 5/5
+[2025-11-21 21:01:56] [INFO] [stock_scout.classification] After fundamental quality score >= 60.0: 5/5
+[2025-11-21 21:01:56] [INFO] [stock_scout.classification] After overextension <= 0.12: 5/5
+[2025-11-21 21:01:56] [INFO] [stock_scout.classification] After ATR/Price <= 0.07: 5/5
+[2025-11-21 21:01:56] [INFO] [stock_scout.classification] After RSI in [20, 55]: 4/5
+[2025-11-21 21:01:56] [INFO] [stock_scout.classification] After RewardRisk >= 1.5: 1/5
+[2025-11-21 21:01:56] [INFO] [stock_scout.classification] After reliability_v2 >= 50: 1/5
+[2025-11-21 21:01:56] [INFO] [stock_scout.classification] After RewardRisk >= 1.5: 1/5
+[2025-11-21 21:01:56] [INFO] [stock_scout.classification] After MomentumConsistency >= 0.35: 1/5
+[2025-11-21 21:01:56] [INFO] [stock_scout.classification] Final Core recommendations (including adaptive if any): 1/5
+INFO:__main__:Speculative filter: 29 → 14
+INFO:__main__:Applying XGBoost ML scoring...
+INFO:__main__:Core stocks scored: avg probability 0.806
+INFO:__main__:Speculative stocks scored: avg probability 0.812
+INFO:__main__:Core quality: {'Medium': 1}
+INFO:__main__:Spec quality: {'Medium': 5, 'High': 5, 'Low': 4}
+2025-11-21 21:01:56.833 Thread 'ThreadPoolExecutor-77_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:01:56.834 Thread 'ThreadPoolExecutor-77_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:01:56.835 Thread 'ThreadPoolExecutor-77_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:01:56.837 Thread 'ThreadPoolExecutor-77_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:01:57.583 Thread 'ThreadPoolExecutor-77_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:01:57.584 Thread 'ThreadPoolExecutor-77_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:01:57.586 Thread 'ThreadPoolExecutor-77_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:01:57.586 Thread 'ThreadPoolExecutor-77_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:01:57.587 Thread 'ThreadPoolExecutor-77_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:01:57.587 Thread 'ThreadPoolExecutor-77_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:01:57.591 Thread 'ThreadPoolExecutor-77_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:01:57.592 Thread 'ThreadPoolExecutor-77_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:01:57.592 Thread 'ThreadPoolExecutor-77_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:01:57.598 Thread 'ThreadPoolExecutor-77_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:01:57.598 Thread 'ThreadPoolExecutor-77_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:01:57.598 Thread 'ThreadPoolExecutor-77_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+WARNING:__main__:All 1 attempts failed for URL
+2025-11-21 21:01:58.727 Thread 'ThreadPoolExecutor-77_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+2025-11-21 21:01:58.736 Thread 'ThreadPoolExecutor-77_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:01:58.737 Thread 'ThreadPoolExecutor-77_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+WARNING:__main__:All 1 attempts failed for URL
+2025-11-21 21:01:58.749 Thread 'ThreadPoolExecutor-77_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:01:58.974 Thread 'ThreadPoolExecutor-77_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:01:58.974 Thread 'ThreadPoolExecutor-77_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:01:58.974 Thread 'ThreadPoolExecutor-77_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+WARNING:__main__:All 1 attempts failed for URL
+2025-11-21 21:01:59.860 Thread 'ThreadPoolExecutor-77_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+WARNING:__main__:All 1 attempts failed for URL
+2025-11-21 21:01:59.923 Thread 'ThreadPoolExecutor-77_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+WARNING:__main__:All 1 attempts failed for URL
+2025-11-21 21:01:59.930 Thread 'ThreadPoolExecutor-77_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+WARNING:__main__:All 1 attempts failed for URL
+2025-11-21 21:01:59.940 Thread 'ThreadPoolExecutor-77_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+WARNING:__main__:All 1 attempts failed for URL
+INFO:__main__:Using V2 position sizing with risk gates and reliability penalties
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-11-21 21:02:18.221 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.

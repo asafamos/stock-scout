@@ -1749,29 +1749,32 @@ if "av_calls" not in st.session_state:
 
 # 1) Universe
 t0 = t_start()
-universe = (
-    build_universe(limit=CONFIG["UNIVERSE_LIMIT"])
-    if CONFIG["SMART_SCAN"]
-    else build_universe(limit=200)
-)
+with st.spinner("🔍 Building stock universe..."):
+    universe = (
+        build_universe(limit=CONFIG["UNIVERSE_LIMIT"])
+        if CONFIG["SMART_SCAN"]
+        else build_universe(limit=200)
+    )
 phase_times["build_universe"] = t_end(t0)
 
 # 2) History
 t0 = t_start()
-data_map = fetch_history_bulk(universe, CONFIG["LOOKBACK_DAYS"], CONFIG["MA_LONG"])
+with st.spinner(f"📊 Fetching historical data for {len(universe)} stocks..."):
+    data_map = fetch_history_bulk(universe, CONFIG["LOOKBACK_DAYS"], CONFIG["MA_LONG"])
 phase_times["fetch_history"] = t_end(t0)
 
 # 3) Technical score + hard filters
 t0 = t_start()
-W = CONFIG["WEIGHTS"]
+with st.spinner(f"📈 Computing technical indicators for {len(data_map)} stocks..."):
+    W = CONFIG["WEIGHTS"]
 
 
-W = _normalize_weights(W)
+    W = _normalize_weights(W)
 
-rows: List[dict] = []
-lo_rsi, hi_rsi = CONFIG["RSI_BOUNDS"]
+    rows: List[dict] = []
+    lo_rsi, hi_rsi = CONFIG["RSI_BOUNDS"]
 
-for tkr, df in data_map.items():
+    for tkr, df in data_map.items():
     if df is None or df.empty:
         continue
     df = df.copy()
@@ -1959,9 +1962,9 @@ for tkr, df in data_map.items():
             "RewardRisk": round(float(reward_risk) if np.isfinite(reward_risk) else 0.0, 2),
             "ATR14": atr14,
         }
-    )
+        )
 
-results = pd.DataFrame(rows)
+    results = pd.DataFrame(rows)
 phase_times["calc_score_technical"] = t_end(t0)
 if results.empty:
     st.warning("No results after filtering. Filters may be too strict for the current universe.")
@@ -2041,9 +2044,9 @@ if CONFIG["BETA_FILTER_ENABLED"]:
 
 # 3c) Advanced Filters (dynamic penalty approach)
 t0 = t_start()
-st.info("🔬 Running advanced filters (dynamic penalties)...")
 
-benchmark_df = fetch_benchmark_data(CONFIG["BETA_BENCHMARK"], CONFIG["LOOKBACK_DAYS"])
+with st.spinner("🔬 Running advanced filters (dynamic penalties)..."):
+    benchmark_df = fetch_benchmark_data(CONFIG["BETA_BENCHMARK"], CONFIG["LOOKBACK_DAYS"])
 
 adv_cols = [
     "RS_63d", "Volume_Surge", "MA_Aligned", "Quality_Score", "RR_Ratio",
@@ -2161,11 +2164,11 @@ if catastrophic_count == len(signals_store):
 logger.info(f"Advanced filters dynamic: kept {kept}/{len(signals_store)} catastrophic={catastrophic_count}")
 
 if catastrophic_count > 0 and catastrophic_count < len(signals_store):
-    # Remove catastrophic stocks
-    drop_indices = results[results["Score"] == 0.0].index
-    results = results[~results.index.isin(drop_indices)].reset_index(drop=True)
+        # Remove catastrophic stocks
+        drop_indices = results[results["Score"] == 0.0].index
+        results = results[~results.index.isin(drop_indices)].reset_index(drop=True)
 
-results = results.sort_values(["Score", "Ticker"], ascending=[False, True]).reset_index(drop=True)
+    results = results.sort_values(["Score", "Ticker"], ascending=[False, True]).reset_index(drop=True)
 phase_times["advanced_filters"] = t_end(t0)
 
 if results.empty:
@@ -2175,12 +2178,12 @@ if results.empty:
 # 3d) Fetch Fundamentals for stocks that passed advanced_filters
 if CONFIG["FUNDAMENTAL_ENABLED"] and fundamental_available:
     t0 = t_start()
-    st.info(f"📊 Fetching fundamentals for {len(results)} stocks that passed advanced filters...")
     
     # Fetch for all stocks that passed advanced_filters (typically 15-25)
     take_k = len(results)
     
-    for idx in results.index:
+    with st.spinner(f"📊 Fetching fundamentals for {take_k} stocks..."):
+        for idx in results.index:
         tkr = results.at[idx, "Ticker"]
         rank = list(results.index).index(idx) + 1  # 1-based rank
         # Smart Alpha: enable only for top 15 to respect 25/day rate limit
@@ -2920,7 +2923,8 @@ any_price_provider = (
 
 if CONFIG["EXTERNAL_PRICE_VERIFY"] and any_price_provider:
     subset_idx = list(results.head(int(CONFIG["TOP_VALIDATE_K"])).index)
-    with ThreadPoolExecutor(max_workers=4) as ex:
+    with st.spinner(f"💵 Verifying prices across {len(subset_idx)} top stocks..."):
+        with ThreadPoolExecutor(max_workers=4) as ex:
         futures = [
             ex.submit(
                 _fetch_external_for,
@@ -3626,9 +3630,10 @@ def calculate_targets(row):
     else:
         return current_price, np.nan, "N/A", "N/A"
 
-rec_df[["Entry_Price", "Target_Price", "Target_Date", "Target_Source"]] = rec_df.apply(
-    lambda row: pd.Series(calculate_targets(row)), axis=1
-)
+with st.spinner(f"🎯 Calculating targets for {len(rec_df)} stocks..."):
+    rec_df[["Entry_Price", "Target_Price", "Target_Date", "Target_Source"]] = rec_df.apply(
+        lambda row: pd.Series(calculate_targets(row)), axis=1
+    )
 
 
 def calculate_rr(entry_price: float, target_price: float, atr_value: float, fallback_price: float = None) -> float:
