@@ -152,6 +152,9 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
     ml_fmt = f"{ml_conf_band_label} (p={ml_prob:.2f})" if np.isfinite(ml_prob) else "N/A (no model data)"
 
     type_badge = 'SPEC' if speculative else 'CORE'
+    # Fallback badge if this stock is shown only due to emergency/fallback logic
+    if bool(row.get('Fallback_Display', False)):
+        type_badge += ' (FB)'
     
     # Warning indicator
     warning = ''
@@ -3446,6 +3449,15 @@ rec_df = rec_df.copy()
 # Add overall ranking (1 = best)
 rec_df = rec_df.sort_values("Score", ascending=False).reset_index(drop=True)
 rec_df["Overall_Rank"] = range(1, len(rec_df) + 1)
+
+# --- Fallback Logic: if no stocks have positive allocation, show top technical candidates ---
+if rec_df.empty:
+    st.warning("No stocks passed allocation filters (all buy amounts zero or blocked). Showing top technical candidates (fallback mode).")
+    fallback_n = min(10, len(results))
+    rec_df = results.head(fallback_n).copy()
+    rec_df["Fallback_Display"] = True
+else:
+    rec_df["Fallback_Display"] = False
 
 # Calculate target prices and dates WITH OPTIONAL OPENAI ENHANCEMENT
 from datetime import datetime, timedelta
