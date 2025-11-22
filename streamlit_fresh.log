@@ -1641,3 +1641,1749 @@ INFO:httpx:HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1
 `use_container_width` will be removed after 2025-12-31.
 
 For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2025-11-21 21:07:46.805 Script compilation error
+Traceback (most recent call last):
+  File "/home/vscode/.local/lib/python3.11/site-packages/streamlit/runtime/scriptrunner/script_runner.py", line 571, in _run_script
+    code = self._script_cache.get_bytecode(script_path)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/vscode/.local/lib/python3.11/site-packages/streamlit/runtime/scriptrunner/script_cache.py", line 72, in get_bytecode
+    filebody = magic.add_magic(filebody, script_path)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/vscode/.local/lib/python3.11/site-packages/streamlit/runtime/scriptrunner/magic.py", line 45, in add_magic
+    tree = ast.parse(code, script_path, "exec")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/ast.py", line 50, in parse
+    return compile(source, filename, mode, flags,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/stock-scout-2/stock_scout.py", line 1778
+    if df is None or df.empty:
+    ^^
+IndentationError: expected an indented block after 'for' statement on line 1777
+2025-11-21 21:07:46.810 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:14:45.668 Script compilation error
+Traceback (most recent call last):
+  File "/home/vscode/.local/lib/python3.11/site-packages/streamlit/runtime/scriptrunner/script_runner.py", line 571, in _run_script
+    code = self._script_cache.get_bytecode(script_path)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/vscode/.local/lib/python3.11/site-packages/streamlit/runtime/scriptrunner/script_cache.py", line 72, in get_bytecode
+    filebody = magic.add_magic(filebody, script_path)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/vscode/.local/lib/python3.11/site-packages/streamlit/runtime/scriptrunner/magic.py", line 45, in add_magic
+    tree = ast.parse(code, script_path, "exec")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/ast.py", line 50, in parse
+    return compile(source, filename, mode, flags,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/stock-scout-2/stock_scout.py", line 1778
+    if df is None or df.empty:
+    ^^
+IndentationError: expected an indented block after 'for' statement on line 1777
+2025-11-21 21:14:45.668 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:30:35.226 Script compilation error
+Traceback (most recent call last):
+  File "/home/vscode/.local/lib/python3.11/site-packages/streamlit/runtime/scriptrunner/script_runner.py", line 571, in _run_script
+    code = self._script_cache.get_bytecode(script_path)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/vscode/.local/lib/python3.11/site-packages/streamlit/runtime/scriptrunner/script_cache.py", line 72, in get_bytecode
+    filebody = magic.add_magic(filebody, script_path)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/vscode/.local/lib/python3.11/site-packages/streamlit/runtime/scriptrunner/magic.py", line 45, in add_magic
+    tree = ast.parse(code, script_path, "exec")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/ast.py", line 50, in parse
+    return compile(source, filename, mode, flags,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/stock-scout-2/stock_scout.py", line 1947
+    rows.append({
+IndentationError: unexpected indent
+2025-11-21 21:30:35.227 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:36:02.013 Script compilation error
+Traceback (most recent call last):
+  File "/home/vscode/.local/lib/python3.11/site-packages/streamlit/runtime/scriptrunner/script_runner.py", line 571, in _run_script
+    code = self._script_cache.get_bytecode(script_path)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/vscode/.local/lib/python3.11/site-packages/streamlit/runtime/scriptrunner/script_cache.py", line 72, in get_bytecode
+    filebody = magic.add_magic(filebody, script_path)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/vscode/.local/lib/python3.11/site-packages/streamlit/runtime/scriptrunner/magic.py", line 45, in add_magic
+    tree = ast.parse(code, script_path, "exec")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/ast.py", line 50, in parse
+    return compile(source, filename, mode, flags,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/stock-scout-2/stock_scout.py", line 2167
+    results = results.sort_values(["Score", "Ticker"], ascending=[False, True]).reset_index(drop=True)
+                                                                                                      ^
+IndentationError: unindent does not match any outer indentation level
+2025-11-21 21:36:02.015 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+WARNING:__main__:All 1 attempts failed for URL
+INFO:__main__:✓ Deduplicated 503 → 503 unique companies (removed 0 multi-class tickers)
+INFO:__main__:✓ Loaded 503 unique S&P500 companies from Wikipedia
+2025-11-21 21:41:06.091 Thread 'ThreadPoolExecutor-78_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.092 Thread 'ThreadPoolExecutor-78_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.092 Thread 'ThreadPoolExecutor-78_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.092 Thread 'ThreadPoolExecutor-78_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.093 Thread 'ThreadPoolExecutor-78_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.092 Thread 'ThreadPoolExecutor-78_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.092 Thread 'ThreadPoolExecutor-78_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.093 Thread 'ThreadPoolExecutor-78_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.094 Thread 'ThreadPoolExecutor-78_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.093 Thread 'ThreadPoolExecutor-78_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.093 Thread 'ThreadPoolExecutor-78_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.095 Thread 'ThreadPoolExecutor-78_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.092 Thread 'ThreadPoolExecutor-78_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.095 Thread 'ThreadPoolExecutor-78_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.095 Thread 'ThreadPoolExecutor-78_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.093 Thread 'ThreadPoolExecutor-78_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.095 Thread 'ThreadPoolExecutor-78_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.094 Thread 'ThreadPoolExecutor-78_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.094 Thread 'ThreadPoolExecutor-78_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.095 Thread 'ThreadPoolExecutor-78_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.095 Thread 'ThreadPoolExecutor-78_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.096 Thread 'ThreadPoolExecutor-78_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.096 Thread 'ThreadPoolExecutor-78_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.097 Thread 'ThreadPoolExecutor-78_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.594 Thread 'Thread-439': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.594 Thread 'Thread-439': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.594 Thread 'Thread-439': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.597 Thread 'Thread-441': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.597 Thread 'Thread-441': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.597 Thread 'Thread-441': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.597 Thread 'Thread-440': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.597 Thread 'Thread-440': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.598 Thread 'Thread-440': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.598 Thread 'Thread-443': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.598 Thread 'Thread-443': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.598 Thread 'Thread-443': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.598 Thread 'Thread-442': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.598 Thread 'Thread-442': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.598 Thread 'Thread-442': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.599 Thread 'Thread-444': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.599 Thread 'Thread-444': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.599 Thread 'Thread-444': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.631 Thread 'ThreadPoolExecutor-78_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.632 Thread 'ThreadPoolExecutor-78_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.632 Thread 'ThreadPoolExecutor-78_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.632 Thread 'ThreadPoolExecutor-78_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.632 Thread 'ThreadPoolExecutor-78_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.632 Thread 'ThreadPoolExecutor-78_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.632 Thread 'ThreadPoolExecutor-78_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.635 Thread 'ThreadPoolExecutor-78_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.635 Thread 'ThreadPoolExecutor-78_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.635 Thread 'ThreadPoolExecutor-78_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.635 Thread 'ThreadPoolExecutor-78_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.635 Thread 'ThreadPoolExecutor-78_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.635 Thread 'ThreadPoolExecutor-78_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.648 Thread 'ThreadPoolExecutor-78_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.679 Thread 'ThreadPoolExecutor-78_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.681 Thread 'ThreadPoolExecutor-78_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.681 Thread 'ThreadPoolExecutor-78_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.693 Thread 'ThreadPoolExecutor-78_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.733 Thread 'ThreadPoolExecutor-78_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.720 Thread 'ThreadPoolExecutor-78_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.700 Thread 'ThreadPoolExecutor-78_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.746 Thread 'ThreadPoolExecutor-78_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.746 Thread 'ThreadPoolExecutor-78_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.747 Thread 'ThreadPoolExecutor-78_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.747 Thread 'ThreadPoolExecutor-78_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.756 Thread 'ThreadPoolExecutor-78_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.757 Thread 'ThreadPoolExecutor-78_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.758 Thread 'ThreadPoolExecutor-78_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.747 Thread 'ThreadPoolExecutor-78_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.748 Thread 'ThreadPoolExecutor-78_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.755 Thread 'ThreadPoolExecutor-78_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.758 Thread 'ThreadPoolExecutor-78_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.759 Thread 'ThreadPoolExecutor-78_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.759 Thread 'ThreadPoolExecutor-78_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.760 Thread 'ThreadPoolExecutor-78_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.760 Thread 'ThreadPoolExecutor-78_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.759 Thread 'ThreadPoolExecutor-78_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.760 Thread 'ThreadPoolExecutor-78_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.760 Thread 'ThreadPoolExecutor-78_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.761 Thread 'ThreadPoolExecutor-78_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.761 Thread 'ThreadPoolExecutor-78_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:06.761 Thread 'ThreadPoolExecutor-78_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:07.041 Thread 'ThreadPoolExecutor-78_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:07.041 Thread 'ThreadPoolExecutor-78_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:07.041 Thread 'ThreadPoolExecutor-78_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:07.138 Thread 'ThreadPoolExecutor-78_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:07.139 Thread 'ThreadPoolExecutor-78_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:07.139 Thread 'ThreadPoolExecutor-78_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:07.196 Thread 'ThreadPoolExecutor-78_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:07.196 Thread 'ThreadPoolExecutor-78_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:07.196 Thread 'ThreadPoolExecutor-78_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:07.204 Thread 'ThreadPoolExecutor-78_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:07.204 Thread 'ThreadPoolExecutor-78_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:07.204 Thread 'ThreadPoolExecutor-78_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:07.207 Thread 'ThreadPoolExecutor-78_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:07.207 Thread 'ThreadPoolExecutor-78_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:07.208 Thread 'ThreadPoolExecutor-78_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:07.210 Thread 'ThreadPoolExecutor-78_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:07.210 Thread 'ThreadPoolExecutor-78_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 21:41:07.210 Thread 'ThreadPoolExecutor-78_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+INFO:__main__:🔬 Advanced filters pre-pass on 47 stocks...
+INFO:__main__:Dynamic thresholds -> RS:-0.155 MOM:0.233 RR:0.036
+INFO:__main__:Advanced filters dynamic: kept 35/47 catastrophic=12
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/ALB
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ALB/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ALB/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ALB/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for ALB from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/ALB
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ALB/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ALB/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ALB/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AMCR
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMCR/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMCR/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMCR/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for AMCR from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AMCR
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMCR/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMCR/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMCR/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AAPL
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AAPL/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AAPL/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AAPL/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for AAPL from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AAPL
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AAPL/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AAPL/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AAPL/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/GOOGL
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/GOOGL/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/GOOGL/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/GOOGL/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for GOOGL from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/GOOGL
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/GOOGL/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/GOOGL/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/GOOGL/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/GOOG
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/GOOG/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/GOOG/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/GOOG/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for GOOG from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/GOOG
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/GOOG/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/GOOG/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/GOOG/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AMGN
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMGN/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMGN/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMGN/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for AMGN from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AMGN
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMGN/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMGN/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMGN/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AEP
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AEP/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AEP/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AEP/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for AEP from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AEP
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AEP/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AEP/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AEP/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AKAM
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AKAM/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AKAM/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AKAM/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for AKAM from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AKAM
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AKAM/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AKAM/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AKAM/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/A
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/A/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/A/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/A/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for A from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/A
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/A/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/A/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/A/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AXP
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AXP/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AXP/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AXP/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for AXP from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AXP
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AXP/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AXP/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AXP/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/MMM
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/MMM/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/MMM/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/MMM/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for MMM from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/MMM
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/MMM/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/MMM/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/MMM/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/LNT
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/LNT/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/LNT/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/LNT/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for LNT from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/LNT
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/LNT/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/LNT/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/LNT/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/LNT/prev, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/LNT/prev, waiting 4s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/APA
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/APA/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/APA/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/APA/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for APA from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/APA
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/APA/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/APA/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/APA/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/APH
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/APH/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/APH/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/APH/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for APH from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/APH
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/APH/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/APH/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/APH/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AME
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AME/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AME/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AME/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for AME from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AME
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AME/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AME/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AME/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AEE
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AEE/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AEE/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AEE/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for AEE from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AEE
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AEE/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AEE/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AEE/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/MO
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/MO/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/MO/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/MO/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for MO from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/MO
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/MO/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/MO/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/MO/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/MO/prev, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/MO/prev, waiting 4s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AON
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AON/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AON/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AON/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for AON from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AON
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AON/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AON/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AON/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/ABBV
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ABBV/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ABBV/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ABBV/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for ABBV from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/ABBV
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ABBV/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ABBV/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ABBV/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/ABT
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ABT/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ABT/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ABT/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for ABT from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/ABT
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ABT/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ABT/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ABT/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/ALGN
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ALGN/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ALGN/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ALGN/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for ALGN from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/ALGN
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ALGN/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ALGN/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ALGN/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/T
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/T/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/T/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/T/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for T from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/T
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/T/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/T/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/T/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/T/prev, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/T/prev, waiting 4s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/APD
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/APD/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/APD/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/APD/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for APD from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/APD
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/APD/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/APD/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/APD/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/ATO
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ATO/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ATO/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ATO/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for ATO from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/ATO
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ATO/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ATO/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ATO/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AES
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AES/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AES/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AES/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for AES from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AES
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AES/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AES/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AES/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AMZN
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMZN/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMZN/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMZN/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for AMZN from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AMZN
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMZN/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMZN/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMZN/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AWK
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AWK/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AWK/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AWK/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for AWK from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AWK
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AWK/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AWK/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AWK/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AWK/prev, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AWK/prev, waiting 4s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/ACGL
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ACGL/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ACGL/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ACGL/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for ACGL from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/ACGL
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ACGL/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ACGL/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ACGL/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/ADBE
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ADBE/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ADBE/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ADBE/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for ADBE from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/ADBE
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ADBE/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ADBE/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ADBE/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/ADM
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ADM/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ADM/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ADM/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for ADM from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/ADM
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ADM/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ADM/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ADM/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AOS
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AOS/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AOS/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AOS/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for AOS from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AOS
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AOS/prices, waiting 2s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/ADI
+WARNING:core.data_sources_v2:HTTP 400 for https://api.tiingo.com/tiingo/fundamentals/ADI/statements
+INFO:core.data_sources_v2:Aggregated fundamentals for ADI from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/ADI
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/ADI/prev, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/ADI/prev, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/ADI/prev, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/ABNB
+WARNING:core.data_sources_v2:HTTP 400 for https://api.tiingo.com/tiingo/fundamentals/ABNB/statements
+INFO:core.data_sources_v2:Aggregated fundamentals for ABNB from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/ABNB
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AMT
+WARNING:core.data_sources_v2:HTTP 400 for https://api.tiingo.com/tiingo/fundamentals/AMT/statements
+INFO:core.data_sources_v2:Aggregated fundamentals for AMT from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AMT
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/APTV
+WARNING:core.data_sources_v2:HTTP 400 for https://api.tiingo.com/tiingo/fundamentals/APTV/statements
+INFO:core.data_sources_v2:Aggregated fundamentals for APTV from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/APTV
+INFO:core.ml_integration:✓ ML model loaded from model_xgboost_5d.pkl
+INFO:__main__:✓ Applied V2 risk gates to 35 stocks
+INFO:__main__:  - Blocked: 34 stocks
+INFO:__main__:  - Severely reduced: 0 stocks
+INFO:__main__:  - Reduced: 1 stocks
+INFO:__main__:  - Full allocation: 0 stocks
+INFO:__main__:✓ Scored 35 stocks with V2-enhanced conviction
+INFO:__main__:Score mapping: raw [45.6, 45.6] → pretty [60, 90]
+INFO:__main__:Columns available: ['Ticker', 'Price_Yahoo', 'Score_Tech', 'RSI', 'Near52w', 'Volx20d', 'OverextRatio', 'ATR_Price', 'RewardRisk', 'ATR14', 'Fundamental_S', 'Sector', 'PE_f', 'PS_f', 'ROE_f', 'ROIC_f', 'GM_f', 'DE_f', 'RevG_f', 'EPSG_f', 'Fund_from_FMP', 'Fund_from_Alpha', 'Fund_from_Finnhub', 'Fund_from_SimFin', 'Fund_from_EODHD', 'Score', 'Beta', 'RS_63d', 'Volume_Surge', 'MA_Aligned', 'Quality_Score', 'RR_Ratio', 'Momentum_Consistency', 'High_Confidence', 'AdvPenalty', 'AdvFlags', 'RejectionReason', 'from_fmp_full', 'from_fmp', 'from_alpha', 'from_finnhub', 'from_simfin', 'from_eodhd', 'from_tiingo', 'Quality_Score_F', 'Quality_Label', 'Growth_Score_F', 'Growth_Label', 'Valuation_Score_F', 'Valuation_Label', 'Leverage_Score_F', 'Leverage_Label', 'Fund_Attribution', 'fund_sources_used_v2', 'fund_disagreement_score_v2', 'fund_coverage_pct_v2', 'Fundamental_Reliability_v2', 'price_sources_used_v2', 'price_variance_score_v2', 'Price_Reliability_v2', 'Price_Mean_v2', 'Price_STD_v2', 'reliability_v2', 'fund_sources_count_v2', 'price_sources_count_v2', 'fund_completeness_pct', 'price_variance_penalty', 'rr_ratio_v2', 'risk_gate_status_v2', 'risk_gate_penalty_v2', 'conviction_v2_base', 'conviction_v2_final', 'ml_probability_v2', 'ml_boost_v2', 'buy_amount_v2', 'shares_to_buy_v2', 'risk_level', 'quality_score', 'risk_gate_reason_v2', 'risk_meter_v2', 'reward_risk_v2', 'reliability_score_v2', 'rr', 'rr_score_v2', 'rr_band', 'RR_Score', 'RR', 'Reliability_v2', 'overall_score', 'fund_component', 'tech_component', 'rr_component', 'reliability_component', 'base_score', 'ml_delta', 'score_before_penalties', 'penalty_total', 'overall_score_raw', 'overall_score_pretty', 'reliability_pct', 'reliability_band', 'risk_band', 'ml_conf_band', 'fund_score', 'tech_score', 'rr_score', 'reliability_score']
+INFO:__main__:Sample RS_63d values: [-0.09506164846689769, -0.12228949068117811, -0.10776027152165868, -0.02394264487702813, -0.02255543719950781]
+INFO:__main__:Sample Volume_Surge values: [1.172069885344061, 1.0154509619934138, 0.9913081407615217, 0.8753807459718205, 0.718637409374706]
+INFO:__main__:Sample RR_Ratio values: [1.9379772145169865, 1.6671423991996306, 2.331744047518473, 0.1333632828838319, 0.038110970300402204]
+INFO:__main__:Sample Quality_Score values: [3.0, 3.0, 6.0, 4.0, 13.0]
+INFO:__main__:Sample Fundamental_S values: [36.5, nan, nan, nan, nan]
+INFO:__main__:Sample Momentum_Consistency values: [0.25, 0.29166666666666663, 0.25, 0.5833333333333334, 0.875]
+[2025-11-21 22:01:57] [INFO] [stock_scout.classification] Classified 35 stocks: Core=7, Speculative=28, Hidden=0
+[2025-11-21 22:01:57] [INFO] [stock_scout.classification] 📊 Initial distribution: 7 Core, 0 Speculative (total: 7)
+[2025-11-21 22:01:57] [INFO] [stock_scout.classification] After Core filter: 7/7
+[2025-11-21 22:01:57] [INFO] [stock_scout.classification] After fundamental quality score >= 60.0: 7/7
+[2025-11-21 22:01:57] [INFO] [stock_scout.classification] After overextension <= 0.12: 6/7
+[2025-11-21 22:01:57] [INFO] [stock_scout.classification] After ATR/Price <= 0.07: 6/7
+[2025-11-21 22:01:57] [INFO] [stock_scout.classification] After RSI in [20, 55]: 2/7
+[2025-11-21 22:01:57] [INFO] [stock_scout.classification] After RewardRisk >= 1.5: 1/7
+[2025-11-21 22:01:57] [INFO] [stock_scout.classification] After reliability_v2 >= 50: 0/7
+[2025-11-21 22:01:57] [INFO] [stock_scout.classification] After RewardRisk >= 1.5: 0/7
+[2025-11-21 22:01:57] [INFO] [stock_scout.classification] After MomentumConsistency >= 0.35: 0/7
+[2025-11-21 22:01:57] [WARNING] [stock_scout.classification] 🔄 Adaptive relaxation engaged: {'MIN_QUALITY_SCORE_CORE': 55.0, 'MAX_OVEREXTENSION_CORE': 0.16999999999999998, 'MAX_ATR_PRICE_CORE': 0.11000000000000001, 'RSI_MIN_CORE': 30, 'RSI_MAX_CORE': 60, 'MIN_RR_CORE': 1.2}
+[2025-11-21 22:01:57] [INFO] [stock_scout.classification] Adaptive relaxation produced 2 provisional candidates
+[2025-11-21 22:01:57] [INFO] [stock_scout.classification] Final Core recommendations (including adaptive if any): 2/7
+INFO:__main__:Speculative filter: 28 → 16
+INFO:__main__:Applying XGBoost ML scoring...
+INFO:__main__:Core stocks scored: avg probability 0.820
+INFO:__main__:Speculative stocks scored: avg probability 0.812
+INFO:__main__:Core quality: {'Medium': 2}
+INFO:__main__:Spec quality: {'Medium': 15, 'Low': 1}
+2025-11-21 22:01:57.582 Thread 'ThreadPoolExecutor-79_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 22:01:57.583 Thread 'ThreadPoolExecutor-79_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 22:01:57.584 Thread 'ThreadPoolExecutor-79_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 22:01:57.585 Thread 'ThreadPoolExecutor-79_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+2025-11-21 22:01:58.791 Thread 'ThreadPoolExecutor-79_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 22:01:58.796 Thread 'ThreadPoolExecutor-79_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 22:01:58.798 Thread 'ThreadPoolExecutor-79_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 22:01:58.800 Thread 'ThreadPoolExecutor-79_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 22:02:00.046 Thread 'ThreadPoolExecutor-79_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 22:02:00.048 Thread 'ThreadPoolExecutor-79_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 22:02:00.049 Thread 'ThreadPoolExecutor-79_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-21 22:02:00.052 Thread 'ThreadPoolExecutor-79_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+INFO:__main__:Using V2 position sizing with risk gates and reliability penalties
+2025-11-21 22:02:01.366 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+INFO:__main__:✓ Deduplicated 503 → 503 unique companies (removed 0 multi-class tickers)
+INFO:__main__:✓ Loaded 503 unique S&P500 companies from Wikipedia
+2025-11-22 06:15:32.629 Thread 'ThreadPoolExecutor-80_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:32.629 Thread 'ThreadPoolExecutor-80_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:32.629 Thread 'ThreadPoolExecutor-80_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:32.629 Thread 'ThreadPoolExecutor-80_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:32.629 Thread 'ThreadPoolExecutor-80_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:32.629 Thread 'ThreadPoolExecutor-80_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:32.630 Thread 'ThreadPoolExecutor-80_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:32.630 Thread 'ThreadPoolExecutor-80_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:32.631 Thread 'ThreadPoolExecutor-80_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:32.631 Thread 'ThreadPoolExecutor-80_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:32.630 Thread 'ThreadPoolExecutor-80_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:32.631 Thread 'ThreadPoolExecutor-80_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:32.632 Thread 'ThreadPoolExecutor-80_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:32.630 Thread 'ThreadPoolExecutor-80_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:32.632 Thread 'ThreadPoolExecutor-80_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:32.632 Thread 'ThreadPoolExecutor-80_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:32.632 Thread 'ThreadPoolExecutor-80_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:32.632 Thread 'ThreadPoolExecutor-80_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:32.631 Thread 'ThreadPoolExecutor-80_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:32.632 Thread 'ThreadPoolExecutor-80_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:32.630 Thread 'ThreadPoolExecutor-80_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:32.633 Thread 'ThreadPoolExecutor-80_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:32.634 Thread 'ThreadPoolExecutor-80_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:32.635 Thread 'ThreadPoolExecutor-80_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.132 Thread 'Thread-668': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.133 Thread 'Thread-668': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.134 Thread 'Thread-668': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.133 Thread 'Thread-671': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.136 Thread 'Thread-671': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.134 Thread 'Thread-669': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.136 Thread 'Thread-669': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.136 Thread 'Thread-669': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.136 Thread 'Thread-672': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.136 Thread 'Thread-672': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.134 Thread 'Thread-670': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.136 Thread 'Thread-673': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.136 Thread 'Thread-671': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.136 Thread 'Thread-672': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.137 Thread 'Thread-670': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.137 Thread 'Thread-673': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.137 Thread 'Thread-670': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.137 Thread 'Thread-673': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.169 Thread 'ThreadPoolExecutor-80_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.171 Thread 'ThreadPoolExecutor-80_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.172 Thread 'ThreadPoolExecutor-80_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.172 Thread 'ThreadPoolExecutor-80_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.172 Thread 'ThreadPoolExecutor-80_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.172 Thread 'ThreadPoolExecutor-80_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.171 Thread 'ThreadPoolExecutor-80_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.172 Thread 'ThreadPoolExecutor-80_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.173 Thread 'ThreadPoolExecutor-80_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.173 Thread 'ThreadPoolExecutor-80_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.173 Thread 'ThreadPoolExecutor-80_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.173 Thread 'ThreadPoolExecutor-80_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.173 Thread 'ThreadPoolExecutor-80_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.173 Thread 'ThreadPoolExecutor-80_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.174 Thread 'ThreadPoolExecutor-80_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.174 Thread 'ThreadPoolExecutor-80_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.175 Thread 'ThreadPoolExecutor-80_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.175 Thread 'ThreadPoolExecutor-80_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.174 Thread 'ThreadPoolExecutor-80_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.175 Thread 'ThreadPoolExecutor-80_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.175 Thread 'ThreadPoolExecutor-80_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.180 Thread 'ThreadPoolExecutor-80_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.180 Thread 'ThreadPoolExecutor-80_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.181 Thread 'ThreadPoolExecutor-80_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.181 Thread 'ThreadPoolExecutor-80_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.181 Thread 'ThreadPoolExecutor-80_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.181 Thread 'ThreadPoolExecutor-80_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.181 Thread 'ThreadPoolExecutor-80_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.182 Thread 'ThreadPoolExecutor-80_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.183 Thread 'ThreadPoolExecutor-80_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.184 Thread 'ThreadPoolExecutor-80_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.183 Thread 'ThreadPoolExecutor-80_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.184 Thread 'ThreadPoolExecutor-80_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.184 Thread 'ThreadPoolExecutor-80_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.185 Thread 'ThreadPoolExecutor-80_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.185 Thread 'ThreadPoolExecutor-80_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.185 Thread 'ThreadPoolExecutor-80_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.185 Thread 'ThreadPoolExecutor-80_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.185 Thread 'ThreadPoolExecutor-80_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.185 Thread 'ThreadPoolExecutor-80_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.185 Thread 'ThreadPoolExecutor-80_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.185 Thread 'ThreadPoolExecutor-80_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.679 Thread 'Thread-674': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.680 Thread 'Thread-674': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.680 Thread 'Thread-674': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.680 Thread 'Thread-675': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.682 Thread 'Thread-676': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.682 Thread 'Thread-675': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.682 Thread 'Thread-676': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.682 Thread 'Thread-675': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.683 Thread 'Thread-676': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.684 Thread 'Thread-677': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.684 Thread 'Thread-677': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.684 Thread 'Thread-677': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.687 Thread 'Thread-679': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.687 Thread 'Thread-679': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.687 Thread 'Thread-679': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.691 Thread 'Thread-678': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.691 Thread 'Thread-678': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.692 Thread 'Thread-678': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.714 Thread 'ThreadPoolExecutor-80_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.719 Thread 'ThreadPoolExecutor-80_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.719 Thread 'ThreadPoolExecutor-80_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.728 Thread 'ThreadPoolExecutor-80_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.730 Thread 'ThreadPoolExecutor-80_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.737 Thread 'ThreadPoolExecutor-80_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.738 Thread 'ThreadPoolExecutor-80_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.751 Thread 'ThreadPoolExecutor-80_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.773 Thread 'ThreadPoolExecutor-80_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.792 Thread 'ThreadPoolExecutor-80_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.812 Thread 'ThreadPoolExecutor-80_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.815 Thread 'ThreadPoolExecutor-80_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.815 Thread 'ThreadPoolExecutor-80_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.816 Thread 'ThreadPoolExecutor-80_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.816 Thread 'ThreadPoolExecutor-80_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.821 Thread 'ThreadPoolExecutor-80_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.821 Thread 'ThreadPoolExecutor-80_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:15:33.822 Thread 'ThreadPoolExecutor-80_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+INFO:__main__:🔬 Advanced filters pre-pass on 47 stocks...
+INFO:__main__:Dynamic thresholds -> RS:-0.154 MOM:0.233 RR:0.044
+INFO:__main__:Advanced filters dynamic: kept 35/47 catastrophic=12
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/ALB
+WARNING:core.data_sources_v2:HTTP 400 for https://api.tiingo.com/tiingo/fundamentals/ALB/statements
+INFO:core.data_sources_v2:Aggregated fundamentals for ALB from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/ALB
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AMCR
+WARNING:core.data_sources_v2:HTTP 400 for https://api.tiingo.com/tiingo/fundamentals/AMCR/statements
+INFO:core.data_sources_v2:Aggregated fundamentals for AMCR from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AMCR
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AAPL
+INFO:core.data_sources_v2:Aggregated fundamentals for AAPL from 3 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AAPL
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AAPL/prev, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AAPL/prev, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AAPL/prev, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/GOOGL
+WARNING:core.data_sources_v2:HTTP 400 for https://api.tiingo.com/tiingo/fundamentals/GOOGL/statements
+INFO:core.data_sources_v2:Aggregated fundamentals for GOOGL from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/GOOGL
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/GOOG
+WARNING:core.data_sources_v2:HTTP 400 for https://api.tiingo.com/tiingo/fundamentals/GOOG/statements
+INFO:core.data_sources_v2:Aggregated fundamentals for GOOG from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/GOOG
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AMGN
+INFO:core.data_sources_v2:Aggregated fundamentals for AMGN from 3 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AMGN
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AMGN/prev, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AMGN/prev, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AMGN/prev, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AEP
+WARNING:core.data_sources_v2:HTTP 400 for https://api.tiingo.com/tiingo/fundamentals/AEP/statements
+INFO:core.data_sources_v2:Aggregated fundamentals for AEP from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AEP
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AKAM
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AKAM/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AKAM/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AKAM/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for AKAM from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AKAM
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AKAM/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AKAM/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AKAM/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AKAM/prev, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AKAM/prev, waiting 4s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/A
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/A/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/A/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/A/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for A from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/A
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/A/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/A/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/A/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AXP
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AXP/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AXP/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AXP/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for AXP from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AXP
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AXP/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AXP/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AXP/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AMAT
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMAT/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMAT/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMAT/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for AMAT from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AMAT
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMAT/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMAT/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMAT/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/ACN
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ACN/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ACN/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ACN/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for ACN from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/ACN
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ACN/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ACN/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ACN/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/ATO
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ATO/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ATO/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ATO/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for ATO from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/ATO
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ATO/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ATO/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ATO/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/APH
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/APH/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/APH/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/APH/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for APH from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/APH
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/APH/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/APH/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/APH/prices, waiting 8s
+WARNING:__main__:All 1 attempts failed for URL
+INFO:__main__:✓ Deduplicated 503 → 503 unique companies (removed 0 multi-class tickers)
+INFO:__main__:✓ Loaded 503 unique S&P500 companies from Wikipedia
+INFO:__main__:🔬 Advanced filters pre-pass on 47 stocks...
+INFO:__main__:Dynamic thresholds -> RS:-0.154 MOM:0.233 RR:0.044
+INFO:__main__:Advanced filters dynamic: kept 35/47 catastrophic=12
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/ALB
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ALB/statements, waiting 2s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/APA
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/APA/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ALB/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/APA/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ALB/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/APA/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for ALB from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/ALB
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ALB/prices, waiting 2s
+INFO:core.data_sources_v2:Aggregated fundamentals for APA from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/APA
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/APA/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ALB/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/APA/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ALB/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/APA/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AMCR
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMCR/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMCR/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMCR/statements, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AME
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AME/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AME/statements, waiting 4s
+INFO:core.data_sources_v2:Aggregated fundamentals for AMCR from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AMCR
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMCR/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMCR/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AME/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMCR/prices, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for AME from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AME
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AME/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AME/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AME/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AMCR/prev, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AMCR/prev, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AMCR/prev, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AME/prev, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AME/prev, waiting 4s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AAPL
+INFO:core.data_sources_v2:Aggregated fundamentals for AAPL from 3 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AAPL
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AAPL/prices, waiting 2s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/ABBV
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ABBV/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AAPL/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ABBV/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AAPL/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ABBV/statements, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/GOOGL
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/GOOGL/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/GOOGL/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/GOOGL/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for ABBV from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/ABBV
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ABBV/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ABBV/prices, waiting 4s
+INFO:core.data_sources_v2:Aggregated fundamentals for GOOGL from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/GOOGL
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/GOOGL/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/GOOGL/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ABBV/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/GOOGL/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/ABBV/prev, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/ABBV/prev, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/ABBV/prev, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/GOOGL/prev, waiting 2s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/GOOG
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AON
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/GOOG/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AON/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/GOOG/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AON/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/GOOG/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AON/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for GOOG from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/GOOG
+INFO:core.data_sources_v2:Aggregated fundamentals for AON from 2 sources
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/GOOG/prices, waiting 2s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AON
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AON/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/GOOG/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AON/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/GOOG/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AON/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AMGN
+INFO:core.data_sources_v2:Aggregated fundamentals for AMGN from 3 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AMGN
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMGN/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMGN/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMGN/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AON/prev, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AON/prev, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AON/prev, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AMGN/prev, waiting 2s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AEP
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/MO
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AEP/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/MO/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AEP/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/MO/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AEP/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/MO/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for AEP from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AEP
+INFO:core.data_sources_v2:Aggregated fundamentals for MO from 2 sources
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AEP/prices, waiting 2s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/MO
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/MO/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AEP/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/MO/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AEP/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/MO/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AKAM
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AKAM/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AKAM/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AKAM/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/MO/prev, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/MO/prev, waiting 4s
+INFO:core.data_sources_v2:Aggregated fundamentals for AKAM from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AKAM
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AKAM/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/MO/prev, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AKAM/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AKAM/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/ABT
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ABT/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ABT/statements, waiting 4s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/A
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/A/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ABT/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/A/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/A/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for ABT from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/ABT
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ABT/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ABT/prices, waiting 4s
+INFO:core.data_sources_v2:Aggregated fundamentals for A from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/A
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/A/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ABT/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/A/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/A/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/ALGN
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ALGN/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ALGN/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ALGN/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/A/prev, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/A/prev, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/A/prev, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for ALGN from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/ALGN
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ALGN/prices, waiting 2s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AXP
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ALGN/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AXP/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AXP/statements, waiting 4s
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ALGN/prices, waiting 8s
+INFO:__main__:✓ Deduplicated 503 → 503 unique companies (removed 0 multi-class tickers)
+INFO:__main__:✓ Loaded 503 unique S&P500 companies from Wikipedia
+INFO:__main__:🔬 Advanced filters pre-pass on 47 stocks...
+INFO:__main__:Dynamic thresholds -> RS:-0.154 MOM:0.233 RR:0.044
+INFO:__main__:Advanced filters dynamic: kept 35/47 catastrophic=12
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/ALB
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ALB/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AXP/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ALB/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ALB/statements, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AEE
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AEE/statements, waiting 2s
+INFO:core.data_sources_v2:Aggregated fundamentals for AXP from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AXP
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AXP/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AEE/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AXP/prices, waiting 4s
+INFO:core.data_sources_v2:Aggregated fundamentals for ALB from 2 sources
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AEE/statements, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/ALB
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ALB/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AXP/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ALB/prices, waiting 4s
+INFO:core.data_sources_v2:Aggregated fundamentals for AEE from 2 sources
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ALB/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AEE
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AEE/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AEE/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AEE/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AXP/prev, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/ALB/prev, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AXP/prev, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/ALB/prev, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AXP/prev, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/ALB/prev, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/T
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/T/statements, waiting 2s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AMAT
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AMCR
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/T/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMAT/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMCR/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMAT/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMCR/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/T/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMAT/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMCR/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for T from 1 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/T
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/T/prices, waiting 2s
+INFO:core.data_sources_v2:Aggregated fundamentals for AMAT from 2 sources
+INFO:core.data_sources_v2:Aggregated fundamentals for AMCR from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AMAT
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AMCR
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMAT/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/T/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMCR/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMAT/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMCR/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/T/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMAT/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMCR/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/APD
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/APD/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/APD/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/APD/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AMCR/prev, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AMAT/prev, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AMCR/prev, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AMAT/prev, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AMCR/prev, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AMAT/prev, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for APD from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/APD
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/APD/prices, waiting 2s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AAPL
+INFO:core.data_sources_v2:Aggregated fundamentals for AAPL from 3 sources
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/APD/prices, waiting 4s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/ACN
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AAPL
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ACN/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AAPL/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ACN/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AAPL/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/APD/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ACN/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AAPL/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AES
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AES/statements, waiting 2s
+INFO:core.data_sources_v2:Aggregated fundamentals for ACN from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/ACN
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ACN/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AES/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ACN/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AES/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ACN/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/GOOGL
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/GOOGL/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/GOOGL/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/GOOGL/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for AES from 2 sources
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/ACN/prev, waiting 2s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AES
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AES/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/ACN/prev, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AES/prices, waiting 4s
+INFO:core.data_sources_v2:Aggregated fundamentals for GOOGL from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/GOOGL
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/GOOGL/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/ACN/prev, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/GOOGL/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AES/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/GOOGL/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/ATO
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ATO/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AES/prev, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ATO/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AES/prev, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ATO/statements, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AMZN
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMZN/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMZN/statements, waiting 4s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/GOOG
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/GOOG/statements, waiting 2s
+INFO:core.data_sources_v2:Aggregated fundamentals for ATO from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/ATO
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ATO/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/GOOG/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMZN/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ATO/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/GOOG/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ATO/prices, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for AMZN from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AMZN
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMZN/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMZN/prices, waiting 4s
+INFO:core.data_sources_v2:Aggregated fundamentals for GOOG from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/GOOG
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/GOOG/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/GOOG/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMZN/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/GOOG/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/APH
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/APH/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/APH/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/APH/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/GOOG/prev, waiting 2s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AWK
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AWK/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/GOOG/prev, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AWK/statements, waiting 4s
+INFO:core.data_sources_v2:Aggregated fundamentals for APH from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/APH
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/APH/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/GOOG/prev, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AWK/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/APH/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/APH/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AMGN
+INFO:core.data_sources_v2:Aggregated fundamentals for AMGN from 3 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AMGN
+INFO:core.data_sources_v2:Aggregated fundamentals for AWK from 2 sources
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMGN/prices, waiting 2s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AWK
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AWK/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMGN/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AWK/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMGN/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AWK/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/APA
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/APA/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/APA/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/APA/statements, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AEP
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/ACGL
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AEP/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ACGL/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AEP/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ACGL/statements, waiting 4s
+INFO:core.data_sources_v2:Aggregated fundamentals for APA from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/APA
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/APA/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AEP/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/APA/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ACGL/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/APA/prices, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for AEP from 2 sources
+INFO:core.data_sources_v2:Aggregated fundamentals for ACGL from 1 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AEP
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/ACGL
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AEP/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ACGL/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AEP/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ACGL/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AEP/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ACGL/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/APA/prev, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/APA/prev, waiting 4s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AME
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AME/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AME/statements, waiting 4s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/ADBE
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AKAM
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AKAM/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ADBE/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AME/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AKAM/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ADBE/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AKAM/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ADBE/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for AME from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AME
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AME/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AME/prices, waiting 4s
+INFO:core.data_sources_v2:Aggregated fundamentals for AKAM from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AKAM
+INFO:core.data_sources_v2:Aggregated fundamentals for ADBE from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/ADBE
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AKAM/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ADBE/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AME/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AKAM/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ADBE/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AKAM/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ADBE/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/ABBV
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ABBV/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ABBV/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ABBV/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/ADBE/prev, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AKAM/prev, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/ADBE/prev, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AKAM/prev, waiting 4s
+INFO:core.data_sources_v2:Aggregated fundamentals for ABBV from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/ABBV
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/ADBE/prev, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AKAM/prev, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ABBV/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ABBV/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ABBV/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/ADM
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/A
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/A/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ADM/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/A/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ADM/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/A/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ADM/statements, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AON
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AON/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AON/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AON/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for A from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/A
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/A/prices, waiting 2s
+INFO:core.data_sources_v2:Aggregated fundamentals for ADM from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/ADM
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/A/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ADM/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ADM/prices, waiting 4s
+INFO:core.data_sources_v2:Aggregated fundamentals for AON from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AON
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/A/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AON/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ADM/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AON/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AON/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AXP
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AXP/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AXP/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AXP/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AON/prev, waiting 2s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/APTV
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/APTV/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AON/prev, waiting 4s
+INFO:core.data_sources_v2:Aggregated fundamentals for AXP from 2 sources
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/APTV/statements, waiting 4s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AXP
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AXP/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AON/prev, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AXP/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/APTV/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AXP/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/MO
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/MO/statements, waiting 2s
+INFO:core.data_sources_v2:Aggregated fundamentals for APTV from 1 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/APTV
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/APTV/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/MO/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/APTV/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/MO/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/APTV/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AMAT
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMAT/statements, waiting 2s
+INFO:core.data_sources_v2:Aggregated fundamentals for MO from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/MO
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/MO/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMAT/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/MO/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMAT/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/MO/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/APTV/prev, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/APTV/prev, waiting 4s
+INFO:core.data_sources_v2:Aggregated fundamentals for AMAT from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AMAT
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMAT/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/APTV/prev, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMAT/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/MO/prev, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMAT/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/MO/prev, waiting 4s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AOS
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AOS/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/MO/prev, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AOS/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AOS/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AMAT/prev, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AMAT/prev, waiting 4s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/ABT
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ABT/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ABT/statements, waiting 4s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/ACN
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ACN/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ACN/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ABT/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for AOS from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AOS
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AOS/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ACN/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AOS/prices, waiting 4s
+INFO:core.data_sources_v2:Aggregated fundamentals for ABT from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/ABT
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AOS/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ABT/prices, waiting 2s
+INFO:core.data_sources_v2:Aggregated fundamentals for ACN from 2 sources
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ABT/prices, waiting 4s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/ACN
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ACN/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ACN/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ABT/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/ABNB
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ABNB/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ACN/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ABNB/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ABNB/statements, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/ATO
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/ALGN
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ATO/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ALGN/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ATO/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ALGN/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ATO/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ALGN/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for ABNB from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/ABNB
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ABNB/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ABNB/prices, waiting 4s
+INFO:core.data_sources_v2:Aggregated fundamentals for ATO from 2 sources
+INFO:core.data_sources_v2:Aggregated fundamentals for ALGN from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/ATO
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/ALGN
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ATO/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ALGN/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ABNB/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ATO/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ALGN/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ATO/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ALGN/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/ADI
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ADI/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ADI/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ADI/statements, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AEE
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/APH
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AEE/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/APH/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AEE/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/APH/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AEE/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/APH/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for ADI from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/ADI
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ADI/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ADI/prices, waiting 4s
+INFO:core.data_sources_v2:Aggregated fundamentals for AEE from 2 sources
+INFO:core.data_sources_v2:Aggregated fundamentals for APH from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AEE
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/APH
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AEE/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/APH/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ADI/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AEE/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/APH/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AEE/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/APH/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AMT
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMT/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMT/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMT/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AEE/prev, waiting 2s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/APA
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/APA/statements, waiting 2s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/T
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/APA/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/T/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/T/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/APA/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/T/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for AMT from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AMT
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMT/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMT/prices, waiting 4s
+INFO:core.data_sources_v2:Aggregated fundamentals for APA from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/APA
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/APA/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMT/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/APA/prices, waiting 4s
+INFO:core.data_sources_v2:Aggregated fundamentals for T from 1 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/T
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/APA/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/T/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/T/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/T/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AME
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AME/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AME/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AME/statements, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/APD
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/APD/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/APD/statements, waiting 4s
+INFO:core.data_sources_v2:Aggregated fundamentals for AME from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AME
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AME/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/APD/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AME/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AME/prices, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for APD from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/APD
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/APD/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/APD/prices, waiting 4s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/ABBV
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ABBV/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/APD/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ABBV/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ABBV/statements, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AES
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AES/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AES/statements, waiting 4s
+INFO:core.data_sources_v2:Aggregated fundamentals for ABBV from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/ABBV
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ABBV/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AES/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ABBV/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ABBV/prices, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for AES from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AES
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AES/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AES/prices, waiting 4s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AON
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AON/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AES/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AON/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AON/statements, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AMZN
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMZN/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMZN/statements, waiting 4s
+INFO:core.data_sources_v2:Aggregated fundamentals for AON from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AON
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AON/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AON/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMZN/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AON/prices, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for AMZN from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AMZN
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMZN/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMZN/prices, waiting 4s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/MO
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/MO/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMZN/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/MO/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/MO/statements, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AWK
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AWK/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AWK/statements, waiting 4s
+INFO:core.data_sources_v2:Aggregated fundamentals for MO from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/MO
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/MO/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/MO/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AWK/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/MO/prices, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for AWK from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AWK
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AWK/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AWK/prices, waiting 4s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/ABT
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ABT/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AWK/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ABT/statements, waiting 4s
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:__main__:All 1 attempts failed for URL
+INFO:__main__:✓ Deduplicated 503 → 503 unique companies (removed 0 multi-class tickers)
+INFO:__main__:✓ Loaded 503 unique S&P500 companies from Wikipedia
+INFO:__main__:🔬 Advanced filters pre-pass on 47 stocks...
+INFO:__main__:Dynamic thresholds -> RS:-0.154 MOM:0.233 RR:0.044
+INFO:__main__:Advanced filters dynamic: kept 35/47 catastrophic=12
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/ALB
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ABT/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ALB/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ALB/statements, waiting 4s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/ACGL
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ACGL/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ALB/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ACGL/statements, waiting 4s
+INFO:core.data_sources_v2:Aggregated fundamentals for ABT from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/ABT
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ABT/prices, waiting 2s
+WARNING:__main__:All 1 attempts failed for URL
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ABT/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ACGL/statements, waiting 8s
+INFO:__main__:✓ Deduplicated 503 → 503 unique companies (removed 0 multi-class tickers)
+INFO:__main__:✓ Loaded 503 unique S&P500 companies from Wikipedia
+2025-11-22 06:42:13.722 Thread 'ThreadPoolExecutor-81_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:13.723 Thread 'ThreadPoolExecutor-81_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:13.723 Thread 'ThreadPoolExecutor-81_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:13.723 Thread 'ThreadPoolExecutor-81_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:13.723 Thread 'ThreadPoolExecutor-81_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:13.723 Thread 'ThreadPoolExecutor-81_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:13.724 Thread 'ThreadPoolExecutor-81_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:13.723 Thread 'ThreadPoolExecutor-81_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:13.725 Thread 'ThreadPoolExecutor-81_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:13.724 Thread 'ThreadPoolExecutor-81_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:13.724 Thread 'ThreadPoolExecutor-81_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:13.726 Thread 'ThreadPoolExecutor-81_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:13.724 Thread 'ThreadPoolExecutor-81_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:13.725 Thread 'ThreadPoolExecutor-81_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:13.723 Thread 'ThreadPoolExecutor-81_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:13.727 Thread 'ThreadPoolExecutor-81_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:13.726 Thread 'ThreadPoolExecutor-81_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:13.727 Thread 'ThreadPoolExecutor-81_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:13.726 Thread 'ThreadPoolExecutor-81_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:13.727 Thread 'ThreadPoolExecutor-81_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:13.728 Thread 'ThreadPoolExecutor-81_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:13.728 Thread 'ThreadPoolExecutor-81_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:13.728 Thread 'ThreadPoolExecutor-81_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:13.728 Thread 'ThreadPoolExecutor-81_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+INFO:core.data_sources_v2:Aggregated fundamentals for ALB from 2 sources
+2025-11-22 06:42:14.227 Thread 'Thread-927': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.227 Thread 'Thread-927': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.227 Thread 'Thread-926': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.227 Thread 'Thread-927': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.227 Thread 'Thread-926': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.228 Thread 'Thread-926': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.228 Thread 'Thread-928': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.228 Thread 'Thread-928': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.229 Thread 'Thread-928': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.230 Thread 'Thread-929': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.230 Thread 'Thread-929': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.230 Thread 'Thread-929': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.230 Thread 'Thread-931': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.231 Thread 'Thread-931': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.231 Thread 'Thread-930': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.231 Thread 'Thread-930': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.231 Thread 'Thread-930': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.231 Thread 'Thread-931': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.289 Thread 'ThreadPoolExecutor-81_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.291 Thread 'ThreadPoolExecutor-81_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.297 Thread 'ThreadPoolExecutor-81_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.298 Thread 'ThreadPoolExecutor-81_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.294 Thread 'ThreadPoolExecutor-81_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.296 Thread 'ThreadPoolExecutor-81_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.298 Thread 'ThreadPoolExecutor-81_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.292 Thread 'ThreadPoolExecutor-81_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.293 Thread 'ThreadPoolExecutor-81_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.299 Thread 'ThreadPoolExecutor-81_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.299 Thread 'ThreadPoolExecutor-81_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.297 Thread 'ThreadPoolExecutor-81_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.300 Thread 'ThreadPoolExecutor-81_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.300 Thread 'ThreadPoolExecutor-81_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.298 Thread 'ThreadPoolExecutor-81_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.300 Thread 'ThreadPoolExecutor-81_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.299 Thread 'ThreadPoolExecutor-81_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.301 Thread 'ThreadPoolExecutor-81_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.301 Thread 'ThreadPoolExecutor-81_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.300 Thread 'ThreadPoolExecutor-81_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.301 Thread 'ThreadPoolExecutor-81_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.301 Thread 'ThreadPoolExecutor-81_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.299 Thread 'ThreadPoolExecutor-81_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.299 Thread 'ThreadPoolExecutor-81_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.301 Thread 'ThreadPoolExecutor-81_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.298 Thread 'ThreadPoolExecutor-81_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.301 Thread 'ThreadPoolExecutor-81_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.302 Thread 'ThreadPoolExecutor-81_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.302 Thread 'ThreadPoolExecutor-81_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.302 Thread 'ThreadPoolExecutor-81_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.303 Thread 'ThreadPoolExecutor-81_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.303 Thread 'ThreadPoolExecutor-81_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.304 Thread 'ThreadPoolExecutor-81_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.306 Thread 'ThreadPoolExecutor-81_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.306 Thread 'ThreadPoolExecutor-81_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.309 Thread 'ThreadPoolExecutor-81_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.309 Thread 'ThreadPoolExecutor-81_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.308 Thread 'ThreadPoolExecutor-81_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.311 Thread 'ThreadPoolExecutor-81_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.311 Thread 'ThreadPoolExecutor-81_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.310 Thread 'ThreadPoolExecutor-81_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.312 Thread 'ThreadPoolExecutor-81_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/ALB
+2025-11-22 06:42:14.808 Thread 'Thread-932': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.809 Thread 'Thread-932': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.809 Thread 'Thread-932': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.809 Thread 'Thread-933': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.809 Thread 'Thread-933': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.809 Thread 'Thread-934': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.809 Thread 'Thread-934': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.809 Thread 'Thread-933': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.810 Thread 'Thread-934': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.821 Thread 'Thread-937': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.835 Thread 'Thread-937': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.842 Thread 'Thread-937': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.821 Thread 'Thread-936': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.874 Thread 'Thread-936': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.860 Thread 'ThreadPoolExecutor-81_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.895 Thread 'ThreadPoolExecutor-81_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.896 Thread 'ThreadPoolExecutor-81_1': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.876 Thread 'ThreadPoolExecutor-81_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.876 Thread 'Thread-936': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.874 Thread 'ThreadPoolExecutor-81_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.821 Thread 'Thread-935': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.896 Thread 'ThreadPoolExecutor-81_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.896 Thread 'ThreadPoolExecutor-81_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.900 Thread 'ThreadPoolExecutor-81_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.901 Thread 'ThreadPoolExecutor-81_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.898 Thread 'ThreadPoolExecutor-81_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.900 Thread 'ThreadPoolExecutor-81_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.901 Thread 'ThreadPoolExecutor-81_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.897 Thread 'Thread-935': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.901 Thread 'Thread-935': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.901 Thread 'ThreadPoolExecutor-81_5': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.897 Thread 'ThreadPoolExecutor-81_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.901 Thread 'ThreadPoolExecutor-81_4': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.901 Thread 'ThreadPoolExecutor-81_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.902 Thread 'ThreadPoolExecutor-81_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:42:14.902 Thread 'ThreadPoolExecutor-81_2': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ABT/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ALB/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ALB/prices, waiting 4s
+INFO:core.data_sources_v2:Aggregated fundamentals for ACGL from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/ACGL
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ACGL/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ALB/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ACGL/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ACGL/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/ALGN
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AMCR
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ALGN/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMCR/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ALGN/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMCR/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ALGN/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMCR/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/ACGL/prev, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/ACGL/prev, waiting 4s
+INFO:core.data_sources_v2:Aggregated fundamentals for ALGN from 2 sources
+INFO:core.data_sources_v2:Aggregated fundamentals for AMCR from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/ALGN
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AMCR
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ALGN/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMCR/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/ACGL/prev, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ALGN/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMCR/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ALGN/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMCR/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/ADBE
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ADBE/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ADBE/statements, waiting 4s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AEE
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AEE/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ADBE/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AEE/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AEE/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for ADBE from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/ADBE
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ADBE/prices, waiting 2s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AAPL
+INFO:core.data_sources_v2:Aggregated fundamentals for AAPL from 3 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AAPL
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ADBE/prices, waiting 4s
+INFO:__main__:🔬 Advanced filters pre-pass on 47 stocks...
+INFO:__main__:Dynamic thresholds -> RS:-0.154 MOM:0.233 RR:0.044
+INFO:__main__:Advanced filters dynamic: kept 35/47 catastrophic=12
+2025-11-22 06:43:18.935 Thread 'ThreadPoolExecutor-82_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:43:18.936 Thread 'ThreadPoolExecutor-82_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:43:18.936 Thread 'ThreadPoolExecutor-82_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:43:18.936 Thread 'ThreadPoolExecutor-82_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:43:18.943 Thread 'ThreadPoolExecutor-82_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:43:18.943 Thread 'ThreadPoolExecutor-82_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:43:18.943 Thread 'ThreadPoolExecutor-82_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:43:18.943 Thread 'ThreadPoolExecutor-82_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AAPL/prices, waiting 2s
+2025-11-22 06:43:19.438 Thread 'Thread-1086': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:43:19.438 Thread 'Thread-1086': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:43:19.438 Thread 'Thread-1086': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:43:19.444 Thread 'Thread-1087': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:43:19.444 Thread 'Thread-1087': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:43:19.444 Thread 'Thread-1087': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:43:19.765 Thread 'ThreadPoolExecutor-82_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:43:19.765 Thread 'ThreadPoolExecutor-82_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:43:19.765 Thread 'ThreadPoolExecutor-82_0': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+WARNING:__main__:All 2 attempts failed for URL
+2025-11-22 06:43:20.491 Thread 'ThreadPoolExecutor-82_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:43:20.491 Thread 'ThreadPoolExecutor-82_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-11-22 06:43:20.491 Thread 'ThreadPoolExecutor-82_3': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/ALB
+INFO:core.data_sources_v2:Aggregated fundamentals for AEE from 2 sources
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AAPL/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ALB/statements, waiting 2s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AEE
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AEE/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ADBE/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ALB/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AEE/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AAPL/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ALB/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AEE/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/ADM
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ADM/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ADM/statements, waiting 4s
+INFO:core.data_sources_v2:Aggregated fundamentals for ALB from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/ALB
+INFO:__main__:✓ Deduplicated 503 → 503 unique companies (removed 0 multi-class tickers)
+INFO:__main__:✓ Loaded 503 unique S&P500 companies from Wikipedia
+INFO:__main__:🔬 Advanced filters pre-pass on 47 stocks...
+INFO:__main__:Dynamic thresholds -> RS:-0.154 MOM:0.233 RR:0.044
+INFO:__main__:Advanced filters dynamic: kept 35/47 catastrophic=12
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ALB/prices, waiting 2s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/ALB
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ALB/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ADM/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ALB/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ALB/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AAPL/prev, waiting 2s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/T
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/T/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ALB/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/ALB/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AAPL/prev, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/T/statements, waiting 4s
+INFO:core.data_sources_v2:Aggregated fundamentals for ADM from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/ADM
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ADM/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AAPL/prev, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ADM/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/T/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for ALB from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/ALB
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/ALB/prev, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ALB/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ADM/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/ALB/prev, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ALB/prices, waiting 4s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/GOOGL
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/GOOGL/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/GOOGL/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/ALB/prices, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AMCR
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMCR/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMCR/statements, waiting 4s
+INFO:core.data_sources_v2:Aggregated fundamentals for T from 2 sources
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/GOOGL/statements, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/T
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/APTV
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/T/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/APTV/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMCR/statements, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/T/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/APTV/statements, waiting 4s
+INFO:core.data_sources_v2:Aggregated fundamentals for GOOGL from 2 sources
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/T/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/APTV/statements, waiting 8s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/GOOGL
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/GOOGL/prices, waiting 2s
+INFO:core.data_sources_v2:Aggregated fundamentals for AMCR from 2 sources
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/GOOGL/prices, waiting 4s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AMCR
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMCR/prices, waiting 2s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/AMCR
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMCR/statements, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMCR/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMCR/statements, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/GOOGL/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMCR/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/AMCR/statements, waiting 8s
+INFO:core.data_sources_v2:Aggregated fundamentals for APTV from 2 sources
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/T/prev, waiting 2s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/APTV
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/APTV/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/T/prev, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/APTV/prices, waiting 4s
+INFO:core.data_sources_v2:Aggregated fundamentals for AMCR from 2 sources
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/quote/AMCR
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMCR/prices, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/T/prev, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/APTV/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMCR/prices, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/GOOGL/prev, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AMCR/prev, waiting 2s
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/daily/AMCR/prices, waiting 8s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/GOOGL/prev, waiting 4s
+WARNING:core.data_sources_v2:Rate limited on https://api.polygon.io/v2/aggs/ticker/AMCR/prev, waiting 4s
+WARNING:core.data_sources_v2:HTTP 403 for https://financialmodelingprep.com/api/v3/key-metrics/APD
+WARNING:core.data_sources_v2:Rate limited on https://api.tiingo.com/tiingo/fundamentals/APD/statements, waiting 2s

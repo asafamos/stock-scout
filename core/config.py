@@ -15,6 +15,18 @@ except ImportError:
     pass
 
 
+def _get_config_value(key: str, default: str) -> str:
+    """Get config value from Streamlit secrets (priority) or environment."""
+    # Try Streamlit secrets first (for cloud deployment)
+    try:
+        if hasattr(st, 'secrets') and key in st.secrets:
+            return str(st.secrets[key])
+    except Exception:
+        pass
+    # Fall back to environment variable
+    return os.getenv(key, default)
+
+
 @dataclass
 class Config:
     """Main configuration for Stock Scout."""
@@ -25,9 +37,9 @@ class Config:
     max_position_pct: float = 15.0
     
     # Universe & Data
-    universe_limit: int = int(os.getenv('UNIVERSE_LIMIT', '50'))
-    lookback_days: int = int(os.getenv('LOOKBACK_DAYS', '90'))
-    smart_scan: bool = os.getenv('SMART_SCAN', 'true').lower() in ('true', '1', 'yes')
+    universe_limit: int = int(_get_config_value('UNIVERSE_LIMIT', '50'))
+    lookback_days: int = int(_get_config_value('LOOKBACK_DAYS', '90'))
+    smart_scan: bool = _get_config_value('SMART_SCAN', 'true').lower() in ('true', '1', 'yes')
     
     # Price & Volume Filters
     min_price: float = 3.0
@@ -94,8 +106,8 @@ class Config:
     top_validate_k: int = 12
     
     # Results
-    topn_results: int = int(os.getenv('TOPN_RESULTS', '15'))
-    topk_recommend: int = int(os.getenv('TOPK_RECOMMEND', '5'))
+    topn_results: int = int(_get_config_value('TOPN_RESULTS', '15'))
+    topk_recommend: int = int(_get_config_value('TOPK_RECOMMEND', '5'))
     
     def to_dict(self) -> dict:
         """Convert config to dictionary."""

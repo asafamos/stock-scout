@@ -1740,6 +1740,9 @@ sources_css = """
 """
 st.markdown(sources_css + "<div class='sources-overview'><table>" + "".join(table_rows) + "</table></div>", unsafe_allow_html=True)
 
+# Show config debug info
+st.caption(f"⚙️ Config: Universe={CONFIG['UNIVERSE_LIMIT']} | Lookback={CONFIG['LOOKBACK_DAYS']}d | Smart={CONFIG['SMART_SCAN']}")
+
 # Utility buttons row
 col_secrets, col_cache, _ = st.columns([1, 1, 3])
 with col_secrets:
