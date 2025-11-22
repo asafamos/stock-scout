@@ -834,6 +834,16 @@ def fetch_fundamentals_bundle(ticker: str, enable_alpha_smart: bool = False) -> 
         "_sources": {},  # Track which provider gave which field
     }
 
+    # Track provider usage for UI diagnostics (fundamentals/price/ml)
+    def mark_provider_usage(provider: str, category: str):
+        try:
+            usage = st.session_state.setdefault('provider_usage', {})
+            cats = usage.setdefault(provider, set())
+            cats.add(category)
+            usage[provider] = cats
+        except Exception:
+            pass
+
     def _merge(src: dict, flag: str, source_name: str):
         if not src:
             return
@@ -861,6 +871,8 @@ def fetch_fundamentals_bundle(ticker: str, enable_alpha_smart: bool = False) -> 
                 merged["_sources"]["sector"] = source_name
         merged[flag] = True
         merged["_sources_used"].append(flag)
+        # Mark fundamentals usage for provider (UI status table later)
+        mark_provider_usage(source_name, 'fundamentals')
 
     # ========== PARALLEL FETCHING ==========
     with ThreadPoolExecutor(max_workers=7) as ex:
@@ -1701,103 +1713,88 @@ See `DEPLOYMENT_FIX.md` for detailed instructions.
         st.warning("⚠️ App will not function properly without at least Alpha Vantage OR Finnhub keys.")
 
 ###############################
-# Canonical Data Sources Table
+# Data Sources Usage & Keys Table (improved)
 ###############################
-st.markdown("### 🔌 Data Sources Overview")
-
-# NOTE: Tiingo fundamentals presently lightly used; price fallback + occasional fundamental fields.
-# TODO: integrate broader Tiingo fundamentals (ratios, growth) into scoring engine.
-# NOTE: SimFin deprecated (row kept for transparency when key present).
+st.markdown("### 🔌 Data Sources — Keys, Connectivity & Usage")
 
 DATA_SOURCES = {
-    "Yahoo": {
-        "uses_price": True,
-        "uses_fundamentals": False,
-        "uses_ml": False,
-        "env_keys": [],
-    },
-    "FMP": {
-        "uses_price": False,  # fundamentals only (primary)
-        "uses_fundamentals": bool(fmp_ok),
-        "uses_ml": False,
-        "env_keys": ["FMP_API_KEY"],
-    },
-    "Alpha Vantage": {
-        "uses_price": bool(alpha_ok),
-        "uses_fundamentals": bool(alpha_ok),  # OVERVIEW endpoints
-        "uses_ml": False,
-        "env_keys": ["ALPHA_VANTAGE_API_KEY"],
-    },
-    "Finnhub": {
-        "uses_price": bool(finn_ok),  # occasionally price verify
-        "uses_fundamentals": bool(finn_ok),
-        "uses_ml": False,
-        "env_keys": ["FINNHUB_API_KEY"],
-    },
-    "Polygon": {
-        "uses_price": bool(poly_ok),
-        "uses_fundamentals": False,
-        "uses_ml": False,
-        "env_keys": ["POLYGON_API_KEY"],
-    },
-    "Tiingo": {
-        "uses_price": bool(tiin_ok),
-        "uses_fundamentals": bool(tiin_ok),  # limited usage currently
-        "uses_ml": False,
-        "env_keys": ["TIINGO_API_KEY"],
-    },
-    "SimFin": {
-        "uses_price": False,
-        "uses_fundamentals": bool(_env("SIMFIN_API_KEY")),
-        "uses_ml": False,
-        "env_keys": ["SIMFIN_API_KEY"],
-    },
-    "Marketstack": {
-        "uses_price": False,  # disabled
-        "uses_fundamentals": False,
-        "uses_ml": False,
-        "env_keys": ["MARKETSTACK_API_KEY"],
-    },
-    "NasdaqDL": {
-        "uses_price": False,
-        "uses_fundamentals": False,
-        "uses_ml": False,
-        "env_keys": ["NASDAQ_API_KEY", "NASDAQ_DL_API_KEY"],
-    },
-    "EODHD": {
-        "uses_price": False,
-        "uses_fundamentals": bool(_env("EODHD_API_KEY")),
-        "uses_ml": False,
-        "env_keys": ["EODHD_API_KEY"],
-    },
-    "OpenAI": {
-        "uses_price": False,
-        "uses_fundamentals": False,
-        "uses_ml": bool(OPENAI_AVAILABLE and (os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY"))),
-        "env_keys": ["OPENAI_API_KEY"],
-    },
+    "Yahoo": {"env_keys": []},
+    "FMP": {"env_keys": ["FMP_API_KEY"]},
+    "Alpha Vantage": {"env_keys": ["ALPHA_VANTAGE_API_KEY"]},
+    "Finnhub": {"env_keys": ["FINNHUB_API_KEY"]},
+    "Polygon": {"env_keys": ["POLYGON_API_KEY"]},
+    "Tiingo": {"env_keys": ["TIINGO_API_KEY"]},
+    "SimFin": {"env_keys": ["SIMFIN_API_KEY"]},
+    "EODHD": {"env_keys": ["EODHD_API_KEY"]},
+    "Marketstack": {"env_keys": ["MARKETSTACK_API_KEY"]},
+    "NasdaqDL": {"env_keys": ["NASDAQ_API_KEY", "NASDAQ_DL_API_KEY"]},
+    "OpenAI": {"env_keys": ["OPENAI_API_KEY"]},
 }
 
-def _is_active(entry: dict) -> bool:
-    for k in entry.get("env_keys", []):
+def _has_key(provider: str, keys: list) -> bool:
+    if not keys:  # Yahoo always available
+        return True
+    for k in keys:
         if _env(k) or os.getenv(k) or st.secrets.get(k):
             return True
-    # Built-ins like Yahoo active by default
-    if not entry.get("env_keys"):
-        return True
     return False
 
-dot_on = "<span style='color:#16a34a;font-weight:700'>●</span>"
-dot_off = "<span style='color:#94a3b8'>●</span>"
+usage = st.session_state.get('provider_usage', {})  # {provider: set(categories)}
 
-table_rows = ["<tr><th style='text-align:left'>Provider</th><th>Price</th><th>Fundamentals</th><th>ML/AI</th><th>Active</th></tr>"]
+# Dot styles: green=used, yellow=available not yet used, gray=missing
+dot_used = "<span style='color:#16a34a;font-weight:700'>●</span>"
+dot_avail = "<span style='color:#f59e0b;font-weight:700'>●</span>"
+dot_missing = "<span style='color:#94a3b8'>●</span>"
+
+def _status_dot(provider: str, category: str, connected: bool, has_key: bool) -> str:
+    if provider in usage and category in usage.get(provider, set()):
+        return dot_used
+    if connected and has_key:
+        return dot_avail
+    return dot_missing
+
+table_rows = [
+    "<tr><th style='text-align:left'>Provider</th><th>Key</th><th>Price</th><th>Fundamentals</th><th>ML/AI</th></tr>"
+]
 for name, meta in DATA_SOURCES.items():
-    price_dot = dot_on if meta["uses_price"] else dot_off
-    fund_dot = dot_on if meta["uses_fundamentals"] else dot_off
-    ml_dot = dot_on if meta["uses_ml"] else dot_off
-    active_dot = dot_on if _is_active(meta) else dot_off
+    keys = meta.get("env_keys", [])
+    has_key = _has_key(name, keys)
+    # Connectivity flags derived from earlier checks
+    connected_price = False
+    connected_fund = False
+    connected_ml = False
+    if name == "Yahoo":
+        connected_price = True
+    elif name == "FMP":
+        connected_fund = bool(fmp_ok)
+    elif name == "Alpha Vantage":
+        connected_price = bool(alpha_ok)
+        connected_fund = bool(alpha_ok)
+    elif name == "Finnhub":
+        connected_price = bool(finn_ok)
+        connected_fund = bool(finn_ok)
+    elif name == "Polygon":
+        connected_price = bool(poly_ok)
+    elif name == "Tiingo":
+        connected_price = bool(tiin_ok)
+        connected_fund = bool(tiin_ok)
+    elif name == "SimFin":
+        connected_fund = bool(_env("SIMFIN_API_KEY"))
+    elif name == "EODHD":
+        connected_fund = bool(_env("EODHD_API_KEY"))
+    elif name == "Marketstack":
+        connected_price = bool(_env("MARKETSTACK_API_KEY")) and CONFIG.get("ENABLE_MARKETSTACK")
+    elif name == "NasdaqDL":
+        connected_price = bool(_env("NASDAQ_API_KEY") or _env("NASDAQ_DL_API_KEY")) and CONFIG.get("ENABLE_NASDAQ_DL")
+    elif name == "OpenAI":
+        connected_ml = bool(OPENAI_AVAILABLE and (os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")))
+
+    key_dot = dot_used if has_key else dot_missing
+    price_dot = _status_dot(name, 'price', connected_price, has_key)
+    fund_dot = _status_dot(name, 'fundamentals', connected_fund, has_key)
+    ml_dot = _status_dot(name, 'ml', connected_ml, has_key)
     table_rows.append(
-        f"<tr><td style='text-align:left'>{name}</td><td>{price_dot}</td><td>{fund_dot}</td><td>{ml_dot}</td><td>{active_dot}</td></tr>"
+        f"<tr><td style='text-align:left'>{name}</td><td>{key_dot}</td><td>{price_dot}</td><td>{fund_dot}</td><td>{ml_dot}</td></tr>"
     )
 
 sources_css = """
@@ -1808,9 +1805,11 @@ sources_css = """
 .sources-overview tr:last-child td {border-bottom:none;}
 .sources-overview td:first-child, .sources-overview th:first-child {text-align:left;}
 @media (max-width:600px){.sources-overview th,.sources-overview td{font-size:11px;padding:3px 4px;}}
+.sources-overview caption {text-align:left;font-size:11px;color:#64748b;margin-top:4px;}
 </style>
 """
-st.markdown(sources_css + "<div class='sources-overview'><table>" + "".join(table_rows) + "</table></div>", unsafe_allow_html=True)
+legend = "<caption>Legend: Green=used this run, Yellow=available not used yet, Gray=missing key/not connected.</caption>"
+st.markdown(sources_css + "<div class='sources-overview'><table>" + "".join(table_rows) + legend + "</table></div>", unsafe_allow_html=True)
 
 # Show config debug info
 st.caption(f"⚙️ Config: Universe={CONFIG['UNIVERSE_LIMIT']} | Lookback={CONFIG['LOOKBACK_DAYS']}d | Smart={CONFIG['SMART_SCAN']}")
@@ -2998,45 +2997,62 @@ def _fetch_external_for(
 ) -> Tuple[str, Dict[str, Optional[float]], List[str]]:
     vals: Dict[str, Optional[float]] = {}
     srcs: List[str] = []
+    # helper to mark price usage
+    def _mark_price(provider: str):
+        try:
+            usage = st.session_state.setdefault('provider_usage', {})
+            cats = usage.setdefault(provider, set())
+            cats.add('price')
+            usage[provider] = cats
+        except Exception:
+            pass
     if np.isfinite(py):
         vals["Yahoo"] = float(py)
         srcs.append("🟡Yahoo")
+        _mark_price('Yahoo')
     if alpha_ok:
         p = get_alpha_price(tkr)
         if p is not None:
             vals.setdefault("Alpha", p)
             srcs.append("🟣Alpha")
             st.session_state.av_calls = st.session_state.get("av_calls", 0) + 1
+            _mark_price('Alpha Vantage')
     if finn_ok:
         p = get_finnhub_price(tkr)
         if p is not None:
             vals.setdefault("Finnhub", p)
             srcs.append("🔵Finnhub")
+            _mark_price('Finnhub')
     if poly_ok and _env("POLYGON_API_KEY"):
         p = get_polygon_price(tkr)
         if p is not None:
             vals.setdefault("Polygon", p)
             srcs.append("🟢Polygon")
+            _mark_price('Polygon')
     if tiin_ok and _env("TIINGO_API_KEY"):
         p = get_tiingo_price(tkr)
         if p is not None:
             vals.setdefault("Tiingo", p)
             srcs.append("🟠Tiingo")
+            _mark_price('Tiingo')
     if CONFIG.get("ENABLE_MARKETSTACK") and _env("MARKETSTACK_API_KEY"):
         p = get_marketstack_price(tkr)
         if p is not None:
             vals.setdefault("Marketstack", p)
             srcs.append("🧩Marketstack")
+            _mark_price('Marketstack')
     if CONFIG.get("ENABLE_NASDAQ_DL") and (_env("NASDAQ_API_KEY") or _env("NASDAQ_DL_API_KEY")):
         p = get_nasdaq_price(tkr)
         if p is not None:
             vals.setdefault("NasdaqDL", p)
             srcs.append("🏛NasdaqDL")
+            _mark_price('NasdaqDL')
     if CONFIG.get("ENABLE_EODHD") and (_env("EODHD_API_KEY") or _env("EODHD_TOKEN")):
         p = get_eodhd_price(tkr)
         if p is not None:
             vals.setdefault("EODHD", p)
             srcs.append("📘EODHD")
+            _mark_price('EODHD')
     # Return collected prices and source badges
     return tkr, vals, srcs
 
