@@ -1630,6 +1630,38 @@ marketstack_key = _env("MARKETSTACK_API_KEY") if CONFIG.get("ENABLE_MARKETSTACK"
 nasdaq_key = (_env("NASDAQ_API_KEY") or _env("NASDAQ_DL_API_KEY")) if CONFIG.get("ENABLE_NASDAQ_DL") else None
 eodhd_key = (_env("EODHD_API_KEY") or _env("EODHD_TOKEN")) if CONFIG.get("ENABLE_EODHD") else None
 
+# Critical API keys check (show prominent warning if missing)
+missing_critical = []
+if not alpha_ok:
+    missing_critical.append("ALPHA_VANTAGE_API_KEY")
+if not finn_ok:
+    missing_critical.append("FINNHUB_API_KEY")
+
+if missing_critical:
+    st.error(f"""
+🚨 **CRITICAL: Missing API Keys**
+
+The following required keys are not configured:
+{', '.join(f'`{k}`' for k in missing_critical)}
+
+**For Streamlit Cloud deployment:**
+1. Go to Settings → Secrets
+2. Add keys in TOML format (flat structure, no sections):
+   ```
+   ALPHA_VANTAGE_API_KEY = "YOUR_KEY"
+   FINNHUB_API_KEY = "YOUR_KEY"
+   ```
+3. Reboot the app
+
+**For local development:**
+- Create `.env` file with keys
+- Ensure `load_dotenv()` is called
+
+See `DEPLOYMENT_FIX.md` for detailed instructions.
+""")
+    if not (alpha_ok or finn_ok):
+        st.warning("⚠️ App will not function properly without at least Alpha Vantage OR Finnhub keys.")
+
 ###############################
 # Canonical Data Sources Table
 ###############################
