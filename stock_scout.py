@@ -2409,6 +2409,15 @@ if CONFIG["FUNDAMENTAL_ENABLED"] and fundamental_available:
         results.loc[idx, "RevG_f"] = d.get("rev_g_yoy", np.nan)
         results.loc[idx, "EPSG_f"] = d.get("eps_g_yoy", np.nan)
         results.loc[idx, "Sector"] = d.get("sector") or "Unknown"
+    
+    # Clear progress indicators
+    progress_bar.empty()
+    status_text.empty()
+    
+    phase_times["fundamentals_v2"] = t_end(t0)
+    st.write(f"✅ Fundamentals loaded: {take_k} stocks enriched")
+
+_advance_stage('Fundamentals')
 
 # --- Multi-Source Aggregation & Reliability Injection (v2) ---
 # Apply after initial per-ticker fundamentals fetch; enrich with multi-source merged view
@@ -3267,6 +3276,8 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and any_price_provider:
     else:
         results["Reliability_Score"] = np.nan
 phase_times["price_verification"] = t_end(t0)
+st.write("✅ Price verification completed")
+_advance_stage('Price Verification')
 
 # Horizon heuristic
 def infer_horizon(row: pd.Series) -> str:
@@ -4505,6 +4516,10 @@ for(const el of document.querySelectorAll('.compact-mode .section-divider')){
 }
 </script>
 """, unsafe_allow_html=True)
+
+# Final stage advancement
+_advance_stage('Recommendations')
+
 # ==================== Results table + CSV ====================
 st.subheader("🎯 Filtered & Ranked Results")
 view_df_source = rec_df if not rec_df.empty else results
