@@ -53,6 +53,26 @@ from core.scoring_engine import evaluate_rr_unified
 
 # Helper: build clean minimal card
 
+# --- Robust .env loading (earlier + multi-path) ---------------------------------
+def _force_load_env() -> None:
+    """Attempt to load .env from common locations before any key access.
+    Uses override=True so local development updates take effect immediately.
+    Safe to call multiple times (idempotent)."""
+    try:
+        from dotenv import load_dotenv
+        candidates = [
+            Path('.env'),
+            Path(__file__).parent / '.env',
+            Path.cwd() / '.env'
+        ]
+        for p in candidates:
+            if p.exists():
+                load_dotenv(p, override=True)
+    except Exception:
+        pass
+
+_force_load_env()
+
 def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
     """
     Build professional minimal card with:
@@ -266,6 +286,7 @@ warnings.simplefilter("ignore", FutureWarning)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Original load (kept for backwards compatibility); `_force_load_env` above already tried explicit paths.
 load_dotenv(find_dotenv(usecwd=True))
 MODEL_DATA = None
 try:
@@ -1606,6 +1627,12 @@ RELAXED_MODE = st.checkbox(
     "Relaxed Mode (Momentum-first) — allow looser filters",
     value=False,
     help="When enabled, speculative/relaxed filters are preferred; ML still applies but filters are looser.",
+)
+# Debug UI only toggle (skip heavy pipeline to isolate recommendation rendering issues)
+DEBUG_SKIP_PIPELINE = st.checkbox(
+    "🧪 Debug: Skip data pipeline (show dummy cards)",
+    value=False,
+    help="Use this to verify UI/card rendering when data pipeline stalls. Shows 3 synthetic recommendations."
 )
 # Secrets button
 def _mask(s: Optional[str], show_last: int = 4) -> str:
@@ -3798,11 +3825,8 @@ if not rec_df.empty:
                     rec_df.at[tkr_idx, "RR_Ratio"] = rr_map[tkr_val]
             # Recompute rr_band for rec_df
             rec_df["rr_band"] = rec_df["rr"].apply(_rr_eval_local)
-    except Exception:
-        pass
-    except Exception:
-        # if anything goes wrong, leave results unchanged
-        pass
+    except Exception as e:
+        logger.warning(f"RR sync failed: {e}")
 
 # CSS now loaded from design_system.py - no need for separate CARD_CSS
 
