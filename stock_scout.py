@@ -24,7 +24,11 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Tuple
 
 import numpy as np
-from core.data_sources_v2 import aggregate_fundamentals as agg_fund_v2, fetch_price_multi_source as fetch_price_multi_v2, aggregate_price as aggregate_price_v2
+from core.data_sources_v2 import (
+    aggregate_fundamentals as agg_fund_v2,
+    fetch_price_multi_source as fetch_price_multi_v2,
+    aggregate_price as aggregate_price_v2,
+)
 import pandas as pd
 import requests
 import yfinance as yf
@@ -37,7 +41,11 @@ import html as html_escape
 from card_styles import get_card_css
 from core.portfolio import _normalize_weights, allocate_budget
 from core.config import get_config
-from advanced_filters import compute_advanced_score, should_reject_ticker, fetch_benchmark_data
+from advanced_filters import (
+    compute_advanced_score,
+    should_reject_ticker,
+    fetch_benchmark_data,
+)
 from core.unified_logic import (
     build_technical_indicators,
     apply_technical_filters,
@@ -53,6 +61,7 @@ from core.scoring_engine import evaluate_rr_unified
 
 # Helper: build clean minimal card
 
+
 # --- Robust .env loading (earlier + multi-path) ---------------------------------
 def _force_load_env() -> None:
     """Attempt to load .env from common locations before any key access.
@@ -60,18 +69,17 @@ def _force_load_env() -> None:
     Safe to call multiple times (idempotent)."""
     try:
         from dotenv import load_dotenv
-        candidates = [
-            Path('.env'),
-            Path(__file__).parent / '.env',
-            Path.cwd() / '.env'
-        ]
+
+        candidates = [Path(".env"), Path(__file__).parent / ".env", Path.cwd() / ".env"]
         for p in candidates:
             if p.exists():
                 load_dotenv(p, override=True)
     except Exception:
         pass
 
+
 _force_load_env()
+
 
 def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
     """
@@ -83,103 +91,126 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
     - Tabular numbers, consistent formatting
     """
     esc = html_escape.escape
-    ticker = esc(str(row.get('Ticker','N/A')))
-    overall_rank = row.get('Overall_Rank','N/A')
+    ticker = esc(str(row.get("Ticker", "N/A")))
+    overall_rank = row.get("Overall_Rank", "N/A")
     # Use pretty score for display (60-90 range), raw score for internal logic
-    overall_score = row.get('overall_score_pretty', row.get('overall_score', row.get('conviction_v2_final', np.nan)))
-    target_price = row.get('Target_Price', np.nan)
-    entry_price = row.get('Entry_Price', np.nan)
-    target_date = row.get('Target_Date','N/A')
-    target_source = row.get('Target_Source','N/A')
-    rr_ratio = row.get('rr', np.nan)
-    rr_score = row.get('rr_score_v2', np.nan)
-    rr_band = row.get('rr_band','')
-    
+    overall_score = row.get(
+        "overall_score_pretty",
+        row.get("overall_score", row.get("conviction_v2_final", np.nan)),
+    )
+    target_price = row.get("Target_Price", np.nan)
+    entry_price = row.get("Entry_Price", np.nan)
+    target_date = row.get("Target_Date", "N/A")
+    target_source = row.get("Target_Source", "N/A")
+    rr_ratio = row.get("rr", np.nan)
+    rr_score = row.get("rr_score_v2", np.nan)
+    rr_band = row.get("rr_band", "")
+
     # Get display bands
-    risk_meter = row.get('risk_meter_v2', np.nan)
-    risk_band_label = row.get('risk_band', 'N/A')
-    reliability_pct = row.get('reliability_pct', np.nan)
-    reliability_band_label = row.get('reliability_band', 'N/A')
-    ml_prob = row.get('ML_Probability', np.nan)
+    risk_meter = row.get("risk_meter_v2", np.nan)
+    risk_band_label = row.get("risk_band", "N/A")
+    reliability_pct = row.get("reliability_pct", np.nan)
+    reliability_band_label = row.get("reliability_band", "N/A")
+    ml_prob = row.get("ML_Probability", np.nan)
+
     # Derive confidence band with explicit Low/Medium/High thresholds; fallback message if missing
     def ml_conf_band(p: float) -> str:
         if not np.isfinite(p):
-            return 'N/A'
+            return "N/A"
         if p < 0.60:
-            return 'Low'
+            return "Low"
         if p < 0.75:
-            return 'Medium'
-        return 'High'
-    ml_conf_band_label = row.get('ml_conf_band', ml_conf_band(ml_prob))
-    
-    quality_level = row.get('Quality_Level', 'N/A')
-    quality_score = row.get('Quality_Score_Numeric', np.nan)
-    conv_base = row.get('conviction_v2_base', np.nan)
-    
+            return "Medium"
+        return "High"
+
+    ml_conf_band_label = row.get("ml_conf_band", ml_conf_band(ml_prob))
+
+    quality_level = row.get("Quality_Level", "N/A")
+    quality_score = row.get("Quality_Score_Numeric", np.nan)
+    conv_base = row.get("conviction_v2_base", np.nan)
+
     # Component scores for <details>
-    fund_score = row.get('Fundamental_S', np.nan)
-    tech_score = row.get('Technical_S', np.nan)
+    fund_score = row.get("Fundamental_S", np.nan)
+    tech_score = row.get("Technical_S", np.nan)
     # Compressed data sources line (prices + fundamentals providers if available)
-    price_sources = row.get('Price_Sources_Line', '')  # expected precomputed concise string
-    fund_sources = row.get('Fund_Sources_Line', '')
-    sources_line = ''
+    price_sources = row.get(
+        "Price_Sources_Line", ""
+    )  # expected precomputed concise string
+    fund_sources = row.get("Fund_Sources_Line", "")
+    sources_line = ""
     if price_sources or fund_sources:
         sources_line = f"Data sources: Prices – {price_sources or 'N/A'}; Fundamentals – {fund_sources or 'N/A'}"
 
     def fmt_money(v):
-        return f"${v:.2f}" if np.isfinite(v) else 'N/A'
+        return f"${v:.2f}" if np.isfinite(v) else "N/A"
+
     def fmt_pct(v):
-        return f"{v:.1f}%" if np.isfinite(v) else 'N/A'
+        return f"{v:.1f}%" if np.isfinite(v) else "N/A"
+
     def fmt_score(v):
         # Handle lists by taking first element or count
         if isinstance(v, (list, tuple)):
             if len(v) == 0:
-                return '0'
+                return "0"
             v = len(v) if all(isinstance(x, str) for x in v) else v[0]
         # Handle non-numeric types
         try:
-            return f"{float(v):.0f}" if np.isfinite(float(v)) else 'N/A'
+            return f"{float(v):.0f}" if np.isfinite(float(v)) else "N/A"
         except (TypeError, ValueError):
-            return str(v) if v is not None else 'N/A'
+            return str(v) if v is not None else "N/A"
 
     entry_fmt = fmt_money(entry_price)
     target_fmt = fmt_money(target_price)
-    if np.isfinite(entry_price) and np.isfinite(target_price) and entry_price>0:
-        potential_gain_pct = ((target_price-entry_price)/entry_price)*100
+    if np.isfinite(entry_price) and np.isfinite(target_price) and entry_price > 0:
+        potential_gain_pct = ((target_price - entry_price) / entry_price) * 100
         potential_fmt = f"+{potential_gain_pct:.1f}%"
     else:
-        potential_fmt = 'N/A'
-    
-    target_badge = ''
-    if target_source == 'AI':
+        potential_fmt = "N/A"
+
+    target_badge = ""
+    if target_source == "AI":
         target_badge = '<span class="badge ai">AI</span>'
-    elif target_source == 'Technical':
+    elif target_source == "Technical":
         target_badge = '<span class="badge tech">Tech</span>'
 
-    rr_ratio_fmt = f"{rr_ratio:.2f}" if np.isfinite(rr_ratio) else 'N/A'
+    rr_ratio_fmt = f"{rr_ratio:.2f}" if np.isfinite(rr_ratio) else "N/A"
     overall_score_fmt = fmt_score(overall_score)
-    quality_score_fmt = f"{quality_score:.2f}" if np.isfinite(quality_score) else 'N/A'
-    
+    quality_score_fmt = f"{quality_score:.2f}" if np.isfinite(quality_score) else "N/A"
+
     # Get Fund and Price reliability separately for detailed display
-    fund_reliability = row.get('Fundamental_Reliability_v2', row.get('Fundamental_Reliability', np.nan))
-    price_reliability = row.get('Price_Reliability_v2', row.get('Price_Reliability', np.nan))
-    fund_rel_fmt = fmt_score(fund_reliability) if np.isfinite(fund_reliability) else 'N/A'
-    price_rel_fmt = fmt_score(price_reliability) if np.isfinite(price_reliability) else 'N/A'
-    
+    fund_reliability = row.get(
+        "Fundamental_Reliability_v2", row.get("Fundamental_Reliability", np.nan)
+    )
+    price_reliability = row.get(
+        "Price_Reliability_v2", row.get("Price_Reliability", np.nan)
+    )
+    fund_rel_fmt = (
+        fmt_score(fund_reliability) if np.isfinite(fund_reliability) else "N/A"
+    )
+    price_rel_fmt = (
+        fmt_score(price_reliability) if np.isfinite(price_reliability) else "N/A"
+    )
+
     # Format display values with bands
     risk_fmt = f"{fmt_score(risk_meter)} ({risk_band_label})"
-    reliability_fmt = f"{reliability_band_label} (F:{fund_rel_fmt}% / P:{price_rel_fmt}%)"
-    ml_fmt = f"{ml_conf_band_label} (p={ml_prob:.2f})" if np.isfinite(ml_prob) else "N/A (no model data)"
+    reliability_fmt = (
+        f"{reliability_band_label} (F:{fund_rel_fmt}% / P:{price_rel_fmt}%)"
+    )
+    ml_fmt = (
+        f"{ml_conf_band_label} (p={ml_prob:.2f})"
+        if np.isfinite(ml_prob)
+        else "N/A (no model data)"
+    )
 
-    type_badge = 'SPEC' if speculative else 'CORE'
+    type_badge = "SPEC" if speculative else "CORE"
     # Fallback badge if this stock is shown only due to emergency/fallback logic
-    if bool(row.get('Fallback_Display', False)):
-        type_badge += ' (FB)'
-    
+    if bool(row.get("Fallback_Display", False)):
+        type_badge += " (FB)"
+
     # Warning indicator
-    warning = ''
+    warning = ""
     if rr_ratio < 1.5 or (np.isfinite(risk_meter) and risk_meter > 70):
-        warning = ' ⚠️'
+        warning = " ⚠️"
 
     return f"""
 <div class='clean-card { 'speculative' if speculative else 'core' }'>
@@ -206,17 +237,25 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
     <div class='field'><span class='label'>Fund Sources</span><span class='value'>{fmt_score(row.get('fund_sources_used_v2', 0))}</span></div>
     <div class='field'><span class='label'>Price Sources</span><span class='value'>{fmt_score(row.get('price_sources_used_v2', 0))}</span></div>
       <div class='field'><span class='label'>Price Std Dev</span><span class='value'>{fmt_money(row.get('Price_STD_v2', np.nan))}</span></div>"""
-    + (f"""
-      <div class='field' style='grid-column:span 2'><span class='label'>Sources</span><span class='value'>{html_escape.escape(sources_line)}</span></div>""" if sources_line else "") + """
+    (
+        +(
+            f"""
+      <div class='field' style='grid-column:span 2'><span class='label'>Sources</span><span class='value'>{html_escape.escape(sources_line)}</span></div>"""
+            if sources_line
+            else ""
+        )
+        + """
     </div>
   </details>
 </div>
 """
+    )
 
 
 # OpenAI for enhanced target price predictions
 try:
     from openai import OpenAI
+
     OPENAI_AVAILABLE = True
 except ImportError:
     OPENAI_AVAILABLE = False
@@ -226,7 +265,11 @@ except ImportError:
 _config_obj = get_config()
 CONFIG = {
     # Convert dataclass to dict with all attributes
-    **{k: getattr(_config_obj, k) for k in dir(_config_obj) if not k.startswith('_') and not callable(getattr(_config_obj, k))},
+    **{
+        k: getattr(_config_obj, k)
+        for k in dir(_config_obj)
+        if not k.startswith("_") and not callable(getattr(_config_obj, k))
+    },
     # Additional backwards-compatible keys
     "SMART_SCAN": _config_obj.smart_scan,
     "UNIVERSE_LIMIT": _config_obj.universe_limit,
@@ -267,16 +310,16 @@ CONFIG = {
     "TOP_VALIDATE_K": _config_obj.top_validate_k,
     "BETA_BENCHMARK": _config_obj.beta_benchmark,
     # Disabled providers (legacy/deprecated/paid):
-    "ENABLE_SIMFIN": False,      # SimFin API v2 deprecated, v3 requires paid subscription
+    "ENABLE_SIMFIN": False,  # SimFin API v2 deprecated, v3 requires paid subscription
     "ENABLE_MARKETSTACK": False,  # Monthly usage limit reached (free tier exhausted)
-    "ENABLE_NASDAQ_DL": False,    # API access blocked (403 Forbidden)
-    "ENABLE_EODHD": False,        # Requires paid subscription (402 Payment Required)
+    "ENABLE_NASDAQ_DL": False,  # API access blocked (403 Forbidden)
+    "ENABLE_EODHD": False,  # Requires paid subscription (402 Payment Required)
     # --- Performance / Fast Mode Flags ---
-    "PERF_FAST_MODE": False,          # Set True to reduce external waits for interactive exploration
-    "PERF_MULTI_SOURCE_TOP_N": 8,     # In fast mode: only compute multi-source reliability for top N by score
-    "PERF_ALPHA_ENABLED": True,       # In fast mode we force this False to skip Alpha Vantage entirely
-    "PERF_FUND_TIMEOUT": 15,          # Normal per-provider future timeout
-    "PERF_FUND_TIMEOUT_FAST": 6,      # Fast mode per-provider future timeout
+    "PERF_FAST_MODE": False,  # Set True to reduce external waits for interactive exploration
+    "PERF_MULTI_SOURCE_TOP_N": 8,  # In fast mode: only compute multi-source reliability for top N by score
+    "PERF_ALPHA_ENABLED": True,  # In fast mode we force this False to skip Alpha Vantage entirely
+    "PERF_FUND_TIMEOUT": 15,  # Normal per-provider future timeout
+    "PERF_FUND_TIMEOUT_FAST": 6,  # Fast mode per-provider future timeout
 }
 
 # Load environment variables
@@ -293,12 +336,16 @@ try:
     _base = Path(__file__).parent
     _cand_cal = _base / "model_xgboost_5d_calibrated.pkl"
     _cand_fb = _base / "model_xgboost_5d.pkl"
-    _model_path = _cand_cal if _cand_cal.exists() else (_cand_fb if _cand_fb.exists() else None)
+    _model_path = (
+        _cand_cal if _cand_cal.exists() else (_cand_fb if _cand_fb.exists() else None)
+    )
     if _model_path is not None:
-        with open(_model_path, 'rb') as _f:
+        with open(_model_path, "rb") as _f:
             MODEL_DATA = pickle.load(_f)
             try:
-                st.info(f"✓ Loaded ML model: {_model_path.name} (features: {len(MODEL_DATA.get('feature_names', []))})")
+                st.info(
+                    f"✓ Loaded ML model: {_model_path.name} (features: {len(MODEL_DATA.get('feature_names', []))})"
+                )
             except Exception:
                 pass
     else:
@@ -311,8 +358,8 @@ XGBOOST_MODEL = None
 XGBOOST_FEATURES = []
 if MODEL_DATA is not None:
     try:
-        XGBOOST_MODEL = MODEL_DATA.get('model')
-        XGBOOST_FEATURES = MODEL_DATA.get('feature_names', [])
+        XGBOOST_MODEL = MODEL_DATA.get("model")
+        XGBOOST_FEATURES = MODEL_DATA.get("feature_names", [])
     except Exception:
         XGBOOST_MODEL = None
 
@@ -329,19 +376,19 @@ def score_with_xgboost(row: pd.Series) -> float:
             features[fname] = row.get(fname)
         else:
             # sensible defaults
-            if 'RSI' in fname:
-                features[fname] = row.get('RSI', 50)
-            elif 'ATR' in fname or 'ATR_Pct' in fname:
-                features[fname] = row.get('ATR_Pct', 0.05)
-            elif 'Vol' in fname:
-                features[fname] = row.get('Volx20d', 1.0)
+            if "RSI" in fname:
+                features[fname] = row.get("RSI", 50)
+            elif "ATR" in fname or "ATR_Pct" in fname:
+                features[fname] = row.get("ATR_Pct", 0.05)
+            elif "Vol" in fname:
+                features[fname] = row.get("Volx20d", 1.0)
             else:
                 features[fname] = row.get(fname, 0.0)
 
     X = pd.DataFrame([features])[XGBOOST_FEATURES]
     X = X.fillna(X.median())
     try:
-        if hasattr(XGBOOST_MODEL, 'predict_proba'):
+        if hasattr(XGBOOST_MODEL, "predict_proba"):
             return float(XGBOOST_MODEL.predict_proba(X.values)[0][1])
         else:
             return float(XGBOOST_MODEL.predict_proba(X)[0][1])
@@ -352,7 +399,7 @@ def score_with_xgboost(row: pd.Series) -> float:
 def assign_confidence_tier(prob: float) -> str:
     """
     Assign ML confidence tier based on probability.
-    
+
     Recalibrated thresholds for realistic diversity:
     - High: ≥0.75 (strong prediction)
     - Medium: 0.60-0.74 (moderate confidence)
@@ -372,7 +419,7 @@ def _env(key: str) -> Optional[str]:
     """Get environment variable or Streamlit secret (supports nested sections)."""
     # Try Streamlit secrets first (Cloud deployment)
     try:
-        if hasattr(st, 'secrets'):
+        if hasattr(st, "secrets"):
             # Try direct access (top-level key)
             try:
                 val = st.secrets[key]
@@ -380,7 +427,7 @@ def _env(key: str) -> Optional[str]:
                     return str(val)
             except (KeyError, FileNotFoundError):
                 pass
-            
+
             # Try nested sections (api_keys, keys, secrets, tokens)
             for section in ("api_keys", "keys", "secrets", "tokens"):
                 try:
@@ -391,9 +438,9 @@ def _env(key: str) -> Optional[str]:
                     continue
     except Exception as e:
         # Log for debugging in cloud
-        if hasattr(st, 'warning'):
+        if hasattr(st, "warning"):
             st.warning(f"⚠️ Secret access error for {key}: {e}")
-    
+
     # Fallback to environment variable (local .env)
     return os.getenv(key)
 
@@ -413,6 +460,7 @@ def http_get_retry(
 ) -> Optional[requests.Response]:
     """HTTP GET with exponential backoff + full jitter."""
     import random
+
     sess = session or requests
     for attempt in range(1, max(1, tries) + 1):
         try:
@@ -422,7 +470,9 @@ def http_get_retry(
             if resp is not None and (
                 resp.status_code == 429 or (500 <= resp.status_code < 600)
             ):
-                _log.debug(f"HTTP {resp.status_code} -> retry attempt {attempt}/{tries}")
+                _log.debug(
+                    f"HTTP {resp.status_code} -> retry attempt {attempt}/{tries}"
+                )
             else:
                 return resp
         except requests.RequestException as exc:
@@ -437,16 +487,16 @@ def http_get_retry(
 
 def alpha_throttle(min_gap_seconds: float = 12.0) -> None:
     """Throttle Alpha Vantage calls to respect 5 calls/minute (25 calls/day on free tier).
-    
+
     Args:
         min_gap_seconds: Minimum seconds between calls (default 12s = 5 calls/min)
     """
     ts_key = "_alpha_last_call_ts"
     calls_key = "av_calls"
-    
+
     # Track number of calls in session
     call_count = st.session_state.get(calls_key, 0)
-    
+
     # Reset counter daily (conservative approach)
     last_reset_key = "_alpha_reset_date"
     today = datetime.utcnow().date().isoformat()
@@ -454,12 +504,14 @@ def alpha_throttle(min_gap_seconds: float = 12.0) -> None:
         st.session_state[calls_key] = 0
         st.session_state[last_reset_key] = today
         call_count = 0
-    
+
     # Check daily limit (25 on free tier, be conservative with 20)
     if call_count >= 20:
-        logger.warning(f"Alpha Vantage daily limit reached ({call_count} calls), skipping")
+        logger.warning(
+            f"Alpha Vantage daily limit reached ({call_count} calls), skipping"
+        )
         return
-    
+
     # Enforce rate limit
     last = st.session_state.get(ts_key, 0.0)
     now = time.time()
@@ -468,7 +520,7 @@ def alpha_throttle(min_gap_seconds: float = 12.0) -> None:
         sleep_time = min_gap_seconds - elapsed
         logger.debug(f"Alpha Vantage throttle: sleeping {sleep_time:.1f}s")
         time.sleep(sleep_time)
-    
+
     # Update state
     st.session_state[ts_key] = time.time()
     st.session_state[calls_key] = call_count + 1
@@ -478,30 +530,47 @@ def alpha_throttle(min_gap_seconds: float = 12.0) -> None:
 def build_universe(limit: int) -> List[str]:
     """Fetch S&P 500 tickers (wikipedia) then fallback to common mega-cap list.
     Limit result length to `limit`.
-    
+
     CRITICAL FIX: Deduplicates by company name to prevent GOOG/GOOGL duplicates.
     """
     try:
         # Wikipedia requires a User-Agent header
         tables = pd.read_html(
-            'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies',
-            storage_options={'User-Agent': 'Mozilla/5.0'}
+            "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies",
+            storage_options={"User-Agent": "Mozilla/5.0"},
         )
         # S&P500 table is typically the second table (index 1)
         df_sp = tables[1]
-        
+
         # CRITICAL FIX: Deduplicate by company name (keep first ticker, usually Class A)
         # Prevents duplicate recommendations for GOOG/GOOGL, BRK.A/BRK.B, etc.
         original_count = len(df_sp)
-        df_sp = df_sp.drop_duplicates(subset='Security', keep='first')
-        logger.info(f"✓ Deduplicated {original_count} → {len(df_sp)} unique companies (removed {original_count - len(df_sp)} multi-class tickers)")
-        
-        tickers = df_sp['Symbol'].astype(str).str.replace('.', '-', regex=False).tolist()
+        df_sp = df_sp.drop_duplicates(subset="Security", keep="first")
+        logger.info(
+            f"✓ Deduplicated {original_count} → {len(df_sp)} unique companies (removed {original_count - len(df_sp)} multi-class tickers)"
+        )
+
+        tickers = (
+            df_sp["Symbol"].astype(str).str.replace(".", "-", regex=False).tolist()
+        )
         logger.info(f"✓ Loaded {len(tickers)} unique S&P500 companies from Wikipedia")
         return tickers[:limit]
     except Exception as e:
         logger.warning(f"Wikipedia S&P500 fetch failed ({e}), using fallback list")
-        fallback = ["AAPL","MSFT","NVDA","AMZN","GOOGL","META","TSLA","JPM","V","WMT","UNH","AVGO"]
+        fallback = [
+            "AAPL",
+            "MSFT",
+            "NVDA",
+            "AMZN",
+            "GOOGL",
+            "META",
+            "TSLA",
+            "JPM",
+            "V",
+            "WMT",
+            "UNH",
+            "AVGO",
+        ]
         return fallback[:limit]
 
 
@@ -533,17 +602,13 @@ def safe_yf_download(
             out[tickers[0]] = data.dropna()
     except Exception:
         pass
-    
+
     # Download missing individually
     missing = [t for t in tickers if t not in out]
     for ticker in missing:
         try:
             df = yf.download(
-                ticker,
-                start=start,
-                end=end,
-                auto_adjust=True,
-                progress=False
+                ticker, start=start, end=end, auto_adjust=True, progress=False
             ).dropna()
             if not df.empty:
                 out[ticker] = df
@@ -560,7 +625,7 @@ def fetch_history_bulk(
     end = datetime.utcnow()
     start = end - timedelta(days=period_days + 50)
     data_map = safe_yf_download(tickers, start, end)
-    
+
     # Filter: need at least ma_long + 40 rows (relaxed from +50 to handle weekends/holidays)
     min_rows = ma_long + 40
     filtered = {}
@@ -757,7 +822,12 @@ def _to_01(x: float, low: float, high: float) -> float:
     return np.clip((x - low) / (high - low), 0, 1)
 
 
-def calculate_rr(entry_price: float, target_price: float, atr_value: float, history_df: pd.DataFrame = None) -> float:
+def calculate_rr(
+    entry_price: float,
+    target_price: float,
+    atr_value: float,
+    history_df: pd.DataFrame = None,
+) -> float:
     """
     Stable Reward/Risk calculation used across the app.
     - reward = target_price - entry_price
@@ -772,7 +842,11 @@ def calculate_rr(entry_price: float, target_price: float, atr_value: float, hist
         if not (isinstance(target_price, (int, float)) and np.isfinite(target_price)):
             return 0.0
 
-        atr = atr_value if (isinstance(atr_value, (int, float)) and np.isfinite(atr_value)) else np.nan
+        atr = (
+            atr_value
+            if (isinstance(atr_value, (int, float)) and np.isfinite(atr_value))
+            else np.nan
+        )
         if (not np.isfinite(atr)) and history_df is not None:
             try:
                 last = history_df.tail(14)
@@ -837,7 +911,7 @@ def fetch_fundamentals_bundle(ticker: str, enable_alpha_smart: bool = False) -> 
     # Track provider usage for UI diagnostics (fundamentals/price/ml)
     def mark_provider_usage(provider: str, category: str):
         try:
-            usage = st.session_state.setdefault('provider_usage', {})
+            usage = st.session_state.setdefault("provider_usage", {})
             cats = usage.setdefault(provider, set())
             cats.add(category)
             usage[provider] = cats
@@ -848,19 +922,45 @@ def fetch_fundamentals_bundle(ticker: str, enable_alpha_smart: bool = False) -> 
         if not src:
             return
         # Accept common operating margin keys from providers (if present)
-        oper_keys = ["oper_margin", "operatingMargin", "operating_margin", "operatingProfitMargin", "operatingProfitMarginTTM"]
-        for k in ["roe","roic","gm","ps","pe","de","rev_g_yoy","eps_g_yoy","oper_margin"]:
+        oper_keys = [
+            "oper_margin",
+            "operatingMargin",
+            "operating_margin",
+            "operatingProfitMargin",
+            "operatingProfitMarginTTM",
+        ]
+        for k in [
+            "roe",
+            "roic",
+            "gm",
+            "ps",
+            "pe",
+            "de",
+            "rev_g_yoy",
+            "eps_g_yoy",
+            "oper_margin",
+        ]:
             v_cur = merged.get(k, np.nan)
             # First try direct normalized key
             v_new = src.get(k, np.nan)
             # If looking for operating margin, check alternate provider keys as well
-            if k == "oper_margin" and (not isinstance(v_new, (int, float)) or not np.isfinite(v_new)):
+            if k == "oper_margin" and (
+                not isinstance(v_new, (int, float)) or not np.isfinite(v_new)
+            ):
                 for ok in oper_keys:
-                    if ok in src and isinstance(src.get(ok), (int, float)) and np.isfinite(src.get(ok)):
+                    if (
+                        ok in src
+                        and isinstance(src.get(ok), (int, float))
+                        and np.isfinite(src.get(ok))
+                    ):
                         v_new = src.get(ok)
                         break
 
-            if (not np.isfinite(v_cur)) and isinstance(v_new, (int,float)) and np.isfinite(v_new):
+            if (
+                (not np.isfinite(v_cur))
+                and isinstance(v_new, (int, float))
+                and np.isfinite(v_new)
+            ):
                 merged[k] = float(v_new)
                 merged["_sources"][k] = source_name  # Attribution!
         # sector preference: keep first non-Unknown
@@ -872,96 +972,112 @@ def fetch_fundamentals_bundle(ticker: str, enable_alpha_smart: bool = False) -> 
         merged[flag] = True
         merged["_sources_used"].append(flag)
         # Mark fundamentals usage for provider (UI status table later)
-        mark_provider_usage(source_name, 'fundamentals')
+        mark_provider_usage(source_name, "fundamentals")
 
     # ========== PARALLEL FETCHING ==========
     # Reduced to 5 workers to lessen burst rate limiting without sacrificing core parallelism
     with ThreadPoolExecutor(max_workers=5) as ex:
         futures = {}
-        
+
         # FMP (2 endpoints)
         fmp_key = _env("FMP_API_KEY")
         if fmp_key:
-            futures['fmp_full'] = ex.submit(_fmp_full_bundle_fetch, ticker, fmp_key)
-            futures['fmp_legacy'] = ex.submit(_fmp_metrics_fetch, ticker, fmp_key)
-        
+            futures["fmp_full"] = ex.submit(_fmp_full_bundle_fetch, ticker, fmp_key)
+            futures["fmp_legacy"] = ex.submit(_fmp_metrics_fetch, ticker, fmp_key)
+
         # SimFin
         if CONFIG.get("ENABLE_SIMFIN"):
             sim_key = _env("SIMFIN_API_KEY")
             if sim_key:
-                futures['simfin'] = ex.submit(_simfin_fetch, ticker, sim_key)
-        
+                futures["simfin"] = ex.submit(_simfin_fetch, ticker, sim_key)
+
         # Alpha Vantage (smart - only if enabled)
-        if enable_alpha_smart and bool(st.session_state.get("_alpha_ok")) and bool(_env("ALPHA_VANTAGE_API_KEY")):
-            futures['alpha'] = ex.submit(_alpha_overview_fetch, ticker)
-        
+        if (
+            enable_alpha_smart
+            and bool(st.session_state.get("_alpha_ok"))
+            and bool(_env("ALPHA_VANTAGE_API_KEY"))
+        ):
+            futures["alpha"] = ex.submit(_alpha_overview_fetch, ticker)
+
         # Finnhub
-        futures['finnhub'] = ex.submit(_finnhub_metrics_fetch, ticker)
-        
+        futures["finnhub"] = ex.submit(_finnhub_metrics_fetch, ticker)
+
         # EODHD
         if CONFIG.get("ENABLE_EODHD"):
             ek = _env("EODHD_API_KEY") or _env("EODHD_TOKEN")
             if ek:
-                futures['eodhd'] = ex.submit(_eodhd_fetch_fundamentals, ticker, ek)
-        
+                futures["eodhd"] = ex.submit(_eodhd_fetch_fundamentals, ticker, ek)
+
         # Tiingo (comprehensive fundamentals)
         if CONFIG.get("ENABLE_TIINGO", True):  # Enable by default
             tk = _env("TIINGO_API_KEY")
             if tk:
-                futures['tiingo'] = ex.submit(_tiingo_fundamentals_fetch, ticker)
-        
+                futures["tiingo"] = ex.submit(_tiingo_fundamentals_fetch, ticker)
+
         # Collect results with timeout
         results = {}
-        fund_timeout = CONFIG.get("PERF_FUND_TIMEOUT_FAST") if CONFIG.get("PERF_FAST_MODE") else CONFIG.get("PERF_FUND_TIMEOUT")
+        fund_timeout = (
+            CONFIG.get("PERF_FUND_TIMEOUT_FAST")
+            if CONFIG.get("PERF_FAST_MODE")
+            else CONFIG.get("PERF_FUND_TIMEOUT")
+        )
         for source, fut in futures.items():
             try:
                 results[source] = fut.result(timeout=fund_timeout)
             except Exception as e:
                 logger.warning(f"Parallel fetch failed for {source}/{ticker}: {e}")
                 results[source] = {}
-    
+
     # ========== MERGE IN PRIORITY ORDER ==========
-    if results.get('fmp_full'):
-        _merge(results['fmp_full'], "from_fmp_full", "FMP")
+    if results.get("fmp_full"):
+        _merge(results["fmp_full"], "from_fmp_full", "FMP")
         merged["from_fmp"] = True
-        logger.debug(f"Fundamentals merge: FMP/full ✓ {ticker} fields={results['fmp_full'].get('_fmp_field_count')}")
-    
-    if results.get('fmp_legacy'):
-        _merge(results['fmp_legacy'], "from_fmp", "FMP")
+        logger.debug(
+            f"Fundamentals merge: FMP/full ✓ {ticker} fields={results['fmp_full'].get('_fmp_field_count')}"
+        )
+
+    if results.get("fmp_legacy"):
+        _merge(results["fmp_legacy"], "from_fmp", "FMP")
         logger.debug(f"Fundamentals merge: FMP/legacy ✓ {ticker}")
-    
-    if results.get('simfin'):
-        _merge(results['simfin'], "from_simfin", "SimFin")
+
+    if results.get("simfin"):
+        _merge(results["simfin"], "from_simfin", "SimFin")
         logger.debug(f"Fundamentals merge: SimFin ✓ {ticker}")
 
     # Prefer Finnhub data before Alpha for per-field fallbacks
-    if results.get('finnhub'):
-        _merge(results['finnhub'], "from_finnhub", "Finnhub")
+    if results.get("finnhub"):
+        _merge(results["finnhub"], "from_finnhub", "Finnhub")
         logger.debug(f"Fundamentals merge: Finnhub ✓ {ticker}")
 
-    if results.get('alpha'):
-        _merge(results['alpha'], "from_alpha", "Alpha")
+    if results.get("alpha"):
+        _merge(results["alpha"], "from_alpha", "Alpha")
         logger.debug(f"Fundamentals merge: Alpha ✓ {ticker}")
-    
-    if results.get('eodhd'):
-        _merge(results['eodhd'], "from_eodhd", "EODHD")
+
+    if results.get("eodhd"):
+        _merge(results["eodhd"], "from_eodhd", "EODHD")
         logger.debug(f"Fundamentals merge: EODHD ✓ {ticker}")
-    
-    if results.get('tiingo'):
-        _merge(results['tiingo'], "from_tiingo", "Tiingo")
+
+    if results.get("tiingo"):
+        _merge(results["tiingo"], "from_tiingo", "Tiingo")
         logger.debug(f"Fundamentals merge: Tiingo ✓ {ticker}")
 
     # Per-field explicit fallbacks (FMP -> Finnhub -> Alpha -> Tiingo)
     # Ensure that if a field wasn't provided by FMP we try Finnhub then Alpha then Tiingo
     fallback_order = [
-        ('finnhub', 'Finnhub'),
-        ('alpha', 'Alpha'),
-        ('tiingo', 'Tiingo'),
+        ("finnhub", "Finnhub"),
+        ("alpha", "Alpha"),
+        ("tiingo", "Tiingo"),
     ]
-    for k in ["roe","roic","gm","ps","pe","de","rev_g_yoy","eps_g_yoy"]:
-        if not isinstance(merged.get(k), (int, float)) or not np.isfinite(merged.get(k)):
+    for k in ["roe", "roic", "gm", "ps", "pe", "de", "rev_g_yoy", "eps_g_yoy"]:
+        if not isinstance(merged.get(k), (int, float)) or not np.isfinite(
+            merged.get(k)
+        ):
             for src_key, src_name in fallback_order:
-                src = results.get(src_key, {}) if isinstance(results.get(src_key, {}), dict) else {}
+                src = (
+                    results.get(src_key, {})
+                    if isinstance(results.get(src_key, {}), dict)
+                    else {}
+                )
                 v_new = src.get(k, np.nan)
                 if isinstance(v_new, (int, float)) and np.isfinite(v_new):
                     merged[k] = float(v_new)
@@ -975,9 +1091,19 @@ def fetch_fundamentals_bundle(ticker: str, enable_alpha_smart: bool = False) -> 
     # Try operating margin fallback explicitly
     if not np.isfinite(merged.get("oper_margin", np.nan)):
         for src_key, src_name in fallback_order:
-            src = results.get(src_key, {}) if isinstance(results.get(src_key, {}), dict) else {}
+            src = (
+                results.get(src_key, {})
+                if isinstance(results.get(src_key, {}), dict)
+                else {}
+            )
             # check common oper margin keys in provider dicts
-            for ok in ["oper_margin", "operatingMargin", "operating_margin", "operatingProfitMargin", "operatingProfitMarginTTM"]:
+            for ok in [
+                "oper_margin",
+                "operatingMargin",
+                "operating_margin",
+                "operatingProfitMargin",
+                "operatingProfitMarginTTM",
+            ]:
                 v_new = src.get(ok, np.nan)
                 if isinstance(v_new, (int, float)) and np.isfinite(v_new):
                     merged["oper_margin"] = float(v_new)
@@ -990,17 +1116,49 @@ def fetch_fundamentals_bundle(ticker: str, enable_alpha_smart: bool = False) -> 
                 break
 
     # Compute coverage after fallbacks (map our internal names to requested external names)
-    cov_fields = [merged.get(k) for k in ["pe","ps","rev_g_yoy","eps_g_yoy","gm","de","oper_margin","roe"]]
-    valid_count = sum(isinstance(v, (int, float)) and np.isfinite(v) for v in cov_fields)
+    cov_fields = [
+        merged.get(k)
+        for k in [
+            "pe",
+            "ps",
+            "rev_g_yoy",
+            "eps_g_yoy",
+            "gm",
+            "de",
+            "oper_margin",
+            "roe",
+        ]
+    ]
+    valid_count = sum(
+        isinstance(v, (int, float)) and np.isfinite(v) for v in cov_fields
+    )
     merged["Fund_Coverage_Pct"] = float(valid_count) / float(len(cov_fields))
 
     # Log missing fields for debugging
-    missing_fields = [k for k, v in zip(["pe","ps","rev_g_yoy","eps_g_yoy","gm","de","oper_margin","roe"], cov_fields) if not (isinstance(v, (int, float)) and np.isfinite(v))]
+    missing_fields = [
+        k
+        for k, v in zip(
+            ["pe", "ps", "rev_g_yoy", "eps_g_yoy", "gm", "de", "oper_margin", "roe"],
+            cov_fields,
+        )
+        if not (isinstance(v, (int, float)) and np.isfinite(v))
+    ]
     if missing_fields:
         print(f"[FUND] Missing for {ticker}: {missing_fields}")
 
     # If at least one provider responded (any from_* flag) but coverage is zero, set a small floor
-    provider_responded = any(merged.get(f, False) for f in ["from_fmp_full","from_fmp","from_alpha","from_finnhub","from_simfin","from_eodhd","from_tiingo"])
+    provider_responded = any(
+        merged.get(f, False)
+        for f in [
+            "from_fmp_full",
+            "from_fmp",
+            "from_alpha",
+            "from_finnhub",
+            "from_simfin",
+            "from_eodhd",
+            "from_tiingo",
+        ]
+    )
     if provider_responded and valid_count == 0:
         # Inject neutral defaults so the ticker is not dropped and to allow partial scoring
         neutral_defaults = {
@@ -1015,7 +1173,9 @@ def fetch_fundamentals_bundle(ticker: str, enable_alpha_smart: bool = False) -> 
         }
         merged.setdefault("_defaulted_fields", [])
         for f, v in neutral_defaults.items():
-            if not (isinstance(merged.get(f), (int, float)) and np.isfinite(merged.get(f))):
+            if not (
+                isinstance(merged.get(f), (int, float)) and np.isfinite(merged.get(f))
+            ):
                 merged[f] = float(v)
                 merged["_defaulted_fields"].append(f)
         # Set a small coverage floor to reflect presence of providers
@@ -1034,20 +1194,25 @@ def _eodhd_fetch_fundamentals(ticker: str, api_key: str) -> Dict[str, any]:
         )
         if not r_eod:
             return {}
-        
+
         fj = r_eod.json()
         highlights = fj.get("Highlights", {}) if isinstance(fj, dict) else {}
         valuation = fj.get("Valuation", {}) if isinstance(fj, dict) else {}
         ratios = fj.get("Ratios", {}) if isinstance(fj, dict) else {}
         growth = fj.get("Growth", {}) if isinstance(fj, dict) else {}
-        
+
         def finum(*keys):
             for k in keys:
-                v = highlights.get(k) or valuation.get(k) or ratios.get(k) or growth.get(k)
+                v = (
+                    highlights.get(k)
+                    or valuation.get(k)
+                    or ratios.get(k)
+                    or growth.get(k)
+                )
                 if isinstance(v, (int, float)) and np.isfinite(v):
                     return float(v)
             return np.nan
-        
+
         return {
             "roe": finum("ReturnOnEquityTTM", "ROE"),
             "roic": np.nan,
@@ -1057,7 +1222,11 @@ def _eodhd_fetch_fundamentals(ticker: str, api_key: str) -> Dict[str, any]:
             "de": finum("DebtToEquity", "DebtEquityRatio"),
             "rev_g_yoy": finum("RevenueGrowthTTMYoy", "RevenueGrowth"),
             "eps_g_yoy": finum("EPSGrowthTTMYoy", "EPSGrowth"),
-            "sector": fj.get("General", {}).get("Sector", "Unknown") if isinstance(fj.get("General"), dict) else "Unknown",
+            "sector": (
+                fj.get("General", {}).get("Sector", "Unknown")
+                if isinstance(fj.get("General"), dict)
+                else "Unknown"
+            ),
             "from_eodhd": True,
         }
     except Exception:
@@ -1075,14 +1244,14 @@ def _fmp_metrics_fetch(ticker: str, api_key: str) -> Dict[str, any]:
         r = http_get_retry(url, tries=2, timeout=8)
         if not r:
             return {}
-        
+
         data = r.json()
         if not data or not isinstance(data, list) or len(data) == 0:
             return {}
-        
+
         # Get most recent metrics
         metrics = data[0]
-        
+
         def fget(key, default=np.nan):
             val = metrics.get(key)
             if val is None or val == "None":
@@ -1091,7 +1260,7 @@ def _fmp_metrics_fetch(ticker: str, api_key: str) -> Dict[str, any]:
                 return float(val)
             except:
                 return default
-        
+
         # Get sector from profile endpoint
         profile_url = f"https://financialmodelingprep.com/stable/profile?symbol={ticker}&apikey={api_key}"
         sector = "Unknown"
@@ -1099,11 +1268,15 @@ def _fmp_metrics_fetch(ticker: str, api_key: str) -> Dict[str, any]:
             profile_r = http_get_retry(profile_url, tries=1, timeout=6)
             if profile_r:
                 profile_data = profile_r.json()
-                if profile_data and isinstance(profile_data, list) and len(profile_data) > 0:
+                if (
+                    profile_data
+                    and isinstance(profile_data, list)
+                    and len(profile_data) > 0
+                ):
                     sector = profile_data[0].get("sector", "Unknown")
         except:
             pass
-        
+
         return {
             "roe": fget("roe"),
             "roic": fget("roic"),
@@ -1118,7 +1291,8 @@ def _fmp_metrics_fetch(ticker: str, api_key: str) -> Dict[str, any]:
     except Exception as e:
         return {}
 
-@st.cache_data(ttl=60*60)
+
+@st.cache_data(ttl=60 * 60)
 def _fmp_full_bundle_fetch(ticker: str, api_key: str) -> Dict[str, any]:
     """Fetch a richer fundamental bundle from FMP using multiple endpoints (profile, key-metrics, ratios-ttm, financial-growth).
 
@@ -1135,7 +1309,10 @@ def _fmp_full_bundle_fetch(ticker: str, api_key: str) -> Dict[str, any]:
 
         fetched: Dict[str, any] = {}
         with ThreadPoolExecutor(max_workers=4) as ex:
-            fut_map = {ex.submit(http_get_retry, url, 2, 8): name for name, url in endpoints.items()}
+            fut_map = {
+                ex.submit(http_get_retry, url, 2, 8): name
+                for name, url in endpoints.items()
+            }
             for fut in as_completed(fut_map):
                 name = fut_map[fut]
                 try:
@@ -1171,7 +1348,11 @@ def _fmp_full_bundle_fetch(ticker: str, api_key: str) -> Dict[str, any]:
             "de": ffloat(ratios, "debtEquityRatioTTM"),
             "rev_g_yoy": ffloat(growth, "revenueGrowth"),
             "eps_g_yoy": ffloat(growth, "epsGrowth"),
-            "sector": profile.get("sector", "Unknown") if isinstance(profile, dict) else "Unknown",
+            "sector": (
+                profile.get("sector", "Unknown")
+                if isinstance(profile, dict)
+                else "Unknown"
+            ),
         }
 
         # Alternate gross margin if missing
@@ -1181,7 +1362,9 @@ def _fmp_full_bundle_fetch(ticker: str, api_key: str) -> Dict[str, any]:
                 out["gm"] = alt_gm
 
         valid_fields = sum(
-            1 for k, v in out.items() if k not in ("sector",) and isinstance(v, (int, float)) and np.isfinite(v)
+            1
+            for k, v in out.items()
+            if k not in ("sector",) and isinstance(v, (int, float)) and np.isfinite(v)
         )
         out["_fmp_field_count"] = valid_fields
         out["from_fmp_full"] = valid_fields >= 3
@@ -1192,7 +1375,7 @@ def _fmp_full_bundle_fetch(ticker: str, api_key: str) -> Dict[str, any]:
 
 def _alpha_overview_fetch(ticker: str) -> Dict[str, any]:
     """Fetch Alpha Vantage OVERVIEW with improved error handling and comprehensive fields.
-    
+
     Returns: dict with roe, roic, gm, ps, pe, de, rev_g_yoy, eps_g_yoy, sector
     """
     ak = _env("ALPHA_VANTAGE_API_KEY")
@@ -1205,11 +1388,13 @@ def _alpha_overview_fetch(ticker: str) -> Dict[str, any]:
         if not r:
             return {}
         j = r.json()
-        
+
         # Check for Alpha Vantage errors
         if isinstance(j, dict):
             if "Note" in j or "Information" in j:
-                logger.warning(f"Alpha Vantage rate limit: {j.get('Note') or j.get('Information')}")
+                logger.warning(
+                    f"Alpha Vantage rate limit: {j.get('Note') or j.get('Information')}"
+                )
                 return {}
             if not j.get("Symbol"):
                 return {}
@@ -1229,11 +1414,13 @@ def _alpha_overview_fetch(ticker: str) -> Dict[str, any]:
         # Calculate gross margin from raw numbers if available
         gp = fnum("GrossProfitTTM")
         tr = fnum("RevenueTTM")
-        gm_calc = (gp / tr) if (np.isfinite(gp) and np.isfinite(tr) and tr > 0) else np.nan
-        
+        gm_calc = (
+            (gp / tr) if (np.isfinite(gp) and np.isfinite(tr) and tr > 0) else np.nan
+        )
+
         # Fallback to profit margin if gross margin not available
         pm = fnum("ProfitMargin")
-        
+
         out = {
             "roe": fnum("ReturnOnEquityTTM"),
             "roic": np.nan,  # Alpha doesn't provide ROIC directly
@@ -1245,9 +1432,13 @@ def _alpha_overview_fetch(ticker: str) -> Dict[str, any]:
             "eps_g_yoy": fnum("QuarterlyEarningsGrowthYOY"),
             "sector": j.get("Sector") or "Unknown",
         }
-        
+
         # Count valid fields
-        valid_count = sum(1 for k, v in out.items() if k != "sector" and isinstance(v, (int, float)) and np.isfinite(v))
+        valid_count = sum(
+            1
+            for k, v in out.items()
+            if k != "sector" and isinstance(v, (int, float)) and np.isfinite(v)
+        )
         if valid_count >= 3:  # At least 3 valid fields
             out["from_alpha"] = True
             out["_alpha_field_count"] = valid_count
@@ -1305,9 +1496,6 @@ def _finnhub_metrics_fetch(ticker: str) -> Dict[str, any]:
         return {}
 
 
-
-
-
 def _finnhub_sector(ticker: str, token: str) -> str:
     """Fetch sector information from Finnhub (profile2 endpoint)."""
     r = http_get_retry(
@@ -1323,6 +1511,7 @@ def _finnhub_sector(ticker: str, token: str) -> str:
     except Exception:
         return "Unknown"
 
+
 @st.cache_data(ttl=60 * 60)
 def _simfin_fetch(ticker: str, api_key: str) -> Dict[str, any]:
     """Fetch fundamentals from SimFin (basic ratios). Defensive; returns {} if insufficient fields."""
@@ -1337,16 +1526,20 @@ def _simfin_fetch(ticker: str, api_key: str) -> Dict[str, any]:
         j = r.json()
         if not j or not isinstance(j, dict):
             return {}
+
         def grab(*paths):
             for p in paths:
                 v = j.get(p)
                 if isinstance(v, (int, float)) and np.isfinite(v):
                     return float(v)
             return np.nan
+
         roe = grab("roe")
         gp = grab("grossProfit")
         rev = grab("revenue")
-        gm = (gp / rev) if (np.isfinite(gp) and np.isfinite(rev) and rev > 0) else np.nan
+        gm = (
+            (gp / rev) if (np.isfinite(gp) and np.isfinite(rev) and rev > 0) else np.nan
+        )
         ps = grab("priceToSales")
         pe = grab("peRatio")
         de = grab("debtToEquity")
@@ -1364,7 +1557,11 @@ def _simfin_fetch(ticker: str, api_key: str) -> Dict[str, any]:
             "eps_g_yoy": eps_g,
             "sector": sector,
         }
-        valid_fields = sum(1 for k,v in out.items() if k != "sector" and isinstance(v,(int,float)) and np.isfinite(v))
+        valid_fields = sum(
+            1
+            for k, v in out.items()
+            if k != "sector" and isinstance(v, (int, float)) and np.isfinite(v)
+        )
         if valid_fields >= 3:
             out["from_simfin"] = True
             out["_simfin_field_count"] = valid_fields
@@ -1377,7 +1574,7 @@ def _simfin_fetch(ticker: str, api_key: str) -> Dict[str, any]:
 @st.cache_data(ttl=60 * 60 * 24)
 def _tiingo_fundamentals_fetch(ticker: str) -> Dict[str, any]:
     """Fetch fundamentals from Tiingo - comprehensive data from fundamentals endpoint.
-    
+
     Returns: dict with pe, ps, pb, roe, gm, de, rev_g_yoy, eps_g_yoy if available.
     """
     tk = _env("TIINGO_API_KEY")
@@ -1385,18 +1582,20 @@ def _tiingo_fundamentals_fetch(ticker: str) -> Dict[str, any]:
         return {}
     try:
         # Use Tiingo fundamentals endpoint for comprehensive data
-        fund_url = f"https://api.tiingo.com/tiingo/fundamentals/{ticker}/daily?token={tk}"
+        fund_url = (
+            f"https://api.tiingo.com/tiingo/fundamentals/{ticker}/daily?token={tk}"
+        )
         fund_r = http_get_retry(fund_url, tries=2, timeout=10)
-        
+
         if not fund_r:
             return {}
-        
+
         fund_j = fund_r.json()
         if not fund_j or not isinstance(fund_j, list) or len(fund_j) == 0:
             return {}
-        
+
         latest = fund_j[0]  # Most recent data
-        
+
         def fnum(key):
             try:
                 v = latest.get(key)
@@ -1405,7 +1604,7 @@ def _tiingo_fundamentals_fetch(ticker: str) -> Dict[str, any]:
                 return float(v) if np.isfinite(float(v)) else np.nan
             except:
                 return np.nan
-        
+
         out = {
             "pe": fnum("pe"),
             "ps": fnum("priceToSalesRatio"),
@@ -1416,8 +1615,10 @@ def _tiingo_fundamentals_fetch(ticker: str) -> Dict[str, any]:
             "rev_g_yoy": fnum("revenueGrowth"),
             "eps_g_yoy": fnum("epsGrowth"),
         }
-        
-        valid_count = sum(1 for v in out.values() if isinstance(v, (int, float)) and np.isfinite(v))
+
+        valid_count = sum(
+            1 for v in out.values() if isinstance(v, (int, float)) and np.isfinite(v)
+        )
         if valid_count >= 2:  # At least 2 valid fields
             out["from_tiingo"] = True
             out["_tiingo_field_count"] = valid_count
@@ -1430,23 +1631,31 @@ def _tiingo_fundamentals_fetch(ticker: str) -> Dict[str, any]:
 
 @st.cache_data(ttl=60 * 60)
 @st.cache_data(ttl=3600, show_spinner=False)
-@st.cache_data(ttl=6*3600, show_spinner=False)
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
 def fetch_beta_vs_benchmark(ticker: str, bench: str = "SPY", days: int = 252) -> float:
     """Calculate beta with timeout protection and caching."""
     try:
-        from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
-        
+        from concurrent.futures import (
+            ThreadPoolExecutor,
+            TimeoutError as FuturesTimeoutError,
+        )
+
         def _download_both():
             end = datetime.utcnow()
             start = end - timedelta(days=days + 30)
             df_t = yf.download(
-                ticker, start=start, end=end, auto_adjust=True, progress=False, timeout=8
+                ticker,
+                start=start,
+                end=end,
+                auto_adjust=True,
+                progress=False,
+                timeout=8,
             )
             df_b = yf.download(
                 bench, start=start, end=end, auto_adjust=True, progress=False, timeout=8
             )
             return df_t, df_b
-        
+
         # Use ThreadPoolExecutor for timeout (works on all platforms)
         with ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(_download_both)
@@ -1454,7 +1663,7 @@ def fetch_beta_vs_benchmark(ticker: str, bench: str = "SPY", days: int = 252) ->
                 df_t, df_b = future.result(timeout=10)
             except FuturesTimeoutError:
                 return np.nan
-        
+
         if df_t.empty or df_b.empty:
             return np.nan
         j = pd.concat(
@@ -1529,7 +1738,6 @@ def get_polygon_price(ticker: str) -> Optional[float]:
     return None
 
 
-
 def get_tiingo_price(ticker: str) -> Optional[float]:
     k = _env("TIINGO_API_KEY")
     if not k:
@@ -1548,6 +1756,7 @@ def get_tiingo_price(ticker: str) -> Optional[float]:
     except Exception:
         return None
     return None
+
 
 def get_marketstack_price(ticker: str) -> Optional[float]:
     """Fetch latest end-of-day price from Marketstack."""
@@ -1574,6 +1783,7 @@ def get_marketstack_price(ticker: str) -> Optional[float]:
     except Exception:
         return None
     return None
+
 
 def get_nasdaq_price(ticker: str) -> Optional[float]:
     """Attempt price via Nasdaq Data Link dataset (WIKI legacy). Returns None on failure."""
@@ -1603,6 +1813,7 @@ def get_nasdaq_price(ticker: str) -> Optional[float]:
         return None
     return None
 
+
 def get_eodhd_price(ticker: str) -> Optional[float]:
     """Fetch real-time (delayed) price from EODHD."""
     if not CONFIG.get("ENABLE_EODHD"):
@@ -1630,7 +1841,9 @@ def get_eodhd_price(ticker: str) -> Optional[float]:
 # ==================== UI ====================
 from design_system import get_modern_css
 
-st.set_page_config(page_title="Asaf's Stock Scout — 2025", page_icon="📈", layout="wide")
+st.set_page_config(
+    page_title="Asaf's Stock Scout — 2025", page_icon="📈", layout="wide"
+)
 st.markdown(get_modern_css(), unsafe_allow_html=True)
 
 st.title("📈 Stock Scout — 2025 (Auto)")
@@ -1656,8 +1869,10 @@ if FAST_MODE:
 DEBUG_SKIP_PIPELINE = st.checkbox(
     "🧪 Debug: Skip data pipeline (show dummy cards)",
     value=False,
-    help="Use this to verify UI/card rendering when data pipeline stalls. Shows 3 synthetic recommendations."
+    help="Use this to verify UI/card rendering when data pipeline stalls. Shows 3 synthetic recommendations.",
 )
+
+
 # Secrets button
 def _mask(s: Optional[str], show_last: int = 4) -> str:
     if not s:
@@ -1669,6 +1884,7 @@ def _mask(s: Optional[str], show_last: int = 4) -> str:
         else ("•" * (len(s) - 1)) + s[-1]
     )
 
+
 # Status table
 alpha_ok, alpha_reason = _check_alpha()
 finn_ok, finnh_reason = _check_finnhub()
@@ -1677,9 +1893,19 @@ tiin_ok, tiin_reason = _check_tiingo()
 fmp_ok, fmp_reason = _check_fmp()
 st.session_state["_alpha_ok"] = bool(alpha_ok)
 simfin_key = _env("SIMFIN_API_KEY") if CONFIG.get("ENABLE_SIMFIN") else None
-marketstack_key = _env("MARKETSTACK_API_KEY") if CONFIG.get("ENABLE_MARKETSTACK") else None
-nasdaq_key = (_env("NASDAQ_API_KEY") or _env("NASDAQ_DL_API_KEY")) if CONFIG.get("ENABLE_NASDAQ_DL") else None
-eodhd_key = (_env("EODHD_API_KEY") or _env("EODHD_TOKEN")) if CONFIG.get("ENABLE_EODHD") else None
+marketstack_key = (
+    _env("MARKETSTACK_API_KEY") if CONFIG.get("ENABLE_MARKETSTACK") else None
+)
+nasdaq_key = (
+    (_env("NASDAQ_API_KEY") or _env("NASDAQ_DL_API_KEY"))
+    if CONFIG.get("ENABLE_NASDAQ_DL")
+    else None
+)
+eodhd_key = (
+    (_env("EODHD_API_KEY") or _env("EODHD_TOKEN"))
+    if CONFIG.get("ENABLE_EODHD")
+    else None
+)
 
 # Critical API keys check (show prominent warning if missing)
 missing_critical = []
@@ -1689,7 +1915,8 @@ if not finn_ok:
     missing_critical.append("FINNHUB_API_KEY")
 
 if missing_critical:
-    st.error(f"""
+    st.error(
+        f"""
 🚨 **CRITICAL: Missing API Keys**
 
 The following required keys are not configured:
@@ -1709,9 +1936,12 @@ The following required keys are not configured:
 - Ensure `load_dotenv()` is called
 
 See `DEPLOYMENT_FIX.md` for detailed instructions.
-""")
+"""
+    )
     if not (alpha_ok or finn_ok):
-        st.warning("⚠️ App will not function properly without at least Alpha Vantage OR Finnhub keys.")
+        st.warning(
+            "⚠️ App will not function properly without at least Alpha Vantage OR Finnhub keys."
+        )
 
 ###############################
 # Data Sources Usage & Keys Table (improved)
@@ -1732,6 +1962,7 @@ DATA_SOURCES = {
     "OpenAI": {"env_keys": ["OPENAI_API_KEY"]},
 }
 
+
 def _has_key(provider: str, keys: list) -> bool:
     if not keys:  # Yahoo always available
         return True
@@ -1740,32 +1971,40 @@ def _has_key(provider: str, keys: list) -> bool:
             return True
     return False
 
+
 # Dot styles: green=used, yellow=available not yet used, gray=missing
 dot_used = "<span style='color:#16a34a;font-weight:700'>●</span>"
 dot_avail = "<span style='color:#f59e0b;font-weight:700'>●</span>"
 dot_missing = "<span style='color:#94a3b8'>●</span>"
 
-def _status_dot(provider: str, category: str, connected: bool, has_key: bool, usage: dict) -> str:
+
+def _status_dot(
+    provider: str, category: str, connected: bool, has_key: bool, usage: dict
+) -> str:
     if provider in usage and category in usage.get(provider, set()):
         return dot_used
     if connected and has_key:
         return dot_avail
     return dot_missing
 
-def _connectivity_flags(name: str) -> tuple[bool,bool,bool]:
+
+def _connectivity_flags(name: str) -> tuple[bool, bool, bool]:
     price = fund = ml = False
     if name == "Yahoo":
         price = True
     elif name == "FMP":
         fund = bool(fmp_ok)
     elif name == "Alpha":
-        price = bool(alpha_ok); fund = bool(alpha_ok)
+        price = bool(alpha_ok)
+        fund = bool(alpha_ok)
     elif name == "Finnhub":
-        price = bool(finn_ok); fund = bool(finn_ok)
+        price = bool(finn_ok)
+        fund = bool(finn_ok)
     elif name == "Polygon":
         price = bool(poly_ok)
     elif name == "Tiingo":
-        price = bool(tiin_ok); fund = bool(tiin_ok)
+        price = bool(tiin_ok)
+        fund = bool(tiin_ok)
     elif name == "SimFin":
         fund = bool(_env("SIMFIN_API_KEY"))
     elif name == "EODHD":
@@ -1773,26 +2012,36 @@ def _connectivity_flags(name: str) -> tuple[bool,bool,bool]:
     elif name == "Marketstack":
         price = bool(_env("MARKETSTACK_API_KEY")) and CONFIG.get("ENABLE_MARKETSTACK")
     elif name == "Nasdaq":
-        price = bool(_env("NASDAQ_API_KEY") or _env("NASDAQ_DL_API_KEY")) and CONFIG.get("ENABLE_NASDAQ_DL")
+        price = bool(
+            _env("NASDAQ_API_KEY") or _env("NASDAQ_DL_API_KEY")
+        ) and CONFIG.get("ENABLE_NASDAQ_DL")
     elif name == "OpenAI":
-        ml = bool(OPENAI_AVAILABLE and (os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")))
-    return price,fund,ml
+        ml = bool(
+            OPENAI_AVAILABLE
+            and (os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY"))
+        )
+    return price, fund, ml
 
-def render_sources_table(final: bool=False):
-    usage = st.session_state.get('provider_usage', {})
-    table_rows = ["<tr><th style='text-align:left'>Provider</th><th>Key</th><th>Price</th><th>Fundamentals</th><th>ML/AI</th></tr>"]
+
+def render_sources_table(final: bool = False):
+    usage = st.session_state.get("provider_usage", {})
+    table_rows = [
+        "<tr><th style='text-align:left'>Provider</th><th>Key</th><th>Price</th><th>Fundamentals</th><th>ML/AI</th></tr>"
+    ]
     used_count = 0
     for name, meta in DATA_SOURCES.items():
         keys = meta.get("env_keys", [])
         has_key = _has_key(name, keys)
         c_price, c_fund, c_ml = _connectivity_flags(name)
         key_dot = dot_used if has_key else dot_missing
-        price_dot = _status_dot(name,'price',c_price,has_key,usage)
-        fund_dot = _status_dot(name,'fundamentals',c_fund,has_key,usage)
-        ml_dot = _status_dot(name,'ml',c_ml,has_key,usage)
+        price_dot = _status_dot(name, "price", c_price, has_key, usage)
+        fund_dot = _status_dot(name, "fundamentals", c_fund, has_key, usage)
+        ml_dot = _status_dot(name, "ml", c_ml, has_key, usage)
         if name in usage:
             used_count += 1
-        table_rows.append(f"<tr><td style='text-align:left'>{name}</td><td>{key_dot}</td><td>{price_dot}</td><td>{fund_dot}</td><td>{ml_dot}</td></tr>")
+        table_rows.append(
+            f"<tr><td style='text-align:left'>{name}</td><td>{key_dot}</td><td>{price_dot}</td><td>{fund_dot}</td><td>{ml_dot}</td></tr>"
+        )
     sources_css = """
 <style>
 .sources-overview table {width:100%; border-collapse:collapse; margin:4px 0 6px 0;}
@@ -1804,34 +2053,55 @@ def render_sources_table(final: bool=False):
 .sources-overview caption {text-align:left;font-size:11px;color:#64748b;margin-top:4px;}
 </style>
 """
-    legend = "<caption>Legend: Green=used this run | Yellow=available not yet used | Gray=missing key/not connected." + (" Used providers: " + str(used_count) if final else "") + "</caption>"
-    html = sources_css + "<div class='sources-overview'><table>" + "".join(table_rows) + legend + "</table></div>"
+    legend = (
+        "<caption>Legend: Green=used this run | Yellow=available not yet used | Gray=missing key/not connected."
+        + (" Used providers: " + str(used_count) if final else "")
+        + "</caption>"
+    )
+    html = (
+        sources_css
+        + "<div class='sources-overview'><table>"
+        + "".join(table_rows)
+        + legend
+        + "</table></div>"
+    )
     return html
+
 
 sources_placeholder = st.empty()
 sources_placeholder.markdown(render_sources_table(final=False), unsafe_allow_html=True)
 
 # Provider debug (expandable) and global multi-stage progress setup
 with st.expander("🔍 Provider Debug Flags", expanded=False):
-    st.write({
-        'alpha_ok': alpha_ok,
-        'finn_ok': finn_ok,
-        'fmp_ok': fmp_ok,
-        'poly_ok': poly_ok,
-        'tiin_ok': tiin_ok,
-        'simfin_key': bool(simfin_key),
-        'eodhd_key': bool(eodhd_key),
-        'marketstack_key': bool(marketstack_key),
-        'nasdaq_key': bool(nasdaq_key),
-    })
+    st.write(
+        {
+            "alpha_ok": alpha_ok,
+            "finn_ok": finn_ok,
+            "fmp_ok": fmp_ok,
+            "poly_ok": poly_ok,
+            "tiin_ok": tiin_ok,
+            "simfin_key": bool(simfin_key),
+            "eodhd_key": bool(eodhd_key),
+            "marketstack_key": bool(marketstack_key),
+            "nasdaq_key": bool(nasdaq_key),
+        }
+    )
 
 stage_labels = [
-    'Universe', 'History', 'Technical', 'Beta Filter', 'Advanced Filters',
-    'Fundamentals', 'Risk Classification', 'Price Verification', 'Recommendations'
+    "Universe",
+    "History",
+    "Technical",
+    "Beta Filter",
+    "Advanced Filters",
+    "Fundamentals",
+    "Risk Classification",
+    "Price Verification",
+    "Recommendations",
 ]
 stage_index = 0
 global_progress = st.progress(0)
 stage_status = st.empty()
+
 
 def _advance_stage(label: str):
     global stage_index
@@ -1840,8 +2110,11 @@ def _advance_stage(label: str):
     global_progress.progress(pct)
     stage_status.text(f"⏱ Stage {stage_index}/{len(stage_labels)}: {label}")
 
+
 # Show config debug info
-st.caption(f"⚙️ Config: Universe={CONFIG['UNIVERSE_LIMIT']} | Lookback={CONFIG['LOOKBACK_DAYS']}d | Smart={CONFIG['SMART_SCAN']}")
+st.caption(
+    f"⚙️ Config: Universe={CONFIG['UNIVERSE_LIMIT']} | Lookback={CONFIG['LOOKBACK_DAYS']}d | Smart={CONFIG['SMART_SCAN']}"
+)
 
 # Utility buttons row
 col_secrets, col_cache, _ = st.columns([1, 1, 3])
@@ -1860,6 +2133,7 @@ with col_cache:
     if st.button("🔄 Clear Cache & Reload"):
         st.cache_data.clear()
         st.rerun()
+
 
 # timers
 def t_start() -> float:
@@ -1882,9 +2156,9 @@ with st.spinner("🔍 Building stock universe..."):
         if CONFIG["SMART_SCAN"]
         else build_universe(limit=200)
     )
-phase_times["build_universe"] = t_end(t0)
-st.write(f"✅ Universe built: {len(universe)} tickers")
-_advance_stage('Universe')
+    phase_times["build_universe"] = t_end(t0)
+    st.write(f"✅ Universe built: {len(universe)} tickers")
+    _advance_stage("Universe")
 
 # 2) History
 t0 = t_start()
@@ -1892,7 +2166,7 @@ with st.spinner(f"📊 Fetching historical data for {len(universe)} stocks..."):
     data_map = fetch_history_bulk(universe, CONFIG["LOOKBACK_DAYS"], CONFIG["MA_LONG"])
 phase_times["fetch_history"] = t_end(t0)
 st.write(f"✅ History fetched: {len(data_map)} stocks with data")
-_advance_stage('History')
+_advance_stage("History")
 
 # 3) Technical score + hard filters
 t0 = t_start()
@@ -1912,12 +2186,14 @@ for idx_num, (tkr, df) in enumerate(data_map.items(), 1):
     # Update progress
     if idx_num % 5 == 0 or idx_num == len(data_map):  # Update every 5 stocks
         progress_bar.progress(idx_num / len(data_map))
-        status_text.text(f"📈 Computing technical indicators: {idx_num}/{len(data_map)} - {tkr}")
-    
+        status_text.text(
+            f"📈 Computing technical indicators: {idx_num}/{len(data_map)} - {tkr}"
+        )
+
     # Skip invalid history
     if df is None or df.empty:
         continue
-    
+
     df = df.copy()
     # Core rolling indicators
     df["MA_S"] = df["Close"].rolling(int(CONFIG["MA_SHORT"])).mean()
@@ -1936,19 +2212,41 @@ for idx_num, (tkr, df) in enumerate(data_map.items(), 1):
             if isinstance(adx_out, pd.DataFrame):
                 # use named columns when available, fallback to positional
                 if "ADX" in adx_out.columns:
-                    adx_series = pd.to_numeric(adx_out["ADX"], errors="coerce").reindex(df.index)
+                    adx_series = pd.to_numeric(adx_out["ADX"], errors="coerce").reindex(
+                        df.index
+                    )
                 else:
-                    adx_series = pd.to_numeric(adx_out.iloc[:, 0], errors="coerce").reindex(df.index)
+                    adx_series = pd.to_numeric(
+                        adx_out.iloc[:, 0], errors="coerce"
+                    ).reindex(df.index)
 
                 if "PLUS_DI" in adx_out.columns:
-                    plus_di = pd.to_numeric(adx_out["PLUS_DI"], errors="coerce").reindex(df.index)
+                    plus_di = pd.to_numeric(
+                        adx_out["PLUS_DI"], errors="coerce"
+                    ).reindex(df.index)
                 else:
-                    plus_di = pd.to_numeric(adx_out.iloc[:, 1] if adx_out.shape[1] > 1 else pd.Series(np.nan, index=df.index), errors="coerce").reindex(df.index)
+                    plus_di = pd.to_numeric(
+                        (
+                            adx_out.iloc[:, 1]
+                            if adx_out.shape[1] > 1
+                            else pd.Series(np.nan, index=df.index)
+                        ),
+                        errors="coerce",
+                    ).reindex(df.index)
 
                 if "MINUS_DI" in adx_out.columns:
-                    minus_di = pd.to_numeric(adx_out["MINUS_DI"], errors="coerce").reindex(df.index)
+                    minus_di = pd.to_numeric(
+                        adx_out["MINUS_DI"], errors="coerce"
+                    ).reindex(df.index)
                 else:
-                    minus_di = pd.to_numeric(adx_out.iloc[:, 2] if adx_out.shape[1] > 2 else pd.Series(np.nan, index=df.index), errors="coerce").reindex(df.index)
+                    minus_di = pd.to_numeric(
+                        (
+                            adx_out.iloc[:, 2]
+                            if adx_out.shape[1] > 2
+                            else pd.Series(np.nan, index=df.index)
+                        ),
+                        errors="coerce",
+                    ).reindex(df.index)
             else:
                 adx_series = pd.to_numeric(adx_out, errors="coerce").reindex(df.index)
                 plus_di = pd.Series(np.nan, index=df.index)
@@ -2052,8 +2350,14 @@ for idx_num, (tkr, df) in enumerate(data_map.items(), 1):
     # Compute Reward/Risk using stable helper (never N/A)
     try:
         entry_price_for_rr = price if np.isfinite(price) else np.nan
-        target_price_for_rr = hi_52w if (np.isfinite(hi_52w) and hi_52w > 0) else (price * 1.10 if np.isfinite(price) else np.nan)
-        reward_risk = calculate_rr(entry_price_for_rr, target_price_for_rr, atr14, history_df=df)
+        target_price_for_rr = (
+            hi_52w
+            if (np.isfinite(hi_52w) and hi_52w > 0)
+            else (price * 1.10 if np.isfinite(price) else np.nan)
+        )
+        reward_risk = calculate_rr(
+            entry_price_for_rr, target_price_for_rr, atr14, history_df=df
+        )
         rr_score = min(1.0, reward_risk / 4.0) if np.isfinite(reward_risk) else 0.0
     except Exception:
         reward_risk, rr_score = 0.0, 0.0
@@ -2084,19 +2388,31 @@ for idx_num, (tkr, df) in enumerate(data_map.items(), 1):
         + W["macd"] * macd_score
         + W["adx"] * adx_score
     )
-    rows.append({
-        "Ticker": tkr,
-        "Price_Yahoo": price,
-        "Score_Tech": round(100 * float(score), 1),
-        "RSI": round(rsi_val, 1) if np.isfinite(rsi_val) else np.nan,
-        "Near52w": round(near_high_raw * 100, 1) if np.isfinite(near_high_raw) else np.nan,
-        "Volx20d": round(vol_today / vol20, 2) if (np.isfinite(vol_today) and np.isfinite(vol20) and vol20 > 0) else np.nan,
-        "OverextRatio": round(overext_ratio, 3) if np.isfinite(overext_ratio) else np.nan,
-        "ATR_Price": round(vol_rel, 4) if np.isfinite(vol_rel) else np.nan,
-        # Always show numeric RewardRisk (force 0.0 when missing)
-        "RewardRisk": round(float(reward_risk) if np.isfinite(reward_risk) else 0.0, 2),
-        "ATR14": atr14,
-    })
+    rows.append(
+        {
+            "Ticker": tkr,
+            "Price_Yahoo": price,
+            "Score_Tech": round(100 * float(score), 1),
+            "RSI": round(rsi_val, 1) if np.isfinite(rsi_val) else np.nan,
+            "Near52w": (
+                round(near_high_raw * 100, 1) if np.isfinite(near_high_raw) else np.nan
+            ),
+            "Volx20d": (
+                round(vol_today / vol20, 2)
+                if (np.isfinite(vol_today) and np.isfinite(vol20) and vol20 > 0)
+                else np.nan
+            ),
+            "OverextRatio": (
+                round(overext_ratio, 3) if np.isfinite(overext_ratio) else np.nan
+            ),
+            "ATR_Price": round(vol_rel, 4) if np.isfinite(vol_rel) else np.nan,
+            # Always show numeric RewardRisk (force 0.0 when missing)
+            "RewardRisk": round(
+                float(reward_risk) if np.isfinite(reward_risk) else 0.0, 2
+            ),
+            "ATR14": atr14,
+        }
+    )
 
     # end for loop
 
@@ -2106,14 +2422,20 @@ status_text.empty()
 
 results = pd.DataFrame(rows)
 phase_times["calc_score_technical"] = t_end(t0)
-st.success(f"✅ Technical indicators computed: {len(results)} stocks scored in {phase_times['calc_score_technical']:.1f}s")
-_advance_stage('Technical')
+st.success(
+    f"✅ Technical indicators computed: {len(results)} stocks scored in {phase_times['calc_score_technical']:.1f}s"
+)
+_advance_stage("Technical")
 
 if results.empty:
-    st.warning("No results after filtering. Filters may be too strict for the current universe.")
+    st.warning(
+        "No results after filtering. Filters may be too strict for the current universe."
+    )
     st.stop()
-sort_col = 'Final_Score' if 'Final_Score' in results.columns else 'Score_Tech'
-results = results.sort_values([sort_col, "Ticker"], ascending=[False, True]).reset_index(drop=True)
+sort_col = "Final_Score" if "Final_Score" in results.columns else "Score_Tech"
+results = results.sort_values(
+    [sort_col, "Ticker"], ascending=[False, True]
+).reset_index(drop=True)
 
 # 3a) Initialize fundamental columns (will populate after advanced_filters)
 fundamental_available = (
@@ -2140,13 +2462,17 @@ if CONFIG["FUNDAMENTAL_ENABLED"] and fundamental_available:
     results["Fund_from_Finnhub"] = False
     results["Fund_from_SimFin"] = False
     results["Fund_from_EODHD"] = False
-    results["Score"] = results.get('Final_Score', results["Score_Tech"])  # unified final score or fallback
+    results["Score"] = results.get(
+        "Final_Score", results["Score_Tech"]
+    )  # unified final score or fallback
 else:
-    results["Score"] = results.get('Final_Score', results["Score_Tech"])
+    results["Score"] = results.get("Final_Score", results["Score_Tech"])
 
 if CONFIG["FUNDAMENTAL_ENABLED"] and not fundamental_available:
-    st.warning("Fundamentals skipped – no provider connectivity (Alpha/Finnhub/FMP/SimFin/EODHD).")
-_advance_stage('Fundamentals')
+    st.warning(
+        "Fundamentals skipped – no provider connectivity (Alpha/Finnhub/FMP/SimFin/EODHD)."
+    )
+_advance_stage("Fundamentals")
 
 # Earnings blackout
 if CONFIG["EARNINGS_BLACKOUT_DAYS"] > 0:
@@ -2161,7 +2487,7 @@ if CONFIG["EARNINGS_BLACKOUT_DAYS"] > 0:
         if dt_earn is None:
             continue
         # Ensure dt_earn is timezone-naive
-        if hasattr(dt_earn, 'tzinfo') and dt_earn.tzinfo is not None:
+        if hasattr(dt_earn, "tzinfo") and dt_earn.tzinfo is not None:
             dt_earn = dt_earn.replace(tzinfo=None)
         gap_days = abs((dt_earn - now_utc).days)
         if gap_days <= int(CONFIG["EARNINGS_BLACKOUT_DAYS"]):
@@ -2169,7 +2495,9 @@ if CONFIG["EARNINGS_BLACKOUT_DAYS"] > 0:
             results.at[idx, "EarningsNote"] = f"Excluded: earnings within {gap_days}d"
     results = results[keep_mask].reset_index(drop=True)
     if results.empty:
-        st.warning('All top-K candidates were excluded due to the earnings blackout window.')
+        st.warning(
+            "All top-K candidates were excluded due to the earnings blackout window."
+        )
         st.stop()
 
 # 3b) Beta filter
@@ -2189,17 +2517,26 @@ if CONFIG["BETA_FILTER_ENABLED"]:
     ].reset_index(drop=True)
     phase_times["beta_filter"] = t_end(t0)
     st.write(f"✅ Beta filter completed: {len(results)} stocks passed")
-_advance_stage('Beta Filter')
+_advance_stage("Beta Filter")
 
 # 3c) Advanced Filters (dynamic penalty approach)
 t0 = t_start()
 
 with st.spinner("🔬 Running advanced filters (dynamic penalties)..."):
-    benchmark_df = fetch_benchmark_data(CONFIG["BETA_BENCHMARK"], CONFIG["LOOKBACK_DAYS"])
+    benchmark_df = fetch_benchmark_data(
+        CONFIG["BETA_BENCHMARK"], CONFIG["LOOKBACK_DAYS"]
+    )
 
 adv_cols = [
-    "RS_63d", "Volume_Surge", "MA_Aligned", "Quality_Score", "RR_Ratio",
-    "Momentum_Consistency", "High_Confidence", "AdvPenalty", "AdvFlags"
+    "RS_63d",
+    "Volume_Surge",
+    "MA_Aligned",
+    "Quality_Score",
+    "RR_Ratio",
+    "Momentum_Consistency",
+    "High_Confidence",
+    "AdvPenalty",
+    "AdvFlags",
 ]
 for col in adv_cols:
     if col in ["MA_Aligned", "High_Confidence"]:
@@ -2227,7 +2564,7 @@ for idx in results.index:
 rs_vals = []
 mom_vals = []
 rr_vals = []
-for (_, sig, _) in signals_store:
+for _, sig, _ in signals_store:
     v_rs = sig.get("rs_63d")
     if isinstance(v_rs, (int, float)) and np.isfinite(v_rs):
         rs_vals.append(v_rs)
@@ -2238,28 +2575,36 @@ for (_, sig, _) in signals_store:
     if isinstance(v_rr, (int, float)) and np.isfinite(v_rr):
         rr_vals.append(v_rr)
 
+
 def _q(vals, q, default):
     return float(np.quantile(vals, q)) if vals else default
 
+
 # More permissive percentiles to allow more stocks through
-rs_thresh_dyn = _q(rs_vals, 0.05, -0.30)    # 5th percentile (was 15th), allow more underperformers
-mom_thresh_dyn = _q(mom_vals, 0.10, 0.15)   # 10th percentile (was 20th), allow weaker momentum
-rr_thresh_dyn = _q(rr_vals, 0.10, 0.50)     # 10th percentile (was 25th), allow lower RR
-logger.info(f"Dynamic thresholds -> RS:{rs_thresh_dyn:.3f} MOM:{mom_thresh_dyn:.3f} RR:{rr_thresh_dyn:.3f}")
+rs_thresh_dyn = _q(
+    rs_vals, 0.05, -0.30
+)  # 5th percentile (was 15th), allow more underperformers
+mom_thresh_dyn = _q(
+    mom_vals, 0.10, 0.15
+)  # 10th percentile (was 20th), allow weaker momentum
+rr_thresh_dyn = _q(rr_vals, 0.10, 0.50)  # 10th percentile (was 25th), allow lower RR
+logger.info(
+    f"Dynamic thresholds -> RS:{rs_thresh_dyn:.3f} MOM:{mom_thresh_dyn:.3f} RR:{rr_thresh_dyn:.3f}"
+)
 
 # Step 3: NOW apply rejection with dynamic thresholds
 dynamic_thresholds = {
     "rs_63d": rs_thresh_dyn,
     "momentum_consistency": mom_thresh_dyn,
-    "risk_reward_ratio": rr_thresh_dyn
+    "risk_reward_ratio": rr_thresh_dyn,
 }
 
 catastrophic_count = 0
 kept = 0
-for (idx, sig, enhanced_score) in signals_store:
+for idx, sig, enhanced_score in signals_store:
     # Apply rejection with dynamic thresholds
     catastrophic, reason = should_reject_ticker(sig, dynamic=dynamic_thresholds)
-    
+
     if catastrophic:
         catastrophic_count += 1
         results.loc[idx, "RejectionReason"] = reason
@@ -2275,7 +2620,7 @@ for (idx, sig, enhanced_score) in signals_store:
         results.loc[idx, "AdvFlags"] = "REJECTED"
         results.loc[idx, "Score"] = 0.0
         continue
-    
+
     # Not catastrophic - apply normal penalty logic
     kept += 1
     flags = []
@@ -2293,7 +2638,7 @@ for (idx, sig, enhanced_score) in signals_store:
         if np.isfinite(rr_val) and rr_val < rr_thresh_dyn:
             penalty += 3.0  # reduced from 10.0
             flags.append("LowRR")
-    
+
     results.loc[idx, "RS_63d"] = sig.get("rs_63d", np.nan)
     results.loc[idx, "Volume_Surge"] = sig.get("volume_surge", np.nan)
     results.loc[idx, "MA_Aligned"] = sig.get("ma_aligned", False)
@@ -2307,10 +2652,14 @@ for (idx, sig, enhanced_score) in signals_store:
     results.loc[idx, "Score"] = adj_score
 
 if catastrophic_count == len(signals_store):
-    logger.warning("All stocks met catastrophic rejection; overriding to keep all for inspection.")
+    logger.warning(
+        "All stocks met catastrophic rejection; overriding to keep all for inspection."
+    )
     kept = len(signals_store)
 
-logger.info(f"Advanced filters dynamic: kept {kept}/{len(signals_store)} catastrophic={catastrophic_count}")
+logger.info(
+    f"Advanced filters dynamic: kept {kept}/{len(signals_store)} catastrophic={catastrophic_count}"
+)
 
 if catastrophic_count > 0 and catastrophic_count < len(signals_store):
     # Remove catastrophic stocks
@@ -2318,10 +2667,12 @@ if catastrophic_count > 0 and catastrophic_count < len(signals_store):
     results = results[~results.index.isin(drop_indices)].reset_index(drop=True)
 
 # Sort after applying removals
-results = results.sort_values(["Score", "Ticker"], ascending=[False, True]).reset_index(drop=True)
+results = results.sort_values(["Score", "Ticker"], ascending=[False, True]).reset_index(
+    drop=True
+)
 phase_times["advanced_filters"] = t_end(t0)
 st.write(f"✅ Advanced filters completed: {len(results)} stocks passed")
-_advance_stage('Advanced Filters')
+_advance_stage("Advanced Filters")
 
 if results.empty:
     st.warning("Advanced filters produced empty set even after penalties.")
@@ -2331,74 +2682,97 @@ if results.empty:
 if CONFIG["FUNDAMENTAL_ENABLED"] and fundamental_available:
     t0 = t_start()
     take_k = len(results)  # number to process
-    
+
     # Create progress bar for fundamentals
     progress_bar = st.progress(0)
     status_text = st.empty()
-    
+
     status_text.text(f"📊 Fetching fundamentals: 0/{take_k} stocks processed...")
-    
+
     for idx_num, idx in enumerate(results.index, 1):
         tkr = results.at[idx, "Ticker"]
         rank = list(results.index).index(idx) + 1  # 1-based rank
-        
+
         # Update progress
         progress_bar.progress(idx_num / take_k)
-        status_text.text(f"📊 Fetching fundamentals: {idx_num}/{take_k} - {tkr} (rank #{rank})")
-        
+        status_text.text(
+            f"📊 Fetching fundamentals: {idx_num}/{take_k} - {tkr} (rank #{rank})"
+        )
+
         # Smart Alpha: enable only for top 15 to respect 25/day rate limit
-        use_alpha = (rank <= 15)
+        use_alpha = rank <= 15
         # Fast mode disables Alpha entirely to avoid throttle sleeps
         if CONFIG.get("PERF_FAST_MODE"):
             use_alpha = False
         d = fetch_fundamentals_bundle(tkr, enable_alpha_smart=use_alpha)
-        
+
         # DEBUG: Log FMP data quality for key tickers (transparency check)
-        if tkr in ['AAPL', 'GOOGL', 'MSFT', 'NVDA', 'TSLA', 'META', 'AMZN', 'JPM', 'V']:
-            fmp_ok = d.get('from_fmp', False) or d.get('from_fmp_full', False)
-            coverage = d.get('Fund_Coverage_Pct', 0.0)
-            quality_f = d.get('Quality_Score_F', np.nan)
-            roe = d.get('roe', np.nan)
+        if tkr in ["AAPL", "GOOGL", "MSFT", "NVDA", "TSLA", "META", "AMZN", "JPM", "V"]:
+            fmp_ok = d.get("from_fmp", False) or d.get("from_fmp_full", False)
+            coverage = d.get("Fund_Coverage_Pct", 0.0)
+            quality_f = d.get("Quality_Score_F", np.nan)
+            roe = d.get("roe", np.nan)
             quality_str = f"{quality_f:.1f}" if np.isfinite(quality_f) else "NaN"
-            logger.info(f"🔍 {tkr} FMP Debug: from_fmp={fmp_ok}, coverage={coverage:.0%}, "
-                       f"roe={roe}, quality_score_f={quality_str}")
-        
+            logger.info(
+                f"🔍 {tkr} FMP Debug: from_fmp={fmp_ok}, coverage={coverage:.0%}, "
+                f"roe={roe}, quality_score_f={quality_str}"
+            )
+
         # Store provider metadata
-        results.loc[idx, "Fund_from_FMP"] = d.get("from_fmp", False) or d.get("from_fmp_full", False)
+        results.loc[idx, "Fund_from_FMP"] = d.get("from_fmp", False) or d.get(
+            "from_fmp_full", False
+        )
         results.loc[idx, "Fund_from_Alpha"] = d.get("from_alpha", False)
         results.loc[idx, "Fund_from_Finnhub"] = d.get("from_finnhub", False)
         results.loc[idx, "Fund_from_SimFin"] = d.get("from_simfin", False)
         results.loc[idx, "Fund_from_EODHD"] = d.get("from_eodhd", False)
         # Also store canonical per-provider boolean flags (used later for reliability calculation)
         for _flag in [
-            'from_fmp_full', 'from_fmp', 'from_alpha', 'from_finnhub',
-            'from_simfin', 'from_eodhd', 'from_tiingo'
+            "from_fmp_full",
+            "from_fmp",
+            "from_alpha",
+            "from_finnhub",
+            "from_simfin",
+            "from_eodhd",
+            "from_tiingo",
         ]:
             results.loc[idx, _flag] = bool(d.get(_flag, False))
-        
+
         # Get detailed breakdown using new function
         fund_result = compute_fundamental_score_with_breakdown(d)
         results.loc[idx, "Fundamental_S"] = round(fund_result.total, 1)
-        
+
         # Store breakdown scores and labels
-        results.loc[idx, "Quality_Score_F"] = round(fund_result.breakdown.quality_score, 1)
+        results.loc[idx, "Quality_Score_F"] = round(
+            fund_result.breakdown.quality_score, 1
+        )
         results.loc[idx, "Quality_Label"] = fund_result.breakdown.quality_label
-        results.loc[idx, "Growth_Score_F"] = round(fund_result.breakdown.growth_score, 1)
+        results.loc[idx, "Growth_Score_F"] = round(
+            fund_result.breakdown.growth_score, 1
+        )
         results.loc[idx, "Growth_Label"] = fund_result.breakdown.growth_label
-        results.loc[idx, "Valuation_Score_F"] = round(fund_result.breakdown.valuation_score, 1)
+        results.loc[idx, "Valuation_Score_F"] = round(
+            fund_result.breakdown.valuation_score, 1
+        )
         results.loc[idx, "Valuation_Label"] = fund_result.breakdown.valuation_label
-        results.loc[idx, "Leverage_Score_F"] = round(fund_result.breakdown.leverage_score, 1)
+        results.loc[idx, "Leverage_Score_F"] = round(
+            fund_result.breakdown.leverage_score, 1
+        )
         results.loc[idx, "Leverage_Label"] = fund_result.breakdown.leverage_label
-        
+
         # Store provider attribution for transparency
         sources_dict = d.get("_sources", {})
         if sources_dict:
             # Build attribution string: "ROE: FMP | GM: SimFin | PE: Finnhub"
-            attrs = [f"{k.upper()}: {v}" for k, v in sources_dict.items() if k != "sector"]
-            results.loc[idx, "Fund_Attribution"] = " | ".join(attrs[:5]) if attrs else ""  # Limit to 5 for readability
+            attrs = [
+                f"{k.upper()}: {v}" for k, v in sources_dict.items() if k != "sector"
+            ]
+            results.loc[idx, "Fund_Attribution"] = (
+                " | ".join(attrs[:5]) if attrs else ""
+            )  # Limit to 5 for readability
         else:
             results.loc[idx, "Fund_Attribution"] = ""
-        
+
         # Store raw metrics
         results.loc[idx, "PE_f"] = d.get("pe", np.nan)
         results.loc[idx, "PS_f"] = d.get("ps", np.nan)
@@ -2409,20 +2783,29 @@ if CONFIG["FUNDAMENTAL_ENABLED"] and fundamental_available:
         results.loc[idx, "RevG_f"] = d.get("rev_g_yoy", np.nan)
         results.loc[idx, "EPSG_f"] = d.get("eps_g_yoy", np.nan)
         results.loc[idx, "Sector"] = d.get("sector") or "Unknown"
-    
+
     # Clear progress indicators
     progress_bar.empty()
     status_text.empty()
-    
+
     phase_times["fundamentals_v2"] = t_end(t0)
     st.write(f"✅ Fundamentals loaded: {take_k} stocks enriched")
 
-_advance_stage('Fundamentals')
+_advance_stage("Fundamentals")
 
 # --- Multi-Source Aggregation & Reliability Injection (v2) ---
 # Apply after initial per-ticker fundamentals fetch; enrich with multi-source merged view
 multi_sources_fields = [
-    "pe", "ps", "pb", "roe", "margin", "rev_yoy", "eps_yoy", "debt_equity", "market_cap", "beta"
+    "pe",
+    "ps",
+    "pb",
+    "roe",
+    "margin",
+    "rev_yoy",
+    "eps_yoy",
+    "debt_equity",
+    "market_cap",
+    "beta",
 ]
 
 fund_sources_used_list = []
@@ -2461,7 +2844,11 @@ for idx in results.index:
     f_disagreement = float(agg_fund.get("disagreement_score", 1.0) or 1.0)
     coverage_dict = agg_fund.get("coverage", {}) or {}
     covered_fields = sum(1 for f in multi_sources_fields if coverage_dict.get(f))
-    coverage_pct = covered_fields / float(len(multi_sources_fields)) if multi_sources_fields else 0.0
+    coverage_pct = (
+        covered_fields / float(len(multi_sources_fields))
+        if multi_sources_fields
+        else 0.0
+    )
     # Fundamental reliability formula:
     #   base = coverage_pct * (1 - disagreement)
     #   source_factor = 0.5 + 0.5 * min(count/4, 1)
@@ -2470,7 +2857,9 @@ for idx in results.index:
     source_factor = 0.5 + 0.5 * min(len(f_sources) / 4.0, 1.0)
     fund_raw = coverage_pct * (1.0 - f_disagreement) * source_factor
     if len(f_sources) >= 1:
-        fund_raw = max(fund_raw, 0.15 * source_factor)  # ensure partial reliability when any source contributes
+        fund_raw = max(
+            fund_raw, 0.15 * source_factor
+        )  # ensure partial reliability when any source contributes
     fund_reliability_pct = max(0.0, min(fund_raw * 100.0, 100.0))
 
     # Price multi-source
@@ -2518,14 +2907,17 @@ results["Price_STD_v2"] = price_std_list
 
 # Combined reliability (override or create reliability_v2)
 if "reliability_v2" not in results.columns or results["reliability_v2"].isna().all():
-    combined_rel = 0.6 * results["Fundamental_Reliability_v2"] + 0.4 * results["Price_Reliability_v2"]
+    combined_rel = (
+        0.6 * results["Fundamental_Reliability_v2"]
+        + 0.4 * results["Price_Reliability_v2"]
+    )
     results["reliability_v2"] = combined_rel.clip(0, 100)
-    
+
     # V2 RISK ENGINE: Apply FULL risk gates, reliability penalties, and position sizing
     st.info("🚨 Applying V2 risk gates and reliability enforcement...")
-    
+
     budget = float(st.session_state.get("budget", CONFIG.get("BUDGET", 5000)))
-    
+
     # Apply enhanced V2 scoring to each ticker
     v2_results = []
     for idx, row in results.iterrows():
@@ -2533,42 +2925,54 @@ if "reliability_v2" not in results.columns or results["reliability_v2"].isna().a
         v2_result = score_ticker_v2_enhanced(
             ticker,
             row,
-            budget_total=float(st.session_state.get("total_budget", CONFIG.get("BUDGET_TOTAL", 5000))),
+            budget_total=float(
+                st.session_state.get("total_budget", CONFIG.get("BUDGET_TOTAL", 5000))
+            ),
             min_position=float(CONFIG.get("MIN_POSITION", 50.0)),
-            enable_ml=bool(CONFIG.get("ENABLE_ML", True))
+            enable_ml=bool(CONFIG.get("ENABLE_ML", True)),
         )
         v2_results.append(v2_result)
-    
+
     # Add V2 columns to results DataFrame
     v2_df = pd.DataFrame(v2_results)
-    
+
     # Merge V2 results back into main results
     for col in v2_df.columns:
         if col != "ticker":
             results[col] = v2_df[col].values
-    
+
     # Use V2 final conviction as Score
     results["Score"] = results["conviction_v2_final"]
-    
+
     # Add risk meter
     results["risk_meter_v2"] = 100 - results["conviction_v2_final"]
-    
+
     logger.info(f"✓ Applied V2 risk gates to {len(results)} stocks")
-    logger.info(f"  - Blocked: {len(results[results['risk_gate_status_v2'] == 'blocked'])} stocks")
-    logger.info(f"  - Severely reduced: {len(results[results['risk_gate_status_v2'] == 'severely_reduced'])} stocks")
-    logger.info(f"  - Reduced: {len(results[results['risk_gate_status_v2'] == 'reduced'])} stocks")
-    logger.info(f"  - Full allocation: {len(results[results['risk_gate_status_v2'] == 'full'])} stocks")
-    
+    logger.info(
+        f"  - Blocked: {len(results[results['risk_gate_status_v2'] == 'blocked'])} stocks"
+    )
+    logger.info(
+        f"  - Severely reduced: {len(results[results['risk_gate_status_v2'] == 'severely_reduced'])} stocks"
+    )
+    logger.info(
+        f"  - Reduced: {len(results[results['risk_gate_status_v2'] == 'reduced'])} stocks"
+    )
+    logger.info(
+        f"  - Full allocation: {len(results[results['risk_gate_status_v2'] == 'full'])} stocks"
+    )
+
     # Clear progress indicators
     progress_bar.empty()
     status_text.empty()
-    
+
     results = results.sort_values(
         ["Score", "Ticker"], ascending=[False, True]
     ).reset_index(drop=True)
     phase_times["fundamentals_alpha_finnhub"] = t_end(t0)
     logger.info(f"✓ Scored {take_k} stocks with V2-enhanced conviction")
-    st.success(f"✅ Fundamentals + V2 scoring completed: {len(results)} stocks scored in {phase_times['fundamentals_alpha_finnhub']:.1f}s")
+    st.success(
+        f"✅ Fundamentals + V2 scoring completed: {len(results)} stocks scored in {phase_times['fundamentals_alpha_finnhub']:.1f}s"
+    )
 
     # Ensure canonical V2 column aliases exist for UI/CSV and enforce blocked zeros
     # Map rr -> reward_risk_v2, reliability -> reliability_score_v2
@@ -2584,21 +2988,30 @@ if "reliability_v2" not in results.columns or results["reliability_v2"].isna().a
 
     # Ensure presence of other requested keys (fill with defaults if missing)
     for k in [
-        "risk_gate_status_v2", "risk_gate_reason_v2", "conviction_v2_base", "conviction_v2_final",
-        "buy_amount_v2", "shares_to_buy_v2", "fund_sources_used_v2", "price_sources_used_v2",
-        "fund_disagreement_score_v2", "price_variance_score_v2"
+        "risk_gate_status_v2",
+        "risk_gate_reason_v2",
+        "conviction_v2_base",
+        "conviction_v2_final",
+        "buy_amount_v2",
+        "shares_to_buy_v2",
+        "fund_sources_used_v2",
+        "price_sources_used_v2",
+        "fund_disagreement_score_v2",
+        "price_variance_score_v2",
     ]:
         if k not in results.columns:
             results[k] = np.nan
 
     # Unified RR evaluation (raw ratio + penalized score + band)
     results["rr"] = results.get("RewardRisk", results.get("RR_Ratio", np.nan))
+
     def _rr_eval(row_rr):
         try:
             score, ratio_adj, band = evaluate_rr_unified(float(row_rr))
             return score, band
         except Exception:
             return np.nan, "N/A"
+
     rr_evals = results["rr"].apply(_rr_eval)
     results["rr_score_v2"] = [e[0] for e in rr_evals]
     results["rr_band"] = [e[1] for e in rr_evals]
@@ -2620,49 +3033,58 @@ if "reliability_v2" not in results.columns or results["reliability_v2"].isna().a
     # Use the new compute_overall_score function from scoring_engine
     # Formula: 35% fund + 35% tech + 15% RR + 15% reliability ± ML (max ±10%)
     # Includes penalties for realistic spread
-    
+
     def _compute_overall(row):
         try:
             from core.scoring_engine import compute_overall_score
+
             score, components = compute_overall_score(row)
-            return pd.Series({
-                'overall_score': score,
-                'fund_component': components.get('fund_component', 0.0),
-                'tech_component': components.get('tech_component', 0.0),
-                'rr_component': components.get('rr_component', 0.0),
-                'reliability_component': components.get('reliability_component', 0.0),
-                'base_score': components.get('base_score', 0.0),
-                'ml_delta': components.get('ml_delta', 0.0),
-                'score_before_penalties': components.get('score_before_penalties', 0.0),
-                'penalty_total': components.get('penalty_total', 0.0),
-            })
+            return pd.Series(
+                {
+                    "overall_score": score,
+                    "fund_component": components.get("fund_component", 0.0),
+                    "tech_component": components.get("tech_component", 0.0),
+                    "rr_component": components.get("rr_component", 0.0),
+                    "reliability_component": components.get(
+                        "reliability_component", 0.0
+                    ),
+                    "base_score": components.get("base_score", 0.0),
+                    "ml_delta": components.get("ml_delta", 0.0),
+                    "score_before_penalties": components.get(
+                        "score_before_penalties", 0.0
+                    ),
+                    "penalty_total": components.get("penalty_total", 0.0),
+                }
+            )
         except Exception as e:
             logger.warning(f"compute_overall_score failed: {e}")
             # Fallback to old logic
-            return pd.Series({
-                'overall_score': row.get('conviction_v2_final', 50.0),
-                'fund_component': 0.0,
-                'tech_component': 0.0,
-                'rr_component': 0.0,
-                'reliability_component': 0.0,
-                'base_score': 0.0,
-                'ml_delta': 0.0,
-                'score_before_penalties': 0.0,
-                'penalty_total': 0.0,
-            })
-    
+            return pd.Series(
+                {
+                    "overall_score": row.get("conviction_v2_final", 50.0),
+                    "fund_component": 0.0,
+                    "tech_component": 0.0,
+                    "rr_component": 0.0,
+                    "reliability_component": 0.0,
+                    "base_score": 0.0,
+                    "ml_delta": 0.0,
+                    "score_before_penalties": 0.0,
+                    "penalty_total": 0.0,
+                }
+            )
+
     overall_components = results.apply(_compute_overall, axis=1)
     results = pd.concat([results, overall_components], axis=1)
 
     # === PRESERVE RAW SCORE + COMPUTE PRETTY SCORE FOR DISPLAY ===
     # Keep overall_score as the raw model score for all internal logic
     results["overall_score_raw"] = results["overall_score"].copy()
-    
+
     # Compute "pretty" score in 60-90 range for display only
     raw_scores = results["overall_score_raw"]
     s_min = float(raw_scores.min())
     s_max = float(raw_scores.max())
-    
+
     if s_max == s_min:
         # All scores are identical, use neutral value
         results["overall_score_pretty"] = 75.0
@@ -2671,7 +3093,7 @@ if "reliability_v2" not in results.columns or results["reliability_v2"].isna().a
         normalized = (raw_scores - s_min) / (s_max - s_min)
         pretty = 60.0 + normalized * 30.0
         results["overall_score_pretty"] = pretty.clip(0, 100)
-    
+
     logger.info(f"Score mapping: raw [{s_min:.1f}, {s_max:.1f}] → pretty [60, 90]")
 
     # === ADD DISPLAY BANDS FOR UI ===
@@ -2684,15 +3106,18 @@ if "reliability_v2" not in results.columns or results["reliability_v2"].isna().a
         if x >= 40:
             return "Medium"
         return "Low"
-    
+
     # Get reliability score (0-100 scale)
-    rel_col = results.get("reliability_v2", results.get("Reliability_v2", results.get("Reliability Score v2", np.nan)))
+    rel_col = results.get(
+        "reliability_v2",
+        results.get("Reliability_v2", results.get("Reliability Score v2", np.nan)),
+    )
     if isinstance(rel_col, pd.Series):
         results["reliability_pct"] = rel_col.clip(0, 100)
     else:
         results["reliability_pct"] = 50.0
     results["reliability_band"] = results["reliability_pct"].apply(reliability_band)
-    
+
     # Risk band (Low/Medium/High/Very High)
     def risk_band(v):
         if pd.isna(v) or not np.isfinite(v):
@@ -2704,13 +3129,13 @@ if "reliability_v2" not in results.columns or results["reliability_v2"].isna().a
         if v < 75:
             return "High"
         return "Very High"
-    
+
     risk_col = results.get("risk_meter_v2", results.get("RiskMeter", np.nan))
     if isinstance(risk_col, pd.Series):
         results["risk_band"] = risk_col.apply(risk_band)
     else:
         results["risk_band"] = "N/A"
-    
+
     # ML Confidence band (Low/Medium/High)
     def ml_conf_band(p):
         if pd.isna(p) or not np.isfinite(p):
@@ -2720,7 +3145,7 @@ if "reliability_v2" not in results.columns or results["reliability_v2"].isna().a
         if p < 0.75:
             return "Medium"
         return "High"
-    
+
     ml_prob_col = results.get("ML_Probability", np.nan)
     if isinstance(ml_prob_col, pd.Series):
         results["ml_conf_band"] = ml_prob_col.apply(ml_conf_band)
@@ -2728,12 +3153,20 @@ if "reliability_v2" not in results.columns or results["reliability_v2"].isna().a
         results["ml_conf_band"] = "N/A"
 
     # Component breakdowns (fallback to legacy names if needed)
-    results["fund_score"] = results.get("fundamental_score_v2", results.get("Fundamental Score", np.nan))
-    results["tech_score"] = results.get("technical_score_v2", results.get("Tech Score", np.nan))
+    results["fund_score"] = results.get(
+        "fundamental_score_v2", results.get("Fundamental Score", np.nan)
+    )
+    results["tech_score"] = results.get(
+        "technical_score_v2", results.get("Tech Score", np.nan)
+    )
 
     results["rr_score"] = results.get("rr_score_v2", np.nan)
-    results["reliability_score"] = results.get("reliability_score_v2", results.get("Reliability Score", np.nan))
-    base_conv = results.get("conviction_v2_base", results.get("conviction_v2_final", np.nan))
+    results["reliability_score"] = results.get(
+        "reliability_score_v2", results.get("Reliability Score", np.nan)
+    )
+    base_conv = results.get(
+        "conviction_v2_base", results.get("conviction_v2_final", np.nan)
+    )
     results["ml_delta"] = results["overall_score"] - base_conv
 
     # Enforce blocked rows have zero buy and shares
@@ -2751,12 +3184,24 @@ st.info("🔍 Classifying stocks by risk level and data quality...")
 
 # Debug: Check what data we have
 logger.info(f"Columns available: {results.columns.tolist()}")
-logger.info(f"Sample RS_63d values: {results['RS_63d'].head().tolist() if 'RS_63d' in results.columns else 'MISSING'}")
-logger.info(f"Sample Volume_Surge values: {results['Volume_Surge'].head().tolist() if 'Volume_Surge' in results.columns else 'MISSING'}")
-logger.info(f"Sample RR_Ratio values: {results['RR_Ratio'].head().tolist() if 'RR_Ratio' in results.columns else 'MISSING'}")
-logger.info(f"Sample Quality_Score values: {results['Quality_Score'].head().tolist() if 'Quality_Score' in results.columns else 'MISSING'}")
-logger.info(f"Sample Fundamental_S values: {results['Fundamental_S'].head().tolist() if 'Fundamental_S' in results.columns else 'MISSING'}")
-logger.info(f"Sample Momentum_Consistency values: {results['Momentum_Consistency'].head().tolist() if 'Momentum_Consistency' in results.columns else 'MISSING'}")
+logger.info(
+    f"Sample RS_63d values: {results['RS_63d'].head().tolist() if 'RS_63d' in results.columns else 'MISSING'}"
+)
+logger.info(
+    f"Sample Volume_Surge values: {results['Volume_Surge'].head().tolist() if 'Volume_Surge' in results.columns else 'MISSING'}"
+)
+logger.info(
+    f"Sample RR_Ratio values: {results['RR_Ratio'].head().tolist() if 'RR_Ratio' in results.columns else 'MISSING'}"
+)
+logger.info(
+    f"Sample Quality_Score values: {results['Quality_Score'].head().tolist() if 'Quality_Score' in results.columns else 'MISSING'}"
+)
+logger.info(
+    f"Sample Fundamental_S values: {results['Fundamental_S'].head().tolist() if 'Fundamental_S' in results.columns else 'MISSING'}"
+)
+logger.info(
+    f"Sample Momentum_Consistency values: {results['Momentum_Consistency'].head().tolist() if 'Momentum_Consistency' in results.columns else 'MISSING'}"
+)
 
 results = apply_classification(results)
 
@@ -2765,21 +3210,33 @@ if "Fund_Coverage_Pct" in results.columns:
     coverage_vals = results["Fund_Coverage_Pct"].dropna().tolist()
     if coverage_vals:
         avg_cov = float(np.mean(coverage_vals))
-        pct_good = float(sum(v >= 0.5 for v in coverage_vals)) / float(len(coverage_vals))
+        pct_good = float(sum(v >= 0.5 for v in coverage_vals)) / float(
+            len(coverage_vals)
+        )
         # Histogram buckets
-        buckets = {"0-25%":0, "25-50%":0, "50-75%":0, "75-100%":0}
+        buckets = {"0-25%": 0, "25-50%": 0, "50-75%": 0, "75-100%": 0}
         for v in coverage_vals:
-            if v < 0.25: buckets["0-25%"] += 1
-            elif v < 0.50: buckets["25-50%"] += 1
-            elif v < 0.75: buckets["50-75%"] += 1
-            else: buckets["75-100%"] += 1
+            if v < 0.25:
+                buckets["0-25%"] += 1
+            elif v < 0.50:
+                buckets["25-50%"] += 1
+            elif v < 0.75:
+                buckets["50-75%"] += 1
+            else:
+                buckets["75-100%"] += 1
         logger.info(f"Fundamentals coverage buckets: {buckets}")
-        logger.info(f"Fundamentals coverage: mean={avg_cov:.2f}, >=50% fields for {pct_good*100:.1f}% of tickers")
+        logger.info(
+            f"Fundamentals coverage: mean={avg_cov:.2f}, >=50% fields for {pct_good*100:.1f}% of tickers"
+        )
         warn_thresh = CONFIG.get("COVERAGE_WARN_THRESHOLD", 0.4)
         if avg_cov < warn_thresh:
-            st.warning(f"⚠️ Low fundamentals coverage: mean {avg_cov:.2f} ({pct_good*100:.1f}% with ≥50% fields). Consider adding sources or API keys.")
+            st.warning(
+                f"⚠️ Low fundamentals coverage: mean {avg_cov:.2f} ({pct_good*100:.1f}% with ≥50% fields). Consider adding sources or API keys."
+            )
         else:
-            st.info(f"🧬 Avg fundamentals coverage: {avg_cov:.2f} | {pct_good*100:.0f}% of tickers have ≥50% fields.")
+            st.info(
+                f"🧬 Avg fundamentals coverage: {avg_cov:.2f} | {pct_good*100:.0f}% of tickers have ≥50% fields."
+            )
 
 # Show classification statistics
 core_count = len(results[results["Risk_Level"] == "core"])
@@ -2788,8 +3245,10 @@ high_qual = len(results[results["Data_Quality"] == "high"])
 med_qual = len(results[results["Data_Quality"] == "medium"])
 low_qual = len(results[results["Data_Quality"] == "low"])
 
-st.write(f"**Initial classification:** {core_count} Core, {spec_count} Speculative | "
-         f"**Quality:** {high_qual} high, {med_qual} medium, {low_qual} low")
+st.write(
+    f"**Initial classification:** {core_count} Core, {spec_count} Speculative | "
+    f"**Quality:** {high_qual} high, {med_qual} medium, {low_qual} low"
+)
 
 # Filter out stocks that shouldn't be displayed (very low quality)
 displayable = results[results["Should_Display"]].copy()
@@ -2804,7 +3263,9 @@ results = displayable.reset_index(drop=True)
 core_stocks = results[results["Risk_Level"] == "core"].copy()
 spec_stocks = results[results["Risk_Level"] == "speculative"].copy()
 
-st.write(f"📊 **Before filtering:** {len(core_stocks)} Core, {len(spec_stocks)} Speculative")
+st.write(
+    f"📊 **Before filtering:** {len(core_stocks)} Core, {len(spec_stocks)} Speculative"
+)
 
 # Fallback: if no Core, promote top relaxed candidates from Speculative
 # Updated Nov 2025: More lenient fallback aligned with balanced criteria
@@ -2818,30 +3279,59 @@ if len(core_stocks) == 0 and not spec_stocks.empty:
         mask = (
             spec_stocks.get("RSI").between(20, 60, inclusive="both")
             & (rr.fillna(0) >= 0.8)
-            & (spec_stocks.get("Momentum_Consistency", pd.Series([0]*len(spec_stocks))).fillna(0) >= 0.3)
-            & (spec_stocks.get("ATR_Price", pd.Series([1]*len(spec_stocks))).fillna(1) <= 0.09)
-            & (spec_stocks.get("OverextRatio", pd.Series([1]*len(spec_stocks))).fillna(1) <= 0.15)
-            & (spec_stocks.get("Should_Display", pd.Series([True]*len(spec_stocks))).fillna(True))
+            & (
+                spec_stocks.get(
+                    "Momentum_Consistency", pd.Series([0] * len(spec_stocks))
+                ).fillna(0)
+                >= 0.3
+            )
+            & (
+                spec_stocks.get("ATR_Price", pd.Series([1] * len(spec_stocks))).fillna(
+                    1
+                )
+                <= 0.09
+            )
+            & (
+                spec_stocks.get(
+                    "OverextRatio", pd.Series([1] * len(spec_stocks))
+                ).fillna(1)
+                <= 0.15
+            )
+            & (
+                spec_stocks.get(
+                    "Should_Display", pd.Series([True] * len(spec_stocks))
+                ).fillna(True)
+            )
         )
-        fallback = spec_stocks[mask].copy().sort_values(["Score","Ticker"], ascending=[False, True]).head(5)
+        fallback = (
+            spec_stocks[mask]
+            .copy()
+            .sort_values(["Score", "Ticker"], ascending=[False, True])
+            .head(5)
+        )
         if not fallback.empty:
             fallback["Risk_Level"] = "core"
             # Mark reason
             if "Classification_Warnings" in fallback.columns:
                 fallback["Classification_Warnings"] = (
-                    fallback["Classification_Warnings"].fillna("") + "; Adaptive Core fallback"
+                    fallback["Classification_Warnings"].fillna("")
+                    + "; Adaptive Core fallback"
                 ).str.strip("; ")
             else:
                 fallback["Classification_Warnings"] = "Adaptive Core fallback"
             # Lower confidence if missing
             if "Confidence_Level" in fallback.columns:
-                fallback.loc[fallback["Confidence_Level"].isna(), "Confidence_Level"] = "low"
+                fallback.loc[
+                    fallback["Confidence_Level"].isna(), "Confidence_Level"
+                ] = "low"
             else:
                 fallback["Confidence_Level"] = "low"
             # Update sets
             core_stocks = fallback
             spec_stocks = spec_stocks.drop(fallback.index)
-            st.info(f"🔄 Promoted {len(core_stocks)} fallback Core candidates based on relaxed criteria")
+            st.info(
+                f"🔄 Promoted {len(core_stocks)} fallback Core candidates based on relaxed criteria"
+            )
         else:
             logger.info("Adaptive Core fallback found no eligible candidates")
     except Exception as e:
@@ -2849,51 +3339,59 @@ if len(core_stocks) == 0 and not spec_stocks.empty:
 
 # Filter Core with strict criteria
 core_before_filter = len(core_stocks)
-core_filtered = filter_core_recommendations(core_stocks, CONFIG, adaptive=True) if not core_stocks.empty else pd.DataFrame()
+core_filtered = (
+    filter_core_recommendations(core_stocks, CONFIG, adaptive=True)
+    if not core_stocks.empty
+    else pd.DataFrame()
+)
 core_after_filter = len(core_filtered)
 
 if core_before_filter > 0:
-    st.write(f"🛡️ **Core filter:** {core_before_filter} → {core_after_filter} passed strict filters")
+    st.write(
+        f"🛡️ **Core filter:** {core_before_filter} → {core_after_filter} passed strict filters"
+    )
 
 # Filter Speculative with relaxed criteria (allow higher volatility, missing some fundamentals)
 spec_before_filter = len(spec_stocks)
 if not spec_stocks.empty:
     # Apply looser technical filters for speculative
     spec_filtered = spec_stocks.copy()
-    
+
     # Filter 1: RSI bounds (wider range)
     if "RSI" in spec_filtered.columns:
         rsi_min = max(CONFIG.get("RSI_MIN_CORE", 40) - 10, 25)
         rsi_max = min(CONFIG.get("RSI_MAX_CORE", 75) + 10, 85)
         spec_filtered = spec_filtered[
-            (spec_filtered["RSI"].isna()) | 
-            ((spec_filtered["RSI"] >= rsi_min) & (spec_filtered["RSI"] <= rsi_max))
+            (spec_filtered["RSI"].isna())
+            | ((spec_filtered["RSI"] >= rsi_min) & (spec_filtered["RSI"] <= rsi_max))
         ]
-    
+
     # Filter 2: Maximum ATR/Price (allow higher volatility)
     if "ATR_Price" in spec_filtered.columns:
-        max_atr = CONFIG.get("MAX_ATR_PRICE_CORE", 0.09) + 0.06  # +6% more volatility allowed
+        max_atr = (
+            CONFIG.get("MAX_ATR_PRICE_CORE", 0.09) + 0.06
+        )  # +6% more volatility allowed
         spec_filtered = spec_filtered[
-            (spec_filtered["ATR_Price"].isna()) | 
-            (spec_filtered["ATR_Price"] <= max_atr)
+            (spec_filtered["ATR_Price"].isna())
+            | (spec_filtered["ATR_Price"] <= max_atr)
         ]
-    
+
     # Filter 3: Maximum overextension (allow stronger uptrends)
     if "OverextRatio" in spec_filtered.columns:
         max_overext = CONFIG.get("MAX_OVEREXTENSION_CORE", 0.12) + 0.08
         spec_filtered = spec_filtered[
-            (spec_filtered["OverextRatio"].isna()) | 
-            (spec_filtered["OverextRatio"] <= max_overext)
+            (spec_filtered["OverextRatio"].isna())
+            | (spec_filtered["OverextRatio"] <= max_overext)
         ]
-    
+
     # Filter 4: Minimum reward/risk (more lenient)
     if "RewardRisk" in spec_filtered.columns:
         min_rr = max(CONFIG.get("MIN_RR_CORE", 1.3) - 0.5, 0.8)
         spec_filtered = spec_filtered[
-            (spec_filtered["RewardRisk"].isna()) | 
-            (spec_filtered["RewardRisk"] >= min_rr)
+            (spec_filtered["RewardRisk"].isna())
+            | (spec_filtered["RewardRisk"] >= min_rr)
         ]
-    
+
     spec_filtered = spec_filtered.reset_index(drop=True)
     logger.info(f"Speculative filter: {spec_before_filter} → {len(spec_filtered)}")
 else:
@@ -2904,66 +3402,84 @@ spec_after_filter = len(spec_filtered)
 # ==================== ML SCORING ====================
 if XGBOOST_MODEL is not None:
     logger.info("Applying XGBoost ML scoring...")
-    
+
     # Score Core stocks
     if not core_filtered.empty:
-        core_filtered['ML_Probability'] = core_filtered.apply(score_with_xgboost, axis=1)
+        core_filtered["ML_Probability"] = core_filtered.apply(
+            score_with_xgboost, axis=1
+        )
+
         def _ml_band(p: float) -> str:
             if not np.isfinite(p):
-                return 'N/A'
+                return "N/A"
             if p < 0.60:
-                return 'Low'
+                return "Low"
             if p < 0.75:
-                return 'Medium'
-            return 'High'
-        core_filtered['ml_conf_band'] = core_filtered['ML_Probability'].apply(_ml_band)
-        core_filtered['ML_Confidence'] = core_filtered['ml_conf_band']
-        core_filtered = core_filtered.sort_values('ML_Probability', ascending=False)
-        logger.info(f"Core stocks scored: avg probability {core_filtered['ML_Probability'].mean():.3f}")
-    
+                return "Medium"
+            return "High"
+
+        core_filtered["ml_conf_band"] = core_filtered["ML_Probability"].apply(_ml_band)
+        core_filtered["ML_Confidence"] = core_filtered["ml_conf_band"]
+        core_filtered = core_filtered.sort_values("ML_Probability", ascending=False)
+        logger.info(
+            f"Core stocks scored: avg probability {core_filtered['ML_Probability'].mean():.3f}"
+        )
+
     # Score Speculative stocks
     if not spec_filtered.empty:
-        spec_filtered['ML_Probability'] = spec_filtered.apply(score_with_xgboost, axis=1)
-        spec_filtered['ml_conf_band'] = spec_filtered['ML_Probability'].apply(_ml_band)
-        spec_filtered['ML_Confidence'] = spec_filtered['ml_conf_band']
-        spec_filtered = spec_filtered.sort_values('ML_Probability', ascending=False)
-        logger.info(f"Speculative stocks scored: avg probability {spec_filtered['ML_Probability'].mean():.3f}")
+        spec_filtered["ML_Probability"] = spec_filtered.apply(
+            score_with_xgboost, axis=1
+        )
+        spec_filtered["ml_conf_band"] = spec_filtered["ML_Probability"].apply(_ml_band)
+        spec_filtered["ML_Confidence"] = spec_filtered["ml_conf_band"]
+        spec_filtered = spec_filtered.sort_values("ML_Probability", ascending=False)
+        logger.info(
+            f"Speculative stocks scored: avg probability {spec_filtered['ML_Probability'].mean():.3f}"
+        )
 else:
     logger.info("ML scoring skipped - model not available")
     if not core_filtered.empty:
-        core_filtered['ML_Probability'] = np.nan
-        core_filtered['ml_conf_band'] = 'N/A'
-        core_filtered['ML_Confidence'] = 'N/A'
+        core_filtered["ML_Probability"] = np.nan
+        core_filtered["ml_conf_band"] = "N/A"
+        core_filtered["ML_Confidence"] = "N/A"
     if not spec_filtered.empty:
-        spec_filtered['ML_Probability'] = np.nan
-        spec_filtered['ml_conf_band'] = 'N/A'
-        spec_filtered['ML_Confidence'] = 'N/A'
+        spec_filtered["ML_Probability"] = np.nan
+        spec_filtered["ml_conf_band"] = "N/A"
+        spec_filtered["ML_Confidence"] = "N/A"
 
 # === CALCULATE QUALITY SCORE FOR ALL STOCKS ===
 from core.scoring_engine import calculate_quality_score
 
+
 def _calc_quality(row):
     try:
         score, level = calculate_quality_score(row)
-        return pd.Series({'Quality_Score_Numeric': score, 'Quality_Level': level})
+        return pd.Series({"Quality_Score_Numeric": score, "Quality_Level": level})
     except Exception as e:
         logger.warning(f"Quality calculation failed: {e}")
-        return pd.Series({'Quality_Score_Numeric': 0.5, 'Quality_Level': "Medium"})
+        return pd.Series({"Quality_Score_Numeric": 0.5, "Quality_Level": "Medium"})
+
 
 if not core_filtered.empty:
     quality_data = core_filtered.apply(_calc_quality, axis=1)
-    core_filtered['Quality_Score_Numeric'] = quality_data['Quality_Score_Numeric']
-    core_filtered['Quality_Level'] = quality_data['Quality_Level']
-    logger.info(f"Core quality: {core_filtered['Quality_Level'].value_counts().to_dict()}")
+    core_filtered["Quality_Score_Numeric"] = quality_data["Quality_Score_Numeric"]
+    core_filtered["Quality_Level"] = quality_data["Quality_Level"]
+    logger.info(
+        f"Core quality: {core_filtered['Quality_Level'].value_counts().to_dict()}"
+    )
 
 if not spec_filtered.empty:
     quality_data = spec_filtered.apply(_calc_quality, axis=1)
-    spec_filtered['Quality_Score_Numeric'] = quality_data['Quality_Score_Numeric']
-    spec_filtered['Quality_Level'] = quality_data['Quality_Level']
-    logger.info(f"Spec quality: {spec_filtered['Quality_Level'].value_counts().to_dict()}")
+    spec_filtered["Quality_Score_Numeric"] = quality_data["Quality_Score_Numeric"]
+    spec_filtered["Quality_Level"] = quality_data["Quality_Level"]
+    logger.info(
+        f"Spec quality: {spec_filtered['Quality_Level'].value_counts().to_dict()}"
+    )
 
 if spec_before_filter > 0:
-    st.write(f"⚡ **Speculative filter:** {spec_before_filter} → {spec_after_filter} passed relaxed filters")
+    st.write(
+        f"⚡ **Speculative filter:** {spec_before_filter} → {spec_after_filter} passed relaxed filters"
+    )
 
 # Combine Core and Speculative
 results = pd.concat([core_filtered, spec_filtered], ignore_index=True)
@@ -2971,8 +3487,11 @@ results = pd.concat([core_filtered, spec_filtered], ignore_index=True)
 # Sort by score within each risk level
 if not results.empty:
     results = results.sort_values(
-        ["Risk_Level", "Score"], 
-        ascending=[True, False]  # Core first (comes before Spec alphabetically), then by score
+        ["Risk_Level", "Score"],
+        ascending=[
+            True,
+            False,
+        ],  # Core first (comes before Spec alphabetically), then by score
     ).reset_index(drop=True)
 
 phase_times["risk_quality_classification"] = t_end(t0)
@@ -2981,7 +3500,9 @@ if results.empty:
     st.error("❌ **All stocks were filtered out!**")
     st.write("**Possible reasons:**")
     st.write("- 🔴 Core stocks failed technical filters (RSI, ATR, Overextension)")
-    st.write("- 🔴 Speculative stocks failed relaxed filters (extremely high volatility)")
+    st.write(
+        "- 🔴 Speculative stocks failed relaxed filters (extremely high volatility)"
+    )
     st.write("- 🔴 Data quality too low (missing critical metrics)")
     st.write(
         f"- 🔴 Consider relaxing CONFIG: MIN_QUALITY_SCORE_CORE={CONFIG.get('MIN_QUALITY_SCORE_CORE', 25.0)}, "
@@ -2994,8 +3515,10 @@ results_count = len(results)
 core_count_final = len(results[results["Risk_Level"] == "core"])
 spec_count_final = len(results[results["Risk_Level"] == "speculative"])
 
-st.success(f"✅ **Final recommendations:** {core_count_final} 🛡️ Core + {spec_count_final} ⚡ Speculative = {results_count} total")
-_advance_stage('Risk Classification')
+st.success(
+    f"✅ **Final recommendations:** {core_count_final} 🛡️ Core + {spec_count_final} ⚡ Speculative = {results_count} total"
+)
+_advance_stage("Risk Classification")
 
 # Updated targets: aim for balanced mix
 target_min = CONFIG.get("TARGET_RECOMMENDATIONS_MIN", 5)
@@ -3004,20 +3527,26 @@ target_core_min = 3
 target_spec_min = 2
 
 if results_count < target_min:
-    st.warning(f"⚠️ Only {results_count} stocks passed filters (target: {target_min}-{target_max}). "
-               f"Consider checking market conditions or relaxing filters.")
+    st.warning(
+        f"⚠️ Only {results_count} stocks passed filters (target: {target_min}-{target_max}). "
+        f"Consider checking market conditions or relaxing filters."
+    )
 elif core_count_final < target_core_min:
-    st.info(f"ℹ️ Only {core_count_final} Core stocks (target: {target_core_min}+). "
-            f"Core stocks meet strict quality criteria. {spec_count_final} Speculative stocks offer higher-risk opportunities.")
+    st.info(
+        f"ℹ️ Only {core_count_final} Core stocks (target: {target_core_min}+). "
+        f"Core stocks meet strict quality criteria. {spec_count_final} Speculative stocks offer higher-risk opportunities."
+    )
 elif spec_count_final < target_spec_min and core_count_final >= target_core_min:
-    st.info(f"ℹ️ Good Core selection ({core_count_final} stocks). "
-            f"Few Speculative opportunities today - market may be in consolidation phase.")
+    st.info(
+        f"ℹ️ Good Core selection ({core_count_final} stocks). "
+        f"Few Speculative opportunities today - market may be in consolidation phase."
+    )
 
 # External price verification (Top-K)
 t0 = t_start()
 results["Price_Alpha"] = np.nan
 results["Price_Finnhub"] = np.nan
- # IEX price column removed
+# IEX price column removed
 results["Price_Polygon"] = np.nan
 results["Price_Tiingo"] = np.nan
 results["Price_Marketstack"] = np.nan
@@ -3045,72 +3574,80 @@ def _fetch_external_for(
 ) -> Tuple[str, Dict[str, Optional[float]], List[str]]:
     vals: Dict[str, Optional[float]] = {}
     srcs: List[str] = []
+
     # helper to mark price usage
     def _mark_price(provider: str):
         try:
-            usage = st.session_state.setdefault('provider_usage', {})
+            usage = st.session_state.setdefault("provider_usage", {})
             cats = usage.setdefault(provider, set())
-            cats.add('price')
+            cats.add("price")
             usage[provider] = cats
         except Exception:
             pass
+
     if np.isfinite(py):
         vals["Yahoo"] = float(py)
         srcs.append("🟡Yahoo")
-        _mark_price('Yahoo')
+        _mark_price("Yahoo")
     if alpha_ok:
         p = get_alpha_price(tkr)
         if p is not None:
             vals.setdefault("Alpha", p)
             srcs.append("🟣Alpha")
             st.session_state.av_calls = st.session_state.get("av_calls", 0) + 1
-            _mark_price('Alpha')
+            _mark_price("Alpha")
     if finn_ok:
         p = get_finnhub_price(tkr)
         if p is not None:
             vals.setdefault("Finnhub", p)
             srcs.append("🔵Finnhub")
-            _mark_price('Finnhub')
+            _mark_price("Finnhub")
     if poly_ok and _env("POLYGON_API_KEY"):
         p = get_polygon_price(tkr)
         if p is not None:
             vals.setdefault("Polygon", p)
             srcs.append("🟢Polygon")
-            _mark_price('Polygon')
+            _mark_price("Polygon")
     if tiin_ok and _env("TIINGO_API_KEY"):
         p = get_tiingo_price(tkr)
         if p is not None:
             vals.setdefault("Tiingo", p)
             srcs.append("🟠Tiingo")
-            _mark_price('Tiingo')
+            _mark_price("Tiingo")
     if CONFIG.get("ENABLE_MARKETSTACK") and _env("MARKETSTACK_API_KEY"):
         p = get_marketstack_price(tkr)
         if p is not None:
             vals.setdefault("Marketstack", p)
             srcs.append("🧩Marketstack")
-            _mark_price('Marketstack')
-    if CONFIG.get("ENABLE_NASDAQ_DL") and (_env("NASDAQ_API_KEY") or _env("NASDAQ_DL_API_KEY")):
+            _mark_price("Marketstack")
+    if CONFIG.get("ENABLE_NASDAQ_DL") and (
+        _env("NASDAQ_API_KEY") or _env("NASDAQ_DL_API_KEY")
+    ):
         p = get_nasdaq_price(tkr)
         if p is not None:
             vals.setdefault("NasdaqDL", p)
             srcs.append("🏛NasdaqDL")
-            _mark_price('Nasdaq')
+            _mark_price("Nasdaq")
     if CONFIG.get("ENABLE_EODHD") and (_env("EODHD_API_KEY") or _env("EODHD_TOKEN")):
         p = get_eodhd_price(tkr)
         if p is not None:
             vals.setdefault("EODHD", p)
             srcs.append("📘EODHD")
-            _mark_price('EODHD')
+            _mark_price("EODHD")
     # Return collected prices and source badges
     return tkr, vals, srcs
-    _advance_stage('Price Verification')
+    _advance_stage("Price Verification")
+
 
 # External price verification - run if ANY provider is available
 any_price_provider = (
     finn_ok
     or (poly_ok and _env("POLYGON_API_KEY"))
     or (CONFIG.get("ENABLE_MARKETSTACK") and _env("MARKETSTACK_API_KEY"))
-    or (CONFIG.get("ENABLE_NASDAQ_DL") and (_env("NASDAQ_API_KEY") or _env("NASDAQ_DL_API_KEY")))
+    or (
+        CONFIG.get("ENABLE_NASDAQ_DL")
+        and (_env("NASDAQ_API_KEY") or _env("NASDAQ_DL_API_KEY"))
+    )
     or (CONFIG.get("ENABLE_EODHD") and (_env("EODHD_API_KEY") or _env("EODHD_TOKEN")))
 )
 
@@ -3167,13 +3704,17 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and any_price_provider:
     for i, row in results.iterrows():
         pmean = row.get("Price_Mean", np.nan)
         pstd = row.get("Price_STD", np.nan)
-        providers = str(row.get("Source_List", "")).split(" · ") if isinstance(row.get("Source_List"), str) else []
+        providers = (
+            str(row.get("Source_List", "")).split(" · ")
+            if isinstance(row.get("Source_List"), str)
+            else []
+        )
         providers = [p for p in providers if p]
         count = len(providers)
-        
+
         if np.isfinite(pmean) and pmean > 0 and np.isfinite(pstd):
             pct_std = pstd / pmean
-            
+
             # Source count component (0-4 sources → 0.2-1.0)
             if count == 1:
                 source_score = 0.2
@@ -3183,7 +3724,7 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and any_price_provider:
                 source_score = 0.75
             else:  # 4+
                 source_score = 1.0
-            
+
             # Variance component (lower variance = higher reliability)
             # 0% variance → 1.0, 5% variance → 0.5, 10%+ variance → 0.2
             if pct_std < 0.01:  # <1%
@@ -3196,10 +3737,12 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and any_price_provider:
                 variance_score = 0.4
             else:  # >10%
                 variance_score = 0.2
-            
+
             # Combined: 60% source count, 40% variance
             reliability = (source_score * 0.6) + (variance_score * 0.4)
-            results.at[i, "Price_Reliability"] = round(np.clip(reliability, 0.1, 1.0), 4)
+            results.at[i, "Price_Reliability"] = round(
+                np.clip(reliability, 0.1, 1.0), 4
+            )
         else:
             # Fallback based on source count only
             if count == 1:
@@ -3212,7 +3755,9 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and any_price_provider:
                 results.at[i, "Price_Reliability"] = 0.75
 
     # Price sources count column
-    results["Price_Sources_Count"] = results["Source_List"].apply(lambda s: len(str(s).split(" · ")) if isinstance(s, str) and s else 0)
+    results["Price_Sources_Count"] = results["Source_List"].apply(
+        lambda s: len(str(s).split(" · ")) if isinstance(s, str) and s else 0
+    )
 
     # Fundamental reliability metric
     # Simplified Fundamental reliability metric based on number of distinct
@@ -3233,15 +3778,25 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and any_price_provider:
     if "Fund_Coverage_Pct" in results.columns:
         results["Fundamental_Reliability"] = 0.0
         fund_flags = [
-            'from_fmp_full', 'from_fmp', 'from_simfin', 'from_eodhd',
-            'from_alpha', 'from_finnhub', 'from_tiingo'
+            "from_fmp_full",
+            "from_fmp",
+            "from_simfin",
+            "from_eodhd",
+            "from_alpha",
+            "from_finnhub",
+            "from_tiingo",
         ]
         for i, row in results.iterrows():
             # Count providers that truly contributed (flags are written earlier)
             provider_count = int(sum(bool(row.get(f)) for f in fund_flags))
             # If coverage indicates data but flags are zero, treat as 1 source
             cov = row.get("Fund_Coverage_Pct", np.nan)
-            if provider_count == 0 and isinstance(cov, (int, float)) and np.isfinite(cov) and cov > 0:
+            if (
+                provider_count == 0
+                and isinstance(cov, (int, float))
+                and np.isfinite(cov)
+                and cov > 0
+            ):
                 provider_count = 1
             final_rel = _map_sources_to_reliability(provider_count)
             results.at[i, "Fundamental_Reliability"] = round(final_rel, 4)
@@ -3249,9 +3804,19 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and any_price_provider:
         results["Fundamental_Reliability"] = 0.0
 
     # Fundamental sources count column (flags) — exact count (0 allowed if truly none)
-    fund_flags = ["from_fmp_full", "from_fmp", "from_simfin", "from_eodhd", "from_alpha", "from_finnhub", "from_tiingo"]
+    fund_flags = [
+        "from_fmp_full",
+        "from_fmp",
+        "from_simfin",
+        "from_eodhd",
+        "from_alpha",
+        "from_finnhub",
+        "from_tiingo",
+    ]
+
     def _fund_count(row: pd.Series) -> int:
         return int(sum(bool(row.get(f)) for f in fund_flags))
+
     results["Fundamental_Sources_Count"] = results.apply(_fund_count, axis=1)
 
     # Expose canonical fund reliability field using the simple mapping helper
@@ -3261,7 +3826,9 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and any_price_provider:
         compute_fund_reliability = None
 
     if compute_fund_reliability is not None:
-        results["fund_reliability"] = results["Fundamental_Sources_Count"].apply(lambda n: float(compute_fund_reliability(n)))
+        results["fund_reliability"] = results["Fundamental_Sources_Count"].apply(
+            lambda n: float(compute_fund_reliability(n))
+        )
         # Keep legacy column name in sync
         results["Fundamental_Reliability"] = results["fund_reliability"].copy()
     else:
@@ -3269,15 +3836,20 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and any_price_provider:
         results["fund_reliability"] = results.get("Fundamental_Reliability", 0.0)
 
     # Combined reliability score
-    if "Price_Reliability" in results.columns and "Fundamental_Reliability" in results.columns:
+    if (
+        "Price_Reliability" in results.columns
+        and "Fundamental_Reliability" in results.columns
+    ):
         results["Reliability_Score"] = (
-            0.4 * results["Price_Reliability"].fillna(0) + 0.6 * results["Fundamental_Reliability"].fillna(0)
+            0.4 * results["Price_Reliability"].fillna(0)
+            + 0.6 * results["Fundamental_Reliability"].fillna(0)
         ).round(4)
     else:
         results["Reliability_Score"] = np.nan
 phase_times["price_verification"] = t_end(t0)
 st.write("✅ Price verification completed")
-_advance_stage('Price Verification')
+_advance_stage("Price Verification")
+
 
 # Horizon heuristic
 def infer_horizon(row: pd.Series) -> str:
@@ -3300,6 +3872,7 @@ def infer_horizon(row: pd.Series) -> str:
 
 results["Holding_Horizon"] = results.apply(infer_horizon, axis=1)
 
+
 # Sector cap
 def apply_sector_cap(df: pd.DataFrame, cap: int) -> pd.DataFrame:
     if not CONFIG["SECTOR_CAP_ENABLED"]:
@@ -3321,6 +3894,7 @@ results = apply_sector_cap(
     ),
     int(CONFIG["SECTOR_CAP_MAX"]),
 )
+
 
 # Source badges & unit price
 def source_badges(row: pd.Series) -> str:
@@ -3358,7 +3932,9 @@ results["Price_Sources"] = results.apply(source_badges, axis=1)
 results["Price_Mean_Rounded"] = results["Price_Mean"].round(2)
 results["Price_STD_Rounded"] = results["Price_STD"].round(4)
 results["Unit_Price"] = np.where(
-    results["Price_Mean_Rounded"].notna(), results["Price_Mean_Rounded"], results["Price_Yahoo"]
+    results["Price_Mean_Rounded"].notna(),
+    results["Price_Mean_Rounded"],
+    results["Price_Yahoo"],
 )
 results["Unit_Price"] = pd.to_numeric(results["Unit_Price"], errors="coerce")
 
@@ -3371,7 +3947,9 @@ if ml_threshold_value > 0 and "ML_Prob" in results.columns:
     before_ml = len(results)
     results = results[results["ML_Prob"] >= ml_threshold_value].copy()
     after_ml = len(results)
-    logger.info(f"ML confidence filter: {before_ml} → {after_ml} stocks (threshold={ml_threshold_value:.0%})")
+    logger.info(
+        f"ML confidence filter: {before_ml} → {after_ml} stocks (threshold={ml_threshold_value:.0%})"
+    )
     TOPN = len(results)  # Update TOPN after filtering
 
 alloc_df = results.reset_index(drop=True).copy()
@@ -3380,7 +3958,7 @@ alloc_df = results.reset_index(drop=True).copy()
 # For backward compatibility, keep old AllocScore but use buy_amount_v2 as primary allocation
 if "buy_amount_v2" in alloc_df.columns:
     logger.info("Using V2 position sizing with risk gates and reliability penalties")
-    
+
     # Use buy_amount_v2 directly - it already includes:
     # - Risk gate penalties (blocked stocks = $0)
     # - Reliability penalties (low reliability = reduced allocation)
@@ -3388,7 +3966,7 @@ if "buy_amount_v2" in alloc_df.columns:
     # - ML boost applied AFTER penalties
     alloc_df["Buy_Amount"] = alloc_df["buy_amount_v2"]
     alloc_df["AllocScore"] = alloc_df["Score"].clip(lower=0)  # Keep for display only
-    
+
 else:
     # Fallback to old allocation logic if V2 columns missing
     logger.warning("V2 columns missing - using legacy allocation logic")
@@ -3398,7 +3976,9 @@ else:
     elif st.session_state.get("alloc_style_idx", 0) == 2:  # Aggressive
         risk_mult_core, risk_mult_spec = 1.0, 1.2
     if "Risk_Level" in alloc_df.columns:
-        alloc_df["_risk_mult"] = np.where(alloc_df["Risk_Level"] == "core", risk_mult_core, risk_mult_spec)
+        alloc_df["_risk_mult"] = np.where(
+            alloc_df["Risk_Level"] == "core", risk_mult_core, risk_mult_spec
+        )
     else:
         alloc_df["_risk_mult"] = 1.0
     if "Reliability_Score" in alloc_df.columns:
@@ -3406,7 +3986,9 @@ else:
         alloc_df["_rel_mult"] = 0.6 + 0.6 * rel
     else:
         alloc_df["_rel_mult"] = 1.0
-    alloc_df["AllocScore"] = alloc_df["Score"].clip(lower=0) * alloc_df["_risk_mult"] * alloc_df["_rel_mult"]
+    alloc_df["AllocScore"] = (
+        alloc_df["Score"].clip(lower=0) * alloc_df["_risk_mult"] * alloc_df["_rel_mult"]
+    )
 
 # Skip legacy allocate_budget if using V2 (already sized)
 if "buy_amount_v2" not in alloc_df.columns:
@@ -3428,7 +4010,7 @@ else:
             results["סכום קנייה ($)"] = results["buy_amount_v2"].round(2)
         else:
             results["סכום קנייה ($)"] = 0.0
-    
+
 results["מניות לקנייה"] = np.floor(
     np.where(
         results["Unit_Price"] > 0, results["סכום קנייה ($)"] / results["Unit_Price"], 0
@@ -3439,17 +4021,21 @@ results["עודף ($)"] = np.round(
 )
 
 # === Global budget cap enforcement (scaling if needed) ===
-total_budget_value = float(st.session_state.get('total_budget', CONFIG['BUDGET_TOTAL']))
-results['position_value'] = results['Unit_Price'].fillna(0) * results['מניות לקנייה']
-total_alloc = float(results['position_value'].sum())
+total_budget_value = float(st.session_state.get("total_budget", CONFIG["BUDGET_TOTAL"]))
+results["position_value"] = results["Unit_Price"].fillna(0) * results["מניות לקנייה"]
+total_alloc = float(results["position_value"].sum())
 if total_alloc > total_budget_value and total_alloc > 0:
     scale = total_budget_value / total_alloc
-    scaled_shares = (results['מניות לקנייה'] * scale).apply(lambda x: max(int(round(x)), 0))
-    results['מניות לקנייה'] = scaled_shares
-    results['position_value'] = results['Unit_Price'].fillna(0) * results['מניות לקנייה']
+    scaled_shares = (results["מניות לקנייה"] * scale).apply(
+        lambda x: max(int(round(x)), 0)
+    )
+    results["מניות לקנייה"] = scaled_shares
+    results["position_value"] = (
+        results["Unit_Price"].fillna(0) * results["מניות לקנייה"]
+    )
     # Recompute leftover and purchase amount columns to reflect scaled allocation
-    results['סכום קנייה ($)'] = results['position_value'].round(2)
-    results['עודף ($)'] = 0.0  # leftover per row not tracked post-scale
+    results["סכום קנייה ($)"] = results["position_value"].round(2)
+    results["עודף ($)"] = 0.0  # leftover per row not tracked post-scale
 
 
 # KPI
@@ -3459,7 +4045,7 @@ budget_used = float(
 k0, k1, k2, k3 = st.columns(4)
 k0.metric("Universe size after history filtering", len(data_map))
 k1.metric("Results after filtering", len(results))
-total_budget_value = float(st.session_state.get('total_budget', CONFIG['BUDGET_TOTAL']))
+total_budget_value = float(st.session_state.get("total_budget", CONFIG["BUDGET_TOTAL"]))
 budget_used = min(budget_used, total_budget_value)  # safety clamp
 k2.metric("Budget used (≈$)", f"{budget_used:,.0f}")
 k3.metric("Remaining budget (≈$)", f"{max(0.0, total_budget_value - budget_used):,.0f}")
@@ -3478,7 +4064,9 @@ if alpha_ok:
 # ==================== Recommendation Cards ====================
 try:
     # Re-render sources table now that pipeline likely populated usage
-    sources_placeholder.markdown(render_sources_table(final=True), unsafe_allow_html=True)
+    sources_placeholder.markdown(
+        render_sources_table(final=True), unsafe_allow_html=True
+    )
 except Exception:
     pass
 st.subheader("🤖 Recommendations Now")
@@ -3492,37 +4080,43 @@ with st.sidebar:
     # V2 SCORING ENGINE (NOW DEFAULT)
     st.markdown("---")
     st.subheader("🚀 Advanced Scoring")
-    st.caption("Multi-source fundamentals (FMP→Finnhub→Tiingo→Alpha) • Unified conviction (35% fund, 35% tech, 15% RR, 15% reliability) • ML boost ±10%")
-    
+    st.caption(
+        "Multi-source fundamentals (FMP→Finnhub→Tiingo→Alpha) • Unified conviction (35% fund, 35% tech, 15% RR, 15% reliability) • ML boost ±10%"
+    )
+
     # Always enabled, but allow configuration
     enable_multi_source = st.checkbox(
         "Fetch multi-source fundamentals",
         value=bool(st.session_state.get("enable_multi_source", True)),
-        help="Fetch and aggregate fundamentals from all available sources for better reliability."
+        help="Fetch and aggregate fundamentals from all available sources for better reliability.",
     )
     st.session_state["enable_multi_source"] = enable_multi_source
-    
+
     enable_ml_boost = st.checkbox(
         "Enable ML confidence boost",
         value=bool(st.session_state.get("enable_ml_boost", True)),
-        help="Allow ML model to adjust conviction by ±10% based on historical patterns."
+        help="Allow ML model to adjust conviction by ±10% based on historical patterns.",
     )
     st.session_state["enable_ml_boost"] = enable_ml_boost
-    
+
     # OpenAI target price enhancement (ENABLED BY DEFAULT)
-    if OPENAI_AVAILABLE and (os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")):
+    if OPENAI_AVAILABLE and (
+        os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")
+    ):
         enable_openai_targets = st.checkbox(
             "🤖 Enable AI-enhanced target prices & timing",
             value=bool(st.session_state.get("enable_openai_targets", True)),
-            help="Use OpenAI GPT-4o-mini to predict target prices AND holding periods based on fundamentals + technicals. Without this, timing is calculated from RR + RSI + Momentum."
+            help="Use OpenAI GPT-4o-mini to predict target prices AND holding periods based on fundamentals + technicals. Without this, timing is calculated from RR + RSI + Momentum.",
         )
         st.session_state["enable_openai_targets"] = enable_openai_targets
-        
+
         # Show status
         if enable_openai_targets:
             st.success("✅ AI predictions ACTIVE - target dates will be AI-generated")
         else:
-            st.info("ℹ️ AI predictions OFF - using technical calculation (RR + RSI + Momentum)")
+            st.info(
+                "ℹ️ AI predictions OFF - using technical calculation (RR + RSI + Momentum)"
+            )
     else:
         st.session_state["enable_openai_targets"] = False
         if not OPENAI_AVAILABLE:
@@ -3532,47 +4126,81 @@ with st.sidebar:
 
     st.markdown("---")
     st.subheader("💰 Allocation")
-    
+
     # ML confidence threshold
     ml_threshold = st.slider(
-        "ML confidence threshold (%)", 
-        min_value=0, 
-        max_value=100, 
-        value=int(st.session_state.get("ml_threshold", 0)), 
+        "ML confidence threshold (%)",
+        min_value=0,
+        max_value=100,
+        value=int(st.session_state.get("ml_threshold", 0)),
         step=5,
-        help="Minimum ML probability to include stock (0=disabled). 🔥High: 70%+, 🟡Med: 50-70%, ⚠️Low: <50%"
+        help="Minimum ML probability to include stock (0=disabled). 🔥High: 70%+, 🟡Med: 50-70%, ⚠️Low: <50%",
     )
     st.session_state["ml_threshold"] = int(ml_threshold)
-    
-    total_budget = st.number_input("Total investment ($)", min_value=0.0, value=float(st.session_state.get("total_budget", CONFIG["BUDGET_TOTAL"])), step=100.0)
+
+    total_budget = st.number_input(
+        "Total investment ($)",
+        min_value=0.0,
+        value=float(st.session_state.get("total_budget", CONFIG["BUDGET_TOTAL"])),
+        step=100.0,
+    )
     st.session_state["total_budget"] = float(total_budget)
-    min_position = st.number_input("Min position ($)", min_value=0.0, value=float(st.session_state.get("min_position", max(50.0, round(float(total_budget) * 0.10)))), step=50.0)
+    min_position = st.number_input(
+        "Min position ($)",
+        min_value=0.0,
+        value=float(
+            st.session_state.get(
+                "min_position", max(50.0, round(float(total_budget) * 0.10))
+            )
+        ),
+        step=50.0,
+    )
     st.session_state["min_position"] = float(min_position)
-    max_position_pct = st.slider("Max position (% of total)", min_value=5.0, max_value=60.0, value=float(st.session_state.get("max_position_pct", CONFIG["MAX_POSITION_PCT"])), step=1.0)
+    max_position_pct = st.slider(
+        "Max position (% of total)",
+        min_value=5.0,
+        max_value=60.0,
+        value=float(
+            st.session_state.get("max_position_pct", CONFIG["MAX_POSITION_PCT"])
+        ),
+        step=1.0,
+    )
     st.session_state["max_position_pct"] = float(max_position_pct)
-    alloc_style = st.selectbox("Allocation style", ["Balanced (core tilt)", "Conservative", "Aggressive"], index=int(st.session_state.get("alloc_style_idx", 0)))
-    st.session_state["alloc_style_idx"] = ["Balanced (core tilt)", "Conservative", "Aggressive"].index(alloc_style)
+    alloc_style = st.selectbox(
+        "Allocation style",
+        ["Balanced (core tilt)", "Conservative", "Aggressive"],
+        index=int(st.session_state.get("alloc_style_idx", 0)),
+    )
+    st.session_state["alloc_style_idx"] = [
+        "Balanced (core tilt)",
+        "Conservative",
+        "Aggressive",
+    ].index(alloc_style)
 
     st.markdown("---")
-    
+
     # Risk level filter
     risk_filter = st.multiselect(
         "Risk level",
         options=["core", "speculative"],
         default=["core", "speculative"],
         format_func=lambda x: "🛡️ Core" if x == "core" else "⚡ Speculative",
-        help="Choose which types of stocks to show"
+        help="Choose which types of stocks to show",
     )
-    
+
     # Data quality filter
     quality_filter = st.multiselect(
         "Minimum data quality",
         options=["high", "medium", "low"],
         default=["high", "medium", "low"],
-        format_func=lambda x: {"high": "✅ High (85%+)", "medium": "⚠️ Medium (60-85%)", "low": "❌ Low (<60%)"}[x],
-        help="Filter by data quality level"
+        format_func=lambda x: {
+            "high": "✅ High (85%+)",
+            "medium": "⚠️ Medium (60-85%)",
+            "low": "❌ Low (<60%)",
+        }[x],
+        help="Filter by data quality level",
     )
-    
+
     # Score range
     if not results.empty and "Score" in results.columns:
         min_score_val = float(results["Score"].min())
@@ -3584,30 +4212,38 @@ with st.sidebar:
                 min_value=min_score_val,
                 max_value=max_score_val,
                 value=(min_score_val, max_score_val),
-                help="Show only stocks in this score range"
+                help="Show only stocks in this score range",
             )
         else:
             st.caption(f"Score: {min_score_val:.1f} (single stock)")
             score_range = (min_score_val, max_score_val)
     else:
         score_range = (0.0, 100.0)
-    
+
     # Sector filter removed - not useful in sidebar at this stage
     sector_filter = []
-    
+
     # RSI filter
     rsi_max = st.slider(
         "Max RSI",
         min_value=0,
         max_value=100,
         value=80,
-        help="Filter stocks with too high RSI (overbought)"
+        help="Filter stocks with too high RSI (overbought)",
     )
 
     # Developer debug toggle for raw attribution
-    show_debug_attr = st.checkbox("🧪 Show raw source attribution (Debug)", value=False, help="Display _sources mapping for developers")
+    show_debug_attr = st.checkbox(
+        "🧪 Show raw source attribution (Debug)",
+        value=False,
+        help="Display _sources mapping for developers",
+    )
     st.session_state["show_debug_attr"] = show_debug_attr
-    compact_mode = st.checkbox("📦 Compact view", value=bool(st.session_state.get("compact_mode", False)), help="Hide indicator/fundamental details to reduce card height")
+    compact_mode = st.checkbox(
+        "📦 Compact view",
+        value=bool(st.session_state.get("compact_mode", False)),
+        help="Hide indicator/fundamental details to reduce card height",
+    )
     st.session_state["compact_mode"] = compact_mode
 
 # Apply filters
@@ -3628,19 +4264,21 @@ if not rec_df.empty:
     # Apply risk filter
     if risk_filter and "Risk_Level" in rec_df.columns:
         rec_df = rec_df[rec_df["Risk_Level"].isin(risk_filter)]
-    
+
     # Apply quality filter
     if quality_filter and "Data_Quality" in rec_df.columns:
         rec_df = rec_df[rec_df["Data_Quality"].isin(quality_filter)]
-    
+
     # Apply score range
     if "Score" in rec_df.columns:
-        rec_df = rec_df[(rec_df["Score"] >= score_range[0]) & (rec_df["Score"] <= score_range[1])]
-    
+        rec_df = rec_df[
+            (rec_df["Score"] >= score_range[0]) & (rec_df["Score"] <= score_range[1])
+        ]
+
     # Apply sector filter
     if sector_filter and "Sector" in rec_df.columns:
         rec_df = rec_df[rec_df["Sector"].isin(sector_filter)]
-    
+
     # Apply RSI filter
     if "RSI" in rec_df.columns:
         rec_df = rec_df[(rec_df["RSI"].isna()) | (rec_df["RSI"] <= rsi_max)]
@@ -3655,7 +4293,9 @@ rec_df["Overall_Rank"] = range(1, len(rec_df) + 1)
 
 # --- Fallback Logic: if no stocks have positive allocation, show top technical candidates ---
 if rec_df.empty:
-    st.warning("No stocks passed allocation filters (all buy amounts zero or blocked). Showing top technical candidates (fallback mode).")
+    st.warning(
+        "No stocks passed allocation filters (all buy amounts zero or blocked). Showing top technical candidates (fallback mode)."
+    )
     fallback_n = min(10, len(results))
     rec_df = results.head(fallback_n).copy()
     rec_df["Fallback_Display"] = True
@@ -3665,26 +4305,41 @@ else:
 # Calculate target prices and dates WITH OPTIONAL OPENAI ENHANCEMENT
 from datetime import datetime, timedelta
 
+
 @st.cache_data(ttl=3600)
-def get_openai_target_prediction(ticker: str, current_price: float, fundamentals: dict, technicals: dict) -> Optional[Tuple[float, int]]:
+def get_openai_target_prediction(
+    ticker: str, current_price: float, fundamentals: dict, technicals: dict
+) -> Optional[Tuple[float, int]]:
     """
     Use OpenAI to predict realistic target price AND holding period based on fundamentals and technicals.
     Returns (target_price, days_to_target) tuple or None if API unavailable or request fails.
     """
     if not OPENAI_AVAILABLE:
         return None
-    
+
     openai_key = os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")
     if not openai_key:
         return None
-    
+
     try:
         client = OpenAI(api_key=openai_key)
-        
+
         # Build context from fundamentals
-        fund_str = ", ".join([f"{k}: {v}" for k, v in fundamentals.items() if v is not None and not (isinstance(v, float) and np.isnan(v))])
-        tech_str = ", ".join([f"{k}: {v:.2f}" for k, v in technicals.items() if isinstance(v, (int, float)) and np.isfinite(v)])
-        
+        fund_str = ", ".join(
+            [
+                f"{k}: {v}"
+                for k, v in fundamentals.items()
+                if v is not None and not (isinstance(v, float) and np.isnan(v))
+            ]
+        )
+        tech_str = ", ".join(
+            [
+                f"{k}: {v:.2f}"
+                for k, v in technicals.items()
+                if isinstance(v, (int, float)) and np.isfinite(v)
+            ]
+        )
+
         prompt = f"""You are a financial analyst. Based on the following data for {ticker}:
 
 Current Price: ${current_price:.2f}
@@ -3701,31 +4356,36 @@ Return ONLY a JSON object with this exact format:
 {{"target_price": <number>, "days_to_target": <integer>}}
 
 JSON:"""
-        
+
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
-            max_tokens=100
+            max_tokens=100,
         )
-        
+
         # Extract JSON from response
         answer = response.choices[0].message.content.strip()
         import json
         import re
+
         # Try to extract JSON from response
-        json_match = re.search(r'\{[^}]+\}', answer)
+        json_match = re.search(r"\{[^}]+\}", answer)
         if json_match:
             data = json.loads(json_match.group(0))
             target = float(data.get("target_price", 0))
             days = int(data.get("days_to_target", 20))
             # Sanity checks
-            if current_price * 0.5 <= target <= current_price * 3.0 and 7 <= days <= 365:
+            if (
+                current_price * 0.5 <= target <= current_price * 3.0
+                and 7 <= days <= 365
+            ):
                 return (target, days)
     except Exception as e:
         logger.warning(f"OpenAI target prediction failed for {ticker}: {e}")
-    
+
     return None
+
 
 def calculate_targets(row):
     """Calculate entry price, target price, and target date based on ATR, RR, and optional OpenAI prediction"""
@@ -3737,64 +4397,72 @@ def calculate_targets(row):
     momentum = row.get("Momentum_63d", np.nan)
     sector = row.get("Sector", "")
     ml_prob = row.get("ml_probability", 0.5)
-    
+
     if np.isfinite(current_price) and current_price > 0:
         # Entry price: current - 0.5*ATR (wait for slight pullback)
         if np.isfinite(atr):
             entry_price = current_price - (0.5 * atr)
         else:
             entry_price = current_price * 0.98  # 2% below if no ATR
-        
+
         # Calculate volatility factor for date variability
-        atr_pct = (atr / current_price) if (np.isfinite(atr) and current_price > 0) else 0.02
+        atr_pct = (
+            (atr / current_price) if (np.isfinite(atr) and current_price > 0) else 0.02
+        )
         volatility_factor = np.clip(atr_pct / 0.03, 0.5, 2.5)  # 0.5x to 2.5x multiplier
-        
+
         # Sector-based offset (defensive sectors slower, growth sectors faster)
         sector_offsets = {
-            "Utilities": 1.3, "Consumer Defensive": 1.2, "Real Estate": 1.15,
-            "Financials": 1.1, "Healthcare": 1.0, "Industrials": 0.95,
-            "Energy": 0.9, "Consumer Cyclical": 0.85, "Technology": 0.75,
-            "Communication Services": 0.8
+            "Utilities": 1.3,
+            "Consumer Defensive": 1.2,
+            "Real Estate": 1.15,
+            "Financials": 1.1,
+            "Healthcare": 1.0,
+            "Industrials": 0.95,
+            "Energy": 0.9,
+            "Consumer Cyclical": 0.85,
+            "Technology": 0.75,
+            "Communication Services": 0.8,
         }
         sector_mult = sector_offsets.get(sector, 1.0)
-        
+
         # ML probability influence (higher confidence = shorter timeline)
         ml_mult = 1.0
         if isinstance(ml_prob, (int, float)) and np.isfinite(ml_prob):
             ml_mult = 1.2 - (ml_prob * 0.4)  # 0.5→1.0, 1.0→0.8 (high conf = faster)
-        
+
         # Calculate fallback days from multiple factors (more dynamic)
         if np.isfinite(rr):
             # Base days from RR
             base_days = 20 + (rr * 10)
-            
+
             # Adjust based on RSI: oversold (< 40) = faster, overbought (> 70) = slower
             if np.isfinite(rsi):
                 if rsi < 40:
                     base_days *= 0.75  # Strong momentum, faster target
                 elif rsi > 70:
-                    base_days *= 1.3   # Overbought, slower target
-            
+                    base_days *= 1.3  # Overbought, slower target
+
             # Adjust based on momentum: strong momentum = faster
             if np.isfinite(momentum) and momentum > 0.05:
                 base_days *= 0.9  # Strong uptrend, faster
             elif np.isfinite(momentum) and momentum < -0.05:
                 base_days *= 1.2  # Weak trend, slower
-            
+
             # Apply volatility, sector, and ML multipliers
             base_days *= volatility_factor * sector_mult * ml_mult
-            
+
             # Add ticker-specific variance (hash-based to keep consistent per ticker)
             ticker_seed = sum(ord(c) for c in ticker) % 20
             base_days += ticker_seed
-            
+
             days = int(min(180, max(14, base_days)))
         else:
             # Fallback: use volatility factor for diverse dates (30-180 days)
             base_days = 60 * volatility_factor * sector_mult * ml_mult
             ticker_seed = sum(ord(c) for c in ticker) % 30
             days = int(min(180, max(30, base_days + ticker_seed)))
-        
+
         # Try OpenAI-enhanced target (returns both price and days)
         ai_result = None
         if st.session_state.get("enable_openai_targets", False):
@@ -3803,20 +4471,22 @@ def calculate_targets(row):
                 "PB": row.get("PBRatio", np.nan),
                 "ROE": row.get("ROE", np.nan),
                 "Margin": row.get("ProfitMargin", np.nan),
-                "RevenueGrowth": row.get("RevenueGrowthYoY", np.nan)
+                "RevenueGrowth": row.get("RevenueGrowthYoY", np.nan),
             }
             technicals = {
                 "RSI": rsi,
                 "Momentum_63d": momentum,
                 "RewardRisk": rr,
-                "ATR": atr
+                "ATR": atr,
             }
             try:
-                ai_result = get_openai_target_prediction(ticker, current_price, fundamentals, technicals)
+                ai_result = get_openai_target_prediction(
+                    ticker, current_price, fundamentals, technicals
+                )
             except Exception as e:
                 logger.warning(f"OpenAI call failed for {ticker}: {e}")
                 ai_result = None
-        
+
         if ai_result is not None:
             # Use AI prediction for both target price AND timing
             target_price, days = ai_result
@@ -3831,21 +4501,27 @@ def calculate_targets(row):
             target_price = entry_price * 1.10
             target_source = "Default"
             # days already set to 30
-        
+
         # Target date: today + holding horizon (now from AI or calculated)
         target_date = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
-        
+
         return entry_price, target_price, target_date, target_source
     else:
         return current_price, np.nan, "N/A", "N/A"
 
+
 with st.spinner(f"🎯 Calculating targets for {len(rec_df)} stocks..."):
-    rec_df[["Entry_Price", "Target_Price", "Target_Date", "Target_Source"]] = rec_df.apply(
-        lambda row: pd.Series(calculate_targets(row)), axis=1
+    rec_df[["Entry_Price", "Target_Price", "Target_Date", "Target_Source"]] = (
+        rec_df.apply(lambda row: pd.Series(calculate_targets(row)), axis=1)
     )
 
 
-def calculate_rr(entry_price: float, target_price: float, atr_value: float, fallback_price: float = None) -> float:
+def calculate_rr(
+    entry_price: float,
+    target_price: float,
+    atr_value: float,
+    fallback_price: float = None,
+) -> float:
     """
     Calculate Reward/Risk using the requested formula:
     RR = clamp( (target_price - entry_price) / max(atr_value*2, entry_price*0.01), 0, 5 )
@@ -3858,9 +4534,17 @@ def calculate_rr(entry_price: float, target_price: float, atr_value: float, fall
         if not (isinstance(target_price, (int, float)) and np.isfinite(target_price)):
             return np.nan
 
-        atr = atr_value if isinstance(atr_value, (int, float)) and np.isfinite(atr_value) else np.nan
+        atr = (
+            atr_value
+            if isinstance(atr_value, (int, float)) and np.isfinite(atr_value)
+            else np.nan
+        )
         # If atr not provided, try common fallback field name from row via fallback_price
-        if not np.isfinite(atr) and isinstance(fallback_price, (int, float)) and np.isfinite(fallback_price):
+        if (
+            not np.isfinite(atr)
+            and isinstance(fallback_price, (int, float))
+            and np.isfinite(fallback_price)
+        ):
             atr = fallback_price
 
         # Final ATR fallback: 1% of entry price
@@ -3888,7 +4572,12 @@ if not rec_df.empty:
         rr_val = calculate_rr(entry, target, atr, fallback_price=atr_price)
         return rr_val
 
-    rec_df["RewardRisk"] = rec_df.apply(lambda r: round(_compute_rr_row(r), 2) if np.isfinite(_compute_rr_row(r)) else np.nan, axis=1)
+    rec_df["RewardRisk"] = rec_df.apply(
+        lambda r: (
+            round(_compute_rr_row(r), 2) if np.isfinite(_compute_rr_row(r)) else np.nan
+        ),
+        axis=1,
+    )
     # Also update RR_Ratio alias used in classification
     rec_df["RR_Ratio"] = rec_df["RewardRisk"]
 
@@ -3897,10 +4586,13 @@ if not rec_df.empty:
     try:
         rr_map = rec_df.set_index("Ticker")["RewardRisk"].to_dict()
         # Only update tickers present in the map; keep existing values otherwise
-        results["RewardRisk"] = results["Ticker"].map(rr_map).fillna(results.get("RewardRisk", np.nan))
+        results["RewardRisk"] = (
+            results["Ticker"].map(rr_map).fillna(results.get("RewardRisk", np.nan))
+        )
         results["RR_Ratio"] = results["RewardRisk"]
         # alias used elsewhere
         results["rr"] = results["RewardRisk"]
+
         # Recompute normalized rr_score_v2 (0-100) for any updated rr values
         def _norm_rr_local(x):
             try:
@@ -3911,21 +4603,24 @@ if not rec_df.empty:
                 return float((xr / 5.0) * 100.0)
             except Exception:
                 return np.nan
+
         results["rr_score_v2"] = results["rr"].apply(_norm_rr_local)
         # Keep canonical RR_Score alias in sync if present
         results["RR_Score"] = results["rr_score_v2"].copy()
         results["RR"] = results["rr"].copy()
-        
+
         # Recompute rr_band after RR update using evaluate_rr_unified
         from core.scoring_engine import evaluate_rr_unified
+
         def _rr_eval_local(row_rr):
             try:
                 score, ratio_adj, band = evaluate_rr_unified(float(row_rr))
                 return band
             except Exception:
                 return "N/A"
+
         results["rr_band"] = results["rr"].apply(_rr_eval_local)
-        
+
         # Sync updated RR fields back to rec_df (recommendation dataframe)
         if not rec_df.empty:
             for tkr_idx in rec_df.index:
@@ -3941,12 +4636,16 @@ if not rec_df.empty:
 
 # CSS now loaded from design_system.py - no need for separate CARD_CSS
 
+
 def format_rel(val) -> str:
     if not isinstance(val, (int, float)) or not np.isfinite(val):
         return "Not available"
     tier = "High" if val >= 0.75 else ("Medium" if val >= 0.4 else "Low")
-    color = "#16a34a" if tier == "High" else ("#f59e0b" if tier == "Medium" else "#dc2626")
+    color = (
+        "#16a34a" if tier == "High" else ("#f59e0b" if tier == "Medium" else "#dc2626")
+    )
     return f"<span style='color:{color};font-weight:600'>{val:.2f} ({tier})</span>"
+
 
 if rec_df.empty:
     st.info("No stocks currently pass the threshold with a positive buy amount.")
@@ -3959,12 +4658,14 @@ else:
         # Fallback if Risk_Level column doesn't exist
         core_df = rec_df
         spec_df = pd.DataFrame()
-    
+
     # Display Core recommendations first
     if not core_df.empty:
         st.markdown("### 🛡️ Core Stocks — Lower Relative Risk")
-        st.caption(f"✅ {len(core_df)} stocks with high data quality and balanced risk profile")
-        
+        st.caption(
+            f"✅ {len(core_df)} stocks with high data quality and balanced risk profile"
+        )
+
         # Sector diversification warning
         if "Sector" in core_df.columns:
             sector_counts = core_df["Sector"].value_counts()
@@ -3973,24 +4674,37 @@ else:
             for sector, count in sector_counts.items():
                 pct = (count / total_stocks) * 100
                 if pct > 30:
-                    concentrated_sectors.append(f"{sector} ({count}/{total_stocks}, {pct:.0f}%)")
-            
+                    concentrated_sectors.append(
+                        f"{sector} ({count}/{total_stocks}, {pct:.0f}%)"
+                    )
+
             if concentrated_sectors:
-                st.warning(f"⚠️ **Sector Concentration Alert:** {', '.join(concentrated_sectors)}. Consider diversifying across more sectors to reduce correlation risk.")
-        
-        st.markdown("""
+                st.warning(
+                    f"⚠️ **Sector Concentration Alert:** {', '.join(concentrated_sectors)}. Consider diversifying across more sectors to reduce correlation risk."
+                )
+
+        st.markdown(
+            """
 <div style='direction:ltr;text-align:left;font-size:0.75em;margin:4px 0 10px 0'>
 <b>Reliability legend:</b> <span style='color:#16a34a;font-weight:600'>High ≥ 0.75</span> · <span style='color:#f59e0b;font-weight:600'>Medium 0.40–0.74</span> · <span style='color:#dc2626;font-weight:600'>Low &lt; 0.40</span>
 </div>
-""", unsafe_allow_html=True)
-        
+""",
+            unsafe_allow_html=True,
+        )
+
         for _, r in core_df.iterrows():
             mean = r.get("מחיר ממוצע", np.nan)
             std = r.get("סטיית תקן", np.nan)
-            hist_std = r.get("Historical_StdDev", np.nan)  # NEW: Use historical price std dev
+            hist_std = r.get(
+                "Historical_StdDev", np.nan
+            )  # NEW: Use historical price std dev
             show_mean = mean if not np.isnan(mean) else r["Price_Yahoo"]
             # Prefer Historical_StdDev if available, fallback to old std
-            show_std = f"${hist_std:.2f}" if np.isfinite(hist_std) else (f"${std:.2f}" if np.isfinite(std) else "N/A")
+            show_std = (
+                f"${hist_std:.2f}"
+                if np.isfinite(hist_std)
+                else (f"${std:.2f}" if np.isfinite(std) else "N/A")
+            )
             sources = r.get("מקורות מחיר", "N/A")
             buy_amt = float(r.get("סכום קנייה ($)", 0.0))
             horizon = r.get("טווח החזקה", "N/A")
@@ -4003,7 +4717,7 @@ else:
             rr = r.get("RewardRisk", np.nan)
             atrp = r.get("ATR_Price", np.nan)
             overx = r.get("OverextRatio", np.nan)
-            
+
             # New advanced signals
             rs_63d = r.get("RS_63d", np.nan)
             vol_surge = r.get("Volume_Surge", np.nan)
@@ -4012,17 +4726,17 @@ else:
             rr_ratio = r.get("RR_Ratio", np.nan)
             mom_consistency = r.get("Momentum_Consistency", 0.0)
             high_confidence = r.get("High_Confidence", False)
-            
+
             # Classification info
             risk_level = r.get("Risk_Level", "core")
             data_quality = r.get("Data_Quality", "medium")
             confidence_level = r.get("Confidence_Level", "medium")
             warnings = r.get("Classification_Warnings", "")
-            
+
             # ML scoring info
             ml_prob = r.get("ML_Probability", np.nan)
             ml_confidence = r.get("ML_Confidence", "N/A")
-            
+
             # Data quality badge
             if data_quality == "high":
                 quality_badge_class = "badge-quality-high"
@@ -4036,7 +4750,7 @@ else:
                 quality_badge_class = "badge-quality-low"
                 quality_icon = "❌"
                 quality_pct = "<60%"
-            
+
             # ML confidence badge: 🔥High≥70%, 🟡Med 50-70%, ⚠️Low<50%
             if np.isfinite(ml_prob):
                 if ml_prob >= 0.70:
@@ -4060,7 +4774,7 @@ else:
             atrp_fmt = f"{atrp:.2f}" if np.isfinite(atrp) else "N/A"
             overx_fmt = f"{overx:.2f}" if np.isfinite(overx) else "N/A"
             near52_fmt = f"{near52:.1f}" if np.isfinite(near52) else "N/A"
-            
+
             # Format new signals
             rs_fmt = f"{rs_63d*100:+.1f}%" if np.isfinite(rs_63d) else "N/A"
             vol_surge_fmt = f"{vol_surge:.2f}x" if np.isfinite(vol_surge) else "N/A"
@@ -4068,8 +4782,10 @@ else:
             quality_fmt = f"{quality_score:.0f}/50"
             rr_ratio_fmt = f"{rr_ratio:.2f}" if np.isfinite(rr_ratio) else "N/A"
             mom_fmt = f"{mom_consistency*100:.0f}%"
-            confidence_badge = f"{confidence_level.upper()}" if confidence_level else "MEDIUM"
-            
+            confidence_badge = (
+                f"{confidence_level.upper()}" if confidence_level else "MEDIUM"
+            )
+
             # Fundamental breakdown
             qual_score_f = r.get("Quality_Score_F", np.nan)
             qual_label = r.get("Quality_Label", "N/A")
@@ -4079,59 +4795,83 @@ else:
             val_label = r.get("Valuation_Label", "N/A")
             lev_score_f = r.get("Leverage_Score_F", np.nan)
             lev_label = r.get("Leverage_Label", "N/A")
-            
+
             # Format fundamental scores with labels
-            qual_fmt = f"{qual_score_f:.0f} ({qual_label})" if np.isfinite(qual_score_f) else "N/A"
-            growth_fmt = f"{growth_score_f:.0f} ({growth_label})" if np.isfinite(growth_score_f) else "N/A"
-            val_fmt = f"{val_score_f:.0f} ({val_label})" if np.isfinite(val_score_f) else "N/A"
-            lev_fmt = f"{lev_score_f:.0f} ({lev_label})" if np.isfinite(lev_score_f) else "N/A"
-            
+            qual_fmt = (
+                f"{qual_score_f:.0f} ({qual_label})"
+                if np.isfinite(qual_score_f)
+                else "N/A"
+            )
+            growth_fmt = (
+                f"{growth_score_f:.0f} ({growth_label})"
+                if np.isfinite(growth_score_f)
+                else "N/A"
+            )
+            val_fmt = (
+                f"{val_score_f:.0f} ({val_label})"
+                if np.isfinite(val_score_f)
+                else "N/A"
+            )
+            lev_fmt = (
+                f"{lev_score_f:.0f} ({lev_label})"
+                if np.isfinite(lev_score_f)
+                else "N/A"
+            )
+
             # Color coding for labels
             def label_color(label, good_vals):
                 if label in good_vals:
-                    return '#16a34a'  # green
-                elif label in ['Medium', 'Fair', 'Moderate']:
-                    return '#f59e0b'  # orange
+                    return "#16a34a"  # green
+                elif label in ["Medium", "Fair", "Moderate"]:
+                    return "#f59e0b"  # orange
                 else:
-                    return '#dc2626'  # red
-            
-            qual_color = label_color(qual_label, ['High'])
-            growth_color = label_color(growth_label, ['Fast', 'Moderate'])
-            val_color = label_color(val_label, ['Cheap', 'Fair'])
-            lev_color = label_color(lev_label, ['Low', 'Medium'])
+                    return "#dc2626"  # red
+
+            qual_color = label_color(qual_label, ["High"])
+            growth_color = label_color(growth_label, ["Fast", "Moderate"])
+            val_color = label_color(val_label, ["Cheap", "Fair"])
+            lev_color = label_color(lev_label, ["Low", "Medium"])
 
             # Detect missing fundamental data
             missing_fundamental_count = 0
-            fundamental_fields = ['ROE_f', 'ROIC_f', 'DE_f', 'PE_f', 'GM_f']
+            fundamental_fields = ["ROE_f", "ROIC_f", "DE_f", "PE_f", "GM_f"]
             for field in fundamental_fields:
                 val = r.get(field, np.nan)
                 if not np.isfinite(val):
                     missing_fundamental_count += 1
-            
+
             # Create partial data badge if applicable
             data_quality_badge = ""
             if missing_fundamental_count >= 4:
-                data_quality_badge = "<span class='modern-badge badge-missing'>⚠️ Missing Data</span>"
+                data_quality_badge = (
+                    "<span class='modern-badge badge-missing'>⚠️ Missing Data</span>"
+                )
             elif missing_fundamental_count >= 2:
-                data_quality_badge = "<span class='modern-badge badge-partial'>📊 Partial Data</span>"
+                data_quality_badge = (
+                    "<span class='modern-badge badge-partial'>📊 Partial Data</span>"
+                )
 
             esc = html_escape.escape
             ticker = esc(str(r["Ticker"]))
             sources_esc = esc(str(sources))
-            
+
             # Next earnings date
             next_earnings = r.get("NextEarnings", "Unknown")
-            
+
             # NEW: Ranking and target prices
             overall_rank = r.get("Overall_Rank", "N/A")
             entry_price = r.get("Entry_Price", np.nan)
             target_price = r.get("Target_Price", np.nan)
             target_date = r.get("Target_Date", "N/A")
             target_source = r.get("Target_Source", "N/A")
-            
-            entry_price_fmt = f"${entry_price:.2f}" if np.isfinite(entry_price) else "N/A"
-            target_price_fmt = f"${target_price:.2f}" if np.isfinite(target_price) else "N/A"
-            
+
+            entry_price_fmt = (
+                f"${entry_price:.2f}" if np.isfinite(entry_price) else "N/A"
+            )
+            target_price_fmt = (
+                f"${target_price:.2f}" if np.isfinite(target_price) else "N/A"
+            )
+
             # Add badge for AI-enhanced targets
             target_badge = ""
             if target_source == "AI":
@@ -4140,9 +4880,13 @@ else:
                 target_badge = " <span style='background:#6366f1;color:white;padding:2px 6px;border-radius:4px;font-size:0.75em'>📊 Tech</span>"
             elif target_source == "Default":
                 target_badge = " <span style='background:#6b7280;color:white;padding:2px 6px;border-radius:4px;font-size:0.75em'>📐 Est</span>"
-            
+
             # Calculate potential gain %
-            if np.isfinite(entry_price) and np.isfinite(target_price) and entry_price > 0:
+            if (
+                np.isfinite(entry_price)
+                and np.isfinite(target_price)
+                and entry_price > 0
+            ):
                 potential_gain_pct = ((target_price - entry_price) / entry_price) * 100
                 gain_fmt = f"+{potential_gain_pct:.1f}%"
                 gain_color = "#16a34a"
@@ -4150,12 +4894,12 @@ else:
                 gain_fmt = "N/A"
                 gain_color = "#6b7280"
                 target_badge = ""  # No badge if no valid target
-            
+
             # Inject CSS for iframe isolation
-            price_rel_fmt = format_rel(r.get('Price_Reliability', np.nan))
-            fund_rel_fmt = format_rel(r.get('Fundamental_Reliability', np.nan))
-            rel_score_fmt = format_rel(r.get('Reliability_Score', np.nan))
-            
+            price_rel_fmt = format_rel(r.get("Price_Reliability", np.nan))
+            fund_rel_fmt = format_rel(r.get("Fundamental_Reliability", np.nan))
+            rel_score_fmt = format_rel(r.get("Reliability_Score", np.nan))
+
             # V2 SCORES (NOW ALWAYS ENABLED AS DEFAULT)
             v2_html = ""
             conv_v2 = r.get("conviction_v2_final", np.nan)
@@ -4189,7 +4933,7 @@ else:
             rr_v2_fmt = f"{rr_v2:.0f}" if np.isfinite(rr_v2) else "N/A"
             rel_v2_fmt = f"{rel_v2:.0f}" if np.isfinite(rel_v2) else "N/A"
             risk_v2_fmt = f"{risk_v2:.0f}" if np.isfinite(risk_v2) else "N/A"
-            
+
             # Conviction meter color
             if np.isfinite(conv_v2):
                 if conv_v2 >= 75:
@@ -4200,7 +4944,7 @@ else:
                     conv_color = "#dc2626"  # red
             else:
                 conv_color = "#6b7280"
-            
+
             # Risk meter color (inverted: low risk = green)
             if np.isfinite(risk_v2):
                 if risk_v2 < 35:
@@ -4211,9 +4955,9 @@ else:
                     risk_color = "#dc2626"  # red
             else:
                 risk_color = "#6b7280"
-            
+
             card_html = get_card_css() + build_clean_card(r, speculative=False)
-            
+
             # Add provider attribution if available (Core cards)
             attribution = r.get("Fund_Attribution", "")
             if show_debug_attr:
@@ -4224,7 +4968,7 @@ else:
                     card_html += f"""
     <div class="item" style="grid-column:span 5;font-size:0.7em;color:#334155;background:#f1f5f9;border:1px dashed #cbd5e1;border-radius:6px;padding:4px;margin-top:4px"><b>RAW _sources:</b> {raw_html}</div>"""
             # Remove top-level data sources line (moved to details section inside card)
-            
+
             card_html += """
   </div>
 </div>
@@ -4235,12 +4979,12 @@ else:
             # 430 provides enough space for collapsed + expanded details without excess.
             # Render card directly (no inner scroll iframe) so expanding details pushes subsequent cards down.
             st.markdown(card_html, unsafe_allow_html=True)
-    
+
     # Display Speculative recommendations
     if not spec_df.empty:
         st.markdown("### ⚡ Speculative Stocks — High Upside, High Risk")
         st.caption(f"⚠️ {len(spec_df)} stocks with a higher risk profile")
-        
+
         # Sector diversification warning
         if "Sector" in spec_df.columns:
             sector_counts = spec_df["Sector"].value_counts()
@@ -4249,20 +4993,32 @@ else:
             for sector, count in sector_counts.items():
                 pct = (count / total_stocks) * 100
                 if pct > 30:
-                    concentrated_sectors.append(f"{sector} ({count}/{total_stocks}, {pct:.0f}%)")
-            
+                    concentrated_sectors.append(
+                        f"{sector} ({count}/{total_stocks}, {pct:.0f}%)"
+                    )
+
             if concentrated_sectors:
-                st.warning(f"⚠️ **Sector Concentration Alert:** {', '.join(concentrated_sectors)}. Consider diversifying across more sectors to reduce correlation risk.")
-        
-        st.warning("🔔 Warning: These stocks are classified as speculative due to partial data or elevated risk factors. Suitable for experienced investors only.")
-        
+                st.warning(
+                    f"⚠️ **Sector Concentration Alert:** {', '.join(concentrated_sectors)}. Consider diversifying across more sectors to reduce correlation risk."
+                )
+
+        st.warning(
+            "🔔 Warning: These stocks are classified as speculative due to partial data or elevated risk factors. Suitable for experienced investors only."
+        )
+
         for _, r in spec_df.iterrows():
             mean = r.get("מחיר ממוצע", np.nan)
             std = r.get("סטיית תקן", np.nan)
-            hist_std = r.get("Historical_StdDev", np.nan)  # NEW: Use historical price std dev
+            hist_std = r.get(
+                "Historical_StdDev", np.nan
+            )  # NEW: Use historical price std dev
             show_mean = mean if not np.isnan(mean) else r["Price_Yahoo"]
             # Prefer Historical_StdDev if available, fallback to old std
-            show_std = f"${hist_std:.2f}" if np.isfinite(hist_std) else (f"${std:.2f}" if np.isfinite(std) else "N/A")
+            show_std = (
+                f"${hist_std:.2f}"
+                if np.isfinite(hist_std)
+                else (f"${std:.2f}" if np.isfinite(std) else "N/A")
+            )
             sources = r.get("מקורות מחיר", "N/A")
             buy_amt = float(r.get("סכום קנייה ($)", 0.0))
             horizon = r.get("טווח החזקה", "N/A")
@@ -4275,23 +5031,23 @@ else:
             rr = r.get("RewardRisk", np.nan)
             atrp = r.get("ATR_Price", np.nan)
             overx = r.get("OverextRatio", np.nan)
-            
+
             rs_63d = r.get("RS_63d", np.nan)
             vol_surge = r.get("Volume_Surge", np.nan)
             ma_aligned = r.get("MA_Aligned", False)
             quality_score = r.get("Quality_Score", 0.0)
             rr_ratio = r.get("RR_Ratio", np.nan)
             mom_consistency = r.get("Momentum_Consistency", 0.0)
-            
+
             risk_level = r.get("Risk_Level", "speculative")
             data_quality = r.get("Data_Quality", "low")
             confidence_level = r.get("Confidence_Level", "low")
             warnings = r.get("Classification_Warnings", "")
-            
+
             # ML scoring info
             ml_prob = r.get("ML_Probability", np.nan)
             ml_confidence = r.get("ML_Confidence", "N/A")
-            
+
             if data_quality == "high":
                 quality_badge_class = "badge-quality-high"
                 quality_icon = "✅"
@@ -4304,7 +5060,7 @@ else:
                 quality_badge_class = "badge-quality-low"
                 quality_icon = "❌"
                 quality_pct = "<60%"
-            
+
             # ML confidence badge: 🔥High≥70%, 🟡Med 50-70%, ⚠️Low<50%
             if np.isfinite(ml_prob):
                 if ml_prob >= 0.70:
@@ -4321,7 +5077,7 @@ else:
             else:
                 ml_badge_html = ""
                 ml_status_esc = "N/A"
-            
+
             show_mean_fmt = f"{show_mean:.2f}" if np.isfinite(show_mean) else "N/A"
             unit_price_fmt = f"{unit_price:.2f}" if np.isfinite(unit_price) else "N/A"
             rr_fmt = f"{rr:.2f}R" if np.isfinite(rr) else "N/A"
@@ -4334,8 +5090,10 @@ else:
             quality_fmt = f"{quality_score:.0f}/50"
             rr_ratio_fmt = f"{rr_ratio:.2f}" if np.isfinite(rr_ratio) else "N/A"
             mom_fmt = f"{mom_consistency*100:.0f}%"
-            confidence_badge = f"{confidence_level.upper()}" if confidence_level else "LOW"
-            
+            confidence_badge = (
+                f"{confidence_level.upper()}" if confidence_level else "LOW"
+            )
+
             qual_score_f = r.get("Quality_Score_F", np.nan)
             qual_label = r.get("Quality_Label", "N/A")
             growth_score_f = r.get("Growth_Score_F", np.nan)
@@ -4344,84 +5102,112 @@ else:
             val_label = r.get("Valuation_Label", "N/A")
             lev_score_f = r.get("Leverage_Score_F", np.nan)
             lev_label = r.get("Leverage_Label", "N/A")
-            
-            qual_fmt = f"{qual_score_f:.0f} ({qual_label})" if np.isfinite(qual_score_f) else "N/A"
-            growth_fmt = f"{growth_score_f:.0f} ({growth_label})" if np.isfinite(growth_score_f) else "N/A"
-            val_fmt = f"{val_score_f:.0f} ({val_label})" if np.isfinite(val_score_f) else "N/A"
-            lev_fmt = f"{lev_score_f:.0f} ({lev_label})" if np.isfinite(lev_score_f) else "N/A"
-            
+
+            qual_fmt = (
+                f"{qual_score_f:.0f} ({qual_label})"
+                if np.isfinite(qual_score_f)
+                else "N/A"
+            )
+            growth_fmt = (
+                f"{growth_score_f:.0f} ({growth_label})"
+                if np.isfinite(growth_score_f)
+                else "N/A"
+            )
+            val_fmt = (
+                f"{val_score_f:.0f} ({val_label})"
+                if np.isfinite(val_score_f)
+                else "N/A"
+            )
+            lev_fmt = (
+                f"{lev_score_f:.0f} ({lev_label})"
+                if np.isfinite(lev_score_f)
+                else "N/A"
+            )
+
             def label_color(label, good_vals):
                 if label in good_vals:
-                    return '#16a34a'
-                elif label in ['Medium', 'Fair', 'Moderate']:
-                    return '#f59e0b'
+                    return "#16a34a"
+                elif label in ["Medium", "Fair", "Moderate"]:
+                    return "#f59e0b"
                 else:
-                    return '#dc2626'
-            
-            qual_color = label_color(qual_label, ['High'])
-            growth_color = label_color(growth_label, ['Fast', 'Moderate'])
-            val_color = label_color(val_label, ['Cheap', 'Fair'])
-            lev_color = label_color(lev_label, ['Low', 'Medium'])
-            
+                    return "#dc2626"
+
+            qual_color = label_color(qual_label, ["High"])
+            growth_color = label_color(growth_label, ["Fast", "Moderate"])
+            val_color = label_color(val_label, ["Cheap", "Fair"])
+            lev_color = label_color(lev_label, ["Low", "Medium"])
+
             # Detect missing fundamental data
             missing_fundamental_count = 0
-            fundamental_fields = ['ROE_f', 'ROIC_f', 'DE_f', 'PE_f', 'GM_f']
+            fundamental_fields = ["ROE_f", "ROIC_f", "DE_f", "PE_f", "GM_f"]
             for field in fundamental_fields:
                 val = r.get(field, np.nan)
                 if not np.isfinite(val):
                     missing_fundamental_count += 1
-            
+
             # Create partial data badge if applicable
             data_quality_badge = ""
             if missing_fundamental_count >= 4:
-                data_quality_badge = "<span class='modern-badge badge-missing'>⚠️ Missing Data</span>"
+                data_quality_badge = (
+                    "<span class='modern-badge badge-missing'>⚠️ Missing Data</span>"
+                )
             elif missing_fundamental_count >= 2:
-                data_quality_badge = "<span class='modern-badge badge-partial'>📊 Partial Data</span>"
-            
+                data_quality_badge = (
+                    "<span class='modern-badge badge-partial'>📊 Partial Data</span>"
+                )
+
             # Reliability scores formatting (same as Core section)
             def format_rel(val):
                 if np.isfinite(val):
                     return f"{val:.1f}%"
                 return "N/A"
-            
-            price_rel_fmt = format_rel(r.get('Price_Reliability', np.nan))
-            fund_rel_fmt = format_rel(r.get('Fundamental_Reliability', np.nan))
-            rel_score_fmt = format_rel(r.get('Reliability_Score', np.nan))
-            
+
+            price_rel_fmt = format_rel(r.get("Price_Reliability", np.nan))
+            fund_rel_fmt = format_rel(r.get("Fundamental_Reliability", np.nan))
+            rel_score_fmt = format_rel(r.get("Reliability_Score", np.nan))
+
             esc = html_escape.escape
             ticker = esc(str(r["Ticker"]))
             sources_esc = esc(str(sources))
             next_earnings = r.get("NextEarnings", "Unknown")
             warnings_esc = esc(warnings) if warnings else ""
-            
+
             # NEW: Ranking and target prices
             overall_rank = r.get("Overall_Rank", "N/A")
             entry_price = r.get("Entry_Price", np.nan)
             target_price = r.get("Target_Price", np.nan)
             target_date = r.get("Target_Date", "N/A")
             target_source = r.get("Target_Source", "N/A")
-            
-            entry_price_fmt = f"${entry_price:.2f}" if np.isfinite(entry_price) else "N/A"
-            target_price_fmt = f"${target_price:.2f}" if np.isfinite(target_price) else "N/A"
-            
+
+            entry_price_fmt = (
+                f"${entry_price:.2f}" if np.isfinite(entry_price) else "N/A"
+            )
+            target_price_fmt = (
+                f"${target_price:.2f}" if np.isfinite(target_price) else "N/A"
+            )
+
             # Add badge for AI-enhanced targets
             target_badge_spec = ""
             if target_source == "AI":
                 target_badge_spec = " <span style='background:#10b981;color:white;padding:2px 6px;border-radius:4px;font-size:0.75em;font-weight:bold'>🤖 AI</span>"
             elif target_source == "Technical":
                 target_badge_spec = " <span style='background:#6366f1;color:white;padding:2px 6px;border-radius:4px;font-size:0.75em'>📊 Tech</span>"
-            
+
             # Calculate potential gain %
-            if np.isfinite(entry_price) and np.isfinite(target_price) and entry_price > 0:
+            if (
+                np.isfinite(entry_price)
+                and np.isfinite(target_price)
+                and entry_price > 0
+            ):
                 potential_gain_pct = ((target_price - entry_price) / entry_price) * 100
                 gain_fmt = f"+{potential_gain_pct:.1f}%"
                 gain_color = "#16a34a"
             else:
                 gain_fmt = "N/A"
                 gain_color = "#6b7280"
-            
+
             # Inject CSS for iframe isolation
-            
+
             # V2 SCORES (NOW ALWAYS ENABLED AS DEFAULT)
             conv_v2 = r.get("conviction_v2_final", np.nan)
             conv_v2_base = r.get("conviction_v2_base", np.nan)
@@ -4437,7 +5223,7 @@ else:
             gate_reason = r.get("risk_gate_reason_v2", "")
             buy_amount_v2 = float(r.get("buy_amount_v2", 0.0) or 0.0)
             shares_v2 = int(r.get("shares_to_buy_v2", 0) or 0)
-            
+
             # Format V2 scores for inline display
             conv_v2_fmt = f"{conv_v2:.0f}" if np.isfinite(conv_v2) else "N/A"
             fund_v2_fmt = f"{fund_v2:.0f}" if np.isfinite(fund_v2) else "N/A"
@@ -4445,7 +5231,7 @@ else:
             rr_v2_fmt = f"{rr_v2:.0f}" if np.isfinite(rr_v2) else "N/A"
             rel_v2_fmt = f"{rel_v2:.0f}" if np.isfinite(rel_v2) else "N/A"
             risk_v2_fmt = f"{risk_v2:.0f}" if np.isfinite(risk_v2) else "N/A"
-            
+
             if np.isfinite(conv_v2):
                 if conv_v2 >= 75:
                     conv_color = "#16a34a"
@@ -4455,7 +5241,7 @@ else:
                     conv_color = "#dc2626"
             else:
                 conv_color = "#6b7280"
-            
+
             if np.isfinite(risk_v2):
                 if risk_v2 < 35:
                     risk_color = "#16a34a"
@@ -4465,7 +5251,7 @@ else:
                     risk_color = "#dc2626"
             else:
                 risk_color = "#6b7280"
-            
+
             # Build strict-mode badge for speculative
             badge_html_spec = ""
             if gate_status == "blocked":
@@ -4474,13 +5260,13 @@ else:
                 badge_html_spec = "<span style='background:#f59e0b;color:black;padding:4px 8px;border-radius:6px;font-weight:700;margin-left:8px'>⚠️ Reduced (Strict Risk Gate)</span>"
             elif gate_status == "full":
                 badge_html_spec = "<span style='background:#16a34a;color:white;padding:4px 8px;border-radius:6px;font-weight:700;margin-left:8px'>✅ Full Allocation Allowed (Strict Mode)</span>"
-            
+
             # Minimal speculative card
             overall_score_val = r.get("overall_score", conv_v2)
             rr_ratio_val = r.get("rr", np.nan)
-            rr_band = r.get('rr_band', '')
+            rr_band = r.get("rr_band", "")
             card_html = get_card_css() + build_clean_card(r, speculative=True)
-            
+
             # Add provider attribution if available (Speculative cards)
             attribution_spec = r.get("Fund_Attribution", "")
             # Remove top-level data sources line for speculative cards as well
@@ -4490,7 +5276,7 @@ else:
                     raw_html = html_escape.escape(str(raw_sources))
                     card_html += f"""
     <div class="item" style="grid-column:span 5;font-size:0.7em;color:#334155;background:#f1f5f9;border:1px dashed #cbd5e1;border-radius:6px;padding:4px;margin-top:4px"><b>RAW _sources:</b> {raw_html}</div>"""
-            
+
             card_html += """
   </div>
 </div>
@@ -4500,7 +5286,8 @@ else:
 
 # Inject compact mode JS to hide advanced/fundamental sections
 if st.session_state.get("compact_mode"):
-    st.markdown("""
+    st.markdown(
+        """
 <script>
 for(const el of document.querySelectorAll('.card')){el.classList.add('compact-mode');}
 for(const el of document.querySelectorAll('.compact-mode .section-divider')){
@@ -4515,18 +5302,25 @@ for(const el of document.querySelectorAll('.compact-mode .section-divider')){
   }
 }
 </script>
-""", unsafe_allow_html=True)
+""",
+        unsafe_allow_html=True,
+    )
 
 # Final stage advancement
-_advance_stage('Recommendations')
+_advance_stage("Recommendations")
 
 # ==================== Results table + CSV ====================
 st.subheader("🎯 Filtered & Ranked Results")
 view_df_source = rec_df if not rec_df.empty else results
 
 # Augment with sources count if reliability columns present
-if "Reliability_Score" in view_df_source.columns and "Source_List" in view_df_source.columns:
-    view_df_source["Sources_Count"] = view_df_source["Source_List"].apply(lambda s: len(str(s).split(" · ")) if isinstance(s, str) and s else 0)
+if (
+    "Reliability_Score" in view_df_source.columns
+    and "Source_List" in view_df_source.columns
+):
+    view_df_source["Sources_Count"] = view_df_source["Source_List"].apply(
+        lambda s: len(str(s).split(" · ")) if isinstance(s, str) and s else 0
+    )
 
 hebrew_cols = {
     "Ticker": "Ticker",
@@ -4590,8 +5384,7 @@ hebrew_cols = {
     "Confidence_Level": "Confidence Level",
     "Classification_Warnings": "Warnings",
     "ML_Probability": "ML Probability",
-    "ML_Confidence": "ML Confidence"
-    ,
+    "ML_Confidence": "ML Confidence",
     # V2 strict columns (export-friendly labels)
     "conviction_v2_base": "Conviction v2 Base",
     "conviction_v2_final": "Conviction v2 Final",
@@ -4706,6 +5499,8 @@ show_order = [
     "EPS YoY",
 ]
 csv_df = view_df_source.rename(columns=hebrew_cols)
+
+
 # Ensure column names unique after rename (pandas JSON export requires uniqueness)
 def _make_unique(names):
     counts = {}
@@ -4718,6 +5513,8 @@ def _make_unique(names):
             counts[n] += 1
             out.append(f"{n}_{counts[n]}")
     return out
+
+
 csv_df.columns = _make_unique(list(csv_df.columns))
 # Build unique ordered columns for export referencing updated names
 cols_for_export = []
@@ -4730,11 +5527,7 @@ for c in show_order:
         if first not in seen_cols:
             cols_for_export.append(first)
             seen_cols.add(first)
-csv_bytes = (
-    csv_df[cols_for_export]
-    .to_csv(index=False)
-    .encode("utf-8-sig")
-)
+csv_bytes = csv_df[cols_for_export].to_csv(index=False).encode("utf-8-sig")
 
 # Download buttons side by side
 col_csv, col_json = st.columns(2)
