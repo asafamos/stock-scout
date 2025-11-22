@@ -34,6 +34,11 @@ FMP_API_KEY = "cEARp4dZ2jU2Ksfggl85sqpdTStTFXTT"
 OPENAI_API_KEY = "sk-proj-..."  # המפתח שלך
 ```
 
+**⚠️ חשוב מאוד:**
+- לאחר הוספת/עדכון Secrets, **חובה** ללחוץ **Save**
+- אז ללחוץ **Reboot app** מהתפריט הראשי (לא מחלון Secrets)
+- המתן 30-60 שניות עד שהאפליקציה עולה מחדש
+
 ### שלב 3: Reboot
 1. לחץ **Save**
 2. לחץ **Reboot app** (מחזור האפליקציה)
@@ -48,7 +53,14 @@ OPENAI_API_KEY = "sk-proj-..."  # המפתח שלך
 ## איך לבדוק שזה עובד?
 
 ### בדיקה מהירה:
-בעמוד הראשי, תראה:
+בעמוד הראשי, **מתחת ל-Data Sources Overview**, תראה:
+```
+⚙️ Config: Universe=20 | Lookback=90d | Smart=True
+```
+
+אם תראה `Universe=50` - **הסביבה לא טעונה נכון!** חזור לשלב 2.
+
+גם תראה בספינרים:
 ```
 🔍 Building stock universe... [צריך להיות מהיר!]
 📊 Fetching historical data for 20 stocks... [לא 50!]
