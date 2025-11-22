@@ -322,6 +322,36 @@ CONFIG = {
     "PERF_FUND_TIMEOUT_FAST": 6,  # Fast mode per-provider future timeout
 }
 
+# -----------------------------------------------------------------
+# Canonical fundamentals schema (numeric + string fields)
+# These fields are used across all provider normalization helpers and
+# the fusion layer. New providers should map into these names only.
+# -----------------------------------------------------------------
+FUND_SCHEMA_FIELDS = [
+    "oper_margin",  # Operating margin
+    "roe",          # Return on Equity
+    "roic",         # Return on Invested Capital
+    "gm",           # Gross Margin
+    "ps",           # Price to Sales
+    "pe",           # Price to Earnings
+    "de",           # Debt to Equity
+    "rev_g_yoy",    # Revenue growth YoY
+    "eps_g_yoy",    # EPS growth YoY
+]
+FUND_STRING_FIELDS = ["sector", "industry"]
+
+# Utility: create empty fundamentals dict for a ticker (all NaN / Unknown)
+def _empty_fund_row() -> dict:
+    out = {f: np.nan for f in FUND_SCHEMA_FIELDS}
+    out["sector"] = "Unknown"
+    out["industry"] = "Unknown"
+    out["_sources"] = {}
+    out["_sources_used"] = []
+    out["Fund_Coverage_Pct"] = 0.0
+    out["fundamentals_available"] = False
+    return out
+
+
 # Load environment variables
 warnings.simplefilter("ignore", FutureWarning)
 
@@ -1370,6 +1400,7 @@ def _fmp_full_bundle_fetch(ticker: str, api_key: str) -> Dict[str, any]:
                 return np.nan
 
         out = {
+            "oper_margin": ffloat(key_metrics, "operatingProfitMargin"),
             "roe": ffloat(key_metrics, "roe"),
             "roic": ffloat(key_metrics, "roic"),
             "gm": ffloat(key_metrics, "grossProfitMargin"),
@@ -1657,6 +1688,161 @@ def _tiingo_fundamentals_fetch(ticker: str) -> Dict[str, any]:
     except Exception as e:
         logger.debug(f"Tiingo fundamentals fetch failed for {ticker}: {e}")
         return {}
+
+# -----------------------------------------------------------------
+# Canonical merge + batch fundamentals fetch
+# -----------------------------------------------------------------
+def merge_fundamentals(provider_map: dict) -> dict:
+    """Merge provider fundamentals into canonical schema with priority.
+
+    provider_map: { provider_label: dict }
+    Priority (highest first): SimFin → Tiingo → FMP → Alpha → Finnhub → EODHD → Marketstack → Nasdaq
+    Fields only filled once; later providers cannot overwrite earlier non-NaN values.
+    """
+    merged = {f: np.nan for f in FUND_SCHEMA_FIELDS}
+    merged["sector"] = "Unknown"
+    merged["industry"] = "Unknown"
+    merged["_sources"] = {}
+    merged["_sources_used"] = []
+
+    priority = [
+        ("simfin", "SimFin"),
+        ("tiingo", "Tiingo"),
+        ("fmp", "FMP"),
+        ("alpha", "Alpha"),
+        ("finnhub", "Finnhub"),
+        ("eodhd", "EODHD"),
+        ("marketstack", "Marketstack"),
+        ("nasdaq", "Nasdaq"),
+    ]
+    for key, label in priority:
+        src = provider_map.get(key) or {}
+        if not isinstance(src, dict) or not src:
+            continue
+        contributed = False
+        for field in FUND_SCHEMA_FIELDS:
+            val = src.get(field, np.nan)
+            if (field not in merged) or (field in merged and np.isnan(merged[field])):
+                if isinstance(val, (int, float)) and np.isfinite(val):
+                    merged[field] = float(val)
+                    merged["_sources"][field] = label
+                    contributed = True
+        for f_str in FUND_STRING_FIELDS:
+            sval = src.get(f_str)
+            if sval and merged[f_str] == "Unknown":
+                merged[f_str] = str(sval)
+                contributed = True
+        if contributed:
+            merged["_sources_used"].append(label)
+
+    finite_count = sum(
+        1 for f in FUND_SCHEMA_FIELDS if isinstance(merged.get(f), (int, float)) and np.isfinite(merged.get(f))
+    )
+    merged["Fund_Coverage_Pct"] = finite_count / float(len(FUND_SCHEMA_FIELDS)) if FUND_SCHEMA_FIELDS else 0.0
+    merged["fundamentals_available"] = finite_count > 0
+    return merged
+
+def _fetch_single_fused(ticker: str, alpha_enabled: bool) -> dict:
+    """Fetch fundamentals from all configured providers for a single ticker and merge.
+    Fully defensive: never raises.
+    """
+    try:
+        prov = {}
+        # SimFin
+        if CONFIG.get("ENABLE_SIMFIN") and _env("SIMFIN_API_KEY"):
+            try:
+                prov["simfin"] = _simfin_fetch(ticker, _env("SIMFIN_API_KEY")) or {}
+            except Exception:
+                prov["simfin"] = {}
+        # Tiingo
+        if CONFIG.get("ENABLE_TIINGO", True):
+            try:
+                prov["tiingo"] = _tiingo_fundamentals_fetch(ticker) or {}
+            except Exception:
+                prov["tiingo"] = {}
+        # FMP (full + legacy sequential throttling)
+        fmp_key = _env("FMP_API_KEY")
+        if fmp_key:
+            try:
+                # Respect minimal interval
+                min_gap = CONFIG.get("FMP_MIN_INTERVAL", 0.6)
+                last_ts = st.session_state.get("_fmp_last_call_ts", 0.0)
+                now_ts = time.time()
+                gap = now_ts - last_ts
+                if gap < min_gap:
+                    time.sleep(min_gap - gap)
+                st.session_state["_fmp_last_call_ts"] = time.time()
+                full = _fmp_full_bundle_fetch(ticker, fmp_key) or {}
+                time.sleep(CONFIG.get("FMP_INTER_CALL_DELAY", 0.8))
+                legacy = _fmp_metrics_fetch(ticker, fmp_key) or {}
+                combo = {**legacy, **full}
+                prov["fmp"] = combo
+            except Exception as e:
+                logger.warning(f"FMP fundamentals failed for {ticker}: {e}")
+                prov["fmp"] = {}
+        # Alpha Vantage (smart)
+        if alpha_enabled:
+            try:
+                prov["alpha"] = _alpha_overview_fetch(ticker) or {}
+            except Exception:
+                prov["alpha"] = {}
+        # Finnhub
+        try:
+            prov["finnhub"] = _finnhub_metrics_fetch(ticker) or {}
+        except Exception:
+            prov["finnhub"] = {}
+        # EODHD
+        ek = _env("EODHD_API_KEY")
+        if ek:
+            try:
+                prov["eodhd"] = _eodhd_fetch_fundamentals(ticker, ek) or {}
+            except Exception:
+                prov["eodhd"] = {}
+        # Marketstack (stub until implemented)
+        if CONFIG.get("ENABLE_MARKETSTACK") and _env("MARKETSTACK_API_KEY"):
+            prov["marketstack"] = {}
+        # Nasdaq (stub; used primarily for sector/industry fallback)
+        if CONFIG.get("ENABLE_NASDAQ_DL") and (_env("NASDAQ_API_KEY") or _env("NASDAQ_DL_API_KEY")):
+            prov["nasdaq"] = {}
+        merged = merge_fundamentals(prov)
+        # Mark provider usage
+        for src_label in merged.get("_sources_used", []):
+            try:
+                mark_provider_usage(src_label, "fundamentals")
+            except Exception:
+                pass
+        merged["Ticker"] = ticker
+        return merged
+    except Exception as e:
+        logger.warning(f"Fundamentals fused fetch catastrophic failure for {ticker}: {e}")
+        m = _empty_fund_row()
+        m["Ticker"] = ticker
+        return m
+
+def fetch_fundamentals_batch(tickers: list, alpha_top_n: int = 15) -> pd.DataFrame:
+    """Batch fundamentals enrichment.
+    Always returns one row per ticker. On total failure returns empty rows with coverage=0.
+    """
+    if not tickers:
+        return pd.DataFrame(columns=["Ticker"] + FUND_SCHEMA_FIELDS + FUND_STRING_FIELDS)
+    rows = []
+    # Parallel per-ticker to avoid one slow provider blocking others
+    max_workers = min(8, max(1, CONFIG.get("FUND_BATCH_MAX_WORKERS", 8)))
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        fut_map = {}
+        for rank, tkr in enumerate(tickers, 1):
+            alpha_enabled = rank <= alpha_top_n and not CONFIG.get("PERF_FAST_MODE")
+            fut_map[ex.submit(_fetch_single_fused, tkr, alpha_enabled)] = tkr
+        for fut in as_completed(fut_map):
+            try:
+                rows.append(fut.result())
+            except Exception:
+                tkr = fut_map[fut]
+                m = _empty_fund_row()
+                m["Ticker"] = tkr
+                rows.append(m)
+    df = pd.DataFrame(rows).set_index("Ticker")
+    return df
 
 
 @st.cache_data(ttl=60 * 60)
@@ -2708,118 +2894,102 @@ if results.empty:
     st.warning("Advanced filters produced empty set even after penalties.")
     st.stop()
 
-# 3d) Fetch Fundamentals for stocks that passed advanced_filters
+# 3d) Batch fundamentals enrichment (decoupled; technical set preserved even if failure)
 if CONFIG["FUNDAMENTAL_ENABLED"] and fundamental_available:
     t0 = t_start()
-    take_k = len(results)  # number to process
-
-    # Create progress bar for fundamentals
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-
-    status_text.text(f"📊 Fetching fundamentals: 0/{take_k} stocks processed...")
-
-    for idx_num, idx in enumerate(results.index, 1):
+    tickers_list = results["Ticker"].tolist()
+    st.write("📊 Fetching fundamentals (batch fusion)…")
+    try:
+        fund_df = fetch_fundamentals_batch(tickers_list, alpha_top_n=15)
+    except Exception as e:
+        logger.warning(
+            f"Fundamentals bundle failed, continuing with technical-only recommendations: {e}"
+        )
+        fund_df = pd.DataFrame(index=pd.Index(tickers_list, name="Ticker"))
+    # Iterate results and enrich
+    for idx in results.index:
         tkr = results.at[idx, "Ticker"]
-        rank = list(results.index).index(idx) + 1  # 1-based rank
-
-        # Update progress
-        progress_bar.progress(idx_num / take_k)
-        status_text.text(
-            f"📊 Fetching fundamentals: {idx_num}/{take_k} - {tkr} (rank #{rank})"
-        )
-
-        # Smart Alpha: enable only for top 15 to respect 25/day rate limit
-        use_alpha = rank <= 15
-        # Fast mode disables Alpha entirely to avoid throttle sleeps
-        if CONFIG.get("PERF_FAST_MODE"):
-            use_alpha = False
-        d = fetch_fundamentals_bundle(tkr, enable_alpha_smart=use_alpha)
-
-        # DEBUG: Log FMP data quality for key tickers (transparency check)
-        if tkr in ["AAPL", "GOOGL", "MSFT", "NVDA", "TSLA", "META", "AMZN", "JPM", "V"]:
-            fmp_ok = d.get("from_fmp", False) or d.get("from_fmp_full", False)
-            coverage = d.get("Fund_Coverage_Pct", 0.0)
-            quality_f = d.get("Quality_Score_F", np.nan)
-            roe = d.get("roe", np.nan)
-            quality_str = f"{quality_f:.1f}" if np.isfinite(quality_f) else "NaN"
-            logger.info(
-                f"🔍 {tkr} FMP Debug: from_fmp={fmp_ok}, coverage={coverage:.0%}, "
-                f"roe={roe}, quality_score_f={quality_str}"
-            )
-
-        # Store provider metadata
-        results.loc[idx, "Fund_from_FMP"] = d.get("from_fmp", False) or d.get(
-            "from_fmp_full", False
-        )
-        results.loc[idx, "Fund_from_Alpha"] = d.get("from_alpha", False)
-        results.loc[idx, "Fund_from_Finnhub"] = d.get("from_finnhub", False)
-        results.loc[idx, "Fund_from_SimFin"] = d.get("from_simfin", False)
-        results.loc[idx, "Fund_from_EODHD"] = d.get("from_eodhd", False)
-        # Also store canonical per-provider boolean flags (used later for reliability calculation)
-        for _flag in [
-            "from_fmp_full",
-            "from_fmp",
-            "from_alpha",
-            "from_finnhub",
-            "from_simfin",
-            "from_eodhd",
-            "from_tiingo",
-        ]:
-            results.loc[idx, _flag] = bool(d.get(_flag, False))
-
-        # Get detailed breakdown using new function
-        fund_result = compute_fundamental_score_with_breakdown(d)
-        results.loc[idx, "Fundamental_S"] = round(fund_result.total, 1)
-
-        # Store breakdown scores and labels
-        results.loc[idx, "Quality_Score_F"] = round(
-            fund_result.breakdown.quality_score, 1
-        )
-        results.loc[idx, "Quality_Label"] = fund_result.breakdown.quality_label
-        results.loc[idx, "Growth_Score_F"] = round(
-            fund_result.breakdown.growth_score, 1
-        )
-        results.loc[idx, "Growth_Label"] = fund_result.breakdown.growth_label
-        results.loc[idx, "Valuation_Score_F"] = round(
-            fund_result.breakdown.valuation_score, 1
-        )
-        results.loc[idx, "Valuation_Label"] = fund_result.breakdown.valuation_label
-        results.loc[idx, "Leverage_Score_F"] = round(
-            fund_result.breakdown.leverage_score, 1
-        )
-        results.loc[idx, "Leverage_Label"] = fund_result.breakdown.leverage_label
-
-        # Store provider attribution for transparency
-        sources_dict = d.get("_sources", {})
+        row = {}
+        if tkr in fund_df.index:
+            try:
+                row = fund_df.loc[tkr].to_dict()
+            except Exception:
+                row = {}
+        if not row:
+            row = _empty_fund_row()
+        # Provider flags
+        sources_used = row.get("_sources_used", []) or []
+        results.loc[idx, "Fund_from_FMP"] = "FMP" in sources_used
+        results.loc[idx, "Fund_from_Alpha"] = "Alpha" in sources_used
+        results.loc[idx, "Fund_from_Finnhub"] = "Finnhub" in sources_used
+        results.loc[idx, "Fund_from_SimFin"] = "SimFin" in sources_used
+        results.loc[idx, "Fund_from_EODHD"] = "EODHD" in sources_used
+        results.loc[idx, "Fund_from_Tiingo"] = "Tiingo" in sources_used
+        # Legacy flag columns (maintain compatibility with reliability logic)
+        results.loc[idx, "from_fmp_full"] = "FMP" in sources_used
+        results.loc[idx, "from_fmp"] = "FMP" in sources_used
+        results.loc[idx, "from_alpha"] = "Alpha" in sources_used
+        results.loc[idx, "from_finnhub"] = "Finnhub" in sources_used
+        results.loc[idx, "from_simfin"] = "SimFin" in sources_used
+        results.loc[idx, "from_eodhd"] = "EODHD" in sources_used
+        results.loc[idx, "from_tiingo"] = "Tiingo" in sources_used
+        # Raw metrics (canonical)
+        results.loc[idx, "PE_f"] = row.get("pe", np.nan)
+        results.loc[idx, "PS_f"] = row.get("ps", np.nan)
+        results.loc[idx, "ROE_f"] = row.get("roe", np.nan)
+        results.loc[idx, "ROIC_f"] = row.get("roic", np.nan)
+        results.loc[idx, "GM_f"] = row.get("gm", np.nan)
+        results.loc[idx, "DE_f"] = row.get("de", np.nan)
+        results.loc[idx, "RevG_f"] = row.get("rev_g_yoy", np.nan)
+        results.loc[idx, "EPSG_f"] = row.get("eps_g_yoy", np.nan)
+        results.loc[idx, "Sector"] = row.get("sector") or "Unknown"
+        # Attribution string
+        sources_dict = row.get("_sources", {}) or {}
         if sources_dict:
-            # Build attribution string: "ROE: FMP | GM: SimFin | PE: Finnhub"
-            attrs = [
-                f"{k.upper()}: {v}" for k, v in sources_dict.items() if k != "sector"
-            ]
-            results.loc[idx, "Fund_Attribution"] = (
-                " | ".join(attrs[:5]) if attrs else ""
-            )  # Limit to 5 for readability
+            attrs = [f"{k.upper()}: {v}" for k, v in sources_dict.items() if k in FUND_SCHEMA_FIELDS]
+            results.loc[idx, "Fund_Attribution"] = " | ".join(attrs[:5])
         else:
             results.loc[idx, "Fund_Attribution"] = ""
-
-        # Store raw metrics
-        results.loc[idx, "PE_f"] = d.get("pe", np.nan)
-        results.loc[idx, "PS_f"] = d.get("ps", np.nan)
-        results.loc[idx, "ROE_f"] = d.get("roe", np.nan)
-        results.loc[idx, "ROIC_f"] = d.get("roic", np.nan)
-        results.loc[idx, "GM_f"] = d.get("gm", np.nan)
-        results.loc[idx, "DE_f"] = d.get("de", np.nan)
-        results.loc[idx, "RevG_f"] = d.get("rev_g_yoy", np.nan)
-        results.loc[idx, "EPSG_f"] = d.get("eps_g_yoy", np.nan)
-        results.loc[idx, "Sector"] = d.get("sector") or "Unknown"
-
-    # Clear progress indicators
-    progress_bar.empty()
-    status_text.empty()
-
+        # Fundamental score breakdown
+        fund_result = compute_fundamental_score_with_breakdown(row)
+        results.loc[idx, "Fundamental_S"] = round(fund_result.total, 1)
+        results.loc[idx, "Quality_Score_F"] = round(fund_result.breakdown.quality_score, 1)
+        results.loc[idx, "Quality_Label"] = fund_result.breakdown.quality_label
+        results.loc[idx, "Growth_Score_F"] = round(fund_result.breakdown.growth_score, 1)
+        results.loc[idx, "Growth_Label"] = fund_result.breakdown.growth_label
+        results.loc[idx, "Valuation_Score_F"] = round(fund_result.breakdown.valuation_score, 1)
+        results.loc[idx, "Valuation_Label"] = fund_result.breakdown.valuation_label
+        results.loc[idx, "Leverage_Score_F"] = round(fund_result.breakdown.leverage_score, 1)
+        results.loc[idx, "Leverage_Label"] = fund_result.breakdown.leverage_label
+        results.loc[idx, "Fund_Coverage_Pct"] = row.get("Fund_Coverage_Pct", 0.0)
+        results.loc[idx, "fundamentals_available"] = bool(row.get("fundamentals_available", False))
     phase_times["fundamentals_v2"] = t_end(t0)
-    st.write(f"✅ Fundamentals loaded: {take_k} stocks enriched")
+    st.write(f"✅ Fundamentals enrichment completed: {len(results)} stocks processed")
+    try:
+        # Light debug sample (first 2 tickers) showing coverage & sources
+        sample_tickers = tickers_list[:2]
+        sample_rows = []
+        for tkr in sample_tickers:
+            if tkr in fund_df.index:
+                r = fund_df.loc[tkr]
+                sample_rows.append(
+                    {
+                        "Ticker": tkr,
+                        "Fund_Coverage_Pct": r.get("Fund_Coverage_Pct"),
+                        "Sources": ",".join(r.get("_sources_used", [])),
+                    }
+                )
+        if sample_rows:
+            st.write("🔎 Fundamentals sample:")
+            st.dataframe(pd.DataFrame(sample_rows))
+    except Exception:
+        pass
+else:
+    # Even if disabled still ensure columns exist for downstream reliability logic
+    if "fundamentals_available" not in results.columns:
+        results["fundamentals_available"] = False
+    if "Fund_Coverage_Pct" not in results.columns:
+        results["Fund_Coverage_Pct"] = 0.0
 
 _advance_stage("Fundamentals")
 
