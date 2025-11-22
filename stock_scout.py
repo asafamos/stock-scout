@@ -2159,9 +2159,9 @@ Then reboot the app.
 The pipeline will continue with technical-only scoring.
 """
     )
-elif alpha_ok is False and finn_ok is True:
+elif not alpha_ok and finn_ok:
     st.warning(
-        "Alpha Vantage unavailable (rate limits or config) – falling back to Finnhub and other providers."
+        "⚠️ Alpha Vantage unavailable (rate limits or config) – falling back to Finnhub and other providers. Recommendations will still be generated."
     )
 
 ###############################
@@ -2993,8 +2993,8 @@ if CONFIG["FUNDAMENTAL_ENABLED"] and fundamental_available:
                     }
                 )
         if sample_rows:
-            st.write("🔎 Fundamentals sample:")
-            st.dataframe(pd.DataFrame(sample_rows))
+            with st.expander("🔧 Developer debug: fundamentals sample", expanded=False):
+                st.dataframe(pd.DataFrame(sample_rows))
     except Exception:
         pass
 else:
@@ -3721,12 +3721,15 @@ if results.empty:
 
 # Show results count with guidance
 results_count = len(results)
-core_count_final = len(results[results["Risk_Level"] == "core"])
-spec_count_final = len(results[results["Risk_Level"] == "speculative"])
+core_count_final = len(results[results["Risk_Level"] == "core"]) if not results.empty else 0
+spec_count_final = len(results[results["Risk_Level"] == "speculative"]) if not results.empty else 0
 
-st.success(
-    f"✅ **Final recommendations:** {core_count_final} 🛡️ Core + {spec_count_final} ⚡ Speculative = {results_count} total"
-)
+if results_count == 0:
+    st.info("ℹ️ No recommendations for the current configuration and universe. Try relaxing filters or expanding the universe limit.")
+else:
+    st.success(
+        f"✅ **Final recommendations:** {core_count_final} 🛡️ Core + {spec_count_final} ⚡ Speculative = {results_count} total"
+    )
 _advance_stage("Risk Classification")
 
 # Updated targets: aim for balanced mix
@@ -4513,15 +4516,16 @@ else:
 
 # DEBUG: surface counts before card rendering to diagnose empty UI issues
 try:
-    st.caption(
-        f"🔎 Debug — rec_df={len(rec_df)} results={len(results)} columns={list(rec_df.columns)[:12]}"
-    )
-    if "risk_gate_status_v2" in results.columns:
-        gate_counts = results["risk_gate_status_v2"].value_counts().to_dict()
-        st.caption(f"🔎 Gate distribution: {gate_counts}")
-    if "buy_amount_v2" in results.columns:
-        pos_buy = int((results["buy_amount_v2"].fillna(0) > 0).sum())
-        st.caption(f"🔎 Positive buy_amount_v2: {pos_buy}/{len(results)}")
+    with st.expander("🔧 Developer debug: recommendation internals", expanded=False):
+        st.caption(
+            f"🔎 Debug — rec_df={len(rec_df)} results={len(results)} columns={list(rec_df.columns)[:12]}"
+        )
+        if "risk_gate_status_v2" in results.columns:
+            gate_counts = results["risk_gate_status_v2"].value_counts().to_dict()
+            st.caption(f"🔎 Gate distribution: {gate_counts}")
+        if "buy_amount_v2" in results.columns:
+            pos_buy = int((results["buy_amount_v2"].fillna(0) > 0).sum())
+            st.caption(f"🔎 Positive buy_amount_v2: {pos_buy}/{len(results)}")
 except Exception:
     pass
 
