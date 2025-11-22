@@ -2134,41 +2134,35 @@ eodhd_key = (
     else None
 )
 
-# Critical API keys check (show prominent warning if missing)
+# Critical API keys check (non-blocking). We only consider it critical if NEITHER Alpha nor Finnhub works.
 missing_critical = []
-if not alpha_ok:
-    missing_critical.append("ALPHA_VANTAGE_API_KEY")
-if not finn_ok:
-    missing_critical.append("FINNHUB_API_KEY")
+if not (alpha_ok or finn_ok):
+    missing_critical.append("ALPHA_VANTAGE_API_KEY or FINNHUB_API_KEY")
 
 if missing_critical:
     st.error(
         f"""
 🚨 **CRITICAL: Missing API Keys**
 
-The following required keys are not configured:
+At least one of the following is required for fundamentals:
 {', '.join(f'`{k}`' for k in missing_critical)}
 
-**For Streamlit Cloud deployment:**
-1. Go to Settings → Secrets
-2. Add keys in TOML format (flat structure, no sections):
-   ```
-   ALPHA_VANTAGE_API_KEY = "YOUR_KEY"
-   FINNHUB_API_KEY = "YOUR_KEY"
-   ```
-3. Reboot the app
+**Streamlit Cloud:** Add either Alpha Vantage or Finnhub key (or both) under Settings → Secrets:
+```
+ALPHA_VANTAGE_API_KEY = "YOUR_KEY"
+FINNHUB_API_KEY = "YOUR_KEY"
+```
+Then reboot the app.
 
-**For local development:**
-- Create `.env` file with keys
-- Ensure `load_dotenv()` is called
+**Local:** Put keys in `.env` and ensure `load_dotenv()` runs.
 
-See `DEPLOYMENT_FIX.md` for detailed instructions.
+The pipeline will continue with technical-only scoring.
 """
     )
-    if not (alpha_ok or finn_ok):
-        st.warning(
-            "⚠️ App will not function properly without at least Alpha Vantage OR Finnhub keys."
-        )
+elif alpha_ok is False and finn_ok is True:
+    st.warning(
+        "Alpha Vantage unavailable (rate limits or config) – falling back to Finnhub and other providers."
+    )
 
 ###############################
 # Data Sources Usage & Keys Table (improved)
@@ -2656,9 +2650,9 @@ _advance_stage("Technical")
 
 if results.empty:
     st.warning(
-        "No results after filtering. Filters may be too strict for the current universe."
+        "No stocks passed initial technical scoring. Showing empty recommendation section (adjust filters/universe)."
     )
-    st.stop()
+    # Do NOT stop; allow later stages to render graceful empty state.
 sort_col = "Final_Score" if "Final_Score" in results.columns else "Score_Tech"
 results = results.sort_values(
     [sort_col, "Ticker"], ascending=[False, True]
@@ -2723,9 +2717,13 @@ if CONFIG["EARNINGS_BLACKOUT_DAYS"] > 0:
     results = results[keep_mask].reset_index(drop=True)
     if results.empty:
         st.warning(
-            "All top-K candidates were excluded due to the earnings blackout window."
+            "All top-K candidates excluded by earnings blackout window – relaxing blackout for display fallback."
         )
-        st.stop()
+        # Fallback: restore original pre-blackout set (keep original rows variable if available)
+        try:
+            results = pd.DataFrame(rows) if 'rows' in locals() else results
+        except Exception:
+            pass
 
 # 3b) Beta filter
 if CONFIG["BETA_FILTER_ENABLED"]:
@@ -2902,8 +2900,12 @@ st.write(f"✅ Advanced filters completed: {len(results)} stocks passed")
 _advance_stage("Advanced Filters")
 
 if results.empty:
-    st.warning("Advanced filters produced empty set even after penalties.")
-    st.stop()
+    st.warning("Advanced filters eliminated all stocks – using pre-advanced technical results as fallback.")
+    try:
+        results = pd.DataFrame(rows) if 'rows' in locals() else results
+    except Exception:
+        pass
+    # If still empty, we let later stages handle empty gracefully.
 
 # 3d) Batch fundamentals enrichment (decoupled; technical set preserved even if failure)
 if CONFIG["FUNDAMENTAL_ENABLED"] and fundamental_available:
@@ -3714,18 +3716,8 @@ if not results.empty:
 phase_times["risk_quality_classification"] = t_end(t0)
 
 if results.empty:
-    st.error("❌ **All stocks were filtered out!**")
-    st.write("**Possible reasons:**")
-    st.write("- 🔴 Core stocks failed technical filters (RSI, ATR, Overextension)")
-    st.write(
-        "- 🔴 Speculative stocks failed relaxed filters (extremely high volatility)"
-    )
-    st.write("- 🔴 Data quality too low (missing critical metrics)")
-    st.write(
-        f"- 🔴 Consider relaxing CONFIG: MIN_QUALITY_SCORE_CORE={CONFIG.get('MIN_QUALITY_SCORE_CORE', 25.0)}, "
-        f"MAX_ATR_PRICE_CORE={CONFIG.get('MAX_ATR_PRICE_CORE', 0.06)}"
-    )
-    st.stop()
+    st.warning("All stocks filtered out during risk/quality classification – rendering empty recommendations (adjust filters or universe).")
+    # Do not stop; downstream sections will show graceful empty state.
 
 # Show results count with guidance
 results_count = len(results)
