@@ -1817,12 +1817,14 @@ with st.spinner("🔍 Building stock universe..."):
         else build_universe(limit=200)
     )
 phase_times["build_universe"] = t_end(t0)
+st.write(f"✅ Universe built: {len(universe)} tickers")
 
 # 2) History
 t0 = t_start()
 with st.spinner(f"📊 Fetching historical data for {len(universe)} stocks..."):
     data_map = fetch_history_bulk(universe, CONFIG["LOOKBACK_DAYS"], CONFIG["MA_LONG"])
 phase_times["fetch_history"] = t_end(t0)
+st.write(f"✅ History fetched: {len(data_map)} stocks with data")
 
 # 3) Technical score + hard filters
 t0 = t_start()
@@ -2023,6 +2025,8 @@ with st.spinner(f"📈 Computing technical indicators for {len(data_map)} stocks
 
 results = pd.DataFrame(rows)
 phase_times["calc_score_technical"] = t_end(t0)
+st.write(f"✅ Technical indicators computed: {len(results)} stocks scored")
+
 if results.empty:
     st.warning("No results after filtering. Filters may be too strict for the current universe.")
     st.stop()
@@ -2098,6 +2102,7 @@ if CONFIG["BETA_FILTER_ENABLED"]:
         )
     ].reset_index(drop=True)
     phase_times["beta_filter"] = t_end(t0)
+    st.write(f"✅ Beta filter completed: {len(results)} stocks passed")
 
 # 3c) Advanced Filters (dynamic penalty approach)
 t0 = t_start()
@@ -2228,6 +2233,7 @@ if catastrophic_count > 0 and catastrophic_count < len(signals_store):
 # Sort after applying removals
 results = results.sort_values(["Score", "Ticker"], ascending=[False, True]).reset_index(drop=True)
 phase_times["advanced_filters"] = t_end(t0)
+st.write(f"✅ Advanced filters completed: {len(results)} stocks passed")
 
 if results.empty:
     st.warning("Advanced filters produced empty set even after penalties.")
@@ -2450,6 +2456,7 @@ if "reliability_v2" not in results.columns or results["reliability_v2"].isna().a
     ).reset_index(drop=True)
     phase_times["fundamentals_alpha_finnhub"] = t_end(t0)
     logger.info(f"✓ Scored {take_k} stocks with V2-enhanced conviction")
+    st.write(f"✅ Fundamentals + V2 scoring completed: {len(results)} stocks scored")
 
     # Ensure canonical V2 column aliases exist for UI/CSV and enforce blocked zeros
     # Map rr -> reward_risk_v2, reliability -> reliability_score_v2
