@@ -1628,6 +1628,17 @@ RELAXED_MODE = st.checkbox(
     value=False,
     help="When enabled, speculative/relaxed filters are preferred; ML still applies but filters are looser.",
 )
+
+# Fast mode toggle: skip slow API providers for quick results
+FAST_MODE = st.checkbox(
+    "⚡ Fast Mode — skip slow providers (2-3x faster)",
+    value=False,
+    help="Skip Alpha Vantage and Tiingo to avoid rate limiting. Uses FMP + Finnhub only for fundamentals. Recommended for quick scans.",
+)
+if FAST_MODE:
+    CONFIG["PERF_FAST_MODE"] = True
+    st.info("⚡ Fast Mode: Skipping Alpha Vantage and Tiingo (2-3x faster)")
+
 # Debug UI only toggle (skip heavy pipeline to isolate recommendation rendering issues)
 DEBUG_SKIP_PIPELINE = st.checkbox(
     "🧪 Debug: Skip data pipeline (show dummy cards)",
@@ -1855,18 +1866,26 @@ st.write(f"✅ History fetched: {len(data_map)} stocks with data")
 
 # 3) Technical score + hard filters
 t0 = t_start()
-with st.spinner(f"📈 Computing technical indicators for {len(data_map)} stocks..."):
-    W = CONFIG["WEIGHTS"]
+progress_bar = st.progress(0)
+status_text = st.empty()
+status_text.text(f"📈 Computing technical indicators: 0/{len(data_map)} stocks...")
+
+W = CONFIG["WEIGHTS"]
 
 
-    W = _normalize_weights(W)
+W = _normalize_weights(W)
 
-    rows: List[dict] = []
-    lo_rsi, hi_rsi = CONFIG["RSI_BOUNDS"]
+rows: List[dict] = []
+lo_rsi, hi_rsi = CONFIG["RSI_BOUNDS"]
 
-    for tkr, df in data_map.items():
-        # Skip invalid history
-        if df is None or df.empty:
+for idx_num, (tkr, df) in enumerate(data_map.items(), 1):
+    # Update progress
+    if idx_num % 5 == 0 or idx_num == len(data_map):  # Update every 5 stocks
+        progress_bar.progress(idx_num / len(data_map))
+        status_text.text(f"📈 Computing technical indicators: {idx_num}/{len(data_map)} - {tkr}")
+    
+    # Skip invalid history
+    if df is None or df.empty:
             continue
         df = df.copy()
         # Core rolling indicators
@@ -2050,9 +2069,13 @@ with st.spinner(f"📈 Computing technical indicators for {len(data_map)} stocks
 
     # end for loop
 
+# Clear progress indicators
+progress_bar.empty()
+status_text.empty()
+
 results = pd.DataFrame(rows)
 phase_times["calc_score_technical"] = t_end(t0)
-st.write(f"✅ Technical indicators computed: {len(results)} stocks scored")
+st.success(f"✅ Technical indicators computed: {len(results)} stocks scored in {phase_times['calc_score_technical']:.1f}s")
 
 if results.empty:
     st.warning("No results after filtering. Filters may be too strict for the current universe.")
@@ -2270,11 +2293,22 @@ if results.empty:
 if CONFIG["FUNDAMENTAL_ENABLED"] and fundamental_available:
     t0 = t_start()
     take_k = len(results)  # number to process
-    with st.spinner(f"📊 Fetching fundamentals for {take_k} stocks..."):
-        for idx in results.index:
-            tkr = results.at[idx, "Ticker"]
-            rank = list(results.index).index(idx) + 1  # 1-based rank
-            # Smart Alpha: enable only for top 15 to respect 25/day rate limit
+    
+    # Create progress bar for fundamentals
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    status_text.text(f"📊 Fetching fundamentals: 0/{take_k} stocks processed...")
+    
+    for idx_num, idx in enumerate(results.index, 1):
+        tkr = results.at[idx, "Ticker"]
+        rank = list(results.index).index(idx) + 1  # 1-based rank
+        
+        # Update progress
+        progress_bar.progress(idx_num / take_k)
+        status_text.text(f"📊 Fetching fundamentals: {idx_num}/{take_k} - {tkr} (rank #{rank})")
+        
+        # Smart Alpha: enable only for top 15 to respect 25/day rate limit
         use_alpha = (rank <= 15)
         # Fast mode disables Alpha entirely to avoid throttle sleeps
         if CONFIG.get("PERF_FAST_MODE"):
@@ -2478,12 +2512,16 @@ if "reliability_v2" not in results.columns or results["reliability_v2"].isna().a
     logger.info(f"  - Reduced: {len(results[results['risk_gate_status_v2'] == 'reduced'])} stocks")
     logger.info(f"  - Full allocation: {len(results[results['risk_gate_status_v2'] == 'full'])} stocks")
     
+    # Clear progress indicators
+    progress_bar.empty()
+    status_text.empty()
+    
     results = results.sort_values(
         ["Score", "Ticker"], ascending=[False, True]
     ).reset_index(drop=True)
     phase_times["fundamentals_alpha_finnhub"] = t_end(t0)
     logger.info(f"✓ Scored {take_k} stocks with V2-enhanced conviction")
-    st.write(f"✅ Fundamentals + V2 scoring completed: {len(results)} stocks scored")
+    st.success(f"✅ Fundamentals + V2 scoring completed: {len(results)} stocks scored in {phase_times['fundamentals_alpha_finnhub']:.1f}s")
 
     # Ensure canonical V2 column aliases exist for UI/CSV and enforce blocked zeros
     # Map rr -> reward_risk_v2, reliability -> reliability_score_v2
