@@ -1883,16 +1883,16 @@ with st.spinner("🔍 Building stock universe..."):
         else build_universe(limit=200)
     )
 phase_times["build_universe"] = t_end(t0)
-    st.write(f"✅ Universe built: {len(universe)} tickers")
-    _advance_stage('Universe')
+st.write(f"✅ Universe built: {len(universe)} tickers")
+_advance_stage('Universe')
 
 # 2) History
 t0 = t_start()
 with st.spinner(f"📊 Fetching historical data for {len(universe)} stocks..."):
     data_map = fetch_history_bulk(universe, CONFIG["LOOKBACK_DAYS"], CONFIG["MA_LONG"])
 phase_times["fetch_history"] = t_end(t0)
-    st.write(f"✅ History fetched: {len(data_map)} stocks with data")
-    _advance_stage('History')
+st.write(f"✅ History fetched: {len(data_map)} stocks with data")
+_advance_stage('History')
 
 # 3) Technical score + hard filters
 t0 = t_start()
@@ -2106,8 +2106,8 @@ status_text.empty()
 
 results = pd.DataFrame(rows)
 phase_times["calc_score_technical"] = t_end(t0)
-    st.success(f"✅ Technical indicators computed: {len(results)} stocks scored in {phase_times['calc_score_technical']:.1f}s")
-    _advance_stage('Technical')
+st.success(f"✅ Technical indicators computed: {len(results)} stocks scored in {phase_times['calc_score_technical']:.1f}s")
+_advance_stage('Technical')
 
 if results.empty:
     st.warning("No results after filtering. Filters may be too strict for the current universe.")
@@ -2143,6 +2143,10 @@ if CONFIG["FUNDAMENTAL_ENABLED"] and fundamental_available:
     results["Score"] = results.get('Final_Score', results["Score_Tech"])  # unified final score or fallback
 else:
     results["Score"] = results.get('Final_Score', results["Score_Tech"])
+
+if CONFIG["FUNDAMENTAL_ENABLED"] and not fundamental_available:
+    st.warning("Fundamentals skipped – no provider connectivity (Alpha/Finnhub/FMP/SimFin/EODHD).")
+_advance_stage('Fundamentals')
 
 # Earnings blackout
 if CONFIG["EARNINGS_BLACKOUT_DAYS"] > 0:
@@ -2185,7 +2189,7 @@ if CONFIG["BETA_FILTER_ENABLED"]:
     ].reset_index(drop=True)
     phase_times["beta_filter"] = t_end(t0)
     st.write(f"✅ Beta filter completed: {len(results)} stocks passed")
-    _advance_stage('Beta Filter')
+_advance_stage('Beta Filter')
 
 # 3c) Advanced Filters (dynamic penalty approach)
 t0 = t_start()
@@ -2316,11 +2320,8 @@ if catastrophic_count > 0 and catastrophic_count < len(signals_store):
 # Sort after applying removals
 results = results.sort_values(["Score", "Ticker"], ascending=[False, True]).reset_index(drop=True)
 phase_times["advanced_filters"] = t_end(t0)
-    st.write(f"✅ Advanced filters completed: {len(results)} stocks passed")
-    _advance_stage('Advanced Filters')
-    if CONFIG["FUNDAMENTAL_ENABLED"] and not fundamental_available:
-        st.warning("Fundamentals skipped – no provider connectivity (Alpha/Finnhub/FMP/SimFin/EODHD).")
-        _advance_stage('Fundamentals')
+st.write(f"✅ Advanced filters completed: {len(results)} stocks passed")
+_advance_stage('Advanced Filters')
 
 if results.empty:
     st.warning("Advanced filters produced empty set even after penalties.")
@@ -2985,7 +2986,7 @@ core_count_final = len(results[results["Risk_Level"] == "core"])
 spec_count_final = len(results[results["Risk_Level"] == "speculative"])
 
 st.success(f"✅ **Final recommendations:** {core_count_final} 🛡️ Core + {spec_count_final} ⚡ Speculative = {results_count} total")
-    _advance_stage('Risk Classification')
+_advance_stage('Risk Classification')
 
 # Updated targets: aim for balanced mix
 target_min = CONFIG.get("TARGET_RECOMMENDATIONS_MIN", 5)
