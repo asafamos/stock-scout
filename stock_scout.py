@@ -349,24 +349,31 @@ def assign_confidence_tier(prob: float) -> str:
 # ==================== Environment helper ====================
 def _env(key: str) -> Optional[str]:
     """Get environment variable or Streamlit secret (supports nested sections)."""
-    # Try Streamlit secrets with nested sections
+    # Try Streamlit secrets first (Cloud deployment)
     try:
         if hasattr(st, 'secrets'):
-            secrets_obj = st.secrets
-            # direct top-level
-            if isinstance(secrets_obj, dict) and key in secrets_obj:
-                return secrets_obj[key]
-            # common nested containers
+            # Try direct access (top-level key)
+            try:
+                val = st.secrets[key]
+                if val:  # Ensure it's not empty
+                    return str(val)
+            except (KeyError, FileNotFoundError):
+                pass
+            
+            # Try nested sections (api_keys, keys, secrets, tokens)
             for section in ("api_keys", "keys", "secrets", "tokens"):
                 try:
-                    container = secrets_obj.get(section) if hasattr(secrets_obj, 'get') else secrets_obj[section]
-                    if isinstance(container, dict) and key in container:
-                        return container[key]
-                except Exception:
+                    val = st.secrets[section][key]
+                    if val:
+                        return str(val)
+                except (KeyError, FileNotFoundError, AttributeError):
                     continue
-    except Exception:
-        pass
-    # Fallback to environment
+    except Exception as e:
+        # Log for debugging in cloud
+        if hasattr(st, 'warning'):
+            st.warning(f"⚠️ Secret access error for {key}: {e}")
+    
+    # Fallback to environment variable (local .env)
     return os.getenv(key)
 
 
@@ -1389,35 +1396,30 @@ def _tiingo_fundamentals_fetch(ticker: str) -> Dict[str, any]:
 
 @st.cache_data(ttl=60 * 60)
 @st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=6*3600, show_spinner=False)
 def fetch_beta_vs_benchmark(ticker: str, bench: str = "SPY", days: int = 252) -> float:
     """Calculate beta with timeout protection and caching."""
     try:
-        import signal
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
         
-        def timeout_handler(signum, frame):
-            raise TimeoutError("Beta calculation timed out")
+        def _download_both():
+            end = datetime.utcnow()
+            start = end - timedelta(days=days + 30)
+            df_t = yf.download(
+                ticker, start=start, end=end, auto_adjust=True, progress=False, timeout=8
+            )
+            df_b = yf.download(
+                bench, start=start, end=end, auto_adjust=True, progress=False, timeout=8
+            )
+            return df_t, df_b
         
-        # Set 10 second timeout (only works on Unix)
-        try:
-            signal.signal(signal.SIGALRM, timeout_handler)
-            signal.alarm(10)
-        except (AttributeError, ValueError):
-            pass  # Windows doesn't support SIGALRM
-        
-        end = datetime.utcnow()
-        start = end - timedelta(days=days + 30)
-        df_t = yf.download(
-            ticker, start=start, end=end, auto_adjust=True, progress=False, timeout=8
-        )
-        df_b = yf.download(
-            bench, start=start, end=end, auto_adjust=True, progress=False, timeout=8
-        )
-        
-        # Cancel alarm
-        try:
-            signal.alarm(0)
-        except (AttributeError, ValueError):
-            pass
+        # Use ThreadPoolExecutor for timeout (works on all platforms)
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_download_both)
+            try:
+                df_t, df_b = future.result(timeout=10)
+            except FuturesTimeoutError:
+                return np.nan
         
         if df_t.empty or df_b.empty:
             return np.nan

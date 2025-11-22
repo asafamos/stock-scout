@@ -7,7 +7,7 @@ import os
 import sys
 
 # Override environment variables to match GitHub deployment
-os.environ['UNIVERSE_LIMIT'] = '20'
+os.environ['UNIVERSE_LIMIT'] = '40'
 os.environ['LOOKBACK_DAYS'] = '90'
 os.environ['SMART_SCAN'] = 'true'
 os.environ['TOPK_RECOMMEND'] = '5'
@@ -38,8 +38,8 @@ print()
 
 # Verify values match
 issues = []
-if cfg.universe_limit != 20:
-    issues.append(f"❌ UNIVERSE_LIMIT should be 20, got {cfg.universe_limit}")
+if cfg.universe_limit != 40:
+    issues.append(f"❌ UNIVERSE_LIMIT should be 40, got {cfg.universe_limit}")
 if cfg.lookback_days != 90:
     issues.append(f"❌ LOOKBACK_DAYS should be 90, got {cfg.lookback_days}")
 if cfg.smart_scan != True:
@@ -62,7 +62,8 @@ else:
     print("   streamlit run stock_scout.py")
     print()
     print("Expected behavior:")
-    print("   • Should scan exactly 20 stocks (not 50)")
-    print("   • Should complete in 30-60 seconds")
-    print("   • Should show: Config: Universe=20 | Lookback=90d | Smart=True")
+    print("   • Should scan exactly 40 stocks (balanced)")
+    print("   • Should complete in 60-90 seconds")
+    print("   • Should produce 3-5+ recommendations")
+    print("   • Should show: Config: Universe=40 | Lookback=90d | Smart=True")
     sys.exit(0)

@@ -23,7 +23,7 @@ stock-scout-fm4iuuknxjwjbcg95inbcj.streamlit.app
 
 ### 4️⃣ הוסף את השורות האלו (העתק הכל):
 ```toml
-UNIVERSE_LIMIT = "20"
+UNIVERSE_LIMIT = "40"
 LOOKBACK_DAYS = "90"
 SMART_SCAN = "true"
 TOPK_RECOMMEND = "5"
@@ -40,7 +40,7 @@ TOPK_RECOMMEND = "5"
 ### בדיקה 1: הודעת Config
 מתחת ל-"Data Sources Overview" תראה:
 ```
-⚙️ Config: Universe=20 | Lookback=90d | Smart=True
+⚙️ Config: Universe=40 | Lookback=90d | Smart=True
 ```
 
 **אם תראה `Universe=50`** → חזור לשלב 3 ווודא ש-Secrets נשמרו!
@@ -48,13 +48,13 @@ TOPK_RECOMMEND = "5"
 ### בדיקה 2: מספר מניות
 בספינר תראה:
 ```
-📊 Fetching historical data for 20 stocks...
+📊 Fetching historical data for 40 stocks...
 ```
 
 **אם תראה 50** → ה-Secrets לא נקראו נכון!
 
 ### בדיקה 3: זמן עיבוד
-האפליקציה צריכה לסיים תוך **30-60 שניות** (לא יותר!)
+האפליקציה צריכה לסיים תוך **60-90 שניות** (לא יותר!)
 
 ### בדיקה 4: יש המלצות
 בסוף תראה לפחות **1-5 המלצות**.

@@ -19,7 +19,7 @@
 
 ```toml
 # Performance Settings - חובה להוסיף!
-UNIVERSE_LIMIT = "20"
+UNIVERSE_LIMIT = "40"
 LOOKBACK_DAYS = "90"
 SMART_SCAN = "true"
 TOPK_RECOMMEND = "5"
@@ -55,7 +55,7 @@ OPENAI_API_KEY = "sk-proj-..."  # המפתח שלך
 ### בדיקה מהירה:
 בעמוד הראשי, **מתחת ל-Data Sources Overview**, תראה:
 ```
-⚙️ Config: Universe=20 | Lookback=90d | Smart=True
+⚙️ Config: Universe=40 | Lookback=90d | Smart=True
 ```
 
 אם תראה `Universe=50` - **הסביבה לא טעונה נכון!** חזור לשלב 2.
@@ -63,7 +63,7 @@ OPENAI_API_KEY = "sk-proj-..."  # המפתח שלך
 גם תראה בספינרים:
 ```
 🔍 Building stock universe... [צריך להיות מהיר!]
-📊 Fetching historical data for 20 stocks... [לא 50!]
+📊 Fetching historical data for 40 stocks... [לא 50!]
 ```
 
 ### בדיקה מפורטת:

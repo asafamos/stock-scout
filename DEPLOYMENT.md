@@ -23,8 +23,8 @@ def fetch_beta_vs_benchmark(...):
 Now you can control performance via environment variables:
 
 ```bash
-# For GitHub/Streamlit Cloud - FAST settings
-UNIVERSE_LIMIT=20        # Scan only 20 stocks (vs 50 locally)
+# For GitHub/Streamlit Cloud - BALANCED settings
+UNIVERSE_LIMIT=40        # Scan 40 stocks (balanced: enough candidates, reasonable time)
 LOOKBACK_DAYS=90
 SMART_SCAN=true
 TOPK_RECOMMEND=5
