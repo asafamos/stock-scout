@@ -875,7 +875,8 @@ def fetch_fundamentals_bundle(ticker: str, enable_alpha_smart: bool = False) -> 
         mark_provider_usage(source_name, 'fundamentals')
 
     # ========== PARALLEL FETCHING ==========
-    with ThreadPoolExecutor(max_workers=7) as ex:
+    # Reduced to 5 workers to lessen burst rate limiting without sacrificing core parallelism
+    with ThreadPoolExecutor(max_workers=5) as ex:
         futures = {}
         
         # FMP (2 endpoints)
@@ -1720,14 +1721,14 @@ st.markdown("### 🔌 Data Sources — Keys, Connectivity & Usage")
 DATA_SOURCES = {
     "Yahoo": {"env_keys": []},
     "FMP": {"env_keys": ["FMP_API_KEY"]},
-    "Alpha Vantage": {"env_keys": ["ALPHA_VANTAGE_API_KEY"]},
+    "Alpha": {"env_keys": ["ALPHA_VANTAGE_API_KEY"]},
     "Finnhub": {"env_keys": ["FINNHUB_API_KEY"]},
     "Polygon": {"env_keys": ["POLYGON_API_KEY"]},
     "Tiingo": {"env_keys": ["TIINGO_API_KEY"]},
     "SimFin": {"env_keys": ["SIMFIN_API_KEY"]},
     "EODHD": {"env_keys": ["EODHD_API_KEY"]},
     "Marketstack": {"env_keys": ["MARKETSTACK_API_KEY"]},
-    "NasdaqDL": {"env_keys": ["NASDAQ_API_KEY", "NASDAQ_DL_API_KEY"]},
+    "Nasdaq": {"env_keys": ["NASDAQ_API_KEY", "NASDAQ_DL_API_KEY"]},
     "OpenAI": {"env_keys": ["OPENAI_API_KEY"]},
 }
 
@@ -1739,67 +1740,62 @@ def _has_key(provider: str, keys: list) -> bool:
             return True
     return False
 
-usage = st.session_state.get('provider_usage', {})  # {provider: set(categories)}
-
 # Dot styles: green=used, yellow=available not yet used, gray=missing
 dot_used = "<span style='color:#16a34a;font-weight:700'>●</span>"
 dot_avail = "<span style='color:#f59e0b;font-weight:700'>●</span>"
 dot_missing = "<span style='color:#94a3b8'>●</span>"
 
-def _status_dot(provider: str, category: str, connected: bool, has_key: bool) -> str:
+def _status_dot(provider: str, category: str, connected: bool, has_key: bool, usage: dict) -> str:
     if provider in usage and category in usage.get(provider, set()):
         return dot_used
     if connected and has_key:
         return dot_avail
     return dot_missing
 
-table_rows = [
-    "<tr><th style='text-align:left'>Provider</th><th>Key</th><th>Price</th><th>Fundamentals</th><th>ML/AI</th></tr>"
-]
-for name, meta in DATA_SOURCES.items():
-    keys = meta.get("env_keys", [])
-    has_key = _has_key(name, keys)
-    # Connectivity flags derived from earlier checks
-    connected_price = False
-    connected_fund = False
-    connected_ml = False
+def _connectivity_flags(name: str) -> tuple[bool,bool,bool]:
+    price = fund = ml = False
     if name == "Yahoo":
-        connected_price = True
+        price = True
     elif name == "FMP":
-        connected_fund = bool(fmp_ok)
-    elif name == "Alpha Vantage":
-        connected_price = bool(alpha_ok)
-        connected_fund = bool(alpha_ok)
+        fund = bool(fmp_ok)
+    elif name == "Alpha":
+        price = bool(alpha_ok); fund = bool(alpha_ok)
     elif name == "Finnhub":
-        connected_price = bool(finn_ok)
-        connected_fund = bool(finn_ok)
+        price = bool(finn_ok); fund = bool(finn_ok)
     elif name == "Polygon":
-        connected_price = bool(poly_ok)
+        price = bool(poly_ok)
     elif name == "Tiingo":
-        connected_price = bool(tiin_ok)
-        connected_fund = bool(tiin_ok)
+        price = bool(tiin_ok); fund = bool(tiin_ok)
     elif name == "SimFin":
-        connected_fund = bool(_env("SIMFIN_API_KEY"))
+        fund = bool(_env("SIMFIN_API_KEY"))
     elif name == "EODHD":
-        connected_fund = bool(_env("EODHD_API_KEY"))
+        fund = bool(_env("EODHD_API_KEY"))
     elif name == "Marketstack":
-        connected_price = bool(_env("MARKETSTACK_API_KEY")) and CONFIG.get("ENABLE_MARKETSTACK")
-    elif name == "NasdaqDL":
-        connected_price = bool(_env("NASDAQ_API_KEY") or _env("NASDAQ_DL_API_KEY")) and CONFIG.get("ENABLE_NASDAQ_DL")
+        price = bool(_env("MARKETSTACK_API_KEY")) and CONFIG.get("ENABLE_MARKETSTACK")
+    elif name == "Nasdaq":
+        price = bool(_env("NASDAQ_API_KEY") or _env("NASDAQ_DL_API_KEY")) and CONFIG.get("ENABLE_NASDAQ_DL")
     elif name == "OpenAI":
-        connected_ml = bool(OPENAI_AVAILABLE and (os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")))
+        ml = bool(OPENAI_AVAILABLE and (os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")))
+    return price,fund,ml
 
-    key_dot = dot_used if has_key else dot_missing
-    price_dot = _status_dot(name, 'price', connected_price, has_key)
-    fund_dot = _status_dot(name, 'fundamentals', connected_fund, has_key)
-    ml_dot = _status_dot(name, 'ml', connected_ml, has_key)
-    table_rows.append(
-        f"<tr><td style='text-align:left'>{name}</td><td>{key_dot}</td><td>{price_dot}</td><td>{fund_dot}</td><td>{ml_dot}</td></tr>"
-    )
-
-sources_css = """
+def render_sources_table(final: bool=False):
+    usage = st.session_state.get('provider_usage', {})
+    table_rows = ["<tr><th style='text-align:left'>Provider</th><th>Key</th><th>Price</th><th>Fundamentals</th><th>ML/AI</th></tr>"]
+    used_count = 0
+    for name, meta in DATA_SOURCES.items():
+        keys = meta.get("env_keys", [])
+        has_key = _has_key(name, keys)
+        c_price, c_fund, c_ml = _connectivity_flags(name)
+        key_dot = dot_used if has_key else dot_missing
+        price_dot = _status_dot(name,'price',c_price,has_key,usage)
+        fund_dot = _status_dot(name,'fundamentals',c_fund,has_key,usage)
+        ml_dot = _status_dot(name,'ml',c_ml,has_key,usage)
+        if name in usage:
+            used_count += 1
+        table_rows.append(f"<tr><td style='text-align:left'>{name}</td><td>{key_dot}</td><td>{price_dot}</td><td>{fund_dot}</td><td>{ml_dot}</td></tr>")
+    sources_css = """
 <style>
-.sources-overview table {width:100%; border-collapse:collapse; margin:4px 0 12px 0;}
+.sources-overview table {width:100%; border-collapse:collapse; margin:4px 0 6px 0;}
 .sources-overview th, .sources-overview td {padding:4px 6px; font-size:12px; text-align:center; border-bottom:1px solid #e5e7eb;}
 .sources-overview th {background:#f8fafc; font-weight:600; font-size:11px; letter-spacing:0.5px;}
 .sources-overview tr:last-child td {border-bottom:none;}
@@ -1808,8 +1804,41 @@ sources_css = """
 .sources-overview caption {text-align:left;font-size:11px;color:#64748b;margin-top:4px;}
 </style>
 """
-legend = "<caption>Legend: Green=used this run, Yellow=available not used yet, Gray=missing key/not connected.</caption>"
-st.markdown(sources_css + "<div class='sources-overview'><table>" + "".join(table_rows) + legend + "</table></div>", unsafe_allow_html=True)
+    legend = "<caption>Legend: Green=used this run | Yellow=available not yet used | Gray=missing key/not connected." + (" Used providers: " + str(used_count) if final else "") + "</caption>"
+    html = sources_css + "<div class='sources-overview'><table>" + "".join(table_rows) + legend + "</table></div>"
+    return html
+
+sources_placeholder = st.empty()
+sources_placeholder.markdown(render_sources_table(final=False), unsafe_allow_html=True)
+
+# Provider debug (expandable) and global multi-stage progress setup
+with st.expander("🔍 Provider Debug Flags", expanded=False):
+    st.write({
+        'alpha_ok': alpha_ok,
+        'finn_ok': finn_ok,
+        'fmp_ok': fmp_ok,
+        'poly_ok': poly_ok,
+        'tiin_ok': tiin_ok,
+        'simfin_key': bool(simfin_key),
+        'eodhd_key': bool(eodhd_key),
+        'marketstack_key': bool(marketstack_key),
+        'nasdaq_key': bool(nasdaq_key),
+    })
+
+stage_labels = [
+    'Universe', 'History', 'Technical', 'Beta Filter', 'Advanced Filters',
+    'Fundamentals', 'Risk Classification', 'Price Verification', 'Recommendations'
+]
+stage_index = 0
+global_progress = st.progress(0)
+stage_status = st.empty()
+
+def _advance_stage(label: str):
+    global stage_index
+    stage_index += 1
+    pct = min(stage_index / len(stage_labels), 1.0)
+    global_progress.progress(pct)
+    stage_status.text(f"⏱ Stage {stage_index}/{len(stage_labels)}: {label}")
 
 # Show config debug info
 st.caption(f"⚙️ Config: Universe={CONFIG['UNIVERSE_LIMIT']} | Lookback={CONFIG['LOOKBACK_DAYS']}d | Smart={CONFIG['SMART_SCAN']}")
@@ -1854,14 +1883,16 @@ with st.spinner("🔍 Building stock universe..."):
         else build_universe(limit=200)
     )
 phase_times["build_universe"] = t_end(t0)
-st.write(f"✅ Universe built: {len(universe)} tickers")
+    st.write(f"✅ Universe built: {len(universe)} tickers")
+    _advance_stage('Universe')
 
 # 2) History
 t0 = t_start()
 with st.spinner(f"📊 Fetching historical data for {len(universe)} stocks..."):
     data_map = fetch_history_bulk(universe, CONFIG["LOOKBACK_DAYS"], CONFIG["MA_LONG"])
 phase_times["fetch_history"] = t_end(t0)
-st.write(f"✅ History fetched: {len(data_map)} stocks with data")
+    st.write(f"✅ History fetched: {len(data_map)} stocks with data")
+    _advance_stage('History')
 
 # 3) Technical score + hard filters
 t0 = t_start()
@@ -2075,7 +2106,8 @@ status_text.empty()
 
 results = pd.DataFrame(rows)
 phase_times["calc_score_technical"] = t_end(t0)
-st.success(f"✅ Technical indicators computed: {len(results)} stocks scored in {phase_times['calc_score_technical']:.1f}s")
+    st.success(f"✅ Technical indicators computed: {len(results)} stocks scored in {phase_times['calc_score_technical']:.1f}s")
+    _advance_stage('Technical')
 
 if results.empty:
     st.warning("No results after filtering. Filters may be too strict for the current universe.")
@@ -2153,6 +2185,7 @@ if CONFIG["BETA_FILTER_ENABLED"]:
     ].reset_index(drop=True)
     phase_times["beta_filter"] = t_end(t0)
     st.write(f"✅ Beta filter completed: {len(results)} stocks passed")
+    _advance_stage('Beta Filter')
 
 # 3c) Advanced Filters (dynamic penalty approach)
 t0 = t_start()
@@ -2283,7 +2316,11 @@ if catastrophic_count > 0 and catastrophic_count < len(signals_store):
 # Sort after applying removals
 results = results.sort_values(["Score", "Ticker"], ascending=[False, True]).reset_index(drop=True)
 phase_times["advanced_filters"] = t_end(t0)
-st.write(f"✅ Advanced filters completed: {len(results)} stocks passed")
+    st.write(f"✅ Advanced filters completed: {len(results)} stocks passed")
+    _advance_stage('Advanced Filters')
+    if CONFIG["FUNDAMENTAL_ENABLED"] and not fundamental_available:
+        st.warning("Fundamentals skipped – no provider connectivity (Alpha/Finnhub/FMP/SimFin/EODHD).")
+        _advance_stage('Fundamentals')
 
 if results.empty:
     st.warning("Advanced filters produced empty set even after penalties.")
@@ -2948,6 +2985,7 @@ core_count_final = len(results[results["Risk_Level"] == "core"])
 spec_count_final = len(results[results["Risk_Level"] == "speculative"])
 
 st.success(f"✅ **Final recommendations:** {core_count_final} 🛡️ Core + {spec_count_final} ⚡ Speculative = {results_count} total")
+    _advance_stage('Risk Classification')
 
 # Updated targets: aim for balanced mix
 target_min = CONFIG.get("TARGET_RECOMMENDATIONS_MIN", 5)
@@ -3016,7 +3054,7 @@ def _fetch_external_for(
             vals.setdefault("Alpha", p)
             srcs.append("🟣Alpha")
             st.session_state.av_calls = st.session_state.get("av_calls", 0) + 1
-            _mark_price('Alpha Vantage')
+            _mark_price('Alpha')
     if finn_ok:
         p = get_finnhub_price(tkr)
         if p is not None:
@@ -3046,7 +3084,7 @@ def _fetch_external_for(
         if p is not None:
             vals.setdefault("NasdaqDL", p)
             srcs.append("🏛NasdaqDL")
-            _mark_price('NasdaqDL')
+            _mark_price('Nasdaq')
     if CONFIG.get("ENABLE_EODHD") and (_env("EODHD_API_KEY") or _env("EODHD_TOKEN")):
         p = get_eodhd_price(tkr)
         if p is not None:
@@ -3055,6 +3093,7 @@ def _fetch_external_for(
             _mark_price('EODHD')
     # Return collected prices and source badges
     return tkr, vals, srcs
+    _advance_stage('Price Verification')
 
 # External price verification - run if ANY provider is available
 any_price_provider = (
@@ -3425,6 +3464,11 @@ if alpha_ok:
     )
 
 # ==================== Recommendation Cards ====================
+try:
+    # Re-render sources table now that pipeline likely populated usage
+    sources_placeholder.markdown(render_sources_table(final=True), unsafe_allow_html=True)
+except Exception:
+    pass
 st.subheader("🤖 Recommendations Now")
 st.caption("These cards are buy recommendations only. This is not investment advice.")
 
