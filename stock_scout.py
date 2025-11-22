@@ -1886,186 +1886,187 @@ for idx_num, (tkr, df) in enumerate(data_map.items(), 1):
     
     # Skip invalid history
     if df is None or df.empty:
-            continue
-        df = df.copy()
-        # Core rolling indicators
-        df["MA_S"] = df["Close"].rolling(int(CONFIG["MA_SHORT"])).mean()
-        df["MA_L"] = df["Close"].rolling(int(CONFIG["MA_LONG"])).mean()
-        df["RSI"] = rsi(df["Close"], 14)
-        df["ATR14"] = atr(df, 14)
-        df["Vol20"] = df["Volume"].rolling(20).mean()
+        continue
+    
+    df = df.copy()
+    # Core rolling indicators
+    df["MA_S"] = df["Close"].rolling(int(CONFIG["MA_SHORT"])).mean()
+    df["MA_L"] = df["Close"].rolling(int(CONFIG["MA_LONG"])).mean()
+    df["RSI"] = rsi(df["Close"], 14)
+    df["ATR14"] = atr(df, 14)
+    df["Vol20"] = df["Volume"].rolling(20).mean()
 
-        # Optional MACD / ADX block
-        if CONFIG["USE_MACD_ADX"]:
-            m, ms, mh = macd_line(df["Close"])
-            df["MACD"], df["MACD_SIG"], df["MACD_HIST"] = m, ms, mh
-            try:
-                adx_out = adx(df, 14)
-                # adx() may return a DataFrame with columns ['ADX','PLUS_DI','MINUS_DI']
-                if isinstance(adx_out, pd.DataFrame):
-                    # use named columns when available, fallback to positional
-                    if "ADX" in adx_out.columns:
-                        adx_series = pd.to_numeric(adx_out["ADX"], errors="coerce").reindex(df.index)
-                    else:
-                        adx_series = pd.to_numeric(adx_out.iloc[:, 0], errors="coerce").reindex(df.index)
-
-                    if "PLUS_DI" in adx_out.columns:
-                        plus_di = pd.to_numeric(adx_out["PLUS_DI"], errors="coerce").reindex(df.index)
-                    else:
-                        plus_di = pd.to_numeric(adx_out.iloc[:, 1] if adx_out.shape[1] > 1 else pd.Series(np.nan, index=df.index), errors="coerce").reindex(df.index)
-
-                    if "MINUS_DI" in adx_out.columns:
-                        minus_di = pd.to_numeric(adx_out["MINUS_DI"], errors="coerce").reindex(df.index)
-                    else:
-                        minus_di = pd.to_numeric(adx_out.iloc[:, 2] if adx_out.shape[1] > 2 else pd.Series(np.nan, index=df.index), errors="coerce").reindex(df.index)
-                else:
-                    adx_series = pd.to_numeric(adx_out, errors="coerce").reindex(df.index)
-                    plus_di = pd.Series(np.nan, index=df.index)
-                    minus_di = pd.Series(np.nan, index=df.index)
-
-                df.loc[:, "ADX14"] = adx_series.values
-                df.loc[:, "PLUS_DI14"] = plus_di.values
-                df.loc[:, "MINUS_DI14"] = minus_di.values
-            except Exception:
-                df["ADX14"] = np.nan
-                df["PLUS_DI14"] = np.nan
-                df["MINUS_DI14"] = np.nan
-
-        price = float(df["Close"].iloc[-1])
-        if (not np.isfinite(price)) or (price < CONFIG["MIN_PRICE"]):
-            continue
-
-        last_ma_s = float(df["MA_S"].iloc[-1])
-        last_ma_l = float(df["MA_L"].iloc[-1])
-        ma_ok = (
-            (float(price > last_ma_s) + float(last_ma_s > last_ma_l)) / 2.0
-            if (np.isfinite(last_ma_s) and np.isfinite(last_ma_l))
-            else 0.0
-        )
-
-        rsi_val = float(df["RSI"].iloc[-1])
-        if np.isfinite(rsi_val):
-            if rsi_val < lo_rsi:
-                rsi_score = max(0.0, 1 - (lo_rsi - rsi_val) / 20)
-            elif rsi_val > hi_rsi:
-                rsi_score = max(0.0, 1 - (rsi_val - hi_rsi) / 20)
-            else:
-                rsi_score = 1.0
-        else:
-            rsi_score = 0.0
-
-        vol20 = float(df["Vol20"].iloc[-1])
-        vol_today = float(df["Volume"].iloc[-1])
-        if np.isfinite(vol20) and vol20 < CONFIG["MIN_AVG_VOLUME"]:
-            continue
-        vol_ok = (
-            (min(2.0, vol_today / vol20) / 2.0)
-            if (np.isfinite(vol20) and vol20 > 0 and np.isfinite(vol_today))
-            else 0.0
-        )
-
-        ret_1m = float(df["Close"].pct_change(21).iloc[-1])
-        ret_3m = float(df["Close"].pct_change(63).iloc[-1])
-        ret_6m = float(df["Close"].pct_change(126).iloc[-1])
-        mom_score = float(_sigmoid(np.nanmean([ret_1m, ret_3m, ret_6m])))
-
-        window_52w = min(len(df), 252)
-        hi_52w = float(df["Close"].tail(window_52w).max())
-        if np.isfinite(hi_52w) and hi_52w > 0:
-            near_high_raw = 1.0 - min(1.0, max(0.0, (hi_52w - price) / hi_52w))
-            if near_high_raw >= 0.95:
-                near_high_score = 0.45
-            elif 0.75 <= near_high_raw <= 0.90:
-                near_high_score = 1.00
-            elif 0.90 < near_high_raw < 0.95:
-                near_high_score = 0.75
-            else:
-                near_high_score = near_high_raw
-        else:
-            near_high_raw, near_high_score = np.nan, 0.0
-
-        if np.isfinite(last_ma_l) and last_ma_l > 0:
-            overext_ratio = max(0.0, (price - last_ma_l) / last_ma_l)
-            overext_score = 1.0 - min(
-                1.0, overext_ratio / max(1e-6, CONFIG["OVEREXT_SOFT"])
-            )
-        else:
-            overext_ratio, overext_score = np.nan, 0.0
-
-        ratio_to_high = price / hi_52w if (np.isfinite(hi_52w) and hi_52w > 0) else np.nan
-        if np.isfinite(ratio_to_high):
-            lo, hi = CONFIG["PULLBACK_RANGE"]
-            if lo <= ratio_to_high <= hi:
-                pullback_score = 1.0
-            else:
-                dist = min(abs(ratio_to_high - lo), abs(ratio_to_high - hi))
-                pullback_score = max(0.0, 1.0 - dist * 10)
-        else:
-            pullback_score = 0.0
-
-        atr14 = float(df["ATR14"].iloc[-1])
-        if np.isfinite(atr14) and price > 0:
-            vol_rel = atr14 / price
-            volatility_score = 1.0 - min(1.0, vol_rel / 0.05)
-        else:
-            vol_rel, volatility_score = np.nan, 0.0
-
-        dollar_vol = (price * vol20) if (np.isfinite(price) and np.isfinite(vol20)) else 0.0
-        if dollar_vol < CONFIG["MIN_DOLLAR_VOLUME"]:
-            continue
-        if np.isfinite(vol_rel) and vol_rel > CONFIG["ATR_PRICE_HARD"]:
-            continue
-        if np.isfinite(overext_ratio) and overext_ratio > CONFIG["OVEREXT_HARD"]:
-            continue
-
-        # Compute Reward/Risk using stable helper (never N/A)
+    # Optional MACD / ADX block
+    if CONFIG["USE_MACD_ADX"]:
+        m, ms, mh = macd_line(df["Close"])
+        df["MACD"], df["MACD_SIG"], df["MACD_HIST"] = m, ms, mh
         try:
-            entry_price_for_rr = price if np.isfinite(price) else np.nan
-            target_price_for_rr = hi_52w if (np.isfinite(hi_52w) and hi_52w > 0) else (price * 1.10 if np.isfinite(price) else np.nan)
-            reward_risk = calculate_rr(entry_price_for_rr, target_price_for_rr, atr14, history_df=df)
-            rr_score = min(1.0, reward_risk / 4.0) if np.isfinite(reward_risk) else 0.0
+            adx_out = adx(df, 14)
+            # adx() may return a DataFrame with columns ['ADX','PLUS_DI','MINUS_DI']
+            if isinstance(adx_out, pd.DataFrame):
+                # use named columns when available, fallback to positional
+                if "ADX" in adx_out.columns:
+                    adx_series = pd.to_numeric(adx_out["ADX"], errors="coerce").reindex(df.index)
+                else:
+                    adx_series = pd.to_numeric(adx_out.iloc[:, 0], errors="coerce").reindex(df.index)
+
+                if "PLUS_DI" in adx_out.columns:
+                    plus_di = pd.to_numeric(adx_out["PLUS_DI"], errors="coerce").reindex(df.index)
+                else:
+                    plus_di = pd.to_numeric(adx_out.iloc[:, 1] if adx_out.shape[1] > 1 else pd.Series(np.nan, index=df.index), errors="coerce").reindex(df.index)
+
+                if "MINUS_DI" in adx_out.columns:
+                    minus_di = pd.to_numeric(adx_out["MINUS_DI"], errors="coerce").reindex(df.index)
+                else:
+                    minus_di = pd.to_numeric(adx_out.iloc[:, 2] if adx_out.shape[1] > 2 else pd.Series(np.nan, index=df.index), errors="coerce").reindex(df.index)
+            else:
+                adx_series = pd.to_numeric(adx_out, errors="coerce").reindex(df.index)
+                plus_di = pd.Series(np.nan, index=df.index)
+                minus_di = pd.Series(np.nan, index=df.index)
+
+            df.loc[:, "ADX14"] = adx_series.values
+            df.loc[:, "PLUS_DI14"] = plus_di.values
+            df.loc[:, "MINUS_DI14"] = minus_di.values
         except Exception:
-            reward_risk, rr_score = 0.0, 0.0
+            df["ADX14"] = np.nan
+            df["PLUS_DI14"] = np.nan
+            df["MINUS_DI14"] = np.nan
 
-        macd_score = 0.0
-        adx_score = 0.0
-        if CONFIG["USE_MACD_ADX"] and "MACD" in df.columns:
-            macd_v = float(df["MACD"].iloc[-1])
-            macd_sig = float(df["MACD_SIG"].iloc[-1])
-            macd_score = 1.0 if macd_v > macd_sig else 0.0
-        if CONFIG["USE_MACD_ADX"] and "ADX14" in df.columns:
-            adx_v = (
-                float(df["ADX14"].iloc[-1]) if pd.notna(df["ADX14"].iloc[-1]) else np.nan
-            )
-            adx_score = (
-                np.clip((adx_v - 15) / 20.0, 0.0, 1.0) if np.isfinite(adx_v) else 0.0
-            )
+    price = float(df["Close"].iloc[-1])
+    if (not np.isfinite(price)) or (price < CONFIG["MIN_PRICE"]):
+        continue
 
-        score = (
-            W["ma"] * ma_ok
-            + W["mom"] * mom_score
-            + W["rsi"] * rsi_score
-            + W["near_high_bell"] * near_high_score
-            + W["vol"] * (vol_ok if np.isfinite(vol_ok) else 0.0)
-            + W["overext"] * overext_score
-            + W["pullback"] * pullback_score
-            + W["risk_reward"] * rr_score
-            + W["macd"] * macd_score
-            + W["adx"] * adx_score
+    last_ma_s = float(df["MA_S"].iloc[-1])
+    last_ma_l = float(df["MA_L"].iloc[-1])
+    ma_ok = (
+        (float(price > last_ma_s) + float(last_ma_s > last_ma_l)) / 2.0
+        if (np.isfinite(last_ma_s) and np.isfinite(last_ma_l))
+        else 0.0
+    )
+
+    rsi_val = float(df["RSI"].iloc[-1])
+    if np.isfinite(rsi_val):
+        if rsi_val < lo_rsi:
+            rsi_score = max(0.0, 1 - (lo_rsi - rsi_val) / 20)
+        elif rsi_val > hi_rsi:
+            rsi_score = max(0.0, 1 - (rsi_val - hi_rsi) / 20)
+        else:
+            rsi_score = 1.0
+    else:
+        rsi_score = 0.0
+
+    vol20 = float(df["Vol20"].iloc[-1])
+    vol_today = float(df["Volume"].iloc[-1])
+    if np.isfinite(vol20) and vol20 < CONFIG["MIN_AVG_VOLUME"]:
+        continue
+    vol_ok = (
+        (min(2.0, vol_today / vol20) / 2.0)
+        if (np.isfinite(vol20) and vol20 > 0 and np.isfinite(vol_today))
+        else 0.0
+    )
+
+    ret_1m = float(df["Close"].pct_change(21).iloc[-1])
+    ret_3m = float(df["Close"].pct_change(63).iloc[-1])
+    ret_6m = float(df["Close"].pct_change(126).iloc[-1])
+    mom_score = float(_sigmoid(np.nanmean([ret_1m, ret_3m, ret_6m])))
+
+    window_52w = min(len(df), 252)
+    hi_52w = float(df["Close"].tail(window_52w).max())
+    if np.isfinite(hi_52w) and hi_52w > 0:
+        near_high_raw = 1.0 - min(1.0, max(0.0, (hi_52w - price) / hi_52w))
+        if near_high_raw >= 0.95:
+            near_high_score = 0.45
+        elif 0.75 <= near_high_raw <= 0.90:
+            near_high_score = 1.00
+        elif 0.90 < near_high_raw < 0.95:
+            near_high_score = 0.75
+        else:
+            near_high_score = near_high_raw
+    else:
+        near_high_raw, near_high_score = np.nan, 0.0
+
+    if np.isfinite(last_ma_l) and last_ma_l > 0:
+        overext_ratio = max(0.0, (price - last_ma_l) / last_ma_l)
+        overext_score = 1.0 - min(
+            1.0, overext_ratio / max(1e-6, CONFIG["OVEREXT_SOFT"])
         )
-        rows.append({
-            "Ticker": tkr,
-            "Price_Yahoo": price,
-            "Score_Tech": round(100 * float(score), 1),
-            "RSI": round(rsi_val, 1) if np.isfinite(rsi_val) else np.nan,
-            "Near52w": round(near_high_raw * 100, 1) if np.isfinite(near_high_raw) else np.nan,
-            "Volx20d": round(vol_today / vol20, 2) if (np.isfinite(vol_today) and np.isfinite(vol20) and vol20 > 0) else np.nan,
-            "OverextRatio": round(overext_ratio, 3) if np.isfinite(overext_ratio) else np.nan,
-            "ATR_Price": round(vol_rel, 4) if np.isfinite(vol_rel) else np.nan,
-            # Always show numeric RewardRisk (force 0.0 when missing)
-            "RewardRisk": round(float(reward_risk) if np.isfinite(reward_risk) else 0.0, 2),
-            "ATR14": atr14,
-        })
+    else:
+        overext_ratio, overext_score = np.nan, 0.0
+
+    ratio_to_high = price / hi_52w if (np.isfinite(hi_52w) and hi_52w > 0) else np.nan
+    if np.isfinite(ratio_to_high):
+        lo, hi = CONFIG["PULLBACK_RANGE"]
+        if lo <= ratio_to_high <= hi:
+            pullback_score = 1.0
+        else:
+            dist = min(abs(ratio_to_high - lo), abs(ratio_to_high - hi))
+            pullback_score = max(0.0, 1.0 - dist * 10)
+    else:
+        pullback_score = 0.0
+
+    atr14 = float(df["ATR14"].iloc[-1])
+    if np.isfinite(atr14) and price > 0:
+        vol_rel = atr14 / price
+        volatility_score = 1.0 - min(1.0, vol_rel / 0.05)
+    else:
+        vol_rel, volatility_score = np.nan, 0.0
+
+    dollar_vol = (price * vol20) if (np.isfinite(price) and np.isfinite(vol20)) else 0.0
+    if dollar_vol < CONFIG["MIN_DOLLAR_VOLUME"]:
+        continue
+    if np.isfinite(vol_rel) and vol_rel > CONFIG["ATR_PRICE_HARD"]:
+        continue
+    if np.isfinite(overext_ratio) and overext_ratio > CONFIG["OVEREXT_HARD"]:
+        continue
+
+    # Compute Reward/Risk using stable helper (never N/A)
+    try:
+        entry_price_for_rr = price if np.isfinite(price) else np.nan
+        target_price_for_rr = hi_52w if (np.isfinite(hi_52w) and hi_52w > 0) else (price * 1.10 if np.isfinite(price) else np.nan)
+        reward_risk = calculate_rr(entry_price_for_rr, target_price_for_rr, atr14, history_df=df)
+        rr_score = min(1.0, reward_risk / 4.0) if np.isfinite(reward_risk) else 0.0
+    except Exception:
+        reward_risk, rr_score = 0.0, 0.0
+
+    macd_score = 0.0
+    adx_score = 0.0
+    if CONFIG["USE_MACD_ADX"] and "MACD" in df.columns:
+        macd_v = float(df["MACD"].iloc[-1])
+        macd_sig = float(df["MACD_SIG"].iloc[-1])
+        macd_score = 1.0 if macd_v > macd_sig else 0.0
+    if CONFIG["USE_MACD_ADX"] and "ADX14" in df.columns:
+        adx_v = (
+            float(df["ADX14"].iloc[-1]) if pd.notna(df["ADX14"].iloc[-1]) else np.nan
+        )
+        adx_score = (
+            np.clip((adx_v - 15) / 20.0, 0.0, 1.0) if np.isfinite(adx_v) else 0.0
+        )
+
+    score = (
+        W["ma"] * ma_ok
+        + W["mom"] * mom_score
+        + W["rsi"] * rsi_score
+        + W["near_high_bell"] * near_high_score
+        + W["vol"] * (vol_ok if np.isfinite(vol_ok) else 0.0)
+        + W["overext"] * overext_score
+        + W["pullback"] * pullback_score
+        + W["risk_reward"] * rr_score
+        + W["macd"] * macd_score
+        + W["adx"] * adx_score
+    )
+    rows.append({
+        "Ticker": tkr,
+        "Price_Yahoo": price,
+        "Score_Tech": round(100 * float(score), 1),
+        "RSI": round(rsi_val, 1) if np.isfinite(rsi_val) else np.nan,
+        "Near52w": round(near_high_raw * 100, 1) if np.isfinite(near_high_raw) else np.nan,
+        "Volx20d": round(vol_today / vol20, 2) if (np.isfinite(vol_today) and np.isfinite(vol20) and vol20 > 0) else np.nan,
+        "OverextRatio": round(overext_ratio, 3) if np.isfinite(overext_ratio) else np.nan,
+        "ATR_Price": round(vol_rel, 4) if np.isfinite(vol_rel) else np.nan,
+        # Always show numeric RewardRisk (force 0.0 when missing)
+        "RewardRisk": round(float(reward_risk) if np.isfinite(reward_risk) else 0.0, 2),
+        "ATR14": atr14,
+    })
 
     # end for loop
 
