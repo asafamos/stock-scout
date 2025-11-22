@@ -3700,6 +3700,27 @@ if not rec_df.empty:
         # Keep canonical RR_Score alias in sync if present
         results["RR_Score"] = results["rr_score_v2"].copy()
         results["RR"] = results["rr"].copy()
+        
+        # Recompute rr_band after RR update using evaluate_rr_unified
+        from core.scoring_engine import evaluate_rr_unified
+        def _rr_eval_local(row_rr):
+            try:
+                score, ratio_adj, band = evaluate_rr_unified(float(row_rr))
+                return band
+            except Exception:
+                return "N/A"
+        results["rr_band"] = results["rr"].apply(_rr_eval_local)
+        
+        # Sync updated RR fields back to rec_df (recommendation dataframe)
+        if not rec_df.empty:
+            for tkr_idx in rec_df.index:
+                tkr_val = rec_df.at[tkr_idx, "Ticker"]
+                if tkr_val in rr_map:
+                    rec_df.at[tkr_idx, "rr"] = rr_map[tkr_val]
+                    rec_df.at[tkr_idx, "RewardRisk"] = rr_map[tkr_val]
+                    rec_df.at[tkr_idx, "RR_Ratio"] = rr_map[tkr_val]
+            # Recompute rr_band for rec_df
+            rec_df["rr_band"] = rec_df["rr"].apply(_rr_eval_local)
     except Exception:
         pass
     except Exception:
