@@ -880,7 +880,7 @@ def fetch_fundamentals_bundle(ticker: str, enable_alpha_smart: bool = False) -> 
     a ThreadPoolExecutor instead of a slow sequential approach. Typical runtime
     savings: ~60-70% per ticker depending on enabled providers.
 
-    Merge priority: FMP → SimFin → Alpha (smart) → Finnhub → EODHD → Tiingo
+    Merge priority (updated): Tiingo → Alpha (smart) → FMP (full + legacy) → Finnhub → SimFin → EODHD
     `enable_alpha_smart`: if True, uses Alpha Vantage (recommended only for top picks)
 
     Returns a dict with the merged fields plus source flags, `_sources` attribution
@@ -974,24 +974,35 @@ def fetch_fundamentals_bundle(ticker: str, enable_alpha_smart: bool = False) -> 
         # Mark fundamentals usage for provider (UI status table later)
         mark_provider_usage(source_name, "fundamentals")
 
-    # ========== PARALLEL FETCHING ==========
-    # Reduced to 5 workers to lessen burst rate limiting without sacrificing core parallelism
+    # Helper: sequential FMP fetch with internal delay + global minimal spacing
+    def _fmp_sequential_wrap(t: str, key: str) -> dict:
+        try:
+            # Global spacing to reduce burst pressure
+            min_gap = CONFIG.get("FMP_MIN_INTERVAL", 0.6)
+            last_ts = st.session_state.get("_fmp_last_call_ts", 0.0)
+            now = time.time()
+            if now - last_ts < min_gap:
+                time.sleep(min_gap - (now - last_ts))
+            st.session_state["_fmp_last_call_ts"] = time.time()
+        except Exception:
+            pass
+        out_full = _fmp_full_bundle_fetch(t, key)
+        time.sleep(CONFIG.get("FMP_INTER_CALL_DELAY", 0.8))  # spacing between endpoints
+        out_legacy = _fmp_metrics_fetch(t, key)
+        return {"full": out_full, "legacy": out_legacy}
+
+    # ========== PARALLEL FETCHING (adjusted) ==========
+    # Keep overall worker cap modest; FMP endpoints now sequentially wrapped.
     with ThreadPoolExecutor(max_workers=5) as ex:
         futures = {}
 
-        # FMP (2 endpoints)
-        fmp_key = _env("FMP_API_KEY")
-        if fmp_key:
-            futures["fmp_full"] = ex.submit(_fmp_full_bundle_fetch, ticker, fmp_key)
-            futures["fmp_legacy"] = ex.submit(_fmp_metrics_fetch, ticker, fmp_key)
+        # Tiingo first (primary provider)
+        if CONFIG.get("ENABLE_TIINGO", True):
+            tk = _env("TIINGO_API_KEY")
+            if tk:
+                futures["tiingo"] = ex.submit(_tiingo_fundamentals_fetch, ticker)
 
-        # SimFin
-        if CONFIG.get("ENABLE_SIMFIN"):
-            sim_key = _env("SIMFIN_API_KEY")
-            if sim_key:
-                futures["simfin"] = ex.submit(_simfin_fetch, ticker, sim_key)
-
-        # Alpha Vantage (smart - only if enabled)
+        # Alpha Vantage (smart/targeted)
         if (
             enable_alpha_smart
             and bool(st.session_state.get("_alpha_ok"))
@@ -999,22 +1010,27 @@ def fetch_fundamentals_bundle(ticker: str, enable_alpha_smart: bool = False) -> 
         ):
             futures["alpha"] = ex.submit(_alpha_overview_fetch, ticker)
 
-        # Finnhub
+        # FMP (wrapped sequentially to reduce pressure)
+        fmp_key = _env("FMP_API_KEY")
+        if fmp_key:
+            futures["fmp_combo"] = ex.submit(_fmp_sequential_wrap, ticker, fmp_key)
+
+        # Finnhub (supplemental)
         futures["finnhub"] = ex.submit(_finnhub_metrics_fetch, ticker)
 
-        # EODHD
+        # SimFin (supplemental)
+        if CONFIG.get("ENABLE_SIMFIN"):
+            sim_key = _env("SIMFIN_API_KEY")
+            if sim_key:
+                futures["simfin"] = ex.submit(_simfin_fetch, ticker, sim_key)
+
+        # EODHD (supplemental)
         if CONFIG.get("ENABLE_EODHD"):
             ek = _env("EODHD_API_KEY") or _env("EODHD_TOKEN")
             if ek:
                 futures["eodhd"] = ex.submit(_eodhd_fetch_fundamentals, ticker, ek)
 
-        # Tiingo (comprehensive fundamentals)
-        if CONFIG.get("ENABLE_TIINGO", True):  # Enable by default
-            tk = _env("TIINGO_API_KEY")
-            if tk:
-                futures["tiingo"] = ex.submit(_tiingo_fundamentals_fetch, ticker)
-
-        # Collect results with timeout
+        # Collect results
         results = {}
         fund_timeout = (
             CONFIG.get("PERF_FUND_TIMEOUT_FAST")
@@ -1028,45 +1044,52 @@ def fetch_fundamentals_bundle(ticker: str, enable_alpha_smart: bool = False) -> 
                 logger.warning(f"Parallel fetch failed for {source}/{ticker}: {e}")
                 results[source] = {}
 
-    # ========== MERGE IN PRIORITY ORDER ==========
+    # Unpack FMP combo
+    if results.get("fmp_combo"):
+        combo = results.get("fmp_combo", {})
+        results["fmp_full"] = combo.get("full", {})
+        results["fmp_legacy"] = combo.get("legacy", {})
+
+    # ========== MERGE IN NEW PRIORITY ORDER ==========
+    # Primary providers first: Tiingo -> Alpha -> FMP, then supplemental providers.
+    if results.get("tiingo"):
+        _merge(results["tiingo"], "from_tiingo", "Tiingo")
+        logger.debug(f"Fundamentals merge: Tiingo ✓ {ticker}")
+
+    if results.get("alpha"):
+        _merge(results["alpha"], "from_alpha", "Alpha")
+        logger.debug(f"Fundamentals merge: Alpha ✓ {ticker}")
+
     if results.get("fmp_full"):
         _merge(results["fmp_full"], "from_fmp_full", "FMP")
         merged["from_fmp"] = True
         logger.debug(
             f"Fundamentals merge: FMP/full ✓ {ticker} fields={results['fmp_full'].get('_fmp_field_count')}"
         )
-
     if results.get("fmp_legacy"):
         _merge(results["fmp_legacy"], "from_fmp", "FMP")
         logger.debug(f"Fundamentals merge: FMP/legacy ✓ {ticker}")
+
+    if results.get("finnhub"):
+        _merge(results["finnhub"], "from_finnhub", "Finnhub")
+        logger.debug(f"Fundamentals merge: Finnhub ✓ {ticker}")
 
     if results.get("simfin"):
         _merge(results["simfin"], "from_simfin", "SimFin")
         logger.debug(f"Fundamentals merge: SimFin ✓ {ticker}")
 
-    # Prefer Finnhub data before Alpha for per-field fallbacks
-    if results.get("finnhub"):
-        _merge(results["finnhub"], "from_finnhub", "Finnhub")
-        logger.debug(f"Fundamentals merge: Finnhub ✓ {ticker}")
-
-    if results.get("alpha"):
-        _merge(results["alpha"], "from_alpha", "Alpha")
-        logger.debug(f"Fundamentals merge: Alpha ✓ {ticker}")
-
     if results.get("eodhd"):
         _merge(results["eodhd"], "from_eodhd", "EODHD")
         logger.debug(f"Fundamentals merge: EODHD ✓ {ticker}")
 
-    if results.get("tiingo"):
-        _merge(results["tiingo"], "from_tiingo", "Tiingo")
-        logger.debug(f"Fundamentals merge: Tiingo ✓ {ticker}")
-
-    # Per-field explicit fallbacks (FMP -> Finnhub -> Alpha -> Tiingo)
-    # Ensure that if a field wasn't provided by FMP we try Finnhub then Alpha then Tiingo
+    # Per-field explicit fallbacks now (after Tiingo primary): Alpha -> FMP -> Finnhub -> SimFin -> EODHD
     fallback_order = [
-        ("finnhub", "Finnhub"),
         ("alpha", "Alpha"),
-        ("tiingo", "Tiingo"),
+        ("fmp_full", "FMP"),
+        ("fmp_legacy", "FMP"),
+        ("finnhub", "Finnhub"),
+        ("simfin", "SimFin"),
+        ("eodhd", "EODHD"),
     ]
     for k in ["roe", "roic", "gm", "ps", "pe", "de", "rev_g_yoy", "eps_g_yoy"]:
         if not isinstance(merged.get(k), (int, float)) or not np.isfinite(
@@ -1180,6 +1203,13 @@ def fetch_fundamentals_bundle(ticker: str, enable_alpha_smart: bool = False) -> 
                 merged["_defaulted_fields"].append(f)
         # Set a small coverage floor to reflect presence of providers
         merged["Fund_Coverage_Pct"] = max(merged.get("Fund_Coverage_Pct", 0.0), 0.05)
+
+    # Flag partial fundamentals coverage (for UI note) if providers responded but not full coverage
+    try:
+        if provider_responded and valid_count < len(cov_fields):
+            st.session_state.setdefault("_fundamentals_partial", True)
+    except Exception:
+        pass
 
     return merged
 
