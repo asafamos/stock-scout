@@ -351,6 +351,17 @@ def _empty_fund_row() -> dict:
     out["fundamentals_available"] = False
     return out
 
+# Provider usage tracker promoted to module level (was nested in legacy fundamentals function)
+def mark_provider_usage(provider: str, category: str):
+    """Record usage of a provider for a given category (price/fundamentals/ml). Safe no-throw."""
+    try:
+        usage = st.session_state.setdefault("provider_usage", {})
+        cats = usage.setdefault(provider, set())
+        cats.add(category)
+        usage[provider] = cats
+    except Exception:
+        pass
+
 
 # Load environment variables
 warnings.simplefilter("ignore", FutureWarning)
@@ -3107,6 +3118,7 @@ results["Price_STD_v2"] = price_std_list
 
 # Combined reliability (override or create reliability_v2)
 if "reliability_v2" not in results.columns or results["reliability_v2"].isna().all():
+    risk_t0 = t_start()
     combined_rel = (
         0.6 * results["Fundamental_Reliability_v2"]
         + 0.4 * results["Price_Reliability_v2"]
@@ -3161,17 +3173,22 @@ if "reliability_v2" not in results.columns or results["reliability_v2"].isna().a
         f"  - Full allocation: {len(results[results['risk_gate_status_v2'] == 'full'])} stocks"
     )
 
-    # Clear progress indicators
-    progress_bar.empty()
-    status_text.empty()
+    # Clear progress indicators if they exist
+    try:
+        if 'progress_bar' in locals() and hasattr(progress_bar, 'empty'):
+            progress_bar.empty()
+        if 'status_text' in locals() and hasattr(status_text, 'empty'):
+            status_text.empty()
+    except Exception:
+        pass
 
     results = results.sort_values(
         ["Score", "Ticker"], ascending=[False, True]
     ).reset_index(drop=True)
-    phase_times["fundamentals_alpha_finnhub"] = t_end(t0)
-    logger.info(f"✓ Scored {take_k} stocks with V2-enhanced conviction")
+    phase_times["risk_v2_scoring"] = t_end(risk_t0)
+    logger.info(f"✓ Scored {len(results)} stocks with V2-enhanced conviction")
     st.success(
-        f"✅ Fundamentals + V2 scoring completed: {len(results)} stocks scored in {phase_times['fundamentals_alpha_finnhub']:.1f}s"
+        f"✅ V2 scoring completed: {len(results)} stocks scored in {phase_times['risk_v2_scoring']:.1f}s"
     )
 
     # Ensure canonical V2 column aliases exist for UI/CSV and enforce blocked zeros
@@ -4501,6 +4518,20 @@ if rec_df.empty:
     rec_df["Fallback_Display"] = True
 else:
     rec_df["Fallback_Display"] = False
+
+# DEBUG: surface counts before card rendering to diagnose empty UI issues
+try:
+    st.caption(
+        f"🔎 Debug — rec_df={len(rec_df)} results={len(results)} columns={list(rec_df.columns)[:12]}"
+    )
+    if "risk_gate_status_v2" in results.columns:
+        gate_counts = results["risk_gate_status_v2"].value_counts().to_dict()
+        st.caption(f"🔎 Gate distribution: {gate_counts}")
+    if "buy_amount_v2" in results.columns:
+        pos_buy = int((results["buy_amount_v2"].fillna(0) > 0).sum())
+        st.caption(f"🔎 Positive buy_amount_v2: {pos_buy}/{len(results)}")
+except Exception:
+    pass
 
 # Calculate target prices and dates WITH OPTIONAL OPENAI ENHANCEMENT
 from datetime import datetime, timedelta
