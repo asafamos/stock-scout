@@ -1388,16 +1388,37 @@ def _tiingo_fundamentals_fetch(ticker: str) -> Dict[str, any]:
 
 
 @st.cache_data(ttl=60 * 60)
+@st.cache_data(ttl=3600, show_spinner=False)
 def fetch_beta_vs_benchmark(ticker: str, bench: str = "SPY", days: int = 252) -> float:
+    """Calculate beta with timeout protection and caching."""
     try:
+        import signal
+        
+        def timeout_handler(signum, frame):
+            raise TimeoutError("Beta calculation timed out")
+        
+        # Set 10 second timeout (only works on Unix)
+        try:
+            signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(10)
+        except (AttributeError, ValueError):
+            pass  # Windows doesn't support SIGALRM
+        
         end = datetime.utcnow()
         start = end - timedelta(days=days + 30)
         df_t = yf.download(
-            ticker, start=start, end=end, auto_adjust=True, progress=False
+            ticker, start=start, end=end, auto_adjust=True, progress=False, timeout=8
         )
         df_b = yf.download(
-            bench, start=start, end=end, auto_adjust=True, progress=False
+            bench, start=start, end=end, auto_adjust=True, progress=False, timeout=8
         )
+        
+        # Cancel alarm
+        try:
+            signal.alarm(0)
+        except (AttributeError, ValueError):
+            pass
+        
         if df_t.empty or df_b.empty:
             return np.nan
         j = pd.concat(
@@ -1409,7 +1430,7 @@ def fetch_beta_vs_benchmark(ticker: str, bench: str = "SPY", days: int = 252) ->
             return np.nan
         slope = np.polyfit(j["rb"].to_numpy(), j["rt"].to_numpy(), 1)[0]
         return float(slope)
-    except Exception:
+    except (Exception, TimeoutError):
         return np.nan
 
 

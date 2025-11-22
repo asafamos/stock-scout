@@ -7,6 +7,13 @@ from typing import Dict, Optional
 import os
 import streamlit as st
 
+# Load .env early for Config defaults
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 
 @dataclass
 class Config:
@@ -18,9 +25,9 @@ class Config:
     max_position_pct: float = 15.0
     
     # Universe & Data
-    universe_limit: int = 50
-    lookback_days: int = 90
-    smart_scan: bool = True
+    universe_limit: int = int(os.getenv('UNIVERSE_LIMIT', '50'))
+    lookback_days: int = int(os.getenv('LOOKBACK_DAYS', '90'))
+    smart_scan: bool = os.getenv('SMART_SCAN', 'true').lower() in ('true', '1', 'yes')
     
     # Price & Volume Filters
     min_price: float = 3.0
@@ -87,8 +94,8 @@ class Config:
     top_validate_k: int = 12
     
     # Results
-    topn_results: int = 15
-    topk_recommend: int = 5
+    topn_results: int = int(os.getenv('TOPN_RESULTS', '15'))
+    topk_recommend: int = int(os.getenv('TOPK_RECOMMEND', '5'))
     
     def to_dict(self) -> dict:
         """Convert config to dictionary."""
