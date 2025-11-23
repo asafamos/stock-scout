@@ -1148,10 +1148,17 @@ def fetch_fundamentals_bundle(ticker: str, enable_alpha_smart: bool = False) -> 
         results["fmp_legacy"] = combo.get("legacy", {})
 
     # ========== MERGE IN NEW PRIORITY ORDER ==========
-    # Primary providers first: Tiingo -> Alpha -> FMP, then supplemental providers.
+    # Primary providers first: Tiingo -> Finnhub -> Alpha -> FMP, then supplemental providers.
     if results.get("tiingo"):
         _merge(results["tiingo"], "from_tiingo", "Tiingo")
         logger.debug(f"Fundamentals merge: Tiingo ✓ {ticker}")
+
+    # Prefer Finnhub over Alpha for primary merging so that Finnhub-provided
+    # fields take precedence when both respond (matches expected fallback
+    # semantics used in tests and historical behavior).
+    if results.get("finnhub"):
+        _merge(results["finnhub"], "from_finnhub", "Finnhub")
+        logger.debug(f"Fundamentals merge: Finnhub ✓ {ticker}")
 
     if results.get("alpha"):
         _merge(results["alpha"], "from_alpha", "Alpha")
@@ -4656,34 +4663,136 @@ except Exception:
     pass
 
 # Provider usage tracking (aggregate from source lines)
-provider_usage: Dict[str, Dict[str, bool]] = {}
-providers = ["Alpha","Finnhub","Tiingo","Polygon","Yahoo","OpenAI"]
-for p in providers:
-    provider_usage[p] = {"price_used": False, "fund_used": False, "ml_used": False}
+# Build accurate provider usage tracker using session markers and per-row flags
+providers_meta = {
+    "Yahoo": {"env": None, "implemented": True, "label": "Yahoo"},
+    "Alpha": {"env": "ALPHA_VANTAGE_API_KEY", "implemented": True, "label": "Alpha"},
+    "Finnhub": {"env": "FINNHUB_API_KEY", "implemented": True, "label": "Finnhub"},
+    "Tiingo": {"env": "TIINGO_API_KEY", "implemented": True, "label": "Tiingo"},
+    "Polygon": {"env": "POLYGON_API_KEY", "implemented": True, "label": "Polygon"},
+    "OpenAI": {"env": "OPENAI_API_KEY", "implemented": True, "label": "OpenAI"},
+    "SimFin": {"env": "SIMFIN_API_KEY", "implemented": bool(CONFIG.get("ENABLE_SIMFIN", False)), "label": "SimFin"},
+    "Marketstack": {"env": "MARKETSTACK_API_KEY", "implemented": bool(CONFIG.get("ENABLE_MARKETSTACK", False)), "label": "Marketstack"},
+    "EODHD": {"env": "EODHD_API_KEY", "implemented": bool(CONFIG.get("ENABLE_EODHD", False)), "label": "EODHD"},
+    "NasdaqDL": {"env": "NASDAQ_API_KEY", "implemented": bool(CONFIG.get("ENABLE_NASDAQ_DL", False)), "label": "NasdaqDL"},
+}
 
-def _mark_usage(line: str, kind: str):
-    if not isinstance(line, str):
-        return
-    lower = line.lower()
-    for p in providers:
-        key = p.lower()
-        if key in lower:
-            provider_usage[p][kind] = True
+# session-level usage markers updated by data fetch helpers (see _fetch_external_for and mark_provider_usage)
+session_usage = st.session_state.get("provider_usage", {}) or {}
 
-for _, r in rec_df.iterrows():
-    _mark_usage(r.get("Price_Sources_Line",""), "price_used")
-    _mark_usage(r.get("Fund_Sources_Line",""), "fund_used")
-    if np.isfinite(r.get("ML_Probability", np.nan)):
-        provider_usage["OpenAI"]["ml_used"] = provider_usage["OpenAI"]["ml_used"] or bool(st.session_state.get("enable_openai_targets", False))
+provider_usage = {}
+for p, meta in providers_meta.items():
+    key_present = False
+    if meta["env"]:
+        try:
+            key_present = bool(_env(meta["env"]))
+        except Exception:
+            key_present = False
+    else:
+        # Providers that don't need a key (Yahoo)
+        key_present = True
 
-used_count = sum(1 for p,v in provider_usage.items() if any(v.values()))
+    implemented = bool(meta.get("implemented", True))
+
+    # used flags: check session markers and per-row flags in results
+    used_price = False
+    used_fund = False
+    used_ml = False
+
+    # Session usage (set in fetch helpers)
+    if p in session_usage:
+        cats = session_usage.get(p) or set()
+        used_price = used_price or ("price" in cats)
+        used_fund = used_fund or ("fundamentals" in cats)
+        used_ml = used_ml or ("ml" in cats)
+
+    # Per-row indicators (fundamentals)
+    try:
+        if p == "Alpha" and "Fund_from_Alpha" in results.columns and results["Fund_from_Alpha"].any():
+            used_fund = True
+        if p == "Tiingo" and "Fund_from_Tiingo" in results.columns and results["Fund_from_Tiingo"].any():
+            used_fund = True
+        if p == "Finnhub" and "Fund_from_Finnhub" in results.columns and results["Fund_from_Finnhub"].any():
+            used_fund = True
+        if p == "SimFin" and "Fund_from_SimFin" in results.columns and results["Fund_from_SimFin"].any():
+            used_fund = True
+        if p == "EODHD" and "Fund_from_EODHD" in results.columns and results["Fund_from_EODHD"].any():
+            used_fund = True
+        if p == "Alpha" and ("Price_Alpha" in results.columns and results["Price_Alpha"].notna().any()):
+            used_price = True
+    except Exception:
+        pass
+
+    # Price sources from Source_List column
+    try:
+        if "Source_List" in results.columns:
+            # join all source_list strings and search for provider label appearance
+            all_sources = " ".join([str(x) for x in results["Source_List"].fillna("") if x])
+            if meta["label"].lower() in all_sources.lower():
+                used_price = True
+    except Exception:
+        pass
+
+    # OpenAI/ML usage heuristic
+    try:
+        if p == "OpenAI":
+            if st.session_state.get("enable_openai_targets", False):
+                # if any ML probabilities exist, consider ML used
+                if "ML_Probability" in results.columns and results["ML_Probability"].notna().any():
+                    used_ml = True
+                # also consider session_usage
+                if "OpenAI" in session_usage and "ml" in (session_usage.get("OpenAI") or set()):
+                    used_ml = True
+    except Exception:
+        pass
+
+    provider_usage[p] = {
+        "key_present": bool(key_present),
+        "used_price": bool(used_price),
+        "used_fundamentals": bool(used_fund),
+        "used_ml": bool(used_ml),
+        "implemented": bool(implemented),
+    }
+
+# Count used providers (any usage)
+used_count = sum(1 for v in provider_usage.values() if v.get("used_price") or v.get("used_fundamentals") or v.get("used_ml"))
+
 with st.expander("📡 Data Provider Usage", expanded=False):
-    usage_rows = []
-    for p, flags in provider_usage.items():
-        usage_rows.append({"Provider": p, **{k: "✅" if v else "" for k,v in flags.items()}})
-    usage_df = pd.DataFrame(usage_rows)
-    st.table(usage_df)
-    st.caption(f"Used providers: {used_count} / {len(providers)}")
+    # Render a compact HTML table with color-coded status per provider
+    rows = []
+    for p, v in provider_usage.items():
+        if not v.get("implemented"):
+            status = "Not implemented"
+            color = "#9ca3af"  # gray
+            tip = "Not implemented yet"
+        elif v.get("used_price") or v.get("used_fundamentals") or v.get("used_ml"):
+            status = "Used"
+            color = "#16a34a"  # green
+            used_parts = []
+            if v.get("used_price"):
+                used_parts.append("price")
+            if v.get("used_fundamentals"):
+                used_parts.append("fundamentals")
+            if v.get("used_ml"):
+                used_parts.append("ml")
+            tip = f"Used for: {', '.join(used_parts)}"
+        elif v.get("key_present"):
+            status = "Available"
+            color = "#f59e0b"  # yellow
+            tip = "Key present / implemented but not used in this run"
+        else:
+            status = "No key"
+            color = "#6b7280"
+            tip = "No API key (or not configured)"
+
+        rows.append((p, status, color, tip))
+
+    table_html = "<table style='border-collapse:collapse;width:100%'><thead><tr><th style='text-align:left;padding:6px 8px;border-bottom:1px solid #e5e7eb'>Provider</th><th style='text-align:left;padding:6px 8px;border-bottom:1px solid #e5e7eb'>Status</th><th style='text-align:left;padding:6px 8px;border-bottom:1px solid #e5e7eb'>Notes</th></tr></thead><tbody>"
+    for p, status, color, tip in rows:
+        table_html += f"<tr title='{html_escape.escape(tip)}'><td style='padding:6px 8px;border-bottom:1px solid #f3f4f6'>{html_escape.escape(p)}</td><td style='padding:6px 8px;border-bottom:1px solid #f3f4f6'><span style='display:inline-block;padding:6px 10px;border-radius:6px;background:{color};color:white;font-weight:700'>{html_escape.escape(status)}</span></td><td style='padding:6px 8px;border-bottom:1px solid #f3f4f6'>{html_escape.escape(tip)}</td></tr>"
+    table_html += "</tbody></table>"
+    st.markdown(table_html, unsafe_allow_html=True)
+    st.caption(f"Used providers: {used_count} / {len(providers_meta)}")
 
 # Calculate target prices and dates WITH OPTIONAL OPENAI ENHANCEMENT
 from datetime import datetime, timedelta
@@ -5113,14 +5222,18 @@ def format_rel(val) -> str:
 if rec_df.empty:
     st.info("No stocks currently pass the threshold with a positive buy amount.")
 else:
-    # Split into Core and Speculative
+    # Split into Core and Speculative (case-insensitive matching to avoid accidental drops)
     if "Risk_Level" in rec_df.columns:
-        core_df = rec_df[rec_df["Risk_Level"] == "core"]
-        spec_df = rec_df[rec_df["Risk_Level"] == "speculative"]
+        levels = rec_df["Risk_Level"].astype(str).str.lower()
+        core_df = rec_df[levels == "core"].copy()
+        spec_df = rec_df[levels == "speculative"].copy()
     else:
-        # Fallback if Risk_Level column doesn't exist
-        core_df = rec_df
+        # Fallback if Risk_Level column doesn't exist: treat all as core
+        core_df = rec_df.copy()
         spec_df = pd.DataFrame()
+
+    # Re-display an accurate count reflecting what will be rendered
+    st.info(f"📊 Showing {len(core_df) + len(spec_df)} stocks after filters ({len(core_df)} Core, {len(spec_df)} Speculative)")
 
     # Display Core recommendations first
     if not core_df.empty:
