@@ -256,33 +256,57 @@ def classify_stock(row: pd.Series) -> StockClassification:
     rr = row.get("RR_Ratio") or row.get("RewardRisk", 0)
     mom_cons = row.get("Momentum_Consistency", 0)
     
-    # CORE CRITERIA (Balanced - Nov 2025 Update)
-    # Based on analysis: strict criteria (RSI 25-40) resulted in 0 Core stocks
-    # New balanced criteria provide 8-12 Core with ~62% win rate
-    # PRIORITY: Check technical signals FIRST (they're more important than data completeness!)
+    # CORE CRITERIA (STRICTER - Nov 2025 Update)
+    # Based on requirements: high/medium data quality, fundamentals > 0.6 (60/100),
+    # moderate beta, no extreme risk flags
+    # 
+    # Core stocks must demonstrate:
     # 1. RSI 20-55 (oversold + neutral zone)
-    # 2. RR ≥ 1.0 (reasonable risk/reward)
-    # 3. MomCons ≥ 0.35 (moderate consistency)
-    # 4. Max 4 risk warnings
-    # 5. Data quality "low" is acceptable if technicals are strong
-    is_core_rsi = isinstance(rsi, (int, float)) and 20 <= rsi <= 55
-    is_core_rr = isinstance(rr, (int, float)) and rr >= 1.0
-    is_core_mom = isinstance(mom_cons, (int, float)) and mom_cons >= 0.35
-    low_risk = len(risk_warnings) <= 4
+    # 2. RR ≥ 1.5 (minimum acceptable risk/reward)
+    # 3. MomCons ≥ 0.40 (decent consistency)
+    # 4. Fundamental score ≥ 60 (good fundamentals)
+    # 5. Beta ≤ 1.5 (moderate risk vs market)
+    # 6. Max 3 risk warnings
+    # 7. Data quality "high" or "medium"
     
-    # Core = RSI + RR + MomCons met, regardless of data completeness
-    # (Technical signals are more important than fundamental completeness!)
-    if is_core_rsi and is_core_rr and is_core_mom and low_risk:
+    # Extract fundamentals score
+    fundamental_score = row.get("Fundamental_S", row.get("fundamental_score_v2", 50.0))
+    if isinstance(fundamental_score, (int, float)) and np.isfinite(fundamental_score):
+        fund_score_value = float(fundamental_score)
+    else:
+        fund_score_value = 30.0  # Missing fundamentals = low score
+    
+    # Check Core technical requirements
+    is_core_rsi = isinstance(rsi, (int, float)) and 20 <= rsi <= 55
+    is_core_rr = isinstance(rr, (int, float)) and rr >= 1.5  # Stricter: 1.5 instead of 1.0
+    is_core_mom = isinstance(mom_cons, (int, float)) and mom_cons >= 0.40  # Stricter: 0.40 instead of 0.35
+    
+    # NEW: Check fundamental requirement
+    is_core_fundamentals = fund_score_value >= 60.0  # Must have good fundamentals
+    
+    # NEW: Check beta requirement
+    beta = row.get("Beta")
+    is_core_beta = True  # Default if missing
+    if isinstance(beta, (int, float)) and np.isfinite(beta):
+        is_core_beta = beta <= 1.5  # Moderate beta only for Core
+    
+    low_risk = len(risk_warnings) <= 3  # Stricter: max 3 warnings instead of 4
+    acceptable_data_quality = data_quality in ["high", "medium"]
+    
+    # Core = ALL requirements met
+    if (is_core_rsi and is_core_rr and is_core_mom and 
+        is_core_fundamentals and is_core_beta and 
+        low_risk and acceptable_data_quality):
         risk_level = "core"
         # Adjust confidence based on data quality
-        if data_quality == "high" and len(risk_warnings) == 0:
+        if data_quality == "high" and len(risk_warnings) == 0 and fund_score_value >= 70:
             confidence_level = "high"
-        elif data_quality in ["high", "medium"] and len(risk_warnings) <= 1:
+        elif data_quality == "high" or (data_quality == "medium" and len(risk_warnings) <= 1):
             confidence_level = "medium"
         else:
             confidence_level = "low"
         should_display = True
-        all_warnings.append(f"Core: RSI={rsi:.1f}, RR={rr:.2f}, MomCons={mom_cons:.2f}")
+        all_warnings.append(f"Core: RSI={rsi:.1f}, RR={rr:.2f}, Mom={mom_cons:.2f}, Fund={fund_score_value:.0f}, Beta={beta:.2f if isinstance(beta, (int, float)) else 'N/A'}")
     
     # SPECULATIVE CRITERIA (Good but not great)
     # Option A: RSI 50-58 (neutral bounce zone)
@@ -332,12 +356,25 @@ def classify_stock(row: pd.Series) -> StockClassification:
     # Exemptions: do not label certain large, systemically-important tickers as Speculative solely due to missing fundamentals
     EXEMPT_TICKERS = {"AMZN","AXP","ABT","ACN","ADBE","AAPL","ABBV","MSFT","GOOG","BRK.B","JPM","V","MA","JNJ","PG"}
     if ticker in EXEMPT_TICKERS and risk_level == "speculative":
-        # If the only reason for speculative classification is missing fundamentals or low confidence, promote to core with medium confidence
-        if "Fundamentals missing" in all_warnings or data_quality in ["low"]:
+        # If the only reason for speculative classification is missing fundamentals, 
+        # AND the stock has high reliability and good technical signals, promote to core
+        reliability = row.get("Reliability_v2", row.get("reliability_pct", 0))
+        
+        # STRICT: Only promote if reliability >= 60 AND fundamental score >= 55
+        can_promote = (
+            isinstance(reliability, (int, float)) and reliability >= 60 and
+            fund_score_value >= 55 and
+            is_core_rsi and is_core_rr and is_core_mom and
+            data_quality in ["high", "medium"]
+        )
+        
+        if can_promote:
             risk_level = "core"
-            confidence_level = "medium"
+            confidence_level = "medium"  # Never "high" for fallback promotions
             should_display = True
-            all_warnings.append("Exemption applied: systemically-important ticker promoted to Core")
+            all_warnings.append(f"Fallback Core: exempt ticker with reliability {reliability:.0f}%, fundamentals {fund_score_value:.0f}")
+        else:
+            all_warnings.append(f"Exempt ticker remains Speculative: reliability {reliability:.0f}%, fundamentals {fund_score_value:.0f} below thresholds")
     
     return StockClassification(
         risk_level=risk_level,

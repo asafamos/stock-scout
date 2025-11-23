@@ -21,9 +21,10 @@ def calculate_reliability_v2(
 ) -> Tuple[float, Dict[str, Any]]:
     """
     Calculate MEANINGFUL reliability score (0-100) based on:
-    1. Fundamental completeness (% of fields filled)
-    2. Number of fundamental sources (0-4+)
-    3. Price source reliability (count + variance)
+    1. Data coverage (fundamental completeness)
+    2. Fundamentals coverage (number of sources)
+    3. Price source agreement (count + variance)
+    4. Inverse volatility (lower ATR/Price = higher reliability)
     
     Returns:
         (reliability_v2: 0-100, details_dict)
@@ -33,6 +34,7 @@ def calculate_reliability_v2(
         "fund_sources_count": 0,
         "price_sources_count": 0,
         "price_variance_penalty": 0.0,
+        "volatility_penalty": 0.0,
         "fund_disagreement": 0.0
     }
     
@@ -82,12 +84,31 @@ def calculate_reliability_v2(
     else:
         variance_penalty = 0.0
     
-    # 4) CALCULATE RELIABILITY V2 (0-100)
+    # 4) VOLATILITY PENALTY (inverse ATR/Price)
+    # Lower volatility = higher reliability
+    atr_price = row.get("ATR_Price", row.get("ATR_Pct", np.nan))
+    if pd.notna(atr_price) and atr_price > 0:
+        # ATR/Price > 8% = very volatile (50pt penalty)
+        # ATR/Price 4-8% = moderate (25pt penalty)
+        # ATR/Price < 4% = stable (0pt penalty)
+        if atr_price > 0.08:
+            volatility_penalty = 50.0
+        elif atr_price > 0.04:
+            volatility_penalty = 25.0 * ((atr_price - 0.04) / 0.04)
+        else:
+            volatility_penalty = 0.0
+        details["volatility_penalty"] = volatility_penalty
+    else:
+        volatility_penalty = 15.0  # Unknown volatility = small penalty
+        details["volatility_penalty"] = volatility_penalty
+    
+    # 5) CALCULATE RELIABILITY V2 (0-100)
     # Weights:
-    # - 40% completeness
-    # - 30% fund sources
+    # - 30% completeness
+    # - 25% fund sources
     # - 20% price sources
-    # - 10% variance penalty
+    # - 15% volatility (inverse)
+    # - 10% price variance
     
     # Completeness score (already 0-100)
     completeness_score = completeness_pct
@@ -112,15 +133,26 @@ def calculate_reliability_v2(
     else:  # 3+
         price_sources_score = 100.0
     
-    # Weighted combination
+    # Weighted combination (NEW: includes volatility)
     reliability_v2 = (
-        0.40 * completeness_score +
-        0.30 * fund_sources_score +
+        0.30 * completeness_score +
+        0.25 * fund_sources_score +
         0.20 * price_sources_score +
+        0.15 * (100 - volatility_penalty) +
         0.10 * (100 - variance_penalty)
     )
     
     reliability_v2 = float(np.clip(reliability_v2, 0, 100))
+    
+    # Map to High/Medium/Low bands
+    if reliability_v2 >= 75:
+        reliability_band = "High"
+    elif reliability_v2 >= 40:
+        reliability_band = "Medium"
+    else:
+        reliability_band = "Low"
+    
+    details["reliability_band"] = reliability_band
     
     return reliability_v2, details
 

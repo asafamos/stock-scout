@@ -29,7 +29,7 @@ def _normalize(value: Optional[float], low: float, high: float) -> float:
     return float(np.clip((value - low) / (high - low), 0.0, 1.0))
 
 
-def compute_fundamental_score_with_breakdown(data: dict) -> FundamentalScore:
+def compute_fundamental_score_with_breakdown(data: dict, coverage_pct: float = 1.0) -> FundamentalScore:
     """
     Compute fundamental score with detailed breakdown.
     
@@ -39,6 +39,7 @@ def compute_fundamental_score_with_breakdown(data: dict) -> FundamentalScore:
             - rev_g_yoy, eps_g_yoy: Growth metrics
             - pe, ps: Valuation metrics
             - de: Leverage (debt-to-equity)
+        coverage_pct: Fraction of fundamental fields available (0-1)
     
     Returns:
         FundamentalScore with breakdown and labels
@@ -71,34 +72,85 @@ def compute_fundamental_score_with_breakdown(data: dict) -> FundamentalScore:
     
     breakdown.quality_label = _quality_label(breakdown.quality_score)
     
-    # === Growth Score (0-100) ===
-    rev_g_score = _normalize(breakdown.revenue_growth_yoy, -0.10, 0.30) * 100
-    eps_g_score = _normalize(breakdown.eps_growth_yoy, -0.20, 0.50) * 100
+    # === Growth Score (0-100) with STRONGER PENALTIES ===
+    # Negative or weak growth should significantly hurt the score
+    rev_g = breakdown.revenue_growth_yoy
+    eps_g = breakdown.eps_growth_yoy
+    
+    # Revenue growth scoring with stricter penalties
+    if rev_g is not None and np.isfinite(rev_g):
+        if rev_g < -0.05:  # Declining revenue > 5%: very bad (0-20 pts)
+            rev_g_score = max(0, 20 + rev_g * 400)  # -5% = 0pts, 0% = 20pts
+        elif rev_g < 0.05:  # Weak/flat growth 0-5%: poor (20-40 pts)
+            rev_g_score = 20 + (rev_g / 0.05) * 20
+        else:  # Positive growth: scale normally
+            rev_g_score = _normalize(rev_g, 0.05, 0.30) * 60 + 40  # 5-30% = 40-100pts
+    else:
+        rev_g_score = 35.0  # Missing data = below average
+    
+    # EPS growth scoring with stricter penalties
+    if eps_g is not None and np.isfinite(eps_g):
+        if eps_g < -0.10:  # Declining EPS > 10%: very bad (0-15 pts)
+            eps_g_score = max(0, 15 + eps_g * 150)
+        elif eps_g < 0.05:  # Weak/flat EPS 0-5%: poor (15-35 pts)
+            eps_g_score = 15 + (eps_g / 0.05) * 20
+        else:  # Positive EPS growth: scale normally
+            eps_g_score = _normalize(eps_g, 0.05, 0.50) * 65 + 35  # 5-50% = 35-100pts
+    else:
+        eps_g_score = 35.0  # Missing data = below average
     
     breakdown.growth_score = float(np.mean([rev_g_score, eps_g_score]))
     breakdown.growth_label = _growth_label(breakdown.growth_score)
     
-    # === Valuation Score (0-100, lower multiples = higher score) ===
+    # === Valuation Score (0-100, lower multiples = higher score) with EXTREME penalties ===
     pe = breakdown.pe_ratio
     ps = breakdown.ps_ratio
     
-    # Invert: lower P/E = higher score
-    pe_score = (1.0 - _normalize(pe, 5, 40)) * 100 if (pe is not None and np.isfinite(pe)) else 50.0
-    ps_score = (1.0 - _normalize(ps, 0.5, 10)) * 100 if (ps is not None and np.isfinite(ps)) else 50.0
+    # P/E scoring with extreme valuation penalty
+    if pe is not None and np.isfinite(pe) and pe > 0:
+        if pe > 100:  # Extreme P/E: 0-20 pts
+            pe_score = max(0, 20 - (pe - 100) * 0.2)
+        elif pe > 60:  # Very high P/E: 20-40 pts
+            pe_score = 20 + (1.0 - _normalize(pe, 60, 100)) * 20
+        else:  # Normal range
+            pe_score = (1.0 - _normalize(pe, 5, 60)) * 60 + 40
+    elif pe is not None and pe < 0:  # Negative earnings
+        pe_score = 10.0  # Very low score for negative earnings
+    else:
+        pe_score = 50.0
+    
+    # P/S scoring with extreme valuation penalty
+    if ps is not None and np.isfinite(ps) and ps > 0:
+        if ps > 20:  # Extreme P/S: 0-20 pts
+            ps_score = max(0, 20 - (ps - 20) * 1.0)
+        elif ps > 10:  # Very high P/S: 20-40 pts
+            ps_score = 20 + (1.0 - _normalize(ps, 10, 20)) * 20
+        else:  # Normal range
+            ps_score = (1.0 - _normalize(ps, 0.5, 10)) * 60 + 40
+    else:
+        ps_score = 50.0
     
     breakdown.valuation_score = float(np.mean([pe_score, ps_score]))
     breakdown.valuation_label = _valuation_label(breakdown.valuation_score)
     
-    # === Leverage Score (0-100, lower D/E = higher score) ===
+    # === Leverage Score (0-100, lower D/E = higher score) with STRONGER PENALTIES ===
     de = breakdown.debt_to_equity
     
     if de is not None and np.isfinite(de):
-        # Penalize high debt: D/E > 2.0 is very bad
-        de_penalty = _normalize(de, 0, 2.0)  # 0=good, 1=bad
-        breakdown.leverage_score = (1.0 - de_penalty) * 100
+        if de > 3.0:  # Very high debt: 0-20 pts
+            breakdown.leverage_score = max(0, 20 - (de - 3.0) * 10)
+        elif de > 2.0:  # High debt: 20-40 pts
+            de_penalty = _normalize(de, 2.0, 3.0)
+            breakdown.leverage_score = 40 - de_penalty * 20
+        elif de > 1.0:  # Moderate debt: 40-70 pts
+            de_penalty = _normalize(de, 1.0, 2.0)
+            breakdown.leverage_score = 70 - de_penalty * 30
+        else:  # Low debt: 70-100 pts
+            breakdown.leverage_score = 70 + (1.0 - de) * 30
     else:
         breakdown.leverage_score = 50.0  # Neutral if unknown
     
+    breakdown.leverage_score = float(np.clip(breakdown.leverage_score, 0, 100))
     breakdown.leverage_label = _leverage_label(breakdown.leverage_score)
     
     # === Total Score ===
@@ -109,6 +161,14 @@ def compute_fundamental_score_with_breakdown(data: dict) -> FundamentalScore:
         0.25 * breakdown.valuation_score +
         0.10 * breakdown.leverage_score
     )
+    
+    # === Coverage Cap: Low coverage limits max score ===
+    # If coverage < 0.5, cap at 60 (medium band)
+    # If coverage < 0.3, cap at 45 (low-medium band)
+    if coverage_pct < 0.3:
+        total = min(total, 45.0)
+    elif coverage_pct < 0.5:
+        total = min(total, 60.0)
     
     return FundamentalScore(
         total=float(np.clip(total, 0, 100)),
@@ -181,10 +241,10 @@ def _leverage_label(score: float) -> str:
 
 
 # Legacy compatibility function
-def fundamental_score_legacy(data: dict, surprise_bonus_on: bool = False) -> float:
+def fundamental_score_legacy(data: dict, surprise_bonus_on: bool = False, coverage_pct: float = 1.0) -> float:
     """
     Legacy fundamental_score function for backward compatibility.
     Returns simple 0-1 score.
     """
-    result = compute_fundamental_score_with_breakdown(data)
+    result = compute_fundamental_score_with_breakdown(data, coverage_pct)
     return result.total / 100.0  # Convert to 0-1 scale

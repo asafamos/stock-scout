@@ -195,6 +195,32 @@ def compute_overall_score(row: pd.Series) -> Tuple[float, Dict[str, float]]:
     
     # Apply penalties
     final_score = score_before_penalties - penalty_total
+    
+    # === SAFETY CAPS: Prevent high scores with weak fundamentals or low reliability ===
+    # Cap 1: Weak fundamentals (< 50) + low reliability (< 40) → max 75
+    if fund_score < 50 and reliability < 40:
+        final_score = min(final_score, 75.0)
+        penalty_breakdown["safety_cap_weak_fund_low_rel"] = "applied (max 75)"
+    
+    # Cap 2: Poor fundamentals (< 40) → max 80 regardless of other factors
+    if fund_score < 40:
+        final_score = min(final_score, 80.0)
+        penalty_breakdown["safety_cap_poor_fund"] = "applied (max 80)"
+    
+    # Cap 3: Very low reliability (< 30) → max 70
+    if reliability < 30:
+        final_score = min(final_score, 70.0)
+        penalty_breakdown["safety_cap_very_low_rel"] = "applied (max 70)"
+    
+    # Cap 4: ML boost limited when reliability or data quality is poor
+    # If reliability < 50 or fund_score < 50, limit ML boost to ±5 instead of ±10
+    if (reliability < 50 or fund_score < 50) and abs(ml_delta) > 5:
+        original_ml_delta = ml_delta
+        ml_delta = np.sign(ml_delta) * min(abs(ml_delta), 5.0)
+        ml_delta_reduction = original_ml_delta - ml_delta
+        final_score -= ml_delta_reduction
+        penalty_breakdown["ml_boost_limited"] = f"reduced by {ml_delta_reduction:.1f}"
+    
     final_score = float(np.clip(final_score, 0, 100))
     
     # Build component breakdown for transparency

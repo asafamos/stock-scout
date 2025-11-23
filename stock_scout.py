@@ -58,6 +58,7 @@ from core.scoring.fundamental import compute_fundamental_score_with_breakdown
 from core.v2_risk_engine import score_ticker_v2_enhanced
 from indicators import rsi, atr, macd_line, adx, _sigmoid
 from core.scoring_engine import evaluate_rr_unified
+from core.market_regime import detect_market_regime, adjust_target_for_regime
 
 # Helper: build clean minimal card
 
@@ -320,6 +321,8 @@ CONFIG = {
     "PERF_ALPHA_ENABLED": True,  # In fast mode we force this False to skip Alpha Vantage entirely
     "PERF_FUND_TIMEOUT": 15,  # Normal per-provider future timeout
     "PERF_FUND_TIMEOUT_FAST": 6,  # Fast mode per-provider future timeout
+    # --- Debug / Developer Flags ---
+    "DEBUG_MODE": os.getenv("STOCK_SCOUT_DEBUG", "false").lower() in ("true", "1", "yes"),
 }
 
 # -----------------------------------------------------------------
@@ -2368,6 +2371,33 @@ def t_end(t0: float) -> float:
 phase_times: Dict[str, float] = {}
 if "av_calls" not in st.session_state:
     st.session_state.av_calls = 0
+
+# Detect market regime EARLY (before processing stocks)
+t0_regime = t_start()
+with st.spinner("📊 Detecting market regime (SPY/QQQ/VIX)..."):
+    market_regime_data = detect_market_regime(lookback_days=60)
+    regime = market_regime_data.get("regime", "neutral")
+    regime_confidence = market_regime_data.get("confidence", 50)
+    phase_times["market_regime"] = t_end(t0_regime)
+    
+    # Show regime with color coding
+    regime_emoji = {"bullish": "📈", "neutral": "➡️", "bearish": "📉"}
+    regime_color = {"bullish": "#16a34a", "neutral": "#f59e0b", "bearish": "#dc2626"}
+    
+    st.markdown(
+        f"""<div style='background:{regime_color[regime]};color:white;padding:12px;border-radius:8px;margin:10px 0'>
+        <strong>{regime_emoji[regime]} Market Regime: {regime.upper()}</strong> (confidence: {regime_confidence}%)<br>
+        <small>{market_regime_data.get('details', '')}</small>
+        </div>""",
+        unsafe_allow_html=True
+    )
+    
+    # Store in session state for use in target calculations
+    st.session_state['market_regime'] = market_regime_data
+    
+    # Debug logging if enabled
+    if CONFIG.get("DEBUG_MODE"):
+        logger.info(f"Market regime: {regime} (conf: {regime_confidence}%), SPY trend: {market_regime_data.get('spy_trend', 0):.3f}, QQQ trend: {market_regime_data.get('qqq_trend', 0):.3f}")
 
 # 1) Universe
 t0 = t_start()
@@ -4720,8 +4750,27 @@ def calculate_targets(row):
             target_source = "AI"
         elif np.isfinite(atr) and np.isfinite(rr):
             # Fallback to technical calculation: entry + (RR * ATR)
-            target_price = entry_price + (rr * atr)
-            target_source = "Technical"
+            base_target_pct = rr * (atr / current_price) if current_price > 0 else 0.10
+            
+            # REGIME-AWARE ADJUSTMENT
+            reliability = row.get("Reliability_v2", row.get("reliability_pct", 50.0))
+            risk_meter = row.get("risk_meter_v2", row.get("RiskMeter", 50.0))
+            regime_data = st.session_state.get('market_regime', {"regime": "neutral", "confidence": 50})
+            
+            adjusted_target_pct, adjustment_explanation = adjust_target_for_regime(
+                base_target_pct, 
+                reliability, 
+                risk_meter, 
+                regime_data
+            )
+            
+            target_price = entry_price * (1 + adjusted_target_pct)
+            target_source = "AI"  # Mark as AI to show regime-aware calculation
+            
+            # Debug logging
+            if CONFIG.get("DEBUG_MODE") and adjustment_explanation != "no adjustments":
+                logger.debug(f"{ticker}: Target adjusted from {base_target_pct*100:.1f}% to {adjusted_target_pct*100:.1f}% ({adjustment_explanation})")
+            
             # days already calculated above from RR + RSI + momentum
         else:
             # Conservative default: 10% above entry
@@ -4860,6 +4909,67 @@ if not rec_df.empty:
             rec_df["rr_band"] = rec_df["rr"].apply(_rr_eval_local)
     except Exception as e:
         logger.warning(f"RR sync failed: {e}")
+
+# Add new export fields for 2025 improvements
+if not rec_df.empty:
+    # Market regime info
+    regime_data = st.session_state.get('market_regime', {"regime": "neutral", "confidence": 50})
+    rec_df["Market_Regime"] = regime_data.get("regime", "neutral")
+    rec_df["Regime_Confidence"] = regime_data.get("confidence", 50)
+    
+    # Reliability band (High/Medium/Low based on reliability score)
+    def _get_reliability_band(reliability_val):
+        if pd.notna(reliability_val) and isinstance(reliability_val, (int, float)):
+            if reliability_val >= 75:
+                return "High"
+            elif reliability_val >= 40:
+                return "Medium"
+            else:
+                return "Low"
+        return "Unknown"
+    
+    rec_df["Reliability_Band"] = rec_df.get("Reliability_v2", rec_df.get("reliability_pct", 50)).apply(_get_reliability_band)
+    
+    # Reliability components summary
+    def _get_reliability_components(row):
+        fund_rel = row.get("Fundamental_Reliability_v2", 0)
+        price_rel = row.get("Price_Reliability_v2", 0)
+        fund_sources = row.get("fund_sources_used_v2", 0)
+        price_sources = row.get("price_sources_used_v2", 0)
+        return f"F:{fund_rel:.0f}%(n={fund_sources}),P:{price_rel:.0f}%(n={price_sources})"
+    
+    rec_df["Reliability_Components"] = rec_df.apply(_get_reliability_components, axis=1)
+    
+    # Risk band (based on risk_meter_v2)
+    rec_df["Risk_Band"] = rec_df.get("risk_band", "Unknown")
+    
+    # Fundamental coverage percentage
+    rec_df["Fund_Coverage_Pct"] = rec_df.get("Fund_Coverage_Pct", 0).fillna(0)
+    
+    # Volatility penalty (from reliability calculation)
+    rec_df["Volatility_Penalty"] = rec_df.get("ATR_Price", 0).apply(
+        lambda x: "High" if x > 0.08 else ("Moderate" if x > 0.04 else "Low") if pd.notna(x) else "Unknown"
+    )
+    
+    # Safety caps applied (if overall score was capped)
+    rec_df["Safety_Caps_Applied"] = "No"  # Placeholder - would need to track during scoring
+    
+    # Debug logging for sample stocks
+    if CONFIG.get("DEBUG_MODE") and len(rec_df) > 0:
+        sample_tickers = rec_df["Ticker"].head(3).tolist()
+        for ticker in sample_tickers:
+            row = rec_df[rec_df["Ticker"] == ticker].iloc[0]
+            logger.info(f"""
+DEBUG: {ticker} Breakdown:
+  Overall Score: {row.get('overall_score_pretty', row.get('Score', 'N/A'))}
+  Fundamentals: {row.get('Fundamental_S', 'N/A'):.0f} (coverage: {row.get('Fund_Coverage_Pct', 0):.1f}%)
+  Technical: {row.get('Technical_S', 'N/A'):.0f}
+  RR: {row.get('rr_score_v2', 'N/A'):.0f} (ratio: {row.get('rr', 'N/A'):.2f})
+  Reliability: {row.get('Reliability_v2', 'N/A'):.0f} ({row.get('Reliability_Band', 'N/A')})
+  Risk: {row.get('risk_meter_v2', 'N/A'):.0f} ({row.get('risk_band', 'N/A')})
+  Classification: {row.get('Risk_Level', 'N/A')}
+  Market Regime: {regime_data.get('regime', 'N/A')} ({regime_data.get('confidence', 0)}%)
+""")
 
 # CSS now loaded from design_system.py - no need for separate CARD_CSS
 
@@ -5724,6 +5834,15 @@ show_order = [
     "Debt/Equity",
     "Revenue YoY",
     "EPS YoY",
+    # NEW FIELDS (2025 improvements)
+    "Market_Regime",
+    "Regime_Confidence",
+    "Reliability_Band",
+    "Reliability_Components",
+    "Risk_Band",
+    "Fund_Coverage_Pct",
+    "Volatility_Penalty",
+    "Safety_Caps_Applied",
 ]
 csv_df = view_df_source.rename(columns=hebrew_cols)
 
