@@ -23,141 +23,76 @@ def detect_market_regime(
     spy_data: Optional[pd.DataFrame] = None,
     qqq_data: Optional[pd.DataFrame] = None
 ) -> Dict[str, any]:
+    """Robust market regime detection with safe fallbacks.
+
+    Always returns simple primitives (no Series). On any failure returns neutral baseline.
     """
-    Detect current market regime based on SPY/QQQ trends and volatility.
-    
-    Args:
-        lookback_days: Number of days to look back for trend analysis
-        spy_data: Pre-fetched SPY data (optional)
-        qqq_data: Pre-fetched QQQ data (optional)
-    
-    Returns:
-        Dict with:
-            - regime: "bullish", "neutral", or "bearish"
-            - confidence: 0-100 score
-            - spy_trend: SPY trend score (-1 to 1)
-            - qqq_trend: QQQ trend score (-1 to 1)
-            - vix_level: VIX category ("low", "normal", "elevated", "high")
-            - details: Human-readable description
-    """
-    result = {
+    fallback = {
         "regime": "neutral",
         "confidence": 50,
         "spy_trend": 0.0,
         "qqq_trend": 0.0,
-        "vix_level": "normal",
-        "details": "Market regime detection in progress"
+        "vix_level": "unknown",
+        "details": "neutral fallback"
     }
-    
     try:
-        # Fetch SPY data if not provided
+        end_dt = datetime.now()
+        start_dt = end_dt - timedelta(days=lookback_days + 25)
         if spy_data is None:
-            end_date = datetime.now()
-            start_date = end_date - timedelta(days=lookback_days + 20)
-            spy_data = yf.download("SPY", start=start_date, end=end_date, progress=False)
-        
-        # Fetch QQQ data if not provided
+            spy_data = yf.download("SPY", start=start_dt, end=end_dt, progress=False)
         if qqq_data is None:
-            end_date = datetime.now()
-            start_date = end_date - timedelta(days=lookback_days + 20)
-            qqq_data = yf.download("QQQ", start=start_date, end=end_date, progress=False)
-        
-        # Check if we have valid data
-        if spy_data is None or len(spy_data) < 20:
-            logger.warning("Insufficient SPY data for regime detection")
-            return result
-        
-        if qqq_data is None or len(qqq_data) < 20:
-            logger.warning("Insufficient QQQ data for regime detection")
-            # Use only SPY
-            qqq_data = None
-        
-        # Calculate SPY trend
-        spy_close = spy_data['Close'] if 'Close' in spy_data.columns else spy_data['Adj Close']
-        spy_ma20 = spy_close.rolling(20).mean()
-        spy_ma50 = spy_close.rolling(50).mean() if len(spy_close) >= 50 else spy_ma20
-        
-        current_spy = spy_close.iloc[-1]
-        spy_vs_ma20 = (current_spy / spy_ma20.iloc[-1] - 1) if pd.notna(spy_ma20.iloc[-1]) else 0
-        spy_vs_ma50 = (current_spy / spy_ma50.iloc[-1] - 1) if pd.notna(spy_ma50.iloc[-1]) else 0
-        spy_momentum = (current_spy / spy_close.iloc[-20] - 1) if len(spy_close) >= 20 else 0
-        
-        # SPY trend score: -1 (bearish) to +1 (bullish)
-        spy_trend = np.clip((spy_vs_ma20 * 2 + spy_vs_ma50 + spy_momentum) / 4, -1, 1)
-        result["spy_trend"] = float(spy_trend)
-        
-        # Calculate QQQ trend if available
-        if qqq_data is not None:
-            qqq_close = qqq_data['Close'] if 'Close' in qqq_data.columns else qqq_data['Adj Close']
-            qqq_ma20 = qqq_close.rolling(20).mean()
-            qqq_ma50 = qqq_close.rolling(50).mean() if len(qqq_close) >= 50 else qqq_ma20
-            
-            current_qqq = qqq_close.iloc[-1]
-            qqq_vs_ma20 = (current_qqq / qqq_ma20.iloc[-1] - 1) if pd.notna(qqq_ma20.iloc[-1]) else 0
-            qqq_vs_ma50 = (current_qqq / qqq_ma50.iloc[-1] - 1) if pd.notna(qqq_ma50.iloc[-1]) else 0
-            qqq_momentum = (current_qqq / qqq_close.iloc[-20] - 1) if len(qqq_close) >= 20 else 0
-            
-            qqq_trend = np.clip((qqq_vs_ma20 * 2 + qqq_vs_ma50 + qqq_momentum) / 4, -1, 1)
-            result["qqq_trend"] = float(qqq_trend)
+            qqq_data = yf.download("QQQ", start=start_dt, end=end_dt, progress=False)
+        if spy_data is None or len(spy_data.index) < 40:
+            return fallback
+        spy_close = spy_data.get("Close", spy_data.iloc[:, 0]).astype(float)
+        ma20 = spy_close.rolling(20).mean(); ma50 = spy_close.rolling(50).mean()
+        last = float(spy_close.iloc[-1])
+        vs20 = float(last / ma20.iloc[-1] - 1) if pd.notna(ma20.iloc[-1]) else 0.0
+        vs50 = float(last / ma50.iloc[-1] - 1) if pd.notna(ma50.iloc[-1]) else 0.0
+        momentum = float(last / spy_close.iloc[-20] - 1) if len(spy_close) >= 21 else 0.0
+        spy_trend = float(np.clip((vs20 * 2 + vs50 + momentum) / 4.0, -1, 1))
+        if qqq_data is not None and len(qqq_data.index) >= 40:
+            qqq_close = qqq_data.get("Close", qqq_data.iloc[:, 0]).astype(float)
+            qma20 = qqq_close.rolling(20).mean(); qma50 = qqq_close.rolling(50).mean()
+            qlast = float(qqq_close.iloc[-1])
+            qvs20 = float(qlast / qma20.iloc[-1] - 1) if pd.notna(qma20.iloc[-1]) else 0.0
+            qvs50 = float(qlast / qma50.iloc[-1] - 1) if pd.notna(qma50.iloc[-1]) else 0.0
+            qmom = float(qlast / qqq_close.iloc[-20] - 1) if len(qqq_close) >= 21 else 0.0
+            qqq_trend = float(np.clip((qvs20 * 2 + qvs50 + qmom) / 4.0, -1, 1))
         else:
             qqq_trend = spy_trend
-            result["qqq_trend"] = float(spy_trend)
-        
-        # Calculate VIX level if available
         try:
-            vix_data = yf.download("^VIX", period="5d", progress=False)
-            if vix_data is not None and len(vix_data) > 0:
-                vix_close = vix_data['Close'] if 'Close' in vix_data.columns else vix_data['Adj Close']
-                current_vix = vix_close.iloc[-1]
-                
-                if current_vix < 15:
-                    vix_level = "low"
-                    vix_score = 0.3  # Complacent = slightly negative
-                elif current_vix < 20:
-                    vix_level = "normal"
-                    vix_score = 0.0  # Neutral
-                elif current_vix < 30:
-                    vix_level = "elevated"
-                    vix_score = -0.3  # Caution
-                else:
-                    vix_level = "high"
-                    vix_score = -0.6  # Fear
-                
-                result["vix_level"] = vix_level
+            vix_df = yf.download("^VIX", period="7d", progress=False)
+            if vix_df is not None and len(vix_df.index) > 0:
+                vix_close = vix_df.get("Close", vix_df.iloc[:, 0]).astype(float)
+                vix_val = float(vix_close.iloc[-1])
             else:
-                vix_score = 0.0
+                vix_val = 20.0
         except Exception:
-            vix_score = 0.0
-        
-        # Combine signals to determine regime
-        # Weight: 40% SPY, 40% QQQ, 20% VIX
-        combined_score = 0.4 * spy_trend + 0.4 * qqq_trend + 0.2 * vix_score
-        
-        # Determine regime
-        if combined_score > 0.20:
-            regime = "bullish"
-            confidence = min(100, int((combined_score + 0.5) * 100))
-            details = f"Bullish: SPY {spy_trend:.2f}, QQQ {qqq_trend:.2f}, VIX {result['vix_level']}"
-        elif combined_score < -0.20:
-            regime = "bearish"
-            confidence = min(100, int((0.5 - combined_score) * 100))
-            details = f"Bearish: SPY {spy_trend:.2f}, QQQ {qqq_trend:.2f}, VIX {result['vix_level']}"
+            vix_val = 20.0
+        if vix_val < 15: vix_level, vix_score = "low", 0.25
+        elif vix_val < 20: vix_level, vix_score = "normal", 0.0
+        elif vix_val < 30: vix_level, vix_score = "elevated", -0.25
+        else: vix_level, vix_score = "high", -0.50
+        composite = 0.4*spy_trend + 0.4*qqq_trend + 0.2*vix_score
+        if composite > 0.20:
+            regime = "bullish"; confidence = int(min(100,(composite+0.5)*100))
+        elif composite < -0.20:
+            regime = "bearish"; confidence = int(min(100,(0.5-composite)*100))
         else:
-            regime = "neutral"
-            confidence = int((0.5 - abs(combined_score)) * 100)
-            details = f"Neutral: SPY {spy_trend:.2f}, QQQ {qqq_trend:.2f}, VIX {result['vix_level']}"
-        
-        result["regime"] = regime
-        result["confidence"] = confidence
-        result["details"] = details
-        
-        logger.info(f"Market regime detected: {regime} (confidence: {confidence}%)")
-        
-    except Exception as e:
-        logger.error(f"Error detecting market regime: {e}")
-        result["details"] = f"Error: {str(e)}"
-    
-    return result
+            regime = "neutral"; confidence = int((0.5-abs(composite))*100)
+        details = f"SPY {spy_trend:.2f} | QQQ {qqq_trend:.2f} | VIX {vix_level} ({vix_val:.1f})"
+        return {
+            "regime": regime,
+            "confidence": confidence,
+            "spy_trend": spy_trend,
+            "qqq_trend": qqq_trend,
+            "vix_level": vix_level,
+            "details": details
+        }
+    except Exception as exc:
+        logger.warning(f"Regime detection failed, neutral fallback used: {exc}")
+        return fallback
 
 
 def adjust_target_for_regime(

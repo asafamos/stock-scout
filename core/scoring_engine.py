@@ -97,7 +97,7 @@ def compute_overall_score(row: pd.Series) -> Tuple[float, Dict[str, float]]:
     """
     Compute mathematically correct overall score with explicit weights and penalties.
     
-    Formula: 35% fund + 35% tech + 15% RR + 15% reliability ± ML (max ±10%)
+    Formula: 35% fund + 35% tech + 15% RR + 15% reliability +/- ML (max +/-10%)
     
     Applies penalties BEFORE final normalization for realistic spread:
     - RR ratio penalties: <1.0 strong, 1.0-1.5 medium, 1.5-2.0 mild
@@ -137,7 +137,7 @@ def compute_overall_score(row: pd.Series) -> Tuple[float, Dict[str, float]]:
         reliability * 0.15
     )
     
-    # Calculate ML adjustment (bounded to ±10% of base)
+    # Calculate ML adjustment (bounded to +/-10% of base)
     ml_delta = 0.0
     if ml_prob is not None:
         # ML prob 0.5 = neutral (0 adjustment)
@@ -196,31 +196,53 @@ def compute_overall_score(row: pd.Series) -> Tuple[float, Dict[str, float]]:
     # Apply penalties
     final_score = score_before_penalties - penalty_total
     
-    # === SAFETY CAPS: Prevent high scores with weak fundamentals or low reliability ===
-    # Cap 1: Weak fundamentals (< 50) + low reliability (< 40) → max 75
-    if fund_score < 50 and reliability < 40:
+    # === UPDATED SAFETY CAPS & PRICE DISAGREEMENT PENALTY ===
+    caps_applied: List[str] = []
+    if fund_score < 50:
+        prev = final_score
+        final_score = min(final_score, 82.0)
+        if final_score < prev:
+            caps_applied.append("fund_lt_50_cap_82")
+    if reliability < 40:
+        prev = final_score
         final_score = min(final_score, 75.0)
-        penalty_breakdown["safety_cap_weak_fund_low_rel"] = "applied (max 75)"
-    
-    # Cap 2: Poor fundamentals (< 40) → max 80 regardless of other factors
-    if fund_score < 40:
-        final_score = min(final_score, 80.0)
-        penalty_breakdown["safety_cap_poor_fund"] = "applied (max 80)"
-    
-    # Cap 3: Very low reliability (< 30) → max 70
+        if final_score < prev:
+            caps_applied.append("rel_lt_40_cap_75")
     if reliability < 30:
+        prev = final_score
         final_score = min(final_score, 70.0)
-        penalty_breakdown["safety_cap_very_low_rel"] = "applied (max 70)"
-    
-    # Cap 4: ML boost limited when reliability or data quality is poor
-    # If reliability < 50 or fund_score < 50, limit ML boost to ±5 instead of ±10
+        if final_score < prev:
+            caps_applied.append("rel_lt_30_cap_70")
+    if fund_score < 40 and reliability < 40:
+        caps_applied.append("fund_lt_40_rel_lt_40")
+    # Limit ML boost when weak inputs
     if (reliability < 50 or fund_score < 50) and abs(ml_delta) > 5:
         original_ml_delta = ml_delta
-        ml_delta = np.sign(ml_delta) * min(abs(ml_delta), 5.0)
+        ml_delta = np.sign(ml_delta) * 5.0
         ml_delta_reduction = original_ml_delta - ml_delta
         final_score -= ml_delta_reduction
-        penalty_breakdown["ml_boost_limited"] = f"reduced by {ml_delta_reduction:.1f}"
-    
+        caps_applied.append("ml_boost_limited")
+    # Price disagreement penalty (soft cap 88)
+    price_std = row.get("Price_STD")
+    price_mean = row.get("Price_Mean")
+    sources_ct = row.get("Price_Sources_Count", 0)
+    if (
+        pd.notna(price_std)
+        and pd.notna(price_mean)
+        and isinstance(sources_ct, (int, float))
+        and sources_ct >= 2
+        and price_mean
+    ):
+        try:
+            rel_std = float(price_std) / float(price_mean)
+            if rel_std > 0.03:
+                prev = final_score
+                final_score = min(final_score, 88.0)
+                if final_score < prev:
+                    caps_applied.append("price_disagreement_cap_88")
+        except Exception:
+            pass
+
     final_score = float(np.clip(final_score, 0, 100))
     
     # Build component breakdown for transparency
@@ -240,6 +262,7 @@ def compute_overall_score(row: pd.Series) -> Tuple[float, Dict[str, float]]:
     for key, val in penalty_breakdown.items():
         components[f"penalty_{key}"] = val
     
+    components["caps_applied"] = caps_applied
     return final_score, components
 
 
@@ -382,8 +405,6 @@ def calculate_fundamental_score(
     """
     metrics = []
     weights = []
-    
-    # PE ratio: lower is better (inverse scoring)
     if pe is not None and np.isfinite(pe) and pe > 0:
         pe_score = normalize_score(min(pe, 50), 0, 50, 50)
         pe_score = 100 - pe_score  # Invert: lower PE = higher score
@@ -577,45 +598,33 @@ def calculate_rr_score(
 ) -> Tuple[float, float]:
     """
     Calculate Risk/Reward score (0-100) with confidence.
-    
-    Penalizes RR < 1.5 automatically.
-    
+
+    If raw rr_ratio provided, score directly. Otherwise attempt to derive RR
+    from support/resistance/current price using ATR normalization.
+
     Returns:
-        (score, confidence) tuple where both are 0-100
+        (rr_score_0_100, rr_confidence_0_100)
     """
-    # If RR ratio is provided directly
-    if rr_ratio is not None and np.isfinite(rr_ratio):
-        # Use unified RR evaluation
-        rr_score, _, _ = evaluate_rr_unified(rr_ratio)
-        confidence = 80.0  # Moderate confidence if only RR provided
-        return float(np.clip(rr_score, 0, 100)), confidence
-    
-    # Calculate RR from support/resistance
-    if all(x is not None and np.isfinite(x) and x > 0 
-           for x in [current_price, support, resistance, atr]):
-        
-        # Risk: distance to support in ATR units
-        risk_dollars = current_price - support
-        risk_atr = safe_divide(risk_dollars, atr, 1.0)
-        
-        # Reward: distance to resistance in ATR units
-        reward_dollars = resistance - current_price
-        reward_atr = safe_divide(reward_dollars, atr, 1.0)
-        
-        # Calculate RR ratio
-        calculated_rr = safe_divide(reward_atr, risk_atr, 0.0)
-        
-        # Apply same logic as above
-        if calculated_rr < 1.5:
-            rr_score = normalize_score(calculated_rr, 0, 1.5, 0) * 0.5
-        else:
-            rr_score = normalize_score(np.clip(calculated_rr, 1.5, 5.0), 1.5, 5.0, 50)
-        
-        # High confidence when calculated from components
-        confidence = 100.0
-        return float(np.clip(rr_score, 0, 100)), confidence
-    
-    # No valid data
+    # Direct ratio path
+    if rr_ratio is not None and np.isfinite(rr_ratio) and rr_ratio > 0:
+        score, ratio_val, _ = evaluate_rr_unified(rr_ratio)
+        # Confidence higher when ratio itself given
+        return float(score), 75.0
+
+    # Derive ratio from levels
+    if all(np.isfinite(v) for v in [atr, support, resistance, current_price]) and atr and atr > 0:
+        # Require support below price and resistance above price
+        if support < current_price and resistance > current_price:
+            risk_dollars = current_price - support
+            reward_dollars = resistance - current_price
+            if risk_dollars > 0 and reward_dollars > 0:
+                risk_atr = safe_divide(risk_dollars, atr, 1.0)
+                reward_atr = safe_divide(reward_dollars, atr, 1.0)
+                derived_rr = safe_divide(reward_atr, risk_atr, 0.0)
+                score, ratio_val, _ = evaluate_rr_unified(derived_rr)
+                return float(score), 100.0
+
+    # Fallback neutral
     return 50.0, 0.0
 
 
@@ -699,7 +708,7 @@ def calculate_conviction_score(
     - Risk/Reward: 15%
     - Reliability: 15%
     
-    ML can only boost/penalize within ±10% if provided.
+    ML can only boost/penalize within +/-10% if provided.
     
     Returns:
         (final_score, breakdown_dict) where breakdown shows component contributions
@@ -726,12 +735,12 @@ def calculate_conviction_score(
         reliability_score * 0.15
     )
     
-    # ML adjustment (capped at ±10%)
+    # ML adjustment (capped at +/-10%)
     ml_adjustment = 0.0
     if ml_probability is not None and np.isfinite(ml_probability):
         # ML probability should be 0-1
         ml_prob_clamped = np.clip(ml_probability, 0, 1)
-        # Convert to ±10% adjustment: 0.5 = no change, 1.0 = +10%, 0.0 = -10%
+        # Convert to +/-10% adjustment: 0.5 = no change, 1.0 = +10%, 0.0 = -10%
         ml_adjustment = (ml_prob_clamped - 0.5) * 20.0  # Range: -10 to +10
     
     final_conviction = base_conviction + ml_adjustment

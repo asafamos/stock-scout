@@ -213,44 +213,84 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
     if rr_ratio < 1.5 or (np.isfinite(risk_meter) and risk_meter > 70):
         warning = " ⚠️"
 
-    return f"""
+        # Build explanation bullets (top-level quick rationale)
+        bullets = []
+        if np.isfinite(fund_score):
+                if fund_score >= 60:
+                        bullets.append(f"Fundamentals solid ({fmt_score(fund_score)})")
+                elif fund_score < 50:
+                        bullets.append(f"Weak fundamentals ({fmt_score(fund_score)})")
+        if np.isfinite(tech_score) and tech_score >= 65:
+                bullets.append("Technical momentum")
+        if np.isfinite(rr_ratio) and rr_ratio >= 1.5:
+                bullets.append(f"RR {rr_ratio_fmt}x")
+        if reliability_band_label:
+                bullets.append(f"Reliability {reliability_band_label}")
+        if ml_conf_band_label in ("High", "Medium"):
+                bullets.append(f"ML {ml_conf_band_label}")
+        if overall_rank not in (None, "N/A"):
+                bullets.append(f"Rank #{overall_rank}")
+        if potential_fmt not in ("N/A", None):
+                bullets.append(f"Upside {potential_fmt}")
+        bullet_html = ""
+        if bullets:
+                items = "".join(f"<li>{html_escape.escape(b)}</li>" for b in bullets[:6])
+                bullet_html = f"<ul class='signal-bullets'>{items}</ul>"
+
+        return f"""
 <div class='clean-card { 'speculative' if speculative else 'core' }'>
-  <div class='card-header'>
-    <div class='ticker-line'><span class='ticker-badge'>{ticker}</span><span class='type-badge'>{type_badge}</span></div>
-    <h2 class='overall-score'>{overall_score_fmt}<span class='score-label'>/100</span>{warning}</h2>
-  </div>
-  <div class='top-grid'>
-    <div class='field'><span class='label'>Target</span><span class='value tabular'>{target_fmt} {target_badge} ({potential_fmt})</span></div>
-    <div class='field'><span class='label'>R/R</span><span class='value tabular'>{rr_ratio_fmt} <span class='band'>{rr_band}</span></span></div>
-    <div class='field'><span class='label'>Risk</span><span class='value tabular'>{risk_fmt}</span></div>
-    <div class='field'><span class='label'>Reliability</span><span class='value tabular'>{reliability_fmt}</span></div>
-    <div class='field'><span class='label'>ML</span><span class='value tabular'>{ml_fmt}</span></div>
-    <div class='field'><span class='label'>Quality</span><span class='value tabular'>{quality_level} ({quality_score_fmt})</span></div>
-  </div>
-    <details class='more-info'>
-    <summary>More Details</summary>
-    <div class='detail-grid'>
-      <div class='field'><span class='label'>Entry</span><span class='value'>{entry_fmt}</span></div>
-      <div class='field'><span class='label'>Target Date</span><span class='value'>{target_date}</span></div>
-      <div class='field'><span class='label'>Fundamental Score</span><span class='value'>{fmt_score(fund_score)}</span></div>
-      <div class='field'><span class='label'>ML Probability</span><span class='value'>{fmt_pct(ml_prob * 100) if np.isfinite(ml_prob) else 'N/A'}</span></div>
-      <div class='field'><span class='label'>Base Conviction</span><span class='value'>{fmt_score(conv_base)}</span></div>
-    <div class='field'><span class='label'>Fund Sources</span><span class='value'>{fmt_score(row.get('fund_sources_used_v2', 0))}</span></div>
-    <div class='field'><span class='label'>Price Sources</span><span class='value'>{fmt_score(row.get('price_sources_used_v2', 0))}</span></div>
-      <div class='field'><span class='label'>Price Std Dev</span><span class='value'>{fmt_money(row.get('Price_STD_v2', np.nan))}</span></div>"""
-    (
-        +(
-            f"""
-      <div class='field' style='grid-column:span 2'><span class='label'>Sources</span><span class='value'>{html_escape.escape(sources_line)}</span></div>"""
-            if sources_line
-            else ""
+    <div class='card-header'>
+        <div class='ticker-line'><span class='ticker-badge'>{ticker}</span><span class='type-badge'>{type_badge}</span><span class='rank-badge'>#{overall_rank}</span></div>
+        <h2 class='overall-score'>{overall_score_fmt}<span class='score-label'>/100</span>{warning}</h2>
+    </div>
+    <div class='entry-target-line'>Entry <b>{entry_fmt}</b> → Target <b>{target_fmt}</b> {target_badge} <span class='potential'>{potential_fmt}</span></div>
+    {bullet_html}
+    <div class='top-grid'>
+        <div class='field'><span class='label'>R/R</span><span class='value tabular'>{rr_ratio_fmt} <span class='band'>{rr_band}</span></span></div>
+        <div class='field'><span class='label'>Risk</span><span class='value tabular'>{risk_fmt}</span></div>
+        <div class='field'><span class='label'>Reliability</span><span class='value tabular'>{reliability_fmt}</span></div>
+        <div class='field'><span class='label'>ML</span><span class='value tabular'>{ml_fmt}</span></div>
+        <div class='field'><span class='label'>Quality</span><span class='value tabular'>{quality_level} ({quality_score_fmt})</span></div>
+        <div class='field'><span class='label'>Fundamental Score</span><span class='value tabular'>{fmt_score(fund_score)}</span></div>
+    </div>
+        <details class='more-info'>
+        <summary>More Details</summary>
+        <div class='detail-grid'>
+            <div class='field'><span class='label'>Target Date</span><span class='value'>{target_date}</span></div>
+            <div class='field'><span class='label'>ML Probability</span><span class='value'>{fmt_pct(ml_prob * 100) if np.isfinite(ml_prob) else 'N/A'}</span></div>
+            <div class='field'><span class='label'>Base Conviction</span><span class='value'>{fmt_score(conv_base)}</span></div>
+            <div class='field'><span class='label'>Fund Sources</span><span class='value'>{fmt_score(row.get('fund_sources_used_v2', 0))}</span></div>
+            <div class='field'><span class='label'>Price Sources</span><span class='value'>{fmt_score(row.get('price_sources_used_v2', 0))}</span></div>
+            <div class='field'><span class='label'>Price Std Dev</span><span class='value'>{fmt_money(row.get('Price_STD_v2', np.nan))}</span></div>"""
+        + (
+                f"""
+            <div class='field' style='grid-column:span 2'><span class='label'>Sources</span><span class='value'>{html_escape.escape(sources_line)}</span></div>"""
+                if sources_line
+                else ""
         )
         + """
-    </div>
-  </details>
+        </div>
+    </details>
 </div>
 """
-    )
+# Deterministic ranking helper (score desc, ticker asc) prior to Core/Spec split
+def apply_deterministic_ranking(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return df
+    if 'Ticker' not in df.columns:
+        return df
+    score_col = None
+    for c in ['Score','overall_score','conviction_v2_final','overall_score_pretty']:
+        if c in df.columns:
+            score_col = c
+            break
+    if score_col is None:
+        return df
+    df = df.sort_values(by=[score_col,'Ticker'], ascending=[False, True]).copy()
+    df['Rank'] = range(1, len(df)+1)
+    if 'Overall_Rank' not in df.columns:
+        df['Overall_Rank'] = df['Rank']
+    return df
 
 
 # OpenAI for enhanced target price predictions
@@ -2078,29 +2118,10 @@ st.markdown(get_modern_css(), unsafe_allow_html=True)
 
 st.title("📈 Stock Scout — 2025 (Auto)")
 
-# Relaxed mode toggle: allows looser filters (momentum-first)
-RELAXED_MODE = st.checkbox(
-    "Relaxed Mode (Momentum-first) — allow looser filters",
-    value=False,
-    help="When enabled, speculative/relaxed filters are preferred; ML still applies but filters are looser.",
-)
-
-# Fast mode toggle: skip slow API providers for quick results
-FAST_MODE = st.checkbox(
-    "⚡ Fast Mode — skip slow providers (2-3x faster)",
-    value=False,
-    help="Skip Alpha Vantage and Tiingo to avoid rate limiting. Uses FMP + Finnhub only for fundamentals. Recommended for quick scans.",
-)
-if FAST_MODE:
-    CONFIG["PERF_FAST_MODE"] = True
-    st.info("⚡ Fast Mode: Skipping Alpha Vantage and Tiingo (2-3x faster)")
-
-# Debug UI only toggle (skip heavy pipeline to isolate recommendation rendering issues)
-DEBUG_SKIP_PIPELINE = st.checkbox(
-    "🧪 Debug: Skip data pipeline (show dummy cards)",
-    value=False,
-    help="Use this to verify UI/card rendering when data pipeline stalls. Shows 3 synthetic recommendations.",
-)
+ADVANCED_PLACEHOLDER = True  # moved to sidebar expander; keep variable for downstream logic
+RELAXED_MODE = False
+FAST_MODE = False
+DEBUG_SKIP_PIPELINE = False
 
 
 # Secrets button
@@ -2402,13 +2423,11 @@ with st.spinner("📊 Detecting market regime (SPY/QQQ/VIX)..."):
 # 1) Universe
 t0 = t_start()
 with st.spinner("🔍 Building stock universe..."):
-    universe = (
-        build_universe(limit=CONFIG["UNIVERSE_LIMIT"])
-        if CONFIG["SMART_SCAN"]
-        else build_universe(limit=200)
-    )
+    # Override UNIVERSE_LIMIT with user-selected sidebar value
+    selected_universe_size = int(st.session_state.get("universe_size", CONFIG["UNIVERSE_LIMIT"]))
+    universe = build_universe(limit=selected_universe_size)
     phase_times["build_universe"] = t_end(t0)
-    st.write(f"✅ Universe built: {len(universe)} tickers")
+    st.success(f"Universe built: {len(universe)} tickers")
     _advance_stage("Universe")
 
 # 2) History
@@ -2416,7 +2435,7 @@ t0 = t_start()
 with st.spinner(f"📊 Fetching historical data for {len(universe)} stocks..."):
     data_map = fetch_history_bulk(universe, CONFIG["LOOKBACK_DAYS"], CONFIG["MA_LONG"])
 phase_times["fetch_history"] = t_end(t0)
-st.write(f"✅ History fetched: {len(data_map)} stocks with data")
+st.success(f"History fetched: {len(data_map)} stocks with data")
 _advance_stage("History")
 
 # 3) Technical score + hard filters
@@ -2674,7 +2693,7 @@ status_text.empty()
 results = pd.DataFrame(rows)
 phase_times["calc_score_technical"] = t_end(t0)
 st.success(
-    f"✅ Technical indicators computed: {len(results)} stocks scored in {phase_times['calc_score_technical']:.1f}s"
+    f"Technical indicators computed: {len(results)} stocks scored in {phase_times['calc_score_technical']:.1f}s"
 )
 _advance_stage("Technical")
 
@@ -2926,7 +2945,7 @@ results = results.sort_values(["Score", "Ticker"], ascending=[False, True]).rese
     drop=True
 )
 phase_times["advanced_filters"] = t_end(t0)
-st.write(f"✅ Advanced filters completed: {len(results)} stocks passed")
+st.success(f"Advanced filters completed: {len(results)} stocks passed")
 _advance_stage("Advanced Filters")
 
 if results.empty:
@@ -3007,7 +3026,7 @@ if CONFIG["FUNDAMENTAL_ENABLED"] and fundamental_available:
         results.loc[idx, "Fund_Coverage_Pct"] = row.get("Fund_Coverage_Pct", 0.0)
         results.loc[idx, "fundamentals_available"] = bool(row.get("fundamentals_available", False))
     phase_times["fundamentals_v2"] = t_end(t0)
-    st.write(f"✅ Fundamentals enrichment completed: {len(results)} stocks processed")
+    st.success(f"Fundamentals enrichment completed: {len(results)} stocks processed")
     try:
         # Light debug sample (first 2 tickers) showing coverage & sources
         sample_tickers = tickers_list[:2]
@@ -3494,9 +3513,8 @@ high_qual = len(results[results["Data_Quality"] == "high"])
 med_qual = len(results[results["Data_Quality"] == "medium"])
 low_qual = len(results[results["Data_Quality"] == "low"])
 
-st.write(
-    f"**Initial classification:** {core_count} Core, {spec_count} Speculative | "
-    f"**Quality:** {high_qual} high, {med_qual} medium, {low_qual} low"
+st.success(
+    f"Initial classification: {core_count} Core / {spec_count} Speculative | Quality bands: {high_qual} high, {med_qual} medium, {low_qual} low"
 )
 
 # Filter out stocks that shouldn't be displayed (very low quality)
@@ -3596,8 +3614,8 @@ core_filtered = (
 core_after_filter = len(core_filtered)
 
 if core_before_filter > 0:
-    st.write(
-        f"🛡️ **Core filter:** {core_before_filter} → {core_after_filter} passed strict filters"
+    st.info(
+        f"Core filter: {core_before_filter} → {core_after_filter} passed strict criteria"
     )
 
 # Filter Speculative with relaxed criteria (allow higher volatility, missing some fundamentals)
@@ -3726,8 +3744,8 @@ if not spec_filtered.empty:
     )
 
 if spec_before_filter > 0:
-    st.write(
-        f"⚡ **Speculative filter:** {spec_before_filter} → {spec_after_filter} passed relaxed filters"
+    st.info(
+        f"Speculative filter: {spec_before_filter} → {spec_after_filter} passed relaxed criteria"
     )
 
 # Combine Core and Speculative
@@ -4316,8 +4334,8 @@ st.caption("These cards are buy recommendations only. This is not investment adv
 
 # Sidebar filters
 with st.sidebar:
-    st.header("🎛️ Filters")
-    st.caption("Customize your scan results")
+    st.header("🎛️ Scan Controls")
+    st.caption("Essential parameters for this run")
 
     # V2 SCORING ENGINE (NOW DEFAULT)
     st.markdown("---")
@@ -4326,60 +4344,18 @@ with st.sidebar:
         "Multi-source fundamentals (FMP→Finnhub→Tiingo→Alpha) • Unified conviction (35% fund, 35% tech, 15% RR, 15% reliability) • ML boost ±10%"
     )
 
-    # Always enabled, but allow configuration
-    enable_multi_source = st.checkbox(
-        "Fetch multi-source fundamentals",
-        value=bool(st.session_state.get("enable_multi_source", True)),
-        help="Fetch and aggregate fundamentals from all available sources for better reliability.",
+    # Essential only; advanced toggles moved to expander below
+
+    # Universe size selection (overrides env default)
+    universe_size = st.selectbox(
+        "Universe size",
+        options=[20,50,100,200,500],
+        index=[20,50,100,200,500].index(int(st.session_state.get("universe_size", CONFIG.get("UNIVERSE_LIMIT", 100)))) if int(st.session_state.get("universe_size", CONFIG.get("UNIVERSE_LIMIT", 100))) in [20,50,100,200,500] else 2,
+        help="Number of tickers to include in scan universe (deterministic trim).",
     )
-    st.session_state["enable_multi_source"] = enable_multi_source
+    st.session_state["universe_size"] = int(universe_size)
 
-    enable_ml_boost = st.checkbox(
-        "Enable ML confidence boost",
-        value=bool(st.session_state.get("enable_ml_boost", True)),
-        help="Allow ML model to adjust conviction by ±10% based on historical patterns.",
-    )
-    st.session_state["enable_ml_boost"] = enable_ml_boost
-
-    # OpenAI target price enhancement (ENABLED BY DEFAULT)
-    if OPENAI_AVAILABLE and (
-        os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")
-    ):
-        enable_openai_targets = st.checkbox(
-            "🤖 Enable AI-enhanced target prices & timing",
-            value=bool(st.session_state.get("enable_openai_targets", True)),
-            help="Use OpenAI GPT-4o-mini to predict target prices AND holding periods based on fundamentals + technicals. Without this, timing is calculated from RR + RSI + Momentum.",
-        )
-        st.session_state["enable_openai_targets"] = enable_openai_targets
-
-        # Show status
-        if enable_openai_targets:
-            st.success("✅ AI predictions ACTIVE - target dates will be AI-generated")
-        else:
-            st.info(
-                "ℹ️ AI predictions OFF - using technical calculation (RR + RSI + Momentum)"
-            )
-    else:
-        st.session_state["enable_openai_targets"] = False
-        if not OPENAI_AVAILABLE:
-            st.caption("ℹ️ Install `openai` package for AI target predictions")
-        elif not (os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")):
-            st.caption("ℹ️ Add OPENAI_API_KEY to enable AI predictions")
-
-    st.markdown("---")
     st.subheader("💰 Allocation")
-
-    # ML confidence threshold
-    ml_threshold = st.slider(
-        "ML confidence threshold (%)",
-        min_value=0,
-        max_value=100,
-        value=int(st.session_state.get("ml_threshold", 0)),
-        step=5,
-        help="Minimum ML probability to include stock (0=disabled). 🔥High: 70%+, 🟡Med: 50-70%, ⚠️Low: <50%",
-    )
-    st.session_state["ml_threshold"] = int(ml_threshold)
-
     total_budget = st.number_input(
         "Total investment ($)",
         min_value=0.0,
@@ -4419,7 +4395,119 @@ with st.sidebar:
         "Aggressive",
     ].index(alloc_style)
 
+    with st.expander("Advanced / Developer Options", expanded=False):
+        RELAXED_MODE = st.checkbox(
+            "Relaxed Mode (Momentum-first)",
+            value=bool(st.session_state.get("RELAXED_MODE", False)),
+            help="Looser speculative filters; momentum prioritized.",
+        )
+        st.session_state["RELAXED_MODE"] = RELAXED_MODE
+        FAST_MODE = st.checkbox(
+            "Fast Mode (skip slow providers)",
+            value=bool(st.session_state.get("FAST_MODE", False)),
+            help="Skip Alpha Vantage & Tiingo for faster scan.",
+        )
+        st.session_state["FAST_MODE"] = FAST_MODE
+        DEBUG_SKIP_PIPELINE = st.checkbox(
+            "Debug: Skip data pipeline (dummy cards)",
+            value=bool(st.session_state.get("DEBUG_SKIP_PIPELINE", False)),
+            help="Show synthetic cards to debug UI if pipeline stalls.",
+        )
+        st.session_state["DEBUG_SKIP_PIPELINE"] = DEBUG_SKIP_PIPELINE
+        enable_multi_source = st.checkbox(
+            "Fetch multi-source fundamentals",
+            value=bool(st.session_state.get("enable_multi_source", True)),
+            help="Aggregate fundamentals across providers for higher reliability.",
+        )
+        st.session_state["enable_multi_source"] = enable_multi_source
+        enable_ml_boost = st.checkbox(
+            "Enable ML confidence boost",
+            value=bool(st.session_state.get("enable_ml_boost", True)),
+            help="ML adjusts conviction ±10% based on historical patterns.",
+        )
+        st.session_state["enable_ml_boost"] = enable_ml_boost
+        if OPENAI_AVAILABLE and (
+            os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")
+        ):
+            enable_openai_targets = st.checkbox(
+                "AI target prices & timing",
+                value=bool(st.session_state.get("enable_openai_targets", True)),
+                help="Use GPT model for target & holding period.",
+            )
+            st.session_state["enable_openai_targets"] = enable_openai_targets
+        ml_threshold = st.slider(
+            "ML confidence threshold (%)",
+            min_value=0,
+            max_value=100,
+            value=int(st.session_state.get("ml_threshold", 0)),
+            step=5,
+            help="Minimum ML probability to include stock (0 disables).",
+        )
+        st.session_state["ml_threshold"] = int(ml_threshold)
+        use_full_export = st.checkbox(
+            "Use full debug export",
+            value=bool(st.session_state.get("use_full_export", False)),
+            help="Include all internal scoring & diagnostics in exports.",
+        )
+        st.session_state["use_full_export"] = use_full_export
+
+    # OpenAI target price enhancement (ENABLED BY DEFAULT)
+    if OPENAI_AVAILABLE and (
+        os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")
+    ):
+        enable_openai_targets = st.checkbox(
+            "🤖 Enable AI-enhanced target prices & timing",
+            value=bool(st.session_state.get("enable_openai_targets", True)),
+            help="Use OpenAI GPT-4o-mini to predict target prices AND holding periods based on fundamentals + technicals. Without this, timing is calculated from RR + RSI + Momentum.",
+        )
+        st.session_state["enable_openai_targets"] = enable_openai_targets
+
+        # Show status
+        if enable_openai_targets:
+            st.success("✅ AI predictions ACTIVE - target dates will be AI-generated")
+        else:
+            st.info(
+                "ℹ️ AI predictions OFF - using technical calculation (RR + RSI + Momentum)"
+            )
+    else:
+        st.session_state["enable_openai_targets"] = False
+        if not OPENAI_AVAILABLE:
+            st.caption("ℹ️ Install `openai` package for AI target predictions")
+        elif not (os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")):
+            st.caption("ℹ️ Add OPENAI_API_KEY to enable AI predictions")
+
     st.markdown("---")
+    # ML confidence threshold
+    ml_threshold = st.slider(
+        "ML confidence threshold (%)",
+        min_value=0,
+        max_value=100,
+        value=int(st.session_state.get("ml_threshold", 0)),
+        step=5,
+        help="Minimum ML probability to include stock (0=disabled). 🔥High: 70%+, 🟡Med: 50-70%, ⚠️Low: <50%",
+    )
+    st.session_state["ml_threshold"] = int(ml_threshold)
+    alloc_style = st.selectbox(
+        "Allocation style",
+        ["Balanced (core tilt)", "Conservative", "Aggressive"],
+        index=int(st.session_state.get("alloc_style_idx", 0)),
+    )
+    st.session_state["alloc_style_idx"] = [
+        "Balanced (core tilt)",
+        "Conservative",
+        "Aggressive",
+    ].index(alloc_style)
+
+    st.markdown("---")
+
+    # Universe size selection (overrides env default)
+    universe_size = st.selectbox(
+        "Universe size",
+        options=[20,50,100,200,500],
+        index=[20,50,100,200,500].index(int(st.session_state.get("universe_size", CONFIG.get("UNIVERSE_LIMIT", 100)))) if int(st.session_state.get("universe_size", CONFIG.get("UNIVERSE_LIMIT", 100))) in [20,50,100,200,500] else 2,
+        help="Number of tickers to include in scan universe (deterministic trim).",
+    )
+    st.session_state["universe_size"] = int(universe_size)
 
     # Risk level filter
     risk_filter = st.multiselect(
@@ -4529,9 +4617,12 @@ st.info(f"📊 Showing {len(rec_df)} stocks after filters")
 
 rec_df = rec_df.copy()
 
-# Add overall ranking (1 = best)
-rec_df = rec_df.sort_values("Score", ascending=False).reset_index(drop=True)
-rec_df["Overall_Rank"] = range(1, len(rec_df) + 1)
+# Deterministic ranking pre Core/Spec split
+if "Score" in rec_df.columns and "Ticker" in rec_df.columns:
+    rec_df = apply_deterministic_ranking(rec_df)
+    # Maintain legacy Overall_Rank for compatibility
+    if "Overall_Rank" not in rec_df.columns:
+        rec_df["Overall_Rank"] = rec_df["Rank"]
 
 # --- Fallback Logic: if no stocks have positive allocation, show top technical candidates ---
 if rec_df.empty:
@@ -4558,6 +4649,36 @@ try:
             st.caption(f"🔎 Positive buy_amount_v2: {pos_buy}/{len(results)}")
 except Exception:
     pass
+
+# Provider usage tracking (aggregate from source lines)
+provider_usage: Dict[str, Dict[str, bool]] = {}
+providers = ["Alpha","Finnhub","Tiingo","Polygon","Yahoo","OpenAI"]
+for p in providers:
+    provider_usage[p] = {"price_used": False, "fund_used": False, "ml_used": False}
+
+def _mark_usage(line: str, kind: str):
+    if not isinstance(line, str):
+        return
+    lower = line.lower()
+    for p in providers:
+        key = p.lower()
+        if key in lower:
+            provider_usage[p][kind] = True
+
+for _, r in rec_df.iterrows():
+    _mark_usage(r.get("Price_Sources_Line",""), "price_used")
+    _mark_usage(r.get("Fund_Sources_Line",""), "fund_used")
+    if np.isfinite(r.get("ML_Probability", np.nan)):
+        provider_usage["OpenAI"]["ml_used"] = provider_usage["OpenAI"]["ml_used"] or bool(st.session_state.get("enable_openai_targets", False))
+
+used_count = sum(1 for p,v in provider_usage.items() if any(v.values()))
+with st.expander("📡 Data Provider Usage", expanded=False):
+    usage_rows = []
+    for p, flags in provider_usage.items():
+        usage_rows.append({"Provider": p, **{k: "✅" if v else "" for k,v in flags.items()}})
+    usage_df = pd.DataFrame(usage_rows)
+    st.table(usage_df)
+    st.caption(f"Used providers: {used_count} / {len(providers)}")
 
 # Calculate target prices and dates WITH OPTIONAL OPENAI ENHANCEMENT
 from datetime import datetime, timedelta
@@ -5873,7 +5994,17 @@ for c in show_order:
         if first not in seen_cols:
             cols_for_export.append(first)
             seen_cols.add(first)
-csv_bytes = csv_df[cols_for_export].to_csv(index=False).encode("utf-8-sig")
+lean_export_fields = [
+    c for c in cols_for_export if c in {
+        "Ticker","Score","Overall_Rank","Rank","Entry_Price","Target_Price","RR","Risk_Level","Reliability_Band","Market_Regime","Regime_Confidence","Fundamental_S","Technical_S"
+    }
+]
+full_export_fields = cols_for_export  # preserve full order
+
+# Sidebar checkbox stored earlier under dev options (create if missing)
+use_full_export = bool(st.session_state.get("use_full_export", False))
+export_fields = full_export_fields if use_full_export else lean_export_fields
+csv_bytes = csv_df[export_fields].to_csv(index=False).encode("utf-8-sig")
 
 # Download buttons side by side
 col_csv, col_json = st.columns(2)
@@ -5886,7 +6017,7 @@ with col_csv:
     )
 with col_json:
     # JSON export for API/automation
-    json_data = csv_df[cols_for_export].to_json(
+    json_data = csv_df[export_fields].to_json(
         orient="records", force_ascii=False, indent=2
     )
     st.download_button(
