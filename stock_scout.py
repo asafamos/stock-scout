@@ -172,6 +172,7 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
         return f"${v:.2f}" if _is_finite(v) else "N/A"
 
     def fmt_pct(v):
+        """Format percentage values with 1 decimal place."""
         return f"{v:.1f}%" if _is_finite(v) else "N/A"
 
     def fmt_score(v):
@@ -201,20 +202,25 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
     elif target_source == "Technical":
         target_badge = '<span class="badge tech">Tech</span>'
 
+    # Ratios → 2 decimals, Scores → int or (if fractional) 1 decimal, Percentages handled by fmt_pct
     rr_ratio_fmt = f"{rr_ratio:.2f}" if _is_finite(rr_ratio) else "N/A"
-    overall_score_fmt = fmt_score(overall_score)
-    quality_score_fmt = f"{quality_score:.2f}" if _is_finite(quality_score) else "N/A"
+    overall_score_fmt = fmt_score(overall_score)  # already integer style
+    if _is_finite(quality_score):
+        quality_score_fmt = f"{quality_score:.1f}" if abs(quality_score - round(quality_score)) > 0.05 else f"{int(round(quality_score))}"
+    else:
+        quality_score_fmt = "N/A"
 
     # Get Fund and Price reliability separately for detailed display
     fund_reliability = _num(row.get("Fundamental_Reliability_v2", row.get("Fundamental_Reliability", np.nan)))
     price_reliability = _num(row.get("Price_Reliability_v2", row.get("Price_Reliability", np.nan)))
-    fund_rel_fmt = fmt_score(fund_reliability) if _is_finite(fund_reliability) else "N/A"
-    price_rel_fmt = fmt_score(price_reliability) if _is_finite(price_reliability) else "N/A"
+    # Reliability percentages → 1 decimal place
+    fund_rel_fmt = f"{fund_reliability:.1f}" if _is_finite(fund_reliability) else "N/A"
+    price_rel_fmt = f"{price_reliability:.1f}" if _is_finite(price_reliability) else "N/A"
 
     # Format display values with bands
     risk_fmt = f"{fmt_score(risk_meter)} ({_safe_str(risk_band_label,'N/A')})"
     reliability_fmt = f"{_safe_str(reliability_band_label,'N/A')} (F:{fund_rel_fmt}% / P:{price_rel_fmt}%)"
-    ml_fmt = f"{_safe_str(ml_conf_band_label,'N/A')} (p={ml_prob:.2f})" if _is_finite(ml_prob) else "N/A (no model data)"
+    ml_fmt = f"{_safe_str(ml_conf_band_label,'N/A')} (p={ml_prob*100:.1f}%)" if _is_finite(ml_prob) else "N/A (no model data)"
 
     type_badge = "SPEC" if speculative else "CORE"
     # Fallback badge if this stock is shown only due to emergency/fallback logic
@@ -5233,7 +5239,24 @@ else:
         spec_df = pd.DataFrame()
 
     # Re-display an accurate count reflecting what will be rendered
-    st.info(f"📊 Showing {len(core_df) + len(spec_df)} stocks after filters ({len(core_df)} Core, {len(spec_df)} Speculative)")
+    # Determine funded (allocated) positions vs total candidates for clearer caption
+    total_candidates = len(core_df) + len(spec_df)
+    funded_count = 0
+    try:
+        if 'buy_amount_v2' in rec_df.columns:
+            funded_count = int((rec_df['buy_amount_v2'].fillna(0) > 0).sum())
+        elif 'סכום קנייה ($)' in rec_df.columns:
+            funded_count = int((rec_df['סכום קנייה ($)'].fillna(0) > 0).sum())
+    except Exception:
+        funded_count = total_candidates
+    if funded_count and funded_count != total_candidates:
+        st.info(
+            f"📊 Showing {funded_count} funded positions (out of {total_candidates} candidates) — {len(core_df)} Core, {len(spec_df)} Speculative"
+        )
+    else:
+        st.info(
+            f"📊 Showing {total_candidates} stocks after filters ({len(core_df)} Core, {len(spec_df)} Speculative)"
+        )
 
     # Display Core recommendations first
     if not core_df.empty:

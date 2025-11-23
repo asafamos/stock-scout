@@ -9,7 +9,7 @@ def get_card_css():
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 .card-wrapper { margin:0 !important; padding:0 !important; }
-.clean-card { border:1px solid #e2e8f0; border-radius:12px; padding:0.75rem 0.85rem; background:#fff; margin:0 0 6px 0 !important; box-shadow:0 1px 2px rgba(0,0,0,0.04); }
+.clean-card { border:1px solid #e2e8f0; border-radius:12px; padding:0.55rem 0.70rem; background:#fff; margin:0 0 4px 0 !important; box-shadow:0 1px 2px rgba(0,0,0,0.04); }
 .clean-card.core { border-left:4px solid #10B981; }
 .clean-card.speculative { border-left:4px solid #F59E0B; }
 .card-header { margin-bottom:0.75rem; display:flex; justify-content:space-between; align-items:flex-start; }
