@@ -62,6 +62,34 @@ from core.market_regime import detect_market_regime, adjust_target_for_regime
 
 # Helper: build clean minimal card
 
+# Small safety helpers to avoid None-related TypeErrors when building HTML
+def _safe_str(v, default: str = "N/A") -> str:
+    """Return a safe string for value `v`. If v is None return `default`.
+    If v is already a string return it unchanged."""
+    if v is None:
+        return default
+    try:
+        return str(v)
+    except Exception:
+        return default
+
+
+def _num(v) -> float:
+    """Coerce v to float if possible, otherwise return np.nan. Safe for None."""
+    try:
+        if v is None:
+            return np.nan
+        return float(v)
+    except Exception:
+        return np.nan
+
+
+def _is_finite(v) -> bool:
+    """Safe wrapper around np.isfinite that returns False for non-numeric/None."""
+    try:
+        return np.isfinite(v)
+    except Exception:
+        return False
 
 # --- Robust .env loading (earlier + multi-path) ---------------------------------
 def _force_load_env() -> None:
@@ -92,27 +120,27 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
     - Tabular numbers, consistent formatting
     """
     esc = html_escape.escape
-    ticker = esc(str(row.get("Ticker", "N/A")))
+    ticker = esc(_safe_str(row.get("Ticker", "N/A"), "N/A"))
     overall_rank = row.get("Overall_Rank", "N/A")
     # Use pretty score for display (60-90 range), raw score for internal logic
     overall_score = row.get(
         "overall_score_pretty",
         row.get("overall_score", row.get("conviction_v2_final", np.nan)),
     )
-    target_price = row.get("Target_Price", np.nan)
-    entry_price = row.get("Entry_Price", np.nan)
-    target_date = row.get("Target_Date", "N/A")
-    target_source = row.get("Target_Source", "N/A")
-    rr_ratio = row.get("rr", np.nan)
-    rr_score = row.get("rr_score_v2", np.nan)
-    rr_band = row.get("rr_band", "")
+    target_price = _num(row.get("Target_Price", np.nan))
+    entry_price = _num(row.get("Entry_Price", np.nan))
+    target_date = _safe_str(row.get("Target_Date", "N/A"))
+    target_source = _safe_str(row.get("Target_Source", "N/A"))
+    rr_ratio = _num(row.get("rr", np.nan))
+    rr_score = _num(row.get("rr_score_v2", np.nan))
+    rr_band = _safe_str(row.get("rr_band", ""), "")
 
     # Get display bands
-    risk_meter = row.get("risk_meter_v2", np.nan)
-    risk_band_label = row.get("risk_band", "N/A")
-    reliability_pct = row.get("reliability_pct", np.nan)
-    reliability_band_label = row.get("reliability_band", "N/A")
-    ml_prob = row.get("ML_Probability", np.nan)
+    risk_meter = _num(row.get("risk_meter_v2", np.nan))
+    risk_band_label = _safe_str(row.get("risk_band", "N/A"))
+    reliability_pct = _num(row.get("reliability_pct", np.nan))
+    reliability_band_label = _safe_str(row.get("reliability_band", "N/A"))
+    ml_prob = _num(row.get("ML_Probability", np.nan))
 
     # Derive confidence band with explicit Low/Medium/High thresholds; fallback message if missing
     def ml_conf_band(p: float) -> str:
@@ -124,29 +152,27 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
             return "Medium"
         return "High"
 
-    ml_conf_band_label = row.get("ml_conf_band", ml_conf_band(ml_prob))
+    ml_conf_band_label = _safe_str(row.get("ml_conf_band", ml_conf_band(ml_prob)))
 
-    quality_level = row.get("Quality_Level", "N/A")
-    quality_score = row.get("Quality_Score_Numeric", np.nan)
-    conv_base = row.get("conviction_v2_base", np.nan)
+    quality_level = _safe_str(row.get("Quality_Level", "N/A"))
+    quality_score = _num(row.get("Quality_Score_Numeric", np.nan))
+    conv_base = _num(row.get("conviction_v2_base", np.nan))
 
     # Component scores for <details>
-    fund_score = row.get("Fundamental_S", np.nan)
-    tech_score = row.get("Technical_S", np.nan)
+    fund_score = _num(row.get("Fundamental_S", np.nan))
+    tech_score = _num(row.get("Technical_S", np.nan))
     # Compressed data sources line (prices + fundamentals providers if available)
-    price_sources = row.get(
-        "Price_Sources_Line", ""
-    )  # expected precomputed concise string
-    fund_sources = row.get("Fund_Sources_Line", "")
+    price_sources = _safe_str(row.get("Price_Sources_Line", ""), "")  # expected precomputed concise string
+    fund_sources = _safe_str(row.get("Fund_Sources_Line", ""), "")
     sources_line = ""
     if price_sources or fund_sources:
         sources_line = f"Data sources: Prices – {price_sources or 'N/A'}; Fundamentals – {fund_sources or 'N/A'}"
 
     def fmt_money(v):
-        return f"${v:.2f}" if np.isfinite(v) else "N/A"
+        return f"${v:.2f}" if _is_finite(v) else "N/A"
 
     def fmt_pct(v):
-        return f"{v:.1f}%" if np.isfinite(v) else "N/A"
+        return f"{v:.1f}%" if _is_finite(v) else "N/A"
 
     def fmt_score(v):
         # Handle lists by taking first element or count
@@ -156,13 +182,14 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
             v = len(v) if all(isinstance(x, str) for x in v) else v[0]
         # Handle non-numeric types
         try:
-            return f"{float(v):.0f}" if np.isfinite(float(v)) else "N/A"
+            fv = _num(v)
+            return f"{float(fv):.0f}" if _is_finite(fv) else "N/A"
         except (TypeError, ValueError):
-            return str(v) if v is not None else "N/A"
+            return _safe_str(v, "N/A")
 
     entry_fmt = fmt_money(entry_price)
     target_fmt = fmt_money(target_price)
-    if np.isfinite(entry_price) and np.isfinite(target_price) and entry_price > 0:
+    if _is_finite(entry_price) and _is_finite(target_price) and entry_price > 0:
         potential_gain_pct = ((target_price - entry_price) / entry_price) * 100
         potential_fmt = f"+{potential_gain_pct:.1f}%"
     else:
@@ -174,34 +201,20 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
     elif target_source == "Technical":
         target_badge = '<span class="badge tech">Tech</span>'
 
-    rr_ratio_fmt = f"{rr_ratio:.2f}" if np.isfinite(rr_ratio) else "N/A"
+    rr_ratio_fmt = f"{rr_ratio:.2f}" if _is_finite(rr_ratio) else "N/A"
     overall_score_fmt = fmt_score(overall_score)
-    quality_score_fmt = f"{quality_score:.2f}" if np.isfinite(quality_score) else "N/A"
+    quality_score_fmt = f"{quality_score:.2f}" if _is_finite(quality_score) else "N/A"
 
     # Get Fund and Price reliability separately for detailed display
-    fund_reliability = row.get(
-        "Fundamental_Reliability_v2", row.get("Fundamental_Reliability", np.nan)
-    )
-    price_reliability = row.get(
-        "Price_Reliability_v2", row.get("Price_Reliability", np.nan)
-    )
-    fund_rel_fmt = (
-        fmt_score(fund_reliability) if np.isfinite(fund_reliability) else "N/A"
-    )
-    price_rel_fmt = (
-        fmt_score(price_reliability) if np.isfinite(price_reliability) else "N/A"
-    )
+    fund_reliability = _num(row.get("Fundamental_Reliability_v2", row.get("Fundamental_Reliability", np.nan)))
+    price_reliability = _num(row.get("Price_Reliability_v2", row.get("Price_Reliability", np.nan)))
+    fund_rel_fmt = fmt_score(fund_reliability) if _is_finite(fund_reliability) else "N/A"
+    price_rel_fmt = fmt_score(price_reliability) if _is_finite(price_reliability) else "N/A"
 
     # Format display values with bands
-    risk_fmt = f"{fmt_score(risk_meter)} ({risk_band_label})"
-    reliability_fmt = (
-        f"{reliability_band_label} (F:{fund_rel_fmt}% / P:{price_rel_fmt}%)"
-    )
-    ml_fmt = (
-        f"{ml_conf_band_label} (p={ml_prob:.2f})"
-        if np.isfinite(ml_prob)
-        else "N/A (no model data)"
-    )
+    risk_fmt = f"{fmt_score(risk_meter)} ({_safe_str(risk_band_label,'N/A')})"
+    reliability_fmt = f"{_safe_str(reliability_band_label,'N/A')} (F:{fund_rel_fmt}% / P:{price_rel_fmt}%)"
+    ml_fmt = f"{_safe_str(ml_conf_band_label,'N/A')} (p={ml_prob:.2f})" if _is_finite(ml_prob) else "N/A (no model data)"
 
     type_badge = "SPEC" if speculative else "CORE"
     # Fallback badge if this stock is shown only due to emergency/fallback logic
@@ -210,28 +223,28 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
 
     # Warning indicator
     warning = ""
-    if rr_ratio < 1.5 or (np.isfinite(risk_meter) and risk_meter > 70):
+    if (_is_finite(rr_ratio) and rr_ratio < 1.5) or (_is_finite(risk_meter) and risk_meter > 70):
         warning = " ⚠️"
 
         # Build explanation bullets (top-level quick rationale)
         bullets = []
-        if np.isfinite(fund_score):
-                if fund_score >= 60:
-                        bullets.append(f"Fundamentals solid ({fmt_score(fund_score)})")
-                elif fund_score < 50:
-                        bullets.append(f"Weak fundamentals ({fmt_score(fund_score)})")
-        if np.isfinite(tech_score) and tech_score >= 65:
-                bullets.append("Technical momentum")
-        if np.isfinite(rr_ratio) and rr_ratio >= 1.5:
-                bullets.append(f"RR {rr_ratio_fmt}x")
+        if _is_finite(fund_score):
+            if fund_score >= 60:
+                bullets.append(f"Fundamentals solid ({fmt_score(fund_score)})")
+            elif fund_score < 50:
+                bullets.append(f"Weak fundamentals ({fmt_score(fund_score)})")
+        if _is_finite(tech_score) and tech_score >= 65:
+            bullets.append("Technical momentum")
+        if _is_finite(rr_ratio) and rr_ratio >= 1.5:
+            bullets.append(f"RR {rr_ratio_fmt}x")
         if reliability_band_label:
-                bullets.append(f"Reliability {reliability_band_label}")
+            bullets.append(f"Reliability {reliability_band_label}")
         if ml_conf_band_label in ("High", "Medium"):
-                bullets.append(f"ML {ml_conf_band_label}")
+            bullets.append(f"ML {ml_conf_band_label}")
         if overall_rank not in (None, "N/A"):
-                bullets.append(f"Rank #{overall_rank}")
+            bullets.append(f"Rank #{overall_rank}")
         if potential_fmt not in ("N/A", None):
-                bullets.append(f"Upside {potential_fmt}")
+            bullets.append(f"Upside {potential_fmt}")
         bullet_html = ""
         if bullets:
                 items = "".join(f"<li>{html_escape.escape(b)}</li>" for b in bullets[:6])
@@ -4351,6 +4364,7 @@ with st.sidebar:
         "Universe size",
         options=[20,50,100,200,500],
         index=[20,50,100,200,500].index(int(st.session_state.get("universe_size", CONFIG.get("UNIVERSE_LIMIT", 100)))) if int(st.session_state.get("universe_size", CONFIG.get("UNIVERSE_LIMIT", 100))) in [20,50,100,200,500] else 2,
+        key="universe_size_main",
         help="Number of tickers to include in scan universe (deterministic trim).",
     )
     st.session_state["universe_size"] = int(universe_size)
@@ -4487,16 +4501,6 @@ with st.sidebar:
         help="Minimum ML probability to include stock (0=disabled). 🔥High: 70%+, 🟡Med: 50-70%, ⚠️Low: <50%",
     )
     st.session_state["ml_threshold"] = int(ml_threshold)
-    alloc_style = st.selectbox(
-        "Allocation style",
-        ["Balanced (core tilt)", "Conservative", "Aggressive"],
-        index=int(st.session_state.get("alloc_style_idx", 0)),
-    )
-    st.session_state["alloc_style_idx"] = [
-        "Balanced (core tilt)",
-        "Conservative",
-        "Aggressive",
-    ].index(alloc_style)
 
     st.markdown("---")
 
@@ -4505,6 +4509,7 @@ with st.sidebar:
         "Universe size",
         options=[20,50,100,200,500],
         index=[20,50,100,200,500].index(int(st.session_state.get("universe_size", CONFIG.get("UNIVERSE_LIMIT", 100)))) if int(st.session_state.get("universe_size", CONFIG.get("UNIVERSE_LIMIT", 100))) in [20,50,100,200,500] else 2,
+        key="universe_size_main_content",
         help="Number of tickers to include in scan universe (deterministic trim).",
     )
     st.session_state["universe_size"] = int(universe_size)
@@ -5414,7 +5419,7 @@ else:
             else:
                 risk_color = "#6b7280"
 
-            card_html = get_card_css() + build_clean_card(r, speculative=False)
+            card_html = _safe_str(get_card_css(), "") + _safe_str(build_clean_card(r, speculative=False), "")
 
             # Add provider attribution if available (Core cards)
             attribution = r.get("Fund_Attribution", "")
@@ -5723,7 +5728,7 @@ else:
             overall_score_val = r.get("overall_score", conv_v2)
             rr_ratio_val = r.get("rr", np.nan)
             rr_band = r.get("rr_band", "")
-            card_html = get_card_css() + build_clean_card(r, speculative=True)
+            card_html = _safe_str(get_card_css(), "") + _safe_str(build_clean_card(r, speculative=True), "")
 
             # Add provider attribution if available (Speculative cards)
             attribution_spec = r.get("Fund_Attribution", "")
