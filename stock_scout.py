@@ -5277,15 +5277,15 @@ if not rec_df.empty:
     
     rec_df["Reliability_Band"] = rec_df.get("Reliability_v2", rec_df.get("reliability_pct", 50)).apply(_get_reliability_band)
     
-    # Reliability components summary
-    def _get_reliability_components(row):
-        fund_rel = row.get("Fundamental_Reliability_v2", 0)
-        price_rel = row.get("Price_Reliability_v2", 0)
-        fund_sources = row.get("fund_sources_used_v2", 0)
-        price_sources = row.get("price_sources_used_v2", 0)
-        return f"F:{fund_rel:.0f}%(n={fund_sources}),P:{price_rel:.0f}%(n={price_sources})"
-    
-    rec_df["Reliability_Components"] = rec_df.apply(_get_reliability_components, axis=1)
+    # Reliability components summary - OPTIMIZED: vectorized instead of apply()
+    fund_rel = rec_df.get("Fundamental_Reliability_v2", 0).fillna(0)
+    price_rel = rec_df.get("Price_Reliability_v2", 0).fillna(0)
+    fund_sources = rec_df.get("fund_sources_used_v2", 0).fillna(0).astype(int)
+    price_sources = rec_df.get("price_sources_used_v2", 0).fillna(0).astype(int)
+    rec_df["Reliability_Components"] = (
+        "F:" + fund_rel.astype(int).astype(str) + "%(n=" + fund_sources.astype(str) + 
+        "),P:" + price_rel.astype(int).astype(str) + "%(n=" + price_sources.astype(str) + ")"
+    )
     
     t_export_elapsed = time.time() - t_export_start
     st.success(f"✅ Prepared recommendations in {t_export_elapsed:.2f}s")
@@ -5718,6 +5718,9 @@ else:
         
         # Render all Core cards at once (much faster than individual st.markdown calls)
         if all_cards_html:
+            html_size_kb = len(all_cards_html) / 1024
+            st.caption(f"📏 HTML size: {html_size_kb:.1f} KB for {card_counter} cards")
+            
             t_render_start = time.time()
             st.markdown(all_cards_html, unsafe_allow_html=True)
             t_render = time.time() - t_render_start
@@ -6064,6 +6067,9 @@ else:
         
         # Render all Speculative cards at once (much faster than individual st.markdown calls)
         if all_cards_html:
+            html_size_kb = len(all_cards_html) / 1024
+            st.caption(f"📏 HTML size: {html_size_kb:.1f} KB for {card_counter} cards")
+            
             t_render_start = time.time()
             st.markdown(all_cards_html, unsafe_allow_html=True)
             t_render = time.time() - t_render_start
