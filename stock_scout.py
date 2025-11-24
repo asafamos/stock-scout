@@ -5278,10 +5278,11 @@ if not rec_df.empty:
     rec_df["Reliability_Band"] = rec_df.get("Reliability_v2", rec_df.get("reliability_pct", 50)).apply(_get_reliability_band)
     
     # Reliability components summary - OPTIMIZED: vectorized instead of apply()
-    fund_rel = rec_df.get("Fundamental_Reliability_v2", 0).fillna(0)
-    price_rel = rec_df.get("Price_Reliability_v2", 0).fillna(0)
-    fund_sources = rec_df.get("fund_sources_used_v2", 0).fillna(0).astype(int)
-    price_sources = rec_df.get("price_sources_used_v2", 0).fillna(0).astype(int)
+    # Use bracket notation [] to get Series, not .get() which returns scalar
+    fund_rel = rec_df["Fundamental_Reliability_v2"].fillna(0) if "Fundamental_Reliability_v2" in rec_df.columns else pd.Series([0] * len(rec_df))
+    price_rel = rec_df["Price_Reliability_v2"].fillna(0) if "Price_Reliability_v2" in rec_df.columns else pd.Series([0] * len(rec_df))
+    fund_sources = rec_df["fund_sources_used_v2"].fillna(0).astype(int) if "fund_sources_used_v2" in rec_df.columns else pd.Series([0] * len(rec_df))
+    price_sources = rec_df["price_sources_used_v2"].fillna(0).astype(int) if "price_sources_used_v2" in rec_df.columns else pd.Series([0] * len(rec_df))
     rec_df["Reliability_Components"] = (
         "F:" + fund_rel.astype(int).astype(str) + "%(n=" + fund_sources.astype(str) + 
         "),P:" + price_rel.astype(int).astype(str) + "%(n=" + price_sources.astype(str) + ")"
