@@ -421,7 +421,10 @@ def mark_provider_usage(provider: str, category: str):
     """Record usage of a provider for a given category (price/fundamentals/ml). Safe no-throw."""
     try:
         usage = st.session_state.setdefault("provider_usage", {})
-        cats = usage.setdefault(provider, set())
+        cats = usage.get(provider, set())
+        # Handle both set and other types for backward compatibility
+        if not isinstance(cats, set):
+            cats = set([cats]) if cats else set()
         cats.add(category)
         usage[provider] = cats
     except Exception:
@@ -4755,6 +4758,7 @@ except Exception:
 # Build accurate provider usage tracker using session markers and per-row flags
 providers_meta = {
     "Yahoo": {"env": None, "implemented": True, "label": "Yahoo"},
+    "FMP": {"env": "FMP_API_KEY", "implemented": True, "label": "FMP"},
     "Alpha": {"env": "ALPHA_VANTAGE_API_KEY", "implemented": True, "label": "Alpha"},
     "Finnhub": {"env": "FINNHUB_API_KEY", "implemented": True, "label": "Finnhub"},
     "Tiingo": {"env": "TIINGO_API_KEY", "implemented": True, "label": "Tiingo"},
@@ -4791,9 +4795,16 @@ for p, meta in providers_meta.items():
     # Session usage (set in fetch helpers)
     if p in session_usage:
         cats = session_usage.get(p) or set()
-        used_price = used_price or ("price" in cats)
-        used_fund = used_fund or ("fundamentals" in cats)
-        used_ml = used_ml or ("ml" in cats)
+        # Handle both set and other iterable types
+        if isinstance(cats, set):
+            used_price = used_price or ("price" in cats)
+            used_fund = used_fund or ("fundamentals" in cats)
+            used_ml = used_ml or ("ml" in cats)
+        elif hasattr(cats, '__iter__') and not isinstance(cats, str):
+            cats_list = list(cats)
+            used_price = used_price or ("price" in cats_list)
+            used_fund = used_fund or ("fundamentals" in cats_list)
+            used_ml = used_ml or ("ml" in cats_list)
 
     # Per-row indicators (fundamentals)
     try:
@@ -4807,7 +4818,15 @@ for p, meta in providers_meta.items():
             used_fund = True
         if p == "EODHD" and "Fund_from_EODHD" in results.columns and results["Fund_from_EODHD"].any():
             used_fund = True
+        # Check for FMP usage (common provider but no explicit flag column - check attribution)
+        if p in ["FMP", "Yahoo"] and "Fund_Attribution" in results.columns:
+            attr_str = " ".join([str(x) for x in results["Fund_Attribution"].fillna("") if x])
+            if p in attr_str:
+                used_fund = True
+        # Check price columns
         if p == "Alpha" and ("Price_Alpha" in results.columns and results["Price_Alpha"].notna().any()):
+            used_price = True
+        if p == "Yahoo" and ("Price_Yahoo" in results.columns and results["Price_Yahoo"].notna().any()):
             used_price = True
     except Exception:
         pass
@@ -5371,6 +5390,13 @@ else:
             unsafe_allow_html=True,
         )
 
+        # Inject CSS once for all Core cards
+        st.markdown(get_card_css(), unsafe_allow_html=True)
+
+        # DEBUG: Verify Core cards will render
+        if CONFIG.get("DEBUG_RECOMMENDATION_ROWS", False):
+            st.write(f"DEBUG: Rendering {len(core_df)} Core cards:", list(core_df["Ticker"]))
+
         for _, r in core_df.iterrows():
             mean = r.get("מחיר ממוצע", np.nan)
             std = r.get("סטיית תקן", np.nan)
@@ -5635,7 +5661,8 @@ else:
             else:
                 risk_color = "#6b7280"
 
-            card_html = _safe_str(get_card_css(), "") + _safe_str(build_clean_card(r, speculative=False), "")
+            # Build card HTML (CSS already injected above)
+            card_html = _safe_str(build_clean_card(r, speculative=False), "")
 
             # Add provider attribution if available (Core cards)
             attribution = r.get("Fund_Attribution", "")
@@ -5684,6 +5711,13 @@ else:
         st.warning(
             "🔔 Warning: These stocks are classified as speculative due to partial data or elevated risk factors. Suitable for experienced investors only."
         )
+
+        # Inject CSS once for all Speculative cards
+        st.markdown(get_card_css(), unsafe_allow_html=True)
+
+        # DEBUG: Verify Speculative cards will render
+        if CONFIG.get("DEBUG_RECOMMENDATION_ROWS", False):
+            st.write(f"DEBUG: Rendering {len(spec_df)} Speculative cards:", list(spec_df["Ticker"]))
 
         for _, r in spec_df.iterrows():
             mean = r.get("מחיר ממוצע", np.nan)
@@ -5944,7 +5978,8 @@ else:
             overall_score_val = r.get("overall_score", conv_v2)
             rr_ratio_val = r.get("rr", np.nan)
             rr_band = r.get("rr_band", "")
-            card_html = _safe_str(get_card_css(), "") + _safe_str(build_clean_card(r, speculative=True), "")
+            # Build card HTML (CSS already injected above)
+            card_html = _safe_str(build_clean_card(r, speculative=True), "")
 
             # Add provider attribution if available (Speculative cards)
             attribution_spec = r.get("Fund_Attribution", "")

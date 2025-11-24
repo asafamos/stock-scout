@@ -44,7 +44,17 @@ def detect_market_regime(
             qqq_data = yf.download("QQQ", start=start_dt, end=end_dt, progress=False)
         if spy_data is None or len(spy_data.index) < 40:
             return fallback
-        spy_close = spy_data.get("Close", spy_data.iloc[:, 0]).astype(float)
+        # Ensure we have a Series of close prices (avoid ambiguous DataFrame/Series boolean ops)
+        if isinstance(spy_data, pd.Series):
+            spy_df = spy_data.to_frame()
+        else:
+            spy_df = spy_data
+        if "Close" in spy_df.columns:
+            spy_close = spy_df["Close"].astype(float)
+        else:
+            spy_close = spy_df.iloc[:, 0].astype(float)
+        # Force a 1-D Series (avoid DataFrame or multi-column edgecases)
+        spy_close = pd.Series(spy_close.values.ravel(), index=spy_close.index)
         ma20 = spy_close.rolling(20).mean(); ma50 = spy_close.rolling(50).mean()
         last = float(spy_close.iloc[-1])
         vs20 = float(last / ma20.iloc[-1] - 1) if pd.notna(ma20.iloc[-1]) else 0.0
@@ -52,7 +62,15 @@ def detect_market_regime(
         momentum = float(last / spy_close.iloc[-20] - 1) if len(spy_close) >= 21 else 0.0
         spy_trend = float(np.clip((vs20 * 2 + vs50 + momentum) / 4.0, -1, 1))
         if qqq_data is not None and len(qqq_data.index) >= 40:
-            qqq_close = qqq_data.get("Close", qqq_data.iloc[:, 0]).astype(float)
+            if isinstance(qqq_data, pd.Series):
+                qqq_df = qqq_data.to_frame()
+            else:
+                qqq_df = qqq_data
+            if "Close" in qqq_df.columns:
+                qqq_close = qqq_df["Close"].astype(float)
+            else:
+                qqq_close = qqq_df.iloc[:, 0].astype(float)
+            qqq_close = pd.Series(qqq_close.values.ravel(), index=qqq_close.index)
             qma20 = qqq_close.rolling(20).mean(); qma50 = qqq_close.rolling(50).mean()
             qlast = float(qqq_close.iloc[-1])
             qvs20 = float(qlast / qma20.iloc[-1] - 1) if pd.notna(qma20.iloc[-1]) else 0.0
@@ -64,7 +82,13 @@ def detect_market_regime(
         try:
             vix_df = yf.download("^VIX", period="7d", progress=False)
             if vix_df is not None and len(vix_df.index) > 0:
-                vix_close = vix_df.get("Close", vix_df.iloc[:, 0]).astype(float)
+                if isinstance(vix_df, pd.Series):
+                    vix_df = vix_df.to_frame()
+                if "Close" in vix_df.columns:
+                    vix_close = vix_df["Close"].astype(float)
+                else:
+                    vix_close = vix_df.iloc[:, 0].astype(float)
+                vix_close = pd.Series(vix_close.values.ravel(), index=vix_close.index)
                 vix_val = float(vix_close.iloc[-1])
             else:
                 vix_val = 20.0
@@ -91,7 +115,7 @@ def detect_market_regime(
             "details": details
         }
     except Exception as exc:
-        logger.warning(f"Regime detection failed, neutral fallback used: {exc}")
+        logger.exception("Regime detection failed, neutral fallback used")
         return fallback
 
 
