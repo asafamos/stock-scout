@@ -5393,11 +5393,18 @@ else:
         # Inject CSS once for all Core cards
         st.markdown(get_card_css(), unsafe_allow_html=True)
 
+        # DEBUG: Always show what we're about to render (temporary for debugging)
+        st.info(f"🔍 DEBUG Core: About to render {len(core_df)} Core cards. Tickers: {list(core_df['Ticker'])}")
+
         # DEBUG: Verify Core cards will render
         if CONFIG.get("DEBUG_RECOMMENDATION_ROWS", False):
             st.write(f"DEBUG: Rendering {len(core_df)} Core cards:", list(core_df["Ticker"]))
 
+        card_counter = 0
         for _, r in core_df.iterrows():
+            card_counter += 1
+            ticker_name = r.get("Ticker", "UNKNOWN")
+            st.caption(f"📍 Rendering Core card #{card_counter}: {ticker_name}")
             mean = r.get("מחיר ממוצע", np.nan)
             std = r.get("סטיית תקן", np.nan)
             hist_std = r.get(
@@ -5707,11 +5714,18 @@ else:
         # Inject CSS once for all Speculative cards
         st.markdown(get_card_css(), unsafe_allow_html=True)
 
+        # DEBUG: Always show what we're about to render (temporary for debugging)
+        st.info(f"🔍 DEBUG Spec: About to render {len(spec_df)} Speculative cards. Tickers: {list(spec_df['Ticker'])}")
+
         # DEBUG: Verify Speculative cards will render
         if CONFIG.get("DEBUG_RECOMMENDATION_ROWS", False):
             st.write(f"DEBUG: Rendering {len(spec_df)} Speculative cards:", list(spec_df["Ticker"]))
 
+        card_counter = 0
         for _, r in spec_df.iterrows():
+            card_counter += 1
+            ticker_name = r.get("Ticker", "UNKNOWN")
+            st.caption(f"📍 Rendering Spec card #{card_counter}: {ticker_name}")
             mean = r.get("מחיר ממוצע", np.nan)
             std = r.get("סטיית תקן", np.nan)
             hist_std = r.get(
