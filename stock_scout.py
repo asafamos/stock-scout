@@ -5359,6 +5359,9 @@ else:
 
     # Display Core recommendations first
     if not core_df.empty:
+        import time
+        t_section_start = time.time()
+        
         st.markdown("### 🛡️ Core Stocks — Lower Relative Risk")
         st.caption(
             f"✅ {len(core_df)} stocks with high data quality and balanced risk profile"
@@ -5400,12 +5403,20 @@ else:
         if CONFIG.get("DEBUG_RECOMMENDATION_ROWS", False):
             st.write(f"DEBUG: Rendering {len(core_df)} Core cards:", list(core_df["Ticker"]))
 
+        # PERF: Time card building
+        import time
+        t_start = time.time()
+        
         # Build all cards HTML in one go (faster than multiple st.markdown calls)
         all_cards_html = ""
         card_counter = 0
+        card_build_times = []  # Track per-card build time
         for _, r in core_df.iterrows():
             card_counter += 1
             ticker_name = r.get("Ticker", "UNKNOWN")
+            
+            # PERF: Time individual card build
+            t_card_start = time.time()
             mean = r.get("מחיר ממוצע", np.nan)
             std = r.get("סטיית תקן", np.nan)
             hist_std = r.get(
@@ -5670,7 +5681,10 @@ else:
                 risk_color = "#6b7280"
 
             # Build card HTML (CSS already injected above)
+            t_build_card_start = time.time()
             card_html = _safe_str(build_clean_card(r, speculative=False), "")
+            t_build_card = time.time() - t_build_card_start
+            card_build_times.append(t_build_card)
 
             # Add provider attribution if available (Core cards)
             attribution = r.get("Fund_Attribution", "")
@@ -5686,13 +5700,25 @@ else:
             # Accumulate card HTML instead of rendering immediately
             all_cards_html += card_html
         
+        # PERF: Measure build time
+        t_build = time.time() - t_start
+        
         # Render all Core cards at once (much faster than individual st.markdown calls)
         if all_cards_html:
+            t_render_start = time.time()
             st.markdown(all_cards_html, unsafe_allow_html=True)
-            st.success(f"✅ Successfully rendered {card_counter} Core cards")
+            t_render = time.time() - t_render_start
+            st.success(f"✅ Successfully rendered {card_counter} Core cards | Build: {t_build:.2f}s (avg {avg_card_time*1000:.1f}ms/card) | Render: {t_render:.2f}s")
+            
+        # PERF: Total section time
+        t_section_total = time.time() - t_section_start
+        st.caption(f"⏱️ Core section total time: {t_section_total:.2f}s")
 
     # Display Speculative recommendations
     if not spec_df.empty:
+        import time
+        t_section_start = time.time()
+        
         st.markdown("### ⚡ Speculative Stocks — High Upside, High Risk")
         st.caption(f"⚠️ {len(spec_df)} stocks with a higher risk profile")
 
@@ -5727,12 +5753,20 @@ else:
         if CONFIG.get("DEBUG_RECOMMENDATION_ROWS", False):
             st.write(f"DEBUG: Rendering {len(spec_df)} Speculative cards:", list(spec_df["Ticker"]))
 
+        # PERF: Time card building
+        import time
+        t_start = time.time()
+        
         # Build all cards HTML in one go (faster than multiple st.markdown calls)
         all_cards_html = ""
         card_counter = 0
+        card_build_times = []  # Track per-card build time
         for _, r in spec_df.iterrows():
             card_counter += 1
             ticker_name = r.get("Ticker", "UNKNOWN")
+            
+            # PERF: Time individual card build
+            t_card_start = time.time()
             mean = r.get("מחיר ממוצע", np.nan)
             std = r.get("סטיית תקן", np.nan)
             hist_std = r.get(
@@ -5992,7 +6026,10 @@ else:
             rr_ratio_val = r.get("rr", np.nan)
             rr_band = r.get("rr_band", "")
             # Build card HTML (CSS already injected above)
+            t_build_card_start = time.time()
             card_html = _safe_str(build_clean_card(r, speculative=True), "")
+            t_build_card = time.time() - t_build_card_start
+            card_build_times.append(t_build_card)
 
             # Add provider attribution if available (Speculative cards)
             attribution_spec = r.get("Fund_Attribution", "")
@@ -6008,10 +6045,20 @@ else:
             # Accumulate card HTML instead of rendering immediately
             all_cards_html += card_html
         
+        # PERF: Measure build time
+        t_build = time.time() - t_start
+        avg_card_time = sum(card_build_times) / len(card_build_times) if card_build_times else 0
+        
         # Render all Speculative cards at once (much faster than individual st.markdown calls)
         if all_cards_html:
+            t_render_start = time.time()
             st.markdown(all_cards_html, unsafe_allow_html=True)
-            st.success(f"✅ Successfully rendered {card_counter} Speculative cards")
+            t_render = time.time() - t_render_start
+            st.success(f"✅ Successfully rendered {card_counter} Speculative cards | Build: {t_build:.2f}s (avg {avg_card_time*1000:.1f}ms/card) | Render: {t_render:.2f}s")
+            
+        # PERF: Total section time
+        t_section_total = time.time() - t_section_start
+        st.caption(f"⏱️ Speculative section total time: {t_section_total:.2f}s")
 
 # Inject compact mode JS to hide advanced/fundamental sections
 if st.session_state.get("compact_mode"):
