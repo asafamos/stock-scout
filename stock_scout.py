@@ -3555,6 +3555,8 @@ if "reliability_v2" not in results.columns or results["reliability_v2"].isna().a
 # 3e) Apply risk classification and data quality evaluation
 t0 = t_start()
 st.info("🔍 Classifying stocks by risk level and data quality...")
+import time as time_module
+t_risk_start = time_module.time()
 
 # Debug: Check what data we have
 logger.info(f"Columns available: {results.columns.tolist()}")
@@ -3577,7 +3579,10 @@ logger.info(
     f"Sample Momentum_Consistency values: {results['Momentum_Consistency'].head().tolist() if 'Momentum_Consistency' in results.columns else 'MISSING'}"
 )
 
+t_classify_start = time_module.time()
 results = apply_classification(results)
+t_classify = time_module.time() - t_classify_start
+st.caption(f"⏱️ apply_classification: {t_classify:.2f}s")
 
 # Fundamentals coverage summary
 if "Fund_Coverage_Pct" in results.columns:
@@ -3775,12 +3780,16 @@ spec_after_filter = len(spec_filtered)
 # ==================== ML SCORING ====================
 if XGBOOST_MODEL is not None:
     logger.info("Applying XGBoost ML scoring...")
+    t_ml_start = time_module.time()
 
     # Score Core stocks
     if not core_filtered.empty:
+        t_ml_core_start = time_module.time()
         core_filtered["ML_Probability"] = core_filtered.apply(
             score_with_xgboost, axis=1
         )
+        t_ml_core = time_module.time() - t_ml_core_start
+        st.caption(f"⏱️ ML scoring Core ({len(core_filtered)} stocks): {t_ml_core:.2f}s")
 
         def _ml_band(p: float) -> str:
             if not np.isfinite(p):
@@ -3800,9 +3809,12 @@ if XGBOOST_MODEL is not None:
 
     # Score Speculative stocks
     if not spec_filtered.empty:
+        t_ml_spec_start = time_module.time()
         spec_filtered["ML_Probability"] = spec_filtered.apply(
             score_with_xgboost, axis=1
         )
+        t_ml_spec = time_module.time() - t_ml_spec_start
+        st.caption(f"⏱️ ML scoring Speculative ({len(spec_filtered)} stocks): {t_ml_spec:.2f}s")
         spec_filtered["ml_conf_band"] = spec_filtered["ML_Probability"].apply(_ml_band)
         spec_filtered["ML_Confidence"] = spec_filtered["ml_conf_band"]
         spec_filtered = spec_filtered.sort_values("ML_Probability", ascending=False)
@@ -3823,6 +3835,7 @@ else:
 # === CALCULATE QUALITY SCORE FOR ALL STOCKS ===
 from core.scoring_engine import calculate_quality_score
 
+t_quality_start = time_module.time()
 
 def _calc_quality(row):
     try:
@@ -3834,17 +3847,23 @@ def _calc_quality(row):
 
 
 if not core_filtered.empty:
+    t_qual_core_start = time_module.time()
     quality_data = core_filtered.apply(_calc_quality, axis=1)
     core_filtered["Quality_Score_Numeric"] = quality_data["Quality_Score_Numeric"]
     core_filtered["Quality_Level"] = quality_data["Quality_Level"]
+    t_qual_core = time_module.time() - t_qual_core_start
+    st.caption(f"⏱️ Quality calc Core ({len(core_filtered)} stocks): {t_qual_core:.2f}s")
     logger.info(
         f"Core quality: {core_filtered['Quality_Level'].value_counts().to_dict()}"
     )
 
 if not spec_filtered.empty:
+    t_qual_spec_start = time_module.time()
     quality_data = spec_filtered.apply(_calc_quality, axis=1)
     spec_filtered["Quality_Score_Numeric"] = quality_data["Quality_Score_Numeric"]
     spec_filtered["Quality_Level"] = quality_data["Quality_Level"]
+    t_qual_spec = time_module.time() - t_qual_spec_start
+    st.caption(f"⏱️ Quality calc Speculative ({len(spec_filtered)} stocks): {t_qual_spec:.2f}s")
     logger.info(
         f"Spec quality: {spec_filtered['Quality_Level'].value_counts().to_dict()}"
     )
