@@ -5673,17 +5673,9 @@ else:
                     raw_html = html_escape.escape(str(raw_sources))
                     card_html += f"""
     <div class="item" style="grid-column:span 5;font-size:0.7em;color:#334155;background:#f1f5f9;border:1px dashed #cbd5e1;border-radius:6px;padding:4px;margin-top:4px"><b>RAW _sources:</b> {raw_html}</div>"""
-            # Remove top-level data sources line (moved to details section inside card)
-
-            card_html += """
-  </div>
-</div>
-"""
-            # Use reasonable height with scrolling enabled to prevent text cutoff
-            # Reduced iframe height to tighten vertical spacing between cards.
-            # Previous fixed height (700) created large empty gaps below content.
-            # 430 provides enough space for collapsed + expanded details without excess.
-            # Render card directly (no inner scroll iframe) so expanding details pushes subsequent cards down.
+            # Note: build_clean_card already closes all its tags, no need to add </div></div> here
+            
+            # Render card directly
             st.markdown(card_html, unsafe_allow_html=True)
 
     # Display Speculative recommendations
@@ -5990,12 +5982,9 @@ else:
                     raw_html = html_escape.escape(str(raw_sources))
                     card_html += f"""
     <div class="item" style="grid-column:span 5;font-size:0.7em;color:#334155;background:#f1f5f9;border:1px dashed #cbd5e1;border-radius:6px;padding:4px;margin-top:4px"><b>RAW _sources:</b> {raw_html}</div>"""
+            # Note: build_clean_card already closes all its tags, no need to add </div></div> here
 
-            card_html += """
-  </div>
-</div>
-"""
-            # Match reduced height for speculative cards to remove large gaps.
+            # Render card directly
             st.markdown(card_html, unsafe_allow_html=True)
 
 # Inject compact mode JS to hide advanced/fundamental sections
