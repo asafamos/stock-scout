@@ -5400,11 +5400,12 @@ else:
         if CONFIG.get("DEBUG_RECOMMENDATION_ROWS", False):
             st.write(f"DEBUG: Rendering {len(core_df)} Core cards:", list(core_df["Ticker"]))
 
+        # Build all cards HTML in one go (faster than multiple st.markdown calls)
+        all_cards_html = ""
         card_counter = 0
         for _, r in core_df.iterrows():
             card_counter += 1
             ticker_name = r.get("Ticker", "UNKNOWN")
-            st.caption(f"📍 Rendering Core card #{card_counter}: {ticker_name}")
             mean = r.get("מחיר ממוצע", np.nan)
             std = r.get("סטיית תקן", np.nan)
             hist_std = r.get(
@@ -5682,8 +5683,13 @@ else:
     <div class="item" style="grid-column:span 5;font-size:0.7em;color:#334155;background:#f1f5f9;border:1px dashed #cbd5e1;border-radius:6px;padding:4px;margin-top:4px"><b>RAW _sources:</b> {raw_html}</div>"""
             # Note: build_clean_card already closes all its tags, no need to add </div></div> here
             
-            # Render card directly
-            st.markdown(card_html, unsafe_allow_html=True)
+            # Accumulate card HTML instead of rendering immediately
+            all_cards_html += card_html
+        
+        # Render all Core cards at once (much faster than individual st.markdown calls)
+        if all_cards_html:
+            st.markdown(all_cards_html, unsafe_allow_html=True)
+            st.success(f"✅ Successfully rendered {card_counter} Core cards")
 
     # Display Speculative recommendations
     if not spec_df.empty:
@@ -5721,11 +5727,12 @@ else:
         if CONFIG.get("DEBUG_RECOMMENDATION_ROWS", False):
             st.write(f"DEBUG: Rendering {len(spec_df)} Speculative cards:", list(spec_df["Ticker"]))
 
+        # Build all cards HTML in one go (faster than multiple st.markdown calls)
+        all_cards_html = ""
         card_counter = 0
         for _, r in spec_df.iterrows():
             card_counter += 1
             ticker_name = r.get("Ticker", "UNKNOWN")
-            st.caption(f"📍 Rendering Spec card #{card_counter}: {ticker_name}")
             mean = r.get("מחיר ממוצע", np.nan)
             std = r.get("סטיית תקן", np.nan)
             hist_std = r.get(
@@ -5998,8 +6005,13 @@ else:
     <div class="item" style="grid-column:span 5;font-size:0.7em;color:#334155;background:#f1f5f9;border:1px dashed #cbd5e1;border-radius:6px;padding:4px;margin-top:4px"><b>RAW _sources:</b> {raw_html}</div>"""
             # Note: build_clean_card already closes all its tags, no need to add </div></div> here
 
-            # Render card directly
-            st.markdown(card_html, unsafe_allow_html=True)
+            # Accumulate card HTML instead of rendering immediately
+            all_cards_html += card_html
+        
+        # Render all Speculative cards at once (much faster than individual st.markdown calls)
+        if all_cards_html:
+            st.markdown(all_cards_html, unsafe_allow_html=True)
+            st.success(f"✅ Successfully rendered {card_counter} Speculative cards")
 
 # Inject compact mode JS to hide advanced/fundamental sections
 if st.session_state.get("compact_mode"):
