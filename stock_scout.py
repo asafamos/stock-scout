@@ -380,6 +380,9 @@ CONFIG = {
     "PERF_ALPHA_ENABLED": True,  # In fast mode we force this False to skip Alpha Vantage entirely
     "PERF_FUND_TIMEOUT": 15,  # Normal per-provider future timeout
     "PERF_FUND_TIMEOUT_FAST": 6,  # Fast mode per-provider future timeout
+    # --- Fundamentals Performance Optimizations ---
+    "FUNDAMENTALS_SKIP_REDUNDANT": True,  # Skip lower-priority providers when ≥75% coverage achieved (reduces API calls)
+    "FUND_BATCH_MAX_WORKERS": 10,  # Max parallel workers for batch fundamentals fetch (increased for performance)
     # --- Debug / Developer Flags ---
     "DEBUG_MODE": os.getenv("STOCK_SCOUT_DEBUG", "false").lower() in ("true", "1", "yes"),
 }
@@ -975,7 +978,7 @@ def calculate_rr(
         return 0.0
 
 
-@st.cache_data(ttl=60 * 60 * 24)  # 24h cache for fundamentals
+@st.cache_data(ttl=60 * 60 * 12, show_spinner=False)  # 12h cache for fundamentals (balance freshness vs performance)
 def fetch_fundamentals_bundle(ticker: str, enable_alpha_smart: bool = False) -> dict:
     """Fetch fundamentals from multiple providers and merge into a single dict (parallel).
 
@@ -1077,6 +1080,22 @@ def fetch_fundamentals_bundle(ticker: str, enable_alpha_smart: bool = False) -> 
         # Mark fundamentals usage for provider (UI status table later)
         mark_provider_usage(source_name, "fundamentals")
 
+    # Batch wrapper for multiple tickers (cached at batch level for efficiency)
+    @st.cache_data(ttl=60 * 60 * 12, show_spinner=False)
+    def _fetch_fundamentals_batch(tickers_tuple: tuple, enable_alpha: bool) -> dict:
+        """Fetch fundamentals for multiple tickers in parallel. Cached by ticker tuple."""
+        results_map = {}
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = {executor.submit(fetch_fundamentals_bundle, tkr, enable_alpha): tkr for tkr in tickers_tuple}
+            for future in as_completed(futures):
+                tkr = futures[future]
+                try:
+                    results_map[tkr] = future.result(timeout=20)
+                except Exception as e:
+                    logger.warning(f"Batch fundamental fetch failed for {tkr}: {e}")
+                    results_map[tkr] = _empty_fund_row()
+        return results_map
+    
     # Helper: sequential FMP fetch with internal delay + global minimal spacing
     def _fmp_sequential_wrap(t: str, key: str) -> dict:
         try:
@@ -1825,21 +1844,56 @@ def merge_fundamentals(provider_map: dict) -> dict:
 def _fetch_single_fused(ticker: str, alpha_enabled: bool) -> dict:
     """Fetch fundamentals from all configured providers for a single ticker and merge.
     Fully defensive: never raises.
+    
+    Performance optimization: Skip lower-priority providers if we already have good coverage
+    from higher-priority sources (configurable via FUNDAMENTALS_SKIP_REDUNDANT flag).
     """
     try:
         prov = {}
-        # SimFin
+        skip_redundant = CONFIG.get("FUNDAMENTALS_SKIP_REDUNDANT", True)
+        
+        # Helper to check if we have sufficient coverage to skip remaining providers
+        def _has_sufficient_coverage():
+            if not skip_redundant:
+                return False
+            current_merged = merge_fundamentals(prov)
+            coverage = current_merged.get("Fund_Coverage_Pct", 0.0)
+            return coverage >= 0.75  # 75% coverage threshold to skip remaining providers
+        
+        # SimFin (highest priority)
         if CONFIG.get("ENABLE_SIMFIN") and _env("SIMFIN_API_KEY"):
             try:
                 prov["simfin"] = _simfin_fetch(ticker, _env("SIMFIN_API_KEY")) or {}
             except Exception:
                 prov["simfin"] = {}
+        
+        if _has_sufficient_coverage():
+            merged = merge_fundamentals(prov)
+            for src_label in merged.get("_sources_used", []):
+                try:
+                    mark_provider_usage(src_label, "fundamentals")
+                except Exception:
+                    pass
+            merged["Ticker"] = ticker
+            return merged
+        
         # Tiingo
         if CONFIG.get("ENABLE_TIINGO", True):
             try:
                 prov["tiingo"] = _tiingo_fundamentals_fetch(ticker) or {}
             except Exception:
                 prov["tiingo"] = {}
+        
+        if _has_sufficient_coverage():
+            merged = merge_fundamentals(prov)
+            for src_label in merged.get("_sources_used", []):
+                try:
+                    mark_provider_usage(src_label, "fundamentals")
+                except Exception:
+                    pass
+            merged["Ticker"] = ticker
+            return merged
+        
         # FMP (full + legacy sequential throttling)
         fmp_key = _env("FMP_API_KEY")
         if fmp_key:
@@ -1860,30 +1914,45 @@ def _fetch_single_fused(ticker: str, alpha_enabled: bool) -> dict:
             except Exception as e:
                 logger.warning(f"FMP fundamentals failed for {ticker}: {e}")
                 prov["fmp"] = {}
-        # Alpha Vantage (smart)
+        
+        if _has_sufficient_coverage():
+            merged = merge_fundamentals(prov)
+            for src_label in merged.get("_sources_used", []):
+                try:
+                    mark_provider_usage(src_label, "fundamentals")
+                except Exception:
+                    pass
+            merged["Ticker"] = ticker
+            return merged
+        
+        # Alpha Vantage (smart, rate-limited - only if explicitly enabled)
         if alpha_enabled:
             try:
                 prov["alpha"] = _alpha_overview_fetch(ticker) or {}
             except Exception:
                 prov["alpha"] = {}
-        # Finnhub
+        
+        # Finnhub (supplemental)
         try:
             prov["finnhub"] = _finnhub_metrics_fetch(ticker) or {}
         except Exception:
             prov["finnhub"] = {}
-        # EODHD
+        
+        # EODHD (only if not skipping redundant and key available)
         ek = _env("EODHD_API_KEY")
-        if ek:
+        if ek and not _has_sufficient_coverage():
             try:
                 prov["eodhd"] = _eodhd_fetch_fundamentals(ticker, ek) or {}
             except Exception:
                 prov["eodhd"] = {}
+        
         # Marketstack (stub until implemented)
         if CONFIG.get("ENABLE_MARKETSTACK") and _env("MARKETSTACK_API_KEY"):
             prov["marketstack"] = {}
         # Nasdaq (stub; used primarily for sector/industry fallback)
         if CONFIG.get("ENABLE_NASDAQ_DL") and (_env("NASDAQ_API_KEY") or _env("NASDAQ_DL_API_KEY")):
             prov["nasdaq"] = {}
+        
         merged = merge_fundamentals(prov)
         # Mark provider usage
         for src_label in merged.get("_sources_used", []):
@@ -1899,25 +1968,33 @@ def _fetch_single_fused(ticker: str, alpha_enabled: bool) -> dict:
         m["Ticker"] = ticker
         return m
 
+@st.cache_data(ttl=60 * 60 * 12, show_spinner=False)  # 12h cache for batch fundamentals (improves performance significantly)
 def fetch_fundamentals_batch(tickers: list, alpha_top_n: int = 15) -> pd.DataFrame:
-    """Batch fundamentals enrichment.
+    """Batch fundamentals enrichment with aggressive caching and parallelization.
     Always returns one row per ticker. On total failure returns empty rows with coverage=0.
+    
+    Performance optimizations:
+    - Cached at batch level (12h TTL) to avoid redundant fetches across runs
+    - Parallel per-ticker fetching (up to 10 workers) for speed
+    - Smart alpha_enabled logic to only hit rate-limited providers for top picks
     """
     if not tickers:
         return pd.DataFrame(columns=["Ticker"] + FUND_SCHEMA_FIELDS + FUND_STRING_FIELDS)
     rows = []
-    # Parallel per-ticker to avoid one slow provider blocking others
-    max_workers = min(8, max(1, CONFIG.get("FUND_BATCH_MAX_WORKERS", 8)))
+    # Increase parallelism for faster fundamentals fetch (safe with caching + per-ticker isolation)
+    max_workers = min(10, max(1, CONFIG.get("FUND_BATCH_MAX_WORKERS", 10)))
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
         fut_map = {}
         for rank, tkr in enumerate(tickers, 1):
+            # Only enable Alpha for top N picks to respect rate limits
             alpha_enabled = rank <= alpha_top_n and not CONFIG.get("PERF_FAST_MODE")
             fut_map[ex.submit(_fetch_single_fused, tkr, alpha_enabled)] = tkr
         for fut in as_completed(fut_map):
             try:
-                rows.append(fut.result())
-            except Exception:
+                rows.append(fut.result(timeout=20))  # per-ticker timeout to prevent hangs
+            except Exception as e:
                 tkr = fut_map[fut]
+                logger.debug(f"Fundamental fetch failed for {tkr}: {e}")
                 m = _empty_fund_row()
                 m["Ticker"] = tkr
                 rows.append(m)
@@ -4333,8 +4410,8 @@ k0.metric("Universe size after history filtering", len(data_map))
 k1.metric("Results after filtering", len(results))
 total_budget_value = float(st.session_state.get("total_budget", CONFIG["BUDGET_TOTAL"]))
 budget_used = min(budget_used, total_budget_value)  # safety clamp
-k2.metric("Budget used (≈$)", f"{budget_used:,.0f}")
-k3.metric("Remaining budget (≈$)", f"{max(0.0, total_budget_value - budget_used):,.0f}")
+k2.metric("Suggested allocation (≈$)", f"{budget_used:,.0f}")
+k3.caption("ℹ️ Allocation is informational only — allocate manually as you prefer")
 
 # Timings
 st.subheader("⏱️ Execution Times")
@@ -4595,18 +4672,17 @@ with st.sidebar:
     st.session_state["compact_mode"] = compact_mode
 
 # Apply filters
-# Prefer V2 strict buy amounts for recommendations; fallback to legacy Hebrew buy column
-if "buy_amount_v2" in results.columns:
-    rec_df = results[results["buy_amount_v2"].fillna(0) > 0].copy()
-elif "סכום קנייה ($)" in results.columns:
-    rec_df = results[results["סכום קנייה ($)"].fillna(0) > 0].copy()
-else:
-    # Fallback: empty selection if no buy columns present
-    rec_df = results.copy()
+# Build recommendation universe based ONLY on classification/risk logic, NOT allocation
+# Allocation (buy_amount_v2, סכום קנייה) is kept as informational display-only field
+rec_df = results.copy()
 
-# Explicitly exclude tickers blocked by the strict V2 gate
+# Explicitly exclude tickers blocked by the strict V2 gate (primary filter)
 if "risk_gate_status_v2" in rec_df.columns:
     rec_df = rec_df[rec_df["risk_gate_status_v2"] != "blocked"].copy()
+
+# Only include stocks marked as displayable by classification logic
+if "Should_Display" in rec_df.columns:
+    rec_df = rec_df[rec_df["Should_Display"] == True].copy()
 
 if not rec_df.empty:
     # Apply risk filter
@@ -4631,7 +4707,11 @@ if not rec_df.empty:
     if "RSI" in rec_df.columns:
         rec_df = rec_df[(rec_df["RSI"].isna()) | (rec_df["RSI"] <= rsi_max)]
 
-st.info(f"📊 Showing {len(rec_df)} stocks after filters")
+# Informational only: count recommendations by classification
+total_recs = len(rec_df)
+core_recs = len(rec_df[rec_df["Risk_Level"].str.lower() == "core"]) if "Risk_Level" in rec_df.columns else 0
+spec_recs = len(rec_df[rec_df["Risk_Level"].str.lower() == "speculative"]) if "Risk_Level" in rec_df.columns else 0
+st.info(f"📊 Showing {total_recs} recommended stocks after filters ({core_recs} Core, {spec_recs} Speculative)")
 
 rec_df = rec_df.copy()
 
@@ -4642,10 +4722,10 @@ if "Score" in rec_df.columns and "Ticker" in rec_df.columns:
     if "Overall_Rank" not in rec_df.columns:
         rec_df["Overall_Rank"] = rec_df["Rank"]
 
-# --- Fallback Logic: if no stocks have positive allocation, show top technical candidates ---
+# --- Fallback Logic: if no stocks passed risk/classification gates, show top technical candidates ---
 if rec_df.empty:
     st.warning(
-        "No stocks passed allocation filters (all buy amounts zero or blocked). Showing top technical candidates (fallback mode)."
+        "No stocks passed risk/classification filters (all blocked or hidden). Showing top technical candidates (fallback mode)."
     )
     fallback_n = min(10, len(results))
     rec_df = results.head(fallback_n).copy()
@@ -4662,9 +4742,12 @@ try:
         if "risk_gate_status_v2" in results.columns:
             gate_counts = results["risk_gate_status_v2"].value_counts().to_dict()
             st.caption(f"🔎 Gate distribution: {gate_counts}")
+        if "Should_Display" in results.columns:
+            displayable_count = int((results["Should_Display"] == True).sum())
+            st.caption(f"🔎 Displayable (Should_Display=True): {displayable_count}/{len(results)}")
         if "buy_amount_v2" in results.columns:
             pos_buy = int((results["buy_amount_v2"].fillna(0) > 0).sum())
-            st.caption(f"🔎 Positive buy_amount_v2: {pos_buy}/{len(results)}")
+            st.caption(f"🔎 Suggested allocations (buy_amount_v2>0): {pos_buy}/{len(results)} (informational only)")
 except Exception:
     pass
 
@@ -5239,24 +5322,21 @@ else:
         spec_df = pd.DataFrame()
 
     # Re-display an accurate count reflecting what will be rendered
-    # Determine funded (allocated) positions vs total candidates for clearer caption
-    total_candidates = len(core_df) + len(spec_df)
-    funded_count = 0
+    # Show total recommendations; allocation is now informational only
+    total_recs = len(core_df) + len(spec_df)
+    st.info(
+        f"📊 Final recommendations: {total_recs} stocks ({len(core_df)} Core, {len(spec_df)} Speculative)"
+    )
+    # Optional: show suggested allocation summary if present
     try:
         if 'buy_amount_v2' in rec_df.columns:
-            funded_count = int((rec_df['buy_amount_v2'].fillna(0) > 0).sum())
-        elif 'סכום קנייה ($)' in rec_df.columns:
-            funded_count = int((rec_df['סכום קנייה ($)'].fillna(0) > 0).sum())
+            suggested_alloc_count = int((rec_df['buy_amount_v2'].fillna(0) > 0).sum())
+            if suggested_alloc_count > 0 and suggested_alloc_count != total_recs:
+                st.caption(
+                    f"ℹ️ Suggested allocation provided for {suggested_alloc_count}/{total_recs} stocks (you can ignore and allocate manually)"
+                )
     except Exception:
-        funded_count = total_candidates
-    if funded_count and funded_count != total_candidates:
-        st.info(
-            f"📊 Showing {funded_count} funded positions (out of {total_candidates} candidates) — {len(core_df)} Core, {len(spec_df)} Speculative"
-        )
-    else:
-        st.info(
-            f"📊 Showing {total_candidates} stocks after filters ({len(core_df)} Core, {len(spec_df)} Speculative)"
-        )
+        pass
 
     # Display Core recommendations first
     if not core_df.empty:
