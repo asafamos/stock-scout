@@ -5255,6 +5255,10 @@ if not rec_df.empty:
 
 # Add new export fields for 2025 improvements
 if not rec_df.empty:
+    import time
+    t_export_start = time.time()
+    st.info(f"🔧 Preparing {len(rec_df)} recommendations for display...")
+    
     # Market regime info
     regime_data = st.session_state.get('market_regime', {"regime": "neutral", "confidence": 50})
     rec_df["Market_Regime"] = regime_data.get("regime", "neutral")
@@ -5282,6 +5286,9 @@ if not rec_df.empty:
         return f"F:{fund_rel:.0f}%(n={fund_sources}),P:{price_rel:.0f}%(n={price_sources})"
     
     rec_df["Reliability_Components"] = rec_df.apply(_get_reliability_components, axis=1)
+    
+    t_export_elapsed = time.time() - t_export_start
+    st.success(f"✅ Prepared recommendations in {t_export_elapsed:.2f}s")
     
     # Risk band (based on risk_meter_v2)
     rec_df["Risk_Band"] = rec_df.get("risk_band", "Unknown")
@@ -5330,6 +5337,9 @@ def format_rel(val) -> str:
 if rec_df.empty:
     st.info("No stocks currently pass the threshold with a positive buy amount.")
 else:
+    import time
+    t_split_start = time.time()
+    
     # Split into Core and Speculative (case-insensitive matching to avoid accidental drops)
     if "Risk_Level" in rec_df.columns:
         levels = rec_df["Risk_Level"].astype(str).str.lower()
@@ -5339,6 +5349,9 @@ else:
         # Fallback if Risk_Level column doesn't exist: treat all as core
         core_df = rec_df.copy()
         spec_df = pd.DataFrame()
+    
+    t_split_elapsed = time.time() - t_split_start
+    st.caption(f"⏱️ Split Core/Spec: {t_split_elapsed:.3f}s")
 
     # Re-display an accurate count reflecting what will be rendered
     # Show total recommendations; allocation is now informational only
