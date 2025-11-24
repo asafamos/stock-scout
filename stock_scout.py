@@ -5277,16 +5277,20 @@ if not rec_df.empty:
     
     rec_df["Reliability_Band"] = rec_df.get("Reliability_v2", rec_df.get("reliability_pct", 50)).apply(_get_reliability_band)
     
-    # Reliability components summary - OPTIMIZED: vectorized instead of apply()
-    # Use bracket notation [] to get Series, not .get() which returns scalar
-    fund_rel = rec_df["Fundamental_Reliability_v2"].fillna(0) if "Fundamental_Reliability_v2" in rec_df.columns else pd.Series([0] * len(rec_df))
-    price_rel = rec_df["Price_Reliability_v2"].fillna(0) if "Price_Reliability_v2" in rec_df.columns else pd.Series([0] * len(rec_df))
-    fund_sources = rec_df["fund_sources_used_v2"].fillna(0).astype(int) if "fund_sources_used_v2" in rec_df.columns else pd.Series([0] * len(rec_df))
-    price_sources = rec_df["price_sources_used_v2"].fillna(0).astype(int) if "price_sources_used_v2" in rec_df.columns else pd.Series([0] * len(rec_df))
-    rec_df["Reliability_Components"] = (
-        "F:" + fund_rel.astype(int).astype(str) + "%(n=" + fund_sources.astype(str) + 
-        "),P:" + price_rel.astype(int).astype(str) + "%(n=" + price_sources.astype(str) + ")"
-    )
+    # Reliability components summary
+    def _get_reliability_components(row):
+        fund_rel = row.get("Fundamental_Reliability_v2", 0)
+        price_rel = row.get("Price_Reliability_v2", 0)
+        fund_sources = row.get("fund_sources_used_v2", 0)
+        price_sources = row.get("price_sources_used_v2", 0)
+        # Handle cases where sources might be lists or other types
+        if isinstance(fund_sources, list):
+            fund_sources = len(fund_sources)
+        if isinstance(price_sources, list):
+            price_sources = len(price_sources)
+        return f"F:{fund_rel:.0f}%(n={fund_sources}),P:{price_rel:.0f}%(n={price_sources})"
+    
+    rec_df["Reliability_Components"] = rec_df.apply(_get_reliability_components, axis=1)
     
     t_export_elapsed = time.time() - t_export_start
     st.success(f"✅ Prepared recommendations in {t_export_elapsed:.2f}s")
