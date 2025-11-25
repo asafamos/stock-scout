@@ -41,6 +41,150 @@ import html as html_escape
 from card_styles import get_card_css
 from core.portfolio import _normalize_weights, allocate_budget
 from core.config import get_config
+# Module logger
+logger = logging.getLogger(__name__)
+# Initialize CONFIG with a safe fallback to avoid NameError when running in partial/dev environments
+try:
+    CONFIG = get_config()
+except Exception:
+    CONFIG = {}
+    try:
+        st.warning("CONFIG not found; using empty config fallback.")
+    except Exception:
+        pass
+# Ensure CONFIG supports dict-like `.get()` used throughout the app.
+try:
+    if not hasattr(CONFIG, "get"):
+        def _config_get(key, default=None):
+            # Prefer attributes on the Config dataclass (case-insensitive)
+            try:
+                if hasattr(CONFIG, "to_dict"):
+                    d = CONFIG.to_dict()
+                    # try lowercased key match
+                    lk = str(key).lower()
+                    if lk in d:
+                        return d[lk]
+            except Exception:
+                pass
+            # Fall back to environment / streamlit secrets
+            try:
+                v = os.getenv(key)
+                if v is None:
+                    # check for normalized uppercase key
+                    v = os.getenv(str(key).upper())
+                if v is None:
+                    return default
+                vl = str(v).lower()
+                if vl in ("true", "1", "yes"):
+                    return True
+                if vl in ("false", "0", "no"):
+                    return False
+                try:
+                    return int(v)
+                except Exception:
+                    return v
+            except Exception:
+                return default
+
+        # Attach method to CONFIG object for backwards compatibility
+        try:
+            setattr(CONFIG, "get", _config_get)
+        except Exception:
+            # If CONFIG is a plain dict, leave as-is
+            pass
+except Exception:
+    pass
+    
+# Provide dict-like access (`CONFIG[...]`) used across older code paths by creating
+# a lightweight proxy when CONFIG is not already a dict.
+try:
+    if not isinstance(CONFIG, dict):
+        class _ConfigProxy:
+            def __init__(self, cfg):
+                self._cfg = cfg
+
+            def get(self, key, default=None):
+                # First try attribute on the dataclass (case-insensitive)
+                try:
+                    lk = str(key).lower()
+                    if hasattr(self._cfg, lk):
+                        return getattr(self._cfg, lk)
+                except Exception:
+                    pass
+                # Then try existing get (if attached), then dataclass to_dict
+                try:
+                    if hasattr(self._cfg, "get") and callable(getattr(self._cfg, "get")):
+                        return self._cfg.get(key, default)
+                except Exception:
+                    pass
+                try:
+                    if hasattr(self._cfg, "to_dict"):
+                        d = self._cfg.to_dict()
+                        lk = str(key).lower()
+                        if lk in d:
+                            return d[lk]
+                except Exception:
+                    pass
+                # Fall back to environment
+                v = os.getenv(key)
+                if v is None:
+                    v = os.getenv(str(key).upper())
+                if v is None:
+                    return default
+                vl = str(v).lower()
+                if vl in ("true", "1", "yes"):
+                    return True
+                if vl in ("false", "0", "no"):
+                    return False
+                try:
+                    return int(v)
+                except Exception:
+                    return v
+
+            def __getitem__(self, key):
+                val = self.get(key)
+                if val is None:
+                    raise KeyError(key)
+                return val
+
+            def __getattr__(self, name):
+                return getattr(self._cfg, name)
+
+        CONFIG = _ConfigProxy(CONFIG)
+except Exception:
+    pass
+# Ensure ML model is loaded early (harmless if missing)
+try:
+    import core.ml_integration as ml_integration
+
+    # If CONFIG specifies a model path, prefer it (keeps behavior consistent)
+    model_path = None
+    try:
+        if isinstance(CONFIG, dict) and CONFIG.get("model_path"):
+            model_path = CONFIG.get("model_path")
+    except Exception:
+        model_path = None
+
+    try:
+        ml_ok = ml_integration.load_ml_model(model_path)
+        if ml_ok:
+            logging.getLogger(__name__).info(f"✓ ML model loaded from {model_path or ml_integration._MODEL_PATH}")
+            # Write an explicit trace file so the running Streamlit process shows model load
+            try:
+                with open('/tmp/ml_model_loaded.txt', 'a') as _mf:
+                    _mf.write(f"{datetime.utcnow().isoformat()} - ML loaded: {model_path or getattr(ml_integration, '_MODEL_PATH', 'unknown')}\n")
+            except Exception:
+                pass
+        else:
+            logging.getLogger(__name__).info("ML model not loaded at startup (will fallback gracefully)")
+    except Exception as _e:
+        logging.getLogger(__name__).warning(f"ML load attempt failed: {_e}")
+except Exception:
+    # Best-effort: if core.ml_integration import fails, continue without raising
+    try:
+        logging.getLogger(__name__).warning("core.ml_integration unavailable; ML disabled")
+    except Exception:
+        pass
 from advanced_filters import (
     compute_advanced_score,
     should_reject_ticker,
@@ -91,6 +235,32 @@ def _is_finite(v) -> bool:
     except Exception:
         return False
 
+
+# Minimal fundamentals schema & helpers (ensures functions referencing these
+# values during import don't fail). These mirror expected keys used across
+# the app and provide sensible defaults when full fundamentals code runs.
+FUND_SCHEMA_FIELDS = [
+    "oper_margin",
+    "roe",
+    "roic",
+    "gm",
+    "ps",
+    "pe",
+    "de",
+    "rev_g_yoy",
+    "eps_g_yoy",
+]
+FUND_STRING_FIELDS = ["sector"]
+
+
+def _empty_fund_row() -> dict:
+    """Return an empty fundamentals dict with default NaN/string placeholders."""
+    out = {f: np.nan for f in FUND_SCHEMA_FIELDS}
+    for s in FUND_STRING_FIELDS:
+        out[s] = ""
+    out.update({"_sources": {}, "_sources_used": []})
+    return out
+
 # --- Robust .env loading (earlier + multi-path) ---------------------------------
 def _force_load_env() -> None:
     """Attempt to load .env from common locations before any key access.
@@ -108,6 +278,56 @@ def _force_load_env() -> None:
 
 
 _force_load_env()
+
+
+# Environment accessor used throughout the app. Provide a safe fallback that
+# reads from `st.secrets` then `os.environ` and returns `default` when not set.
+def _env(key: str, default: Optional[str] = None) -> Optional[str]:
+    try:
+        # Prefer Streamlit secrets when available (deployed env)
+        if hasattr(st, "secrets") and key in getattr(st, "secrets"):
+            val = st.secrets.get(key)
+            return val if val is not None else default
+    except Exception:
+        # ignore and fallback to env
+        pass
+
+    try:
+        return os.environ.get(key, default)
+    except Exception:
+        return default
+
+
+# Minimal HTTP GET with retries used across data-provider checks.
+def http_get_retry(url: str, tries: int = 2, timeout: float = 8.0, params: Optional[dict] = None, headers: Optional[dict] = None, backoff: float = 1.0):
+    """Perform a GET with simple retry/backoff. Returns `requests.Response` on success or `None` on failure.
+
+    Callers expect a falsy value when the request timed out or failed.
+    """
+    try:
+        sess = requests.Session()
+    except Exception:
+        sess = None
+
+    for attempt in range(1, max(1, int(tries)) + 1):
+        try:
+            if sess is not None:
+                r = sess.get(url, params=params, headers=headers, timeout=timeout)
+            else:
+                r = requests.get(url, params=params, headers=headers, timeout=timeout)
+            if r is not None and getattr(r, "status_code", None) == 200:
+                return r
+        except Exception:
+            # swallow and retry after backoff
+            pass
+
+        # simple backoff between tries
+        try:
+            time.sleep(backoff * attempt)
+        except Exception:
+            pass
+
+    return None
 
 
 def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
@@ -317,137 +537,21 @@ try:
     from openai import OpenAI
 
     OPENAI_AVAILABLE = True
-except ImportError:
-    OPENAI_AVAILABLE = False
-    OpenAI = None
+    
+    # Ensure MODEL_DATA is defined even if model files/variables are missing
+    MODEL_DATA = None
 
-# Get global configuration
-_config_obj = get_config()
-CONFIG = {
-    # Convert dataclass to dict with all attributes
-    **{
-        k: getattr(_config_obj, k)
-        for k in dir(_config_obj)
-        if not k.startswith("_") and not callable(getattr(_config_obj, k))
-    },
-    # Additional backwards-compatible keys
-    "SMART_SCAN": _config_obj.smart_scan,
-    "UNIVERSE_LIMIT": _config_obj.universe_limit,
-    "LOOKBACK_DAYS": _config_obj.lookback_days,
-    "MA_SHORT": _config_obj.ma_short,
-    "MA_LONG": _config_obj.ma_long,
-    "RSI_BOUNDS": _config_obj.rsi_bounds,
-    "WEIGHTS": _config_obj.weights,
-    # Indicator toggles and thresholds
-    "USE_MACD_ADX": _config_obj.use_macd_adx,
-    "OVEREXT_SOFT": _config_obj.overext_soft,
-    "OVEREXT_HARD": _config_obj.overext_hard,
-    "PULLBACK_RANGE": _config_obj.pullback_range,
-    "ATR_PRICE_HARD": _config_obj.atr_price_hard,
-    # Basic price/volume constraints
-    "MIN_PRICE": _config_obj.min_price,
-    "MIN_AVG_VOLUME": _config_obj.min_avg_volume,
-    "MIN_DOLLAR_VOLUME": _config_obj.min_dollar_volume,
-    "MIN_MARKET_CAP": _config_obj.min_market_cap,
-    "FUNDAMENTAL_ENABLED": _config_obj.fundamental_enabled,
-    "FUNDAMENTAL_WEIGHT": _config_obj.fundamental_weight,
-    # Earnings / risk filters
-    "EARNINGS_BLACKOUT_DAYS": _config_obj.earnings_blackout_days,
-    "EARNINGS_CHECK_TOPK": _config_obj.earnings_check_topk,
-    "BETA_FILTER_ENABLED": _config_obj.beta_filter_enabled,
-    "BETA_TOP_K": _config_obj.beta_top_k,
-    "BETA_MAX_ALLOWED": _config_obj.beta_max_allowed,
-    "SECTOR_CAP_MAX": _config_obj.sector_cap_max,
-    "SECTOR_CAP_ENABLED": _config_obj.sector_cap_enabled,
-    # Results sizing
-    "TOPN_RESULTS": _config_obj.topn_results,
-    "TOPK_RECOMMEND": _config_obj.topk_recommend,
-    # Allocation / budget
-    "BUDGET_TOTAL": _config_obj.budget_total,
-    "MIN_POSITION": _config_obj.min_position,
-    "MAX_POSITION_PCT": _config_obj.max_position_pct,
-    "EXTERNAL_PRICE_VERIFY": _config_obj.external_price_verify,
-    "TOP_VALIDATE_K": _config_obj.top_validate_k,
-    "BETA_BENCHMARK": _config_obj.beta_benchmark,
-    # Disabled providers (legacy/deprecated/paid):
-    "ENABLE_SIMFIN": False,  # SimFin API v2 deprecated, v3 requires paid subscription
-    "ENABLE_MARKETSTACK": False,  # Monthly usage limit reached (free tier exhausted)
-    "ENABLE_NASDAQ_DL": False,  # API access blocked (403 Forbidden)
-    "ENABLE_EODHD": False,  # Requires paid subscription (402 Payment Required)
-    # --- Performance / Fast Mode Flags ---
-    "PERF_FAST_MODE": False,  # Set True to reduce external waits for interactive exploration
-    "PERF_MULTI_SOURCE_TOP_N": 8,  # In fast mode: only compute multi-source reliability for top N by score
-    "PERF_ALPHA_ENABLED": True,  # In fast mode we force this False to skip Alpha Vantage entirely
-    "PERF_FUND_TIMEOUT": 15,  # Normal per-provider future timeout
-    "PERF_FUND_TIMEOUT_FAST": 6,  # Fast mode per-provider future timeout
-    # --- Fundamentals Performance Optimizations ---
-    "FUNDAMENTALS_SKIP_REDUNDANT": True,  # Skip lower-priority providers when ≥75% coverage achieved (reduces API calls)
-    "FUND_BATCH_MAX_WORKERS": 10,  # Max parallel workers for batch fundamentals fetch (increased for performance)
-    # --- Debug / Developer Flags ---
-    "DEBUG_MODE": os.getenv("STOCK_SCOUT_DEBUG", "false").lower() in ("true", "1", "yes"),
-}
-
-# -----------------------------------------------------------------
-# Canonical fundamentals schema (numeric + string fields)
-# These fields are used across all provider normalization helpers and
-# the fusion layer. New providers should map into these names only.
-# -----------------------------------------------------------------
-FUND_SCHEMA_FIELDS = [
-    "oper_margin",  # Operating margin
-    "roe",          # Return on Equity
-    "roic",         # Return on Invested Capital
-    "gm",           # Gross Margin
-    "ps",           # Price to Sales
-    "pe",           # Price to Earnings
-    "de",           # Debt to Equity
-    "rev_g_yoy",    # Revenue growth YoY
-    "eps_g_yoy",    # EPS growth YoY
-]
-FUND_STRING_FIELDS = ["sector", "industry"]
-
-# Utility: create empty fundamentals dict for a ticker (all NaN / Unknown)
-def _empty_fund_row() -> dict:
-    out = {f: np.nan for f in FUND_SCHEMA_FIELDS}
-    out["sector"] = "Unknown"
-    out["industry"] = "Unknown"
-    out["_sources"] = {}
-    out["_sources_used"] = []
-    out["Fund_Coverage_Pct"] = 0.0
-    out["fundamentals_available"] = False
-    return out
-
-# Provider usage tracker promoted to module level (was nested in legacy fundamentals function)
-def mark_provider_usage(provider: str, category: str):
-    """Record usage of a provider for a given category (price/fundamentals/ml). Safe no-throw."""
+    # Determine candidate model path only if variables exist and point to files
+    _model_path = None
     try:
-        usage = st.session_state.setdefault("provider_usage", {})
-        cats = usage.get(provider, set())
-        # Handle both set and other types for backward compatibility
-        if not isinstance(cats, set):
-            cats = set([cats]) if cats else set()
-        cats.add(category)
-        usage[provider] = cats
+        _cand_cal_var = globals().get('_cand_cal')
+        _cand_fb_var = globals().get('_cand_fb')
+        if _cand_cal_var is not None and getattr(_cand_cal_var, 'exists', None) and _cand_cal_var.exists():
+            _model_path = _cand_cal_var
+        elif _cand_fb_var is not None and getattr(_cand_fb_var, 'exists', None) and _cand_fb_var.exists():
+            _model_path = _cand_fb_var
     except Exception:
-        pass
-
-
-# Load environment variables
-warnings.simplefilter("ignore", FutureWarning)
-
-# Setup logger
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# Original load (kept for backwards compatibility); `_force_load_env` above already tried explicit paths.
-load_dotenv(find_dotenv(usecwd=True))
-MODEL_DATA = None
-try:
-    _base = Path(__file__).parent
-    _cand_cal = _base / "model_xgboost_5d_calibrated.pkl"
-    _cand_fb = _base / "model_xgboost_5d.pkl"
-    _model_path = (
-        _cand_cal if _cand_cal.exists() else (_cand_fb if _cand_fb.exists() else None)
-    )
+        _model_path = None
     if _model_path is not None:
         with open(_model_path, "rb") as _f:
             MODEL_DATA = pickle.load(_f)
@@ -458,9 +562,53 @@ try:
             except Exception:
                 pass
     else:
-        st.info("ML model not found; ML scoring will be neutral.")
+        # Fallback: try repo-root `model_xgboost_5d.pkl` for convenience (dev/test environments)
+        try:
+            repo_root = Path(__file__).resolve().parent
+            fallback = repo_root / "model_xgboost_5d.pkl"
+            if fallback.exists():
+                with open(fallback, "rb") as _f:
+                    MODEL_DATA = pickle.load(_f)
+                try:
+                    logging.getLogger(__name__).info(f"✓ ML model loaded from {fallback.name}")
+                except Exception:
+                    pass
+                # Write explicit trace for repo-root fallback load
+                try:
+                    with open('/tmp/ml_model_loaded.txt', 'a') as _mf:
+                        _mf.write(f"{datetime.utcnow().isoformat()} - ML loaded: {fallback}\n")
+                except Exception:
+                    pass
+                try:
+                    st.info(f"✓ Loaded ML model: {fallback.name} (features: {len(MODEL_DATA.get('feature_names', []))})")
+                except Exception:
+                    pass
+            else:
+                st.info("ML model not found; ML scoring will be neutral.")
+        except Exception as _e:
+            st.info("ML model not found; ML scoring will be neutral.")
 except Exception as _e:
     st.warning(f"Could not load ML model: {_e}")
+
+# Ensure repo-root fallback model is attempted even when OpenAI import fails
+try:
+    if 'MODEL_DATA' not in globals() or MODEL_DATA is None:
+        repo_root = Path(__file__).resolve().parent
+        fallback = repo_root / "model_xgboost_5d.pkl"
+        if fallback.exists():
+            try:
+                with open(fallback, 'rb') as _f:
+                    MODEL_DATA = pickle.load(_f)
+                logging.getLogger(__name__).info(f"✓ ML model loaded from repo-root fallback: {fallback.name}")
+                try:
+                    with open('/tmp/ml_model_loaded.txt', 'a') as _mf:
+                        _mf.write(f"{datetime.utcnow().isoformat()} - ML loaded (fallback): {fallback}\n")
+                except Exception:
+                    pass
+            except Exception as _e:
+                logging.getLogger(__name__).warning(f"Repo-root fallback model load failed: {_e}")
+except Exception:
+    pass
 
 # Backwards-compatible ML objects and helpers for existing scoring flow
 XGBOOST_MODEL = None
@@ -503,136 +651,6 @@ def score_with_xgboost(row: pd.Series) -> float:
             return float(XGBOOST_MODEL.predict_proba(X)[0][1])
     except Exception:
         return 0.5
-
-
-def assign_confidence_tier(prob: float) -> str:
-    """
-    Assign ML confidence tier based on probability.
-
-    Recalibrated thresholds for realistic diversity:
-    - High: ≥0.75 (strong prediction)
-    - Medium: 0.60-0.74 (moderate confidence)
-    - Low: <0.60 (weak prediction)
-    """
-    if not isinstance(prob, (int, float)) or not np.isfinite(prob):
-        return "N/A"
-    if prob >= 0.75:
-        return "High"
-    if prob >= 0.60:
-        return "Medium"
-    return "Low"
-
-
-# ==================== Environment helper ====================
-def _env(key: str) -> Optional[str]:
-    """Get environment variable or Streamlit secret (supports nested sections)."""
-    # Try Streamlit secrets first (Cloud deployment)
-    try:
-        if hasattr(st, "secrets"):
-            # Try direct access (top-level key)
-            try:
-                val = st.secrets[key]
-                if val:  # Ensure it's not empty
-                    return str(val)
-            except (KeyError, FileNotFoundError):
-                pass
-
-            # Try nested sections (api_keys, keys, secrets, tokens)
-            for section in ("api_keys", "keys", "secrets", "tokens"):
-                try:
-                    val = st.secrets[section][key]
-                    if val:
-                        return str(val)
-                except (KeyError, FileNotFoundError, AttributeError):
-                    continue
-    except Exception as e:
-        # Log for debugging in cloud
-        if hasattr(st, "warning"):
-            st.warning(f"⚠️ Secret access error for {key}: {e}")
-
-    # Fallback to environment variable (local .env)
-    return os.getenv(key)
-
-
-# ==================== HTTP helpers ====================
-_log = logging.getLogger(__name__)
-
-
-def http_get_retry(
-    url: str,
-    tries: int = 4,
-    timeout: float = 8.0,
-    headers: Optional[dict] = None,
-    session: Optional[requests.Session] = None,
-    backoff_base: float = 0.5,
-    max_backoff: float = 10.0,
-) -> Optional[requests.Response]:
-    """HTTP GET with exponential backoff + full jitter."""
-    import random
-
-    sess = session or requests
-    for attempt in range(1, max(1, tries) + 1):
-        try:
-            resp = sess.get(url, timeout=timeout, headers=headers)
-            if resp is not None and resp.status_code == 200:
-                return resp
-            if resp is not None and (
-                resp.status_code == 429 or (500 <= resp.status_code < 600)
-            ):
-                _log.debug(
-                    f"HTTP {resp.status_code} -> retry attempt {attempt}/{tries}"
-                )
-            else:
-                return resp
-        except requests.RequestException as exc:
-            _log.debug(f"Request exception on attempt {attempt}/{tries}: {exc}")
-        if attempt < tries:
-            backoff = min(max_backoff, backoff_base * (2 ** (attempt - 1)))
-            sleep_time = random.uniform(0, backoff)
-            time.sleep(sleep_time)
-    _log.warning(f"All {tries} attempts failed for URL")
-    return None
-
-
-def alpha_throttle(min_gap_seconds: float = 12.0) -> None:
-    """Throttle Alpha Vantage calls to respect 5 calls/minute (25 calls/day on free tier).
-
-    Args:
-        min_gap_seconds: Minimum seconds between calls (default 12s = 5 calls/min)
-    """
-    ts_key = "_alpha_last_call_ts"
-    calls_key = "av_calls"
-
-    # Track number of calls in session
-    call_count = st.session_state.get(calls_key, 0)
-
-    # Reset counter daily (conservative approach)
-    last_reset_key = "_alpha_reset_date"
-    today = datetime.utcnow().date().isoformat()
-    if st.session_state.get(last_reset_key) != today:
-        st.session_state[calls_key] = 0
-        st.session_state[last_reset_key] = today
-        call_count = 0
-
-    # Check daily limit (25 on free tier, be conservative with 20)
-    if call_count >= 20:
-        logger.warning(
-            f"Alpha Vantage daily limit reached ({call_count} calls), skipping"
-        )
-        return
-
-    # Enforce rate limit
-    last = st.session_state.get(ts_key, 0.0)
-    now = time.time()
-    elapsed = now - last
-    if elapsed < min_gap_seconds:
-        sleep_time = min_gap_seconds - elapsed
-        logger.debug(f"Alpha Vantage throttle: sleeping {sleep_time:.1f}s")
-        time.sleep(sleep_time)
-
-    # Update state
-    st.session_state[ts_key] = time.time()
-    st.session_state[calls_key] = call_count + 1
 
 
 # --- Build Universe (restored) ---
@@ -4735,6 +4753,55 @@ core_recs = len(rec_df[rec_df["Risk_Level"].str.lower() == "core"]) if "Risk_Lev
 spec_recs = len(rec_df[rec_df["Risk_Level"].str.lower() == "speculative"]) if "Risk_Level" in rec_df.columns else 0
 st.info(f"📊 Showing {total_recs} recommended stocks after filters ({core_recs} Core, {spec_recs} Speculative)")
 
+# Also log rec_df summary to stdout/log so it appears in /tmp/streamlit.log for diagnostics
+try:
+    tickers = list(rec_df.get('Ticker', [])[:50]) if not rec_df.empty else []
+    logging.getLogger(__name__).info(f"REC_DF summary: total={total_recs} core={core_recs} spec={spec_recs} tickers={tickers}")
+except Exception:
+    pass
+
+# DEBUG DUMPS: write rec_df and pre-filter `results` to /tmp for offline inspection
+try:
+    _p = '/tmp/rec_df_dump.csv'
+    rec_df.to_csv(_p, index=False)
+    logging.getLogger(__name__).info(f"WROTE debug dump: {_p} rows={len(rec_df)}")
+except Exception:
+    pass
+try:
+    _p2 = '/tmp/results_dump.csv'
+    results.to_csv(_p2, index=False)
+    logging.getLogger(__name__).info(f"WROTE debug dump: {_p2} rows={len(results) if 'results' in globals() and results is not None else 0}")
+except Exception:
+    pass
+
+# Developer helper: write a full HTML card dump for all `rec_df` rows so we can
+# visually verify which candidates should be shown. This uses the existing
+# `get_card_css` + `build_clean_card` helpers defined above.
+try:
+    try:
+        css = get_card_css()
+    except Exception:
+        css = ''
+    cards_html = ["<html><head><meta charset='utf-8'><style>" + css + "</style></head><body>"]
+    for _idx, _row in rec_df.reset_index(drop=True).iterrows():
+        try:
+            card = build_clean_card(_row, speculative=str(_row.get('Risk_Level','')).lower()=='speculative')
+            cards_html.append(card)
+        except Exception:
+            # fallback simple card showing ticker
+            try:
+                t = _row.get('Ticker', 'N/A')
+            except Exception:
+                t = 'N/A'
+            cards_html.append(f"<div class='simple-card'><span class='ticker-badge'>{t}</span></div>")
+    cards_html.append('</body></html>')
+    _html_path = '/tmp/all_rec_full_cards.html'
+    with open(_html_path, 'w', encoding='utf-8') as _hf:
+        _hf.write('\n'.join(cards_html))
+    logging.getLogger(__name__).info(f"WROTE debug HTML cards: {_html_path} rows={len(rec_df)}")
+except Exception:
+    pass
+
 rec_df = rec_df.copy()
 
 # Deterministic ranking pre Core/Spec split
@@ -4770,6 +4837,102 @@ try:
         if "buy_amount_v2" in results.columns:
             pos_buy = int((results["buy_amount_v2"].fillna(0) > 0).sum())
             st.caption(f"🔎 Suggested allocations (buy_amount_v2>0): {pos_buy}/{len(results)} (informational only)")
+except Exception:
+    pass
+
+# Quick override for debugging: render all recommended rows as cards (no Core/Spec split)
+try:
+    show_all_cards = st.checkbox(
+        "📣 Show all recommended as cards (ignore Core/Spec split)",
+        value=False,
+        help="Render every row from `rec_df` as a card for debugging display (does not change scoring).",
+    )
+    if show_all_cards and not rec_df.empty:
+        # Inject CSS once
+        st.markdown(get_card_css(), unsafe_allow_html=True)
+        st.info(f"🔍 DEBUG: Rendering all {len(rec_df)} recommended as cards. Tickers: {list(rec_df.get('Ticker', []))}")
+
+        all_cards_html = ""
+        card_counter = 0
+        for _, r in rec_df.iterrows():
+            card_counter += 1
+            speculative_flag = str(r.get("Risk_Level", "")).lower() == "speculative"
+            card_html = _safe_str(build_clean_card(r, speculative=speculative_flag), "")
+            all_cards_html += card_html
+
+        # Dump for offline inspection
+        try:
+            with open('/tmp/all_rec_cards.html', 'w', encoding='utf-8') as _f:
+                _f.write(all_cards_html)
+        except Exception:
+            pass
+
+        # Also provide a quick embed of the full HTML dump if present
+        try:
+            full_path = Path('/tmp/all_rec_full_cards.html')
+            if full_path.exists():
+                if st.checkbox('📌 Embed full debug HTML (`/tmp/all_rec_full_cards.html`) below', value=False):
+                    try:
+                        raw_html = full_path.read_text(encoding='utf-8')
+                        st_html(raw_html, height=800)
+                    except Exception:
+                        st.warning('Could not embed /tmp/all_rec_full_cards.html')
+        except Exception:
+            pass
+
+        try:
+            import streamlit.components.v1 as components
+
+            iframe_height = max(400, 220 * card_counter)
+            components.html(all_cards_html, height=iframe_height)
+        except Exception:
+            st.markdown(all_cards_html, unsafe_allow_html=True)
+
+        st.success(f"✅ Rendered {card_counter} recommended cards (all)")
+        # Stop further rendering to avoid duplicates
+        st.stop()
+except Exception:
+    pass
+
+# Debug: render all rows from `results` (pre-filters) as cards
+try:
+    show_all_results = st.checkbox(
+        "🔎 Show ALL classified candidates (pre-filters)",
+        value=False,
+        help="Render every row from `results` before rec_df filters as a card for debugging.",
+    )
+    if show_all_results and 'results' in globals() and results is not None and not results.empty:
+        st.markdown(get_card_css(), unsafe_allow_html=True)
+        st.info(f"🔍 DEBUG Results: rendering {len(results)} rows as cards. Tickers sample: {list(results.get('Ticker', [])[:10])}")
+        all_cards_html = ""
+        card_counter = 0
+        for _, r in results.iterrows():
+            card_counter += 1
+            speculative_flag = str(r.get("Risk_Level", "")).lower() == "speculative"
+            try:
+                card_html = _safe_str(build_clean_card(r, speculative=speculative_flag), "")
+            except Exception:
+                # Fallback minimal card if build fails
+                esc = html_escape.escape
+                ticker = esc(str(r.get('Ticker','UNKNOWN')))
+                card_html = f"<div class='clean-card {'speculative' if speculative_flag else 'core'}'><div class='card-header'><div class='ticker-line'><span class='ticker-badge'>{ticker}</span></div></div></div>"
+            all_cards_html += card_html
+
+        try:
+            with open('/tmp/all_results_cards.html', 'w', encoding='utf-8') as _f:
+                _f.write(all_cards_html)
+        except Exception:
+            pass
+
+        try:
+            import streamlit.components.v1 as components
+            iframe_height = max(400, 220 * card_counter)
+            components.html(all_cards_html, height=iframe_height)
+        except Exception:
+            st.markdown(all_cards_html, unsafe_allow_html=True)
+
+        st.success(f"✅ Rendered {card_counter} result cards (pre-filters)")
+        st.stop()
 except Exception:
     pass
 
@@ -4884,42 +5047,46 @@ for p, meta in providers_meta.items():
 # Count used providers (any usage)
 used_count = sum(1 for v in provider_usage.values() if v.get("used_price") or v.get("used_fundamentals") or v.get("used_ml"))
 
-with st.expander("📡 Data Provider Usage", expanded=False):
-    # Render a compact HTML table with color-coded status per provider
-    rows = []
-    for p, v in provider_usage.items():
-        if not v.get("implemented"):
-            status = "Not implemented"
-            color = "#9ca3af"  # gray
-            tip = "Not implemented yet"
-        elif v.get("used_price") or v.get("used_fundamentals") or v.get("used_ml"):
-            status = "Used"
-            color = "#16a34a"  # green
-            used_parts = []
-            if v.get("used_price"):
-                used_parts.append("price")
-            if v.get("used_fundamentals"):
-                used_parts.append("fundamentals")
-            if v.get("used_ml"):
-                used_parts.append("ml")
-            tip = f"Used for: {', '.join(used_parts)}"
-        elif v.get("key_present"):
-            status = "Available"
-            color = "#f59e0b"  # yellow
-            tip = "Key present / implemented but not used in this run"
-        else:
-            status = "No key"
-            color = "#6b7280"
-            tip = "No API key (or not configured)"
 
-        rows.append((p, status, color, tip))
+# Only show provider table in normal UI, debug flags in DEBUG_MODE
+if not CONFIG.get("DEBUG_MODE", False):
+    with st.expander("📡 Data Provider Usage", expanded=False):
+        rows = []
+        for p, v in provider_usage.items():
+            if not v.get("implemented"):
+                status = "Not implemented"
+                color = "#9ca3af"
+                tip = "Not implemented yet"
+            elif v.get("used_price") or v.get("used_fundamentals") or v.get("used_ml"):
+                status = "Used"
+                color = "#16a34a"
+                used_parts = []
+                if v.get("used_price"):
+                    used_parts.append("price")
+                if v.get("used_fundamentals"):
+                    used_parts.append("fundamentals")
+                if v.get("used_ml"):
+                    used_parts.append("ml")
+                tip = f"Used for: {', '.join(used_parts)}"
+            elif v.get("key_present"):
+                status = "Available"
+                color = "#f59e0b"
+                tip = "Key present / implemented but not used in this run"
+            else:
+                status = "No key"
+                color = "#6b7280"
+                tip = "No API key (or not configured)"
+            rows.append((p, status, color, tip))
+        table_html = "<table style='border-collapse:collapse;width:100%'><thead><tr><th style='text-align:left;padding:6px 8px;border-bottom:1px solid #e5e7eb'>Provider</th><th style='text-align:left;padding:6px 8px;border-bottom:1px solid #e5e7eb'>Status</th><th style='text-align:left;padding:6px 8px;border-bottom:1px solid #e5e7eb'>Notes</th></tr></thead><tbody>"
+        for p, status, color, tip in rows:
+            table_html += f"<tr title='{html_escape.escape(tip)}'><td style='padding:6px 8px;border-bottom:1px solid #f3f4f6'>{html_escape.escape(p)}</td><td style='padding:6px 8px;border-bottom:1px solid #f3f4f6'><span style='display:inline-block;padding:6px 10px;border-radius:6px;background:{color};color:white;font-weight:700'>{html_escape.escape(status)}</span></td><td style='padding:6px 8px;border-bottom:1px solid #f3f4f6'>{html_escape.escape(tip)}</td></tr>"
+        table_html += "</tbody></table>"
+        st.markdown(table_html, unsafe_allow_html=True)
+        st.caption(f"Used providers: {used_count} / {len(providers_meta)}")
 
-    table_html = "<table style='border-collapse:collapse;width:100%'><thead><tr><th style='text-align:left;padding:6px 8px;border-bottom:1px solid #e5e7eb'>Provider</th><th style='text-align:left;padding:6px 8px;border-bottom:1px solid #e5e7eb'>Status</th><th style='text-align:left;padding:6px 8px;border-bottom:1px solid #e5e7eb'>Notes</th></tr></thead><tbody>"
-    for p, status, color, tip in rows:
-        table_html += f"<tr title='{html_escape.escape(tip)}'><td style='padding:6px 8px;border-bottom:1px solid #f3f4f6'>{html_escape.escape(p)}</td><td style='padding:6px 8px;border-bottom:1px solid #f3f4f6'><span style='display:inline-block;padding:6px 10px;border-radius:6px;background:{color};color:white;font-weight:700'>{html_escape.escape(status)}</span></td><td style='padding:6px 8px;border-bottom:1px solid #f3f4f6'>{html_escape.escape(tip)}</td></tr>"
-    table_html += "</tbody></table>"
-    st.markdown(table_html, unsafe_allow_html=True)
-    st.caption(f"Used providers: {used_count} / {len(providers_meta)}")
+if CONFIG.get("DEBUG_MODE", False):
+    with st.expander("🔧 Provider Debug Flags", expanded=False):
+        st.json(provider_usage)
 
 # Calculate target prices and dates WITH OPTIONAL OPENAI ENHANCEMENT
 from datetime import datetime, timedelta
@@ -5373,6 +5540,14 @@ else:
         # Fallback if Risk_Level column doesn't exist: treat all as core
         core_df = rec_df.copy()
         spec_df = pd.DataFrame()
+
+    # DEBUG: dump tickers selected for Core/Spec into /tmp for quick inspection
+    try:
+        with open('/tmp/rec_tickers.txt', 'w', encoding='utf-8') as _f:
+            _f.write(f"CORE: {list(core_df['Ticker'])}\n")
+            _f.write(f"SPEC: {list(spec_df['Ticker'])}\n")
+    except Exception:
+        pass
     
     t_split_elapsed = time.time() - t_split_start
     st.caption(f"⏱️ Split Core/Spec: {t_split_elapsed:.3f}s")
@@ -5383,6 +5558,65 @@ else:
     st.info(
         f"📊 Final recommendations: {total_recs} stocks ({len(core_df)} Core, {len(spec_df)} Speculative)"
     )
+
+    # Quick rendering override: render directly from `rec_df` grouped by Risk_Level.
+    # This avoids mismatches between pipeline output and displayed cards caused by
+    # earlier conditional paths or debug stops. Make this opt-in (default False)
+    # so normal rendering is used unless a developer explicitly enables the override.
+    try:
+        if CONFIG.get("FORCE_RENDER_RECS_FROM_RECDF", False):
+            # Group deterministically: Core then Speculative
+            for level_key, title in [("core", "🛡️ Core Stocks — Lower Relative Risk"), ("speculative", "⚡ Speculative Stocks — High Upside, High Risk")]:
+                level_df = rec_df[rec_df.get("Risk_Level", "").astype(str).str.lower() == level_key].copy()
+                if level_df.empty:
+                    continue
+                st.markdown(f"### {title}")
+                if level_key == "speculative":
+                    st.warning(f"⚠️ {len(level_df)} stocks with a higher risk profile")
+                else:
+                    st.caption(f"✅ {len(level_df)} stocks with high data quality and balanced risk profile")
+
+                # Inject CSS once per section
+                try:
+                    st.markdown(get_card_css(), unsafe_allow_html=True)
+                except Exception:
+                    pass
+
+                # Build cards HTML
+                all_cards_html = ""
+                card_counter = 0
+                for _, r in level_df.iterrows():
+                    card_counter += 1
+                    try:
+                        card_html = _safe_str(build_clean_card(r, speculative=(level_key=="speculative")), "")
+                    except Exception:
+                        esc = html_escape.escape
+                        ticker = esc(str(r.get('Ticker','UNKNOWN')))
+                        card_html = f"<div class='clean-card {'speculative' if level_key=='speculative' else 'core'}'><div class='card-header'><div class='ticker-line'><span class='ticker-badge'>{ticker}</span></div></div></div>"
+                    all_cards_html += card_html
+
+                # Dump HTML for offline inspection
+                try:
+                    pth = f"/tmp/{level_key}_cards.html"
+                    with open(pth, 'w', encoding='utf-8') as _f:
+                        _f.write(all_cards_html)
+                except Exception:
+                    pass
+
+                # Render via components for iframe isolation
+                try:
+                    import streamlit.components.v1 as components
+                    iframe_height = max(400, 220 * card_counter)
+                    components.html(all_cards_html, height=iframe_height)
+                except Exception:
+                    st.markdown(all_cards_html, unsafe_allow_html=True)
+
+            # Stop further rendering to avoid duplicates
+            st.success(f"✅ Rendered {len(rec_df)} recommendation cards (grouped by Risk_Level)")
+            st.stop()
+    except Exception:
+        # If anything fails, continue to the original rendering logic below
+        pass
     # Optional: show suggested allocation summary if present
     try:
         if 'buy_amount_v2' in rec_df.columns:
@@ -5433,12 +5667,12 @@ else:
         # Inject CSS once for all Core cards
         st.markdown(get_card_css(), unsafe_allow_html=True)
 
-        # DEBUG: Always show what we're about to render (temporary for debugging)
-        st.info(f"🔍 DEBUG Core: About to render {len(core_df)} Core cards. Tickers: {list(core_df['Ticker'])}")
 
-        # DEBUG: Verify Core cards will render
-        if CONFIG.get("DEBUG_RECOMMENDATION_ROWS", False):
-            st.write(f"DEBUG: Rendering {len(core_df)} Core cards:", list(core_df["Ticker"]))
+        # DEBUG output only if DEBUG_MODE
+        if CONFIG.get("DEBUG_MODE", False):
+            st.info(f"🔍 DEBUG Core: About to render {len(core_df)} Core cards. Tickers: {list(core_df['Ticker'])}")
+            if CONFIG.get("DEBUG_RECOMMENDATION_ROWS", False):
+                st.write(f"DEBUG: Rendering {len(core_df)} Core cards:", list(core_df["Ticker"]))
 
         # PERF: Time card building
         import time
@@ -5743,16 +5977,38 @@ else:
         # Render all Core cards at once (much faster than individual st.markdown calls)
         if all_cards_html:
             html_size_kb = len(all_cards_html) / 1024
-            st.caption(f"📏 HTML size: {html_size_kb:.1f} KB for {card_counter} cards")
-            
+
+            if CONFIG.get("DEBUG_MODE", False):
+                st.caption(f"📏 HTML size: {html_size_kb:.1f} KB for {card_counter} cards")
+                st.caption(f"DEBUG: all_cards_html len={len(all_cards_html)}")
+                try:
+                    st.code(all_cards_html[:800], language="html")
+                except Exception:
+                    st.write("DEBUG: (could not show HTML preview)")
+                try:
+                    with open('/tmp/core_cards.html', 'w', encoding='utf-8') as _f:
+                        _f.write(all_cards_html)
+                except Exception:
+                    pass
+
             t_render_start = time.time()
-            st.markdown(all_cards_html, unsafe_allow_html=True)
+            try:
+                # Use components.html to render raw HTML inside an iframe (more robust)
+                import streamlit.components.v1 as components
+
+                iframe_height = max(400, 220 * card_counter)
+                components.html(all_cards_html, height=iframe_height)
+            except Exception:
+                st.markdown(all_cards_html, unsafe_allow_html=True)
             t_render = time.time() - t_render_start
+            # Compute average per-card build time (safe fallback if list empty)
+            avg_card_time = sum(card_build_times) / len(card_build_times) if card_build_times else 0
             st.success(f"✅ Successfully rendered {card_counter} Core cards | Build: {t_build:.2f}s (avg {avg_card_time*1000:.1f}ms/card) | Render: {t_render:.2f}s")
             
         # PERF: Total section time
         t_section_total = time.time() - t_section_start
-        st.caption(f"⏱️ Core section total time: {t_section_total:.2f}s")
+        if CONFIG.get("DEBUG_MODE", False):
+            st.caption(f"⏱️ Core section total time: {t_section_total:.2f}s")
 
     # Display Speculative recommendations
     if not spec_df.empty:
@@ -5787,11 +6043,11 @@ else:
         st.markdown(get_card_css(), unsafe_allow_html=True)
 
         # DEBUG: Always show what we're about to render (temporary for debugging)
-        st.info(f"🔍 DEBUG Spec: About to render {len(spec_df)} Speculative cards. Tickers: {list(spec_df['Ticker'])}")
 
-        # DEBUG: Verify Speculative cards will render
-        if CONFIG.get("DEBUG_RECOMMENDATION_ROWS", False):
-            st.write(f"DEBUG: Rendering {len(spec_df)} Speculative cards:", list(spec_df["Ticker"]))
+        if CONFIG.get("DEBUG_MODE", False):
+            st.info(f"🔍 DEBUG Spec: About to render {len(spec_df)} Speculative cards. Tickers: {list(spec_df['Ticker'])}")
+            if CONFIG.get("DEBUG_RECOMMENDATION_ROWS", False):
+                st.write(f"DEBUG: Rendering {len(spec_df)} Speculative cards:", list(spec_df["Ticker"]))
 
         # PERF: Time card building
         import time
@@ -6092,38 +6348,58 @@ else:
         # Render all Speculative cards at once (much faster than individual st.markdown calls)
         if all_cards_html:
             html_size_kb = len(all_cards_html) / 1024
-            st.caption(f"📏 HTML size: {html_size_kb:.1f} KB for {card_counter} cards")
-            
+
+            if CONFIG.get("DEBUG_MODE", False):
+                st.caption(f"📏 HTML size: {html_size_kb:.1f} KB for {card_counter} cards")
+                st.caption(f"DEBUG: all_cards_html len={len(all_cards_html)}")
+                try:
+                    st.code(all_cards_html[:800], language="html")
+                except Exception:
+                    st.write("DEBUG: (could not show HTML preview)")
+                try:
+                    with open('/tmp/spec_cards.html', 'w', encoding='utf-8') as _f:
+                        _f.write(all_cards_html)
+                except Exception:
+                    pass
+
             t_render_start = time.time()
-            st.markdown(all_cards_html, unsafe_allow_html=True)
+            try:
+                import streamlit.components.v1 as components
+
+                iframe_height = max(400, 220 * card_counter)
+                components.html(all_cards_html, height=iframe_height)
+            except Exception:
+                st.markdown(all_cards_html, unsafe_allow_html=True)
             t_render = time.time() - t_render_start
             st.success(f"✅ Successfully rendered {card_counter} Speculative cards | Build: {t_build:.2f}s (avg {avg_card_time*1000:.1f}ms/card) | Render: {t_render:.2f}s")
             
         # PERF: Total section time
         t_section_total = time.time() - t_section_start
-        st.caption(f"⏱️ Speculative section total time: {t_section_total:.2f}s")
+        if CONFIG.get("DEBUG_MODE", False):
+            st.caption(f"⏱️ Speculative section total time: {t_section_total:.2f}s")
+
 
 # Inject compact mode JS to hide advanced/fundamental sections
 if st.session_state.get("compact_mode"):
-    st.markdown(
-        """
+        st.markdown(
+                """
 <script>
 for(const el of document.querySelectorAll('.card')){el.classList.add('compact-mode');}
 for(const el of document.querySelectorAll('.compact-mode .section-divider')){
-  if(el.textContent.includes('🔬')||el.textContent.includes('💎')){
-    let next=el.nextElementSibling;
-    while(next && !next.classList.contains('section-divider')){
-      let toHide=next;
-      next=next.nextElementSibling;
-      toHide.style.display='none';
+    if(el.textContent.includes('🔬')||el.textContent.includes('💎')){
+        let next=el.nextElementSibling;
+        while(next && !next.classList.contains('section-divider')){
+            let toHide=next;
+            next=next.nextElementSibling;
+            toHide.style.display='none';
+        }
+        el.style.display='none';
     }
-    el.style.display='none';
-  }
 }
 </script>
 """,
-        unsafe_allow_html=True,
-    )
+                unsafe_allow_html=True,
+        )
 
 # Final stage advancement
 _advance_stage("Recommendations")
