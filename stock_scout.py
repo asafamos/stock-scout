@@ -41,150 +41,6 @@ import html as html_escape
 from card_styles import get_card_css
 from core.portfolio import _normalize_weights, allocate_budget
 from core.config import get_config
-# Module logger
-logger = logging.getLogger(__name__)
-# Initialize CONFIG with a safe fallback to avoid NameError when running in partial/dev environments
-try:
-    CONFIG = get_config()
-except Exception:
-    CONFIG = {}
-    try:
-        st.warning("CONFIG not found; using empty config fallback.")
-    except Exception:
-        pass
-# Ensure CONFIG supports dict-like `.get()` used throughout the app.
-try:
-    if not hasattr(CONFIG, "get"):
-        def _config_get(key, default=None):
-            # Prefer attributes on the Config dataclass (case-insensitive)
-            try:
-                if hasattr(CONFIG, "to_dict"):
-                    d = CONFIG.to_dict()
-                    # try lowercased key match
-                    lk = str(key).lower()
-                    if lk in d:
-                        return d[lk]
-            except Exception:
-                pass
-            # Fall back to environment / streamlit secrets
-            try:
-                v = os.getenv(key)
-                if v is None:
-                    # check for normalized uppercase key
-                    v = os.getenv(str(key).upper())
-                if v is None:
-                    return default
-                vl = str(v).lower()
-                if vl in ("true", "1", "yes"):
-                    return True
-                if vl in ("false", "0", "no"):
-                    return False
-                try:
-                    return int(v)
-                except Exception:
-                    return v
-            except Exception:
-                return default
-
-        # Attach method to CONFIG object for backwards compatibility
-        try:
-            setattr(CONFIG, "get", _config_get)
-        except Exception:
-            # If CONFIG is a plain dict, leave as-is
-            pass
-except Exception:
-    pass
-    
-# Provide dict-like access (`CONFIG[...]`) used across older code paths by creating
-# a lightweight proxy when CONFIG is not already a dict.
-try:
-    if not isinstance(CONFIG, dict):
-        class _ConfigProxy:
-            def __init__(self, cfg):
-                self._cfg = cfg
-
-            def get(self, key, default=None):
-                # First try attribute on the dataclass (case-insensitive)
-                try:
-                    lk = str(key).lower()
-                    if hasattr(self._cfg, lk):
-                        return getattr(self._cfg, lk)
-                except Exception:
-                    pass
-                # Then try existing get (if attached), then dataclass to_dict
-                try:
-                    if hasattr(self._cfg, "get") and callable(getattr(self._cfg, "get")):
-                        return self._cfg.get(key, default)
-                except Exception:
-                    pass
-                try:
-                    if hasattr(self._cfg, "to_dict"):
-                        d = self._cfg.to_dict()
-                        lk = str(key).lower()
-                        if lk in d:
-                            return d[lk]
-                except Exception:
-                    pass
-                # Fall back to environment
-                v = os.getenv(key)
-                if v is None:
-                    v = os.getenv(str(key).upper())
-                if v is None:
-                    return default
-                vl = str(v).lower()
-                if vl in ("true", "1", "yes"):
-                    return True
-                if vl in ("false", "0", "no"):
-                    return False
-                try:
-                    return int(v)
-                except Exception:
-                    return v
-
-            def __getitem__(self, key):
-                val = self.get(key)
-                if val is None:
-                    raise KeyError(key)
-                return val
-
-            def __getattr__(self, name):
-                return getattr(self._cfg, name)
-
-        CONFIG = _ConfigProxy(CONFIG)
-except Exception:
-    pass
-# Ensure ML model is loaded early (harmless if missing)
-try:
-    import core.ml_integration as ml_integration
-
-    # If CONFIG specifies a model path, prefer it (keeps behavior consistent)
-    model_path = None
-    try:
-        if isinstance(CONFIG, dict) and CONFIG.get("model_path"):
-            model_path = CONFIG.get("model_path")
-    except Exception:
-        model_path = None
-
-    try:
-        ml_ok = ml_integration.load_ml_model(model_path)
-        if ml_ok:
-            logging.getLogger(__name__).info(f"✓ ML model loaded from {model_path or ml_integration._MODEL_PATH}")
-            # Write an explicit trace file so the running Streamlit process shows model load
-            try:
-                with open('/tmp/ml_model_loaded.txt', 'a') as _mf:
-                    _mf.write(f"{datetime.utcnow().isoformat()} - ML loaded: {model_path or getattr(ml_integration, '_MODEL_PATH', 'unknown')}\n")
-            except Exception:
-                pass
-        else:
-            logging.getLogger(__name__).info("ML model not loaded at startup (will fallback gracefully)")
-    except Exception as _e:
-        logging.getLogger(__name__).warning(f"ML load attempt failed: {_e}")
-except Exception:
-    # Best-effort: if core.ml_integration import fails, continue without raising
-    try:
-        logging.getLogger(__name__).warning("core.ml_integration unavailable; ML disabled")
-    except Exception:
-        pass
 from advanced_filters import (
     compute_advanced_score,
     should_reject_ticker,
@@ -235,32 +91,6 @@ def _is_finite(v) -> bool:
     except Exception:
         return False
 
-
-# Minimal fundamentals schema & helpers (ensures functions referencing these
-# values during import don't fail). These mirror expected keys used across
-# the app and provide sensible defaults when full fundamentals code runs.
-FUND_SCHEMA_FIELDS = [
-    "oper_margin",
-    "roe",
-    "roic",
-    "gm",
-    "ps",
-    "pe",
-    "de",
-    "rev_g_yoy",
-    "eps_g_yoy",
-]
-FUND_STRING_FIELDS = ["sector"]
-
-
-def _empty_fund_row() -> dict:
-    """Return an empty fundamentals dict with default NaN/string placeholders."""
-    out = {f: np.nan for f in FUND_SCHEMA_FIELDS}
-    for s in FUND_STRING_FIELDS:
-        out[s] = ""
-    out.update({"_sources": {}, "_sources_used": []})
-    return out
-
 # --- Robust .env loading (earlier + multi-path) ---------------------------------
 def _force_load_env() -> None:
     """Attempt to load .env from common locations before any key access.
@@ -278,56 +108,6 @@ def _force_load_env() -> None:
 
 
 _force_load_env()
-
-
-# Environment accessor used throughout the app. Provide a safe fallback that
-# reads from `st.secrets` then `os.environ` and returns `default` when not set.
-def _env(key: str, default: Optional[str] = None) -> Optional[str]:
-    try:
-        # Prefer Streamlit secrets when available (deployed env)
-        if hasattr(st, "secrets") and key in getattr(st, "secrets"):
-            val = st.secrets.get(key)
-            return val if val is not None else default
-    except Exception:
-        # ignore and fallback to env
-        pass
-
-    try:
-        return os.environ.get(key, default)
-    except Exception:
-        return default
-
-
-# Minimal HTTP GET with retries used across data-provider checks.
-def http_get_retry(url: str, tries: int = 2, timeout: float = 8.0, params: Optional[dict] = None, headers: Optional[dict] = None, backoff: float = 1.0):
-    """Perform a GET with simple retry/backoff. Returns `requests.Response` on success or `None` on failure.
-
-    Callers expect a falsy value when the request timed out or failed.
-    """
-    try:
-        sess = requests.Session()
-    except Exception:
-        sess = None
-
-    for attempt in range(1, max(1, int(tries)) + 1):
-        try:
-            if sess is not None:
-                r = sess.get(url, params=params, headers=headers, timeout=timeout)
-            else:
-                r = requests.get(url, params=params, headers=headers, timeout=timeout)
-            if r is not None and getattr(r, "status_code", None) == 200:
-                return r
-        except Exception:
-            # swallow and retry after backoff
-            pass
-
-        # simple backoff between tries
-        try:
-            time.sleep(backoff * attempt)
-        except Exception:
-            pass
-
-    return None
 
 
 def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
@@ -537,21 +317,131 @@ try:
     from openai import OpenAI
 
     OPENAI_AVAILABLE = True
-    
-    # Ensure MODEL_DATA is defined even if model files/variables are missing
-    MODEL_DATA = None
+except ImportError:
+    OPENAI_AVAILABLE = False
+    OpenAI = None
 
-    # Determine candidate model path only if variables exist and point to files
-    _model_path = None
+# Get global configuration
+_config_obj = get_config()
+CONFIG = {
+    # Convert dataclass to dict with all attributes
+    **{
+        k: getattr(_config_obj, k)
+        for k in dir(_config_obj)
+        if not k.startswith("_") and not callable(getattr(_config_obj, k))
+    },
+    # Additional backwards-compatible keys
+    "SMART_SCAN": _config_obj.smart_scan,
+    "UNIVERSE_LIMIT": _config_obj.universe_limit,
+    "LOOKBACK_DAYS": _config_obj.lookback_days,
+    "MA_SHORT": _config_obj.ma_short,
+    "MA_LONG": _config_obj.ma_long,
+    "RSI_BOUNDS": _config_obj.rsi_bounds,
+    "WEIGHTS": _config_obj.weights,
+    # Indicator toggles and thresholds
+    "USE_MACD_ADX": _config_obj.use_macd_adx,
+    "OVEREXT_SOFT": _config_obj.overext_soft,
+    "OVEREXT_HARD": _config_obj.overext_hard,
+    "PULLBACK_RANGE": _config_obj.pullback_range,
+    "ATR_PRICE_HARD": _config_obj.atr_price_hard,
+    # Basic price/volume constraints
+    "MIN_PRICE": _config_obj.min_price,
+    "MIN_AVG_VOLUME": _config_obj.min_avg_volume,
+    "MIN_DOLLAR_VOLUME": _config_obj.min_dollar_volume,
+    "MIN_MARKET_CAP": _config_obj.min_market_cap,
+    "FUNDAMENTAL_ENABLED": _config_obj.fundamental_enabled,
+    "FUNDAMENTAL_WEIGHT": _config_obj.fundamental_weight,
+    # Earnings / risk filters
+    "EARNINGS_BLACKOUT_DAYS": _config_obj.earnings_blackout_days,
+    "EARNINGS_CHECK_TOPK": _config_obj.earnings_check_topk,
+    "BETA_FILTER_ENABLED": _config_obj.beta_filter_enabled,
+    "BETA_TOP_K": _config_obj.beta_top_k,
+    "BETA_MAX_ALLOWED": _config_obj.beta_max_allowed,
+    "SECTOR_CAP_MAX": _config_obj.sector_cap_max,
+    "SECTOR_CAP_ENABLED": _config_obj.sector_cap_enabled,
+    # Results sizing
+    "TOPN_RESULTS": _config_obj.topn_results,
+    "TOPK_RECOMMEND": _config_obj.topk_recommend,
+    # Allocation / budget
+    "BUDGET_TOTAL": _config_obj.budget_total,
+    "MIN_POSITION": _config_obj.min_position,
+    "MAX_POSITION_PCT": _config_obj.max_position_pct,
+    "EXTERNAL_PRICE_VERIFY": _config_obj.external_price_verify,
+    "TOP_VALIDATE_K": _config_obj.top_validate_k,
+    "BETA_BENCHMARK": _config_obj.beta_benchmark,
+    # Disabled providers (legacy/deprecated/paid):
+    "ENABLE_SIMFIN": False,  # SimFin API v2 deprecated, v3 requires paid subscription
+    "ENABLE_MARKETSTACK": False,  # Monthly usage limit reached (free tier exhausted)
+    "ENABLE_NASDAQ_DL": False,  # API access blocked (403 Forbidden)
+    "ENABLE_EODHD": False,  # Requires paid subscription (402 Payment Required)
+    # --- Performance / Fast Mode Flags ---
+    "PERF_FAST_MODE": False,  # Set True to reduce external waits for interactive exploration
+    "PERF_MULTI_SOURCE_TOP_N": 8,  # In fast mode: only compute multi-source reliability for top N by score
+    "PERF_ALPHA_ENABLED": True,  # In fast mode we force this False to skip Alpha Vantage entirely
+    "PERF_FUND_TIMEOUT": 15,  # Normal per-provider future timeout
+    "PERF_FUND_TIMEOUT_FAST": 6,  # Fast mode per-provider future timeout
+    # --- Debug / Developer Flags ---
+    "DEBUG_MODE": os.getenv("STOCK_SCOUT_DEBUG", "false").lower() in ("true", "1", "yes"),
+}
+
+# -----------------------------------------------------------------
+# Canonical fundamentals schema (numeric + string fields)
+# These fields are used across all provider normalization helpers and
+# the fusion layer. New providers should map into these names only.
+# -----------------------------------------------------------------
+FUND_SCHEMA_FIELDS = [
+    "oper_margin",  # Operating margin
+    "roe",          # Return on Equity
+    "roic",         # Return on Invested Capital
+    "gm",           # Gross Margin
+    "ps",           # Price to Sales
+    "pe",           # Price to Earnings
+    "de",           # Debt to Equity
+    "rev_g_yoy",    # Revenue growth YoY
+    "eps_g_yoy",    # EPS growth YoY
+]
+FUND_STRING_FIELDS = ["sector", "industry"]
+
+# Utility: create empty fundamentals dict for a ticker (all NaN / Unknown)
+def _empty_fund_row() -> dict:
+    out = {f: np.nan for f in FUND_SCHEMA_FIELDS}
+    out["sector"] = "Unknown"
+    out["industry"] = "Unknown"
+    out["_sources"] = {}
+    out["_sources_used"] = []
+    out["Fund_Coverage_Pct"] = 0.0
+    out["fundamentals_available"] = False
+    return out
+
+# Provider usage tracker promoted to module level (was nested in legacy fundamentals function)
+def mark_provider_usage(provider: str, category: str):
+    """Record usage of a provider for a given category (price/fundamentals/ml). Safe no-throw."""
     try:
-        _cand_cal_var = globals().get('_cand_cal')
-        _cand_fb_var = globals().get('_cand_fb')
-        if _cand_cal_var is not None and getattr(_cand_cal_var, 'exists', None) and _cand_cal_var.exists():
-            _model_path = _cand_cal_var
-        elif _cand_fb_var is not None and getattr(_cand_fb_var, 'exists', None) and _cand_fb_var.exists():
-            _model_path = _cand_fb_var
+        usage = st.session_state.setdefault("provider_usage", {})
+        cats = usage.setdefault(provider, set())
+        cats.add(category)
+        usage[provider] = cats
     except Exception:
-        _model_path = None
+        pass
+
+
+# Load environment variables
+warnings.simplefilter("ignore", FutureWarning)
+
+# Setup logger
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Original load (kept for backwards compatibility); `_force_load_env` above already tried explicit paths.
+load_dotenv(find_dotenv(usecwd=True))
+MODEL_DATA = None
+try:
+    _base = Path(__file__).parent
+    _cand_cal = _base / "model_xgboost_5d_calibrated.pkl"
+    _cand_fb = _base / "model_xgboost_5d.pkl"
+    _model_path = (
+        _cand_cal if _cand_cal.exists() else (_cand_fb if _cand_fb.exists() else None)
+    )
     if _model_path is not None:
         with open(_model_path, "rb") as _f:
             MODEL_DATA = pickle.load(_f)
@@ -562,53 +452,9 @@ try:
             except Exception:
                 pass
     else:
-        # Fallback: try repo-root `model_xgboost_5d.pkl` for convenience (dev/test environments)
-        try:
-            repo_root = Path(__file__).resolve().parent
-            fallback = repo_root / "model_xgboost_5d.pkl"
-            if fallback.exists():
-                with open(fallback, "rb") as _f:
-                    MODEL_DATA = pickle.load(_f)
-                try:
-                    logging.getLogger(__name__).info(f"✓ ML model loaded from {fallback.name}")
-                except Exception:
-                    pass
-                # Write explicit trace for repo-root fallback load
-                try:
-                    with open('/tmp/ml_model_loaded.txt', 'a') as _mf:
-                        _mf.write(f"{datetime.utcnow().isoformat()} - ML loaded: {fallback}\n")
-                except Exception:
-                    pass
-                try:
-                    st.info(f"✓ Loaded ML model: {fallback.name} (features: {len(MODEL_DATA.get('feature_names', []))})")
-                except Exception:
-                    pass
-            else:
-                st.info("ML model not found; ML scoring will be neutral.")
-        except Exception as _e:
-            st.info("ML model not found; ML scoring will be neutral.")
+        st.info("ML model not found; ML scoring will be neutral.")
 except Exception as _e:
     st.warning(f"Could not load ML model: {_e}")
-
-# Ensure repo-root fallback model is attempted even when OpenAI import fails
-try:
-    if 'MODEL_DATA' not in globals() or MODEL_DATA is None:
-        repo_root = Path(__file__).resolve().parent
-        fallback = repo_root / "model_xgboost_5d.pkl"
-        if fallback.exists():
-            try:
-                with open(fallback, 'rb') as _f:
-                    MODEL_DATA = pickle.load(_f)
-                logging.getLogger(__name__).info(f"✓ ML model loaded from repo-root fallback: {fallback.name}")
-                try:
-                    with open('/tmp/ml_model_loaded.txt', 'a') as _mf:
-                        _mf.write(f"{datetime.utcnow().isoformat()} - ML loaded (fallback): {fallback}\n")
-                except Exception:
-                    pass
-            except Exception as _e:
-                logging.getLogger(__name__).warning(f"Repo-root fallback model load failed: {_e}")
-except Exception:
-    pass
 
 # Backwards-compatible ML objects and helpers for existing scoring flow
 XGBOOST_MODEL = None
@@ -651,6 +497,136 @@ def score_with_xgboost(row: pd.Series) -> float:
             return float(XGBOOST_MODEL.predict_proba(X)[0][1])
     except Exception:
         return 0.5
+
+
+def assign_confidence_tier(prob: float) -> str:
+    """
+    Assign ML confidence tier based on probability.
+
+    Recalibrated thresholds for realistic diversity:
+    - High: ≥0.75 (strong prediction)
+    - Medium: 0.60-0.74 (moderate confidence)
+    - Low: <0.60 (weak prediction)
+    """
+    if not isinstance(prob, (int, float)) or not np.isfinite(prob):
+        return "N/A"
+    if prob >= 0.75:
+        return "High"
+    if prob >= 0.60:
+        return "Medium"
+    return "Low"
+
+
+# ==================== Environment helper ====================
+def _env(key: str) -> Optional[str]:
+    """Get environment variable or Streamlit secret (supports nested sections)."""
+    # Try Streamlit secrets first (Cloud deployment)
+    try:
+        if hasattr(st, "secrets"):
+            # Try direct access (top-level key)
+            try:
+                val = st.secrets[key]
+                if val:  # Ensure it's not empty
+                    return str(val)
+            except (KeyError, FileNotFoundError):
+                pass
+
+            # Try nested sections (api_keys, keys, secrets, tokens)
+            for section in ("api_keys", "keys", "secrets", "tokens"):
+                try:
+                    val = st.secrets[section][key]
+                    if val:
+                        return str(val)
+                except (KeyError, FileNotFoundError, AttributeError):
+                    continue
+    except Exception as e:
+        # Log for debugging in cloud
+        if hasattr(st, "warning"):
+            st.warning(f"⚠️ Secret access error for {key}: {e}")
+
+    # Fallback to environment variable (local .env)
+    return os.getenv(key)
+
+
+# ==================== HTTP helpers ====================
+_log = logging.getLogger(__name__)
+
+
+def http_get_retry(
+    url: str,
+    tries: int = 4,
+    timeout: float = 8.0,
+    headers: Optional[dict] = None,
+    session: Optional[requests.Session] = None,
+    backoff_base: float = 0.5,
+    max_backoff: float = 10.0,
+) -> Optional[requests.Response]:
+    """HTTP GET with exponential backoff + full jitter."""
+    import random
+
+    sess = session or requests
+    for attempt in range(1, max(1, tries) + 1):
+        try:
+            resp = sess.get(url, timeout=timeout, headers=headers)
+            if resp is not None and resp.status_code == 200:
+                return resp
+            if resp is not None and (
+                resp.status_code == 429 or (500 <= resp.status_code < 600)
+            ):
+                _log.debug(
+                    f"HTTP {resp.status_code} -> retry attempt {attempt}/{tries}"
+                )
+            else:
+                return resp
+        except requests.RequestException as exc:
+            _log.debug(f"Request exception on attempt {attempt}/{tries}: {exc}")
+        if attempt < tries:
+            backoff = min(max_backoff, backoff_base * (2 ** (attempt - 1)))
+            sleep_time = random.uniform(0, backoff)
+            time.sleep(sleep_time)
+    _log.warning(f"All {tries} attempts failed for URL")
+    return None
+
+
+def alpha_throttle(min_gap_seconds: float = 12.0) -> None:
+    """Throttle Alpha Vantage calls to respect 5 calls/minute (25 calls/day on free tier).
+
+    Args:
+        min_gap_seconds: Minimum seconds between calls (default 12s = 5 calls/min)
+    """
+    ts_key = "_alpha_last_call_ts"
+    calls_key = "av_calls"
+
+    # Track number of calls in session
+    call_count = st.session_state.get(calls_key, 0)
+
+    # Reset counter daily (conservative approach)
+    last_reset_key = "_alpha_reset_date"
+    today = datetime.utcnow().date().isoformat()
+    if st.session_state.get(last_reset_key) != today:
+        st.session_state[calls_key] = 0
+        st.session_state[last_reset_key] = today
+        call_count = 0
+
+    # Check daily limit (25 on free tier, be conservative with 20)
+    if call_count >= 20:
+        logger.warning(
+            f"Alpha Vantage daily limit reached ({call_count} calls), skipping"
+        )
+        return
+
+    # Enforce rate limit
+    last = st.session_state.get(ts_key, 0.0)
+    now = time.time()
+    elapsed = now - last
+    if elapsed < min_gap_seconds:
+        sleep_time = min_gap_seconds - elapsed
+        logger.debug(f"Alpha Vantage throttle: sleeping {sleep_time:.1f}s")
+        time.sleep(sleep_time)
+
+    # Update state
+    st.session_state[ts_key] = time.time()
+    st.session_state[calls_key] = call_count + 1
 
 
 # --- Build Universe (restored) ---
@@ -999,7 +975,7 @@ def calculate_rr(
         return 0.0
 
 
-@st.cache_data(ttl=60 * 60 * 12, show_spinner=False)  # 12h cache for fundamentals (balance freshness vs performance)
+@st.cache_data(ttl=60 * 60 * 24)  # 24h cache for fundamentals
 def fetch_fundamentals_bundle(ticker: str, enable_alpha_smart: bool = False) -> dict:
     """Fetch fundamentals from multiple providers and merge into a single dict (parallel).
 
@@ -1101,22 +1077,6 @@ def fetch_fundamentals_bundle(ticker: str, enable_alpha_smart: bool = False) -> 
         # Mark fundamentals usage for provider (UI status table later)
         mark_provider_usage(source_name, "fundamentals")
 
-    # Batch wrapper for multiple tickers (cached at batch level for efficiency)
-    @st.cache_data(ttl=60 * 60 * 12, show_spinner=False)
-    def _fetch_fundamentals_batch(tickers_tuple: tuple, enable_alpha: bool) -> dict:
-        """Fetch fundamentals for multiple tickers in parallel. Cached by ticker tuple."""
-        results_map = {}
-        with ThreadPoolExecutor(max_workers=5) as executor:
-            futures = {executor.submit(fetch_fundamentals_bundle, tkr, enable_alpha): tkr for tkr in tickers_tuple}
-            for future in as_completed(futures):
-                tkr = futures[future]
-                try:
-                    results_map[tkr] = future.result(timeout=20)
-                except Exception as e:
-                    logger.warning(f"Batch fundamental fetch failed for {tkr}: {e}")
-                    results_map[tkr] = _empty_fund_row()
-        return results_map
-    
     # Helper: sequential FMP fetch with internal delay + global minimal spacing
     def _fmp_sequential_wrap(t: str, key: str) -> dict:
         try:
@@ -1865,56 +1825,21 @@ def merge_fundamentals(provider_map: dict) -> dict:
 def _fetch_single_fused(ticker: str, alpha_enabled: bool) -> dict:
     """Fetch fundamentals from all configured providers for a single ticker and merge.
     Fully defensive: never raises.
-    
-    Performance optimization: Skip lower-priority providers if we already have good coverage
-    from higher-priority sources (configurable via FUNDAMENTALS_SKIP_REDUNDANT flag).
     """
     try:
         prov = {}
-        skip_redundant = CONFIG.get("FUNDAMENTALS_SKIP_REDUNDANT", True)
-        
-        # Helper to check if we have sufficient coverage to skip remaining providers
-        def _has_sufficient_coverage():
-            if not skip_redundant:
-                return False
-            current_merged = merge_fundamentals(prov)
-            coverage = current_merged.get("Fund_Coverage_Pct", 0.0)
-            return coverage >= 0.75  # 75% coverage threshold to skip remaining providers
-        
-        # SimFin (highest priority)
+        # SimFin
         if CONFIG.get("ENABLE_SIMFIN") and _env("SIMFIN_API_KEY"):
             try:
                 prov["simfin"] = _simfin_fetch(ticker, _env("SIMFIN_API_KEY")) or {}
             except Exception:
                 prov["simfin"] = {}
-        
-        if _has_sufficient_coverage():
-            merged = merge_fundamentals(prov)
-            for src_label in merged.get("_sources_used", []):
-                try:
-                    mark_provider_usage(src_label, "fundamentals")
-                except Exception:
-                    pass
-            merged["Ticker"] = ticker
-            return merged
-        
         # Tiingo
         if CONFIG.get("ENABLE_TIINGO", True):
             try:
                 prov["tiingo"] = _tiingo_fundamentals_fetch(ticker) or {}
             except Exception:
                 prov["tiingo"] = {}
-        
-        if _has_sufficient_coverage():
-            merged = merge_fundamentals(prov)
-            for src_label in merged.get("_sources_used", []):
-                try:
-                    mark_provider_usage(src_label, "fundamentals")
-                except Exception:
-                    pass
-            merged["Ticker"] = ticker
-            return merged
-        
         # FMP (full + legacy sequential throttling)
         fmp_key = _env("FMP_API_KEY")
         if fmp_key:
@@ -1935,45 +1860,30 @@ def _fetch_single_fused(ticker: str, alpha_enabled: bool) -> dict:
             except Exception as e:
                 logger.warning(f"FMP fundamentals failed for {ticker}: {e}")
                 prov["fmp"] = {}
-        
-        if _has_sufficient_coverage():
-            merged = merge_fundamentals(prov)
-            for src_label in merged.get("_sources_used", []):
-                try:
-                    mark_provider_usage(src_label, "fundamentals")
-                except Exception:
-                    pass
-            merged["Ticker"] = ticker
-            return merged
-        
-        # Alpha Vantage (smart, rate-limited - only if explicitly enabled)
+        # Alpha Vantage (smart)
         if alpha_enabled:
             try:
                 prov["alpha"] = _alpha_overview_fetch(ticker) or {}
             except Exception:
                 prov["alpha"] = {}
-        
-        # Finnhub (supplemental)
+        # Finnhub
         try:
             prov["finnhub"] = _finnhub_metrics_fetch(ticker) or {}
         except Exception:
             prov["finnhub"] = {}
-        
-        # EODHD (only if not skipping redundant and key available)
+        # EODHD
         ek = _env("EODHD_API_KEY")
-        if ek and not _has_sufficient_coverage():
+        if ek:
             try:
                 prov["eodhd"] = _eodhd_fetch_fundamentals(ticker, ek) or {}
             except Exception:
                 prov["eodhd"] = {}
-        
         # Marketstack (stub until implemented)
         if CONFIG.get("ENABLE_MARKETSTACK") and _env("MARKETSTACK_API_KEY"):
             prov["marketstack"] = {}
         # Nasdaq (stub; used primarily for sector/industry fallback)
         if CONFIG.get("ENABLE_NASDAQ_DL") and (_env("NASDAQ_API_KEY") or _env("NASDAQ_DL_API_KEY")):
             prov["nasdaq"] = {}
-        
         merged = merge_fundamentals(prov)
         # Mark provider usage
         for src_label in merged.get("_sources_used", []):
@@ -1989,33 +1899,25 @@ def _fetch_single_fused(ticker: str, alpha_enabled: bool) -> dict:
         m["Ticker"] = ticker
         return m
 
-@st.cache_data(ttl=60 * 60 * 12, show_spinner=False)  # 12h cache for batch fundamentals (improves performance significantly)
 def fetch_fundamentals_batch(tickers: list, alpha_top_n: int = 15) -> pd.DataFrame:
-    """Batch fundamentals enrichment with aggressive caching and parallelization.
+    """Batch fundamentals enrichment.
     Always returns one row per ticker. On total failure returns empty rows with coverage=0.
-    
-    Performance optimizations:
-    - Cached at batch level (12h TTL) to avoid redundant fetches across runs
-    - Parallel per-ticker fetching (up to 10 workers) for speed
-    - Smart alpha_enabled logic to only hit rate-limited providers for top picks
     """
     if not tickers:
         return pd.DataFrame(columns=["Ticker"] + FUND_SCHEMA_FIELDS + FUND_STRING_FIELDS)
     rows = []
-    # Increase parallelism for faster fundamentals fetch (safe with caching + per-ticker isolation)
-    max_workers = min(10, max(1, CONFIG.get("FUND_BATCH_MAX_WORKERS", 10)))
+    # Parallel per-ticker to avoid one slow provider blocking others
+    max_workers = min(8, max(1, CONFIG.get("FUND_BATCH_MAX_WORKERS", 8)))
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
         fut_map = {}
         for rank, tkr in enumerate(tickers, 1):
-            # Only enable Alpha for top N picks to respect rate limits
             alpha_enabled = rank <= alpha_top_n and not CONFIG.get("PERF_FAST_MODE")
             fut_map[ex.submit(_fetch_single_fused, tkr, alpha_enabled)] = tkr
         for fut in as_completed(fut_map):
             try:
-                rows.append(fut.result(timeout=20))  # per-ticker timeout to prevent hangs
-            except Exception as e:
+                rows.append(fut.result())
+            except Exception:
                 tkr = fut_map[fut]
-                logger.debug(f"Fundamental fetch failed for {tkr}: {e}")
                 m = _empty_fund_row()
                 m["Ticker"] = tkr
                 rows.append(m)
@@ -3573,8 +3475,6 @@ if "reliability_v2" not in results.columns or results["reliability_v2"].isna().a
 # 3e) Apply risk classification and data quality evaluation
 t0 = t_start()
 st.info("🔍 Classifying stocks by risk level and data quality...")
-import time as time_module
-t_risk_start = time_module.time()
 
 # Debug: Check what data we have
 logger.info(f"Columns available: {results.columns.tolist()}")
@@ -3597,10 +3497,7 @@ logger.info(
     f"Sample Momentum_Consistency values: {results['Momentum_Consistency'].head().tolist() if 'Momentum_Consistency' in results.columns else 'MISSING'}"
 )
 
-t_classify_start = time_module.time()
 results = apply_classification(results)
-t_classify = time_module.time() - t_classify_start
-st.caption(f"⏱️ apply_classification: {t_classify:.2f}s")
 
 # Fundamentals coverage summary
 if "Fund_Coverage_Pct" in results.columns:
@@ -3798,16 +3695,12 @@ spec_after_filter = len(spec_filtered)
 # ==================== ML SCORING ====================
 if XGBOOST_MODEL is not None:
     logger.info("Applying XGBoost ML scoring...")
-    t_ml_start = time_module.time()
 
     # Score Core stocks
     if not core_filtered.empty:
-        t_ml_core_start = time_module.time()
         core_filtered["ML_Probability"] = core_filtered.apply(
             score_with_xgboost, axis=1
         )
-        t_ml_core = time_module.time() - t_ml_core_start
-        st.caption(f"⏱️ ML scoring Core ({len(core_filtered)} stocks): {t_ml_core:.2f}s")
 
         def _ml_band(p: float) -> str:
             if not np.isfinite(p):
@@ -3827,12 +3720,9 @@ if XGBOOST_MODEL is not None:
 
     # Score Speculative stocks
     if not spec_filtered.empty:
-        t_ml_spec_start = time_module.time()
         spec_filtered["ML_Probability"] = spec_filtered.apply(
             score_with_xgboost, axis=1
         )
-        t_ml_spec = time_module.time() - t_ml_spec_start
-        st.caption(f"⏱️ ML scoring Speculative ({len(spec_filtered)} stocks): {t_ml_spec:.2f}s")
         spec_filtered["ml_conf_band"] = spec_filtered["ML_Probability"].apply(_ml_band)
         spec_filtered["ML_Confidence"] = spec_filtered["ml_conf_band"]
         spec_filtered = spec_filtered.sort_values("ML_Probability", ascending=False)
@@ -3853,7 +3743,6 @@ else:
 # === CALCULATE QUALITY SCORE FOR ALL STOCKS ===
 from core.scoring_engine import calculate_quality_score
 
-t_quality_start = time_module.time()
 
 def _calc_quality(row):
     try:
@@ -3865,23 +3754,17 @@ def _calc_quality(row):
 
 
 if not core_filtered.empty:
-    t_qual_core_start = time_module.time()
     quality_data = core_filtered.apply(_calc_quality, axis=1)
     core_filtered["Quality_Score_Numeric"] = quality_data["Quality_Score_Numeric"]
     core_filtered["Quality_Level"] = quality_data["Quality_Level"]
-    t_qual_core = time_module.time() - t_qual_core_start
-    st.caption(f"⏱️ Quality calc Core ({len(core_filtered)} stocks): {t_qual_core:.2f}s")
     logger.info(
         f"Core quality: {core_filtered['Quality_Level'].value_counts().to_dict()}"
     )
 
 if not spec_filtered.empty:
-    t_qual_spec_start = time_module.time()
     quality_data = spec_filtered.apply(_calc_quality, axis=1)
     spec_filtered["Quality_Score_Numeric"] = quality_data["Quality_Score_Numeric"]
     spec_filtered["Quality_Level"] = quality_data["Quality_Level"]
-    t_qual_spec = time_module.time() - t_qual_spec_start
-    st.caption(f"⏱️ Quality calc Speculative ({len(spec_filtered)} stocks): {t_qual_spec:.2f}s")
     logger.info(
         f"Spec quality: {spec_filtered['Quality_Level'].value_counts().to_dict()}"
     )
@@ -4450,8 +4333,8 @@ k0.metric("Universe size after history filtering", len(data_map))
 k1.metric("Results after filtering", len(results))
 total_budget_value = float(st.session_state.get("total_budget", CONFIG["BUDGET_TOTAL"]))
 budget_used = min(budget_used, total_budget_value)  # safety clamp
-k2.metric("Suggested allocation (≈$)", f"{budget_used:,.0f}")
-k3.caption("ℹ️ Allocation is informational only — allocate manually as you prefer")
+k2.metric("Budget used (≈$)", f"{budget_used:,.0f}")
+k3.metric("Remaining budget (≈$)", f"{max(0.0, total_budget_value - budget_used):,.0f}")
 
 # Timings
 st.subheader("⏱️ Execution Times")
@@ -4712,17 +4595,18 @@ with st.sidebar:
     st.session_state["compact_mode"] = compact_mode
 
 # Apply filters
-# Build recommendation universe based ONLY on classification/risk logic, NOT allocation
-# Allocation (buy_amount_v2, סכום קנייה) is kept as informational display-only field
-rec_df = results.copy()
+# Prefer V2 strict buy amounts for recommendations; fallback to legacy Hebrew buy column
+if "buy_amount_v2" in results.columns:
+    rec_df = results[results["buy_amount_v2"].fillna(0) > 0].copy()
+elif "סכום קנייה ($)" in results.columns:
+    rec_df = results[results["סכום קנייה ($)"].fillna(0) > 0].copy()
+else:
+    # Fallback: empty selection if no buy columns present
+    rec_df = results.copy()
 
-# Explicitly exclude tickers blocked by the strict V2 gate (primary filter)
+# Explicitly exclude tickers blocked by the strict V2 gate
 if "risk_gate_status_v2" in rec_df.columns:
     rec_df = rec_df[rec_df["risk_gate_status_v2"] != "blocked"].copy()
-
-# Only include stocks marked as displayable by classification logic
-if "Should_Display" in rec_df.columns:
-    rec_df = rec_df[rec_df["Should_Display"] == True].copy()
 
 if not rec_df.empty:
     # Apply risk filter
@@ -4747,60 +4631,7 @@ if not rec_df.empty:
     if "RSI" in rec_df.columns:
         rec_df = rec_df[(rec_df["RSI"].isna()) | (rec_df["RSI"] <= rsi_max)]
 
-# Informational only: count recommendations by classification
-total_recs = len(rec_df)
-core_recs = len(rec_df[rec_df["Risk_Level"].str.lower() == "core"]) if "Risk_Level" in rec_df.columns else 0
-spec_recs = len(rec_df[rec_df["Risk_Level"].str.lower() == "speculative"]) if "Risk_Level" in rec_df.columns else 0
-st.info(f"📊 Showing {total_recs} recommended stocks after filters ({core_recs} Core, {spec_recs} Speculative)")
-
-# Also log rec_df summary to stdout/log so it appears in /tmp/streamlit.log for diagnostics
-try:
-    tickers = list(rec_df.get('Ticker', [])[:50]) if not rec_df.empty else []
-    logging.getLogger(__name__).info(f"REC_DF summary: total={total_recs} core={core_recs} spec={spec_recs} tickers={tickers}")
-except Exception:
-    pass
-
-# DEBUG DUMPS: write rec_df and pre-filter `results` to /tmp for offline inspection
-try:
-    _p = '/tmp/rec_df_dump.csv'
-    rec_df.to_csv(_p, index=False)
-    logging.getLogger(__name__).info(f"WROTE debug dump: {_p} rows={len(rec_df)}")
-except Exception:
-    pass
-try:
-    _p2 = '/tmp/results_dump.csv'
-    results.to_csv(_p2, index=False)
-    logging.getLogger(__name__).info(f"WROTE debug dump: {_p2} rows={len(results) if 'results' in globals() and results is not None else 0}")
-except Exception:
-    pass
-
-# Developer helper: write a full HTML card dump for all `rec_df` rows so we can
-# visually verify which candidates should be shown. This uses the existing
-# `get_card_css` + `build_clean_card` helpers defined above.
-try:
-    try:
-        css = get_card_css()
-    except Exception:
-        css = ''
-    cards_html = ["<html><head><meta charset='utf-8'><style>" + css + "</style></head><body>"]
-    for _idx, _row in rec_df.reset_index(drop=True).iterrows():
-        try:
-            card = build_clean_card(_row, speculative=str(_row.get('Risk_Level','')).lower()=='speculative')
-            cards_html.append(card)
-        except Exception:
-            # fallback simple card showing ticker
-            try:
-                t = _row.get('Ticker', 'N/A')
-            except Exception:
-                t = 'N/A'
-            cards_html.append(f"<div class='simple-card'><span class='ticker-badge'>{t}</span></div>")
-    cards_html.append('</body></html>')
-    _html_path = '/tmp/all_rec_full_cards.html'
-    with open(_html_path, 'w', encoding='utf-8') as _hf:
-        _hf.write('\n'.join(cards_html))
-    logging.getLogger(__name__).info(f"WROTE debug HTML cards: {_html_path} rows={len(rec_df)}")
-except Exception:
-    pass
+st.info(f"📊 Showing {len(rec_df)} stocks after filters")
 
 rec_df = rec_df.copy()
 
@@ -4811,10 +4642,10 @@ if "Score" in rec_df.columns and "Ticker" in rec_df.columns:
     if "Overall_Rank" not in rec_df.columns:
         rec_df["Overall_Rank"] = rec_df["Rank"]
 
-# --- Fallback Logic: if no stocks passed risk/classification gates, show top technical candidates ---
+# --- Fallback Logic: if no stocks have positive allocation, show top technical candidates ---
 if rec_df.empty:
     st.warning(
-        "No stocks passed risk/classification filters (all blocked or hidden). Showing top technical candidates (fallback mode)."
+        "No stocks passed allocation filters (all buy amounts zero or blocked). Showing top technical candidates (fallback mode)."
     )
     fallback_n = min(10, len(results))
     rec_df = results.head(fallback_n).copy()
@@ -4831,108 +4662,9 @@ try:
         if "risk_gate_status_v2" in results.columns:
             gate_counts = results["risk_gate_status_v2"].value_counts().to_dict()
             st.caption(f"🔎 Gate distribution: {gate_counts}")
-        if "Should_Display" in results.columns:
-            displayable_count = int((results["Should_Display"] == True).sum())
-            st.caption(f"🔎 Displayable (Should_Display=True): {displayable_count}/{len(results)}")
         if "buy_amount_v2" in results.columns:
             pos_buy = int((results["buy_amount_v2"].fillna(0) > 0).sum())
-            st.caption(f"🔎 Suggested allocations (buy_amount_v2>0): {pos_buy}/{len(results)} (informational only)")
-except Exception:
-    pass
-
-# Quick override for debugging: render all recommended rows as cards (no Core/Spec split)
-try:
-    show_all_cards = st.checkbox(
-        "📣 Show all recommended as cards (ignore Core/Spec split)",
-        value=False,
-        help="Render every row from `rec_df` as a card for debugging display (does not change scoring).",
-    )
-    if show_all_cards and not rec_df.empty:
-        # Inject CSS once
-        st.markdown(get_card_css(), unsafe_allow_html=True)
-        st.info(f"🔍 DEBUG: Rendering all {len(rec_df)} recommended as cards. Tickers: {list(rec_df.get('Ticker', []))}")
-
-        all_cards_html = ""
-        card_counter = 0
-        for _, r in rec_df.iterrows():
-            card_counter += 1
-            speculative_flag = str(r.get("Risk_Level", "")).lower() == "speculative"
-            card_html = _safe_str(build_clean_card(r, speculative=speculative_flag), "")
-            all_cards_html += card_html
-
-        # Dump for offline inspection
-        try:
-            with open('/tmp/all_rec_cards.html', 'w', encoding='utf-8') as _f:
-                _f.write(all_cards_html)
-        except Exception:
-            pass
-
-        # Also provide a quick embed of the full HTML dump if present
-        try:
-            full_path = Path('/tmp/all_rec_full_cards.html')
-            if full_path.exists():
-                if st.checkbox('📌 Embed full debug HTML (`/tmp/all_rec_full_cards.html`) below', value=False):
-                    try:
-                        raw_html = full_path.read_text(encoding='utf-8')
-                        st_html(raw_html, height=800)
-                    except Exception:
-                        st.warning('Could not embed /tmp/all_rec_full_cards.html')
-        except Exception:
-            pass
-
-        try:
-            import streamlit.components.v1 as components
-
-            iframe_height = max(400, 220 * card_counter)
-            components.html(all_cards_html, height=iframe_height)
-        except Exception:
-            st.markdown(all_cards_html, unsafe_allow_html=True)
-
-        st.success(f"✅ Rendered {card_counter} recommended cards (all)")
-        # Stop further rendering to avoid duplicates
-        st.stop()
-except Exception:
-    pass
-
-# Debug: render all rows from `results` (pre-filters) as cards
-try:
-    show_all_results = st.checkbox(
-        "🔎 Show ALL classified candidates (pre-filters)",
-        value=False,
-        help="Render every row from `results` before rec_df filters as a card for debugging.",
-    )
-    if show_all_results and 'results' in globals() and results is not None and not results.empty:
-        st.markdown(get_card_css(), unsafe_allow_html=True)
-        st.info(f"🔍 DEBUG Results: rendering {len(results)} rows as cards. Tickers sample: {list(results.get('Ticker', [])[:10])}")
-        all_cards_html = ""
-        card_counter = 0
-        for _, r in results.iterrows():
-            card_counter += 1
-            speculative_flag = str(r.get("Risk_Level", "")).lower() == "speculative"
-            try:
-                card_html = _safe_str(build_clean_card(r, speculative=speculative_flag), "")
-            except Exception:
-                # Fallback minimal card if build fails
-                esc = html_escape.escape
-                ticker = esc(str(r.get('Ticker','UNKNOWN')))
-                card_html = f"<div class='clean-card {'speculative' if speculative_flag else 'core'}'><div class='card-header'><div class='ticker-line'><span class='ticker-badge'>{ticker}</span></div></div></div>"
-            all_cards_html += card_html
-
-        try:
-            with open('/tmp/all_results_cards.html', 'w', encoding='utf-8') as _f:
-                _f.write(all_cards_html)
-        except Exception:
-            pass
-
-        try:
-            import streamlit.components.v1 as components
-            iframe_height = max(400, 220 * card_counter)
-            components.html(all_cards_html, height=iframe_height)
-        except Exception:
-            st.markdown(all_cards_html, unsafe_allow_html=True)
-
-        st.success(f"✅ Rendered {card_counter} result cards (pre-filters)")
-        st.stop()
+            st.caption(f"🔎 Positive buy_amount_v2: {pos_buy}/{len(results)}")
 except Exception:
     pass
 
@@ -4940,7 +4672,6 @@ except Exception:
 # Build accurate provider usage tracker using session markers and per-row flags
 providers_meta = {
     "Yahoo": {"env": None, "implemented": True, "label": "Yahoo"},
-    "FMP": {"env": "FMP_API_KEY", "implemented": True, "label": "FMP"},
     "Alpha": {"env": "ALPHA_VANTAGE_API_KEY", "implemented": True, "label": "Alpha"},
     "Finnhub": {"env": "FINNHUB_API_KEY", "implemented": True, "label": "Finnhub"},
     "Tiingo": {"env": "TIINGO_API_KEY", "implemented": True, "label": "Tiingo"},
@@ -4977,16 +4708,9 @@ for p, meta in providers_meta.items():
     # Session usage (set in fetch helpers)
     if p in session_usage:
         cats = session_usage.get(p) or set()
-        # Handle both set and other iterable types
-        if isinstance(cats, set):
-            used_price = used_price or ("price" in cats)
-            used_fund = used_fund or ("fundamentals" in cats)
-            used_ml = used_ml or ("ml" in cats)
-        elif hasattr(cats, '__iter__') and not isinstance(cats, str):
-            cats_list = list(cats)
-            used_price = used_price or ("price" in cats_list)
-            used_fund = used_fund or ("fundamentals" in cats_list)
-            used_ml = used_ml or ("ml" in cats_list)
+        used_price = used_price or ("price" in cats)
+        used_fund = used_fund or ("fundamentals" in cats)
+        used_ml = used_ml or ("ml" in cats)
 
     # Per-row indicators (fundamentals)
     try:
@@ -5000,15 +4724,7 @@ for p, meta in providers_meta.items():
             used_fund = True
         if p == "EODHD" and "Fund_from_EODHD" in results.columns and results["Fund_from_EODHD"].any():
             used_fund = True
-        # Check for FMP usage (common provider but no explicit flag column - check attribution)
-        if p in ["FMP", "Yahoo"] and "Fund_Attribution" in results.columns:
-            attr_str = " ".join([str(x) for x in results["Fund_Attribution"].fillna("") if x])
-            if p in attr_str:
-                used_fund = True
-        # Check price columns
         if p == "Alpha" and ("Price_Alpha" in results.columns and results["Price_Alpha"].notna().any()):
-            used_price = True
-        if p == "Yahoo" and ("Price_Yahoo" in results.columns and results["Price_Yahoo"].notna().any()):
             used_price = True
     except Exception:
         pass
@@ -5047,46 +4763,42 @@ for p, meta in providers_meta.items():
 # Count used providers (any usage)
 used_count = sum(1 for v in provider_usage.values() if v.get("used_price") or v.get("used_fundamentals") or v.get("used_ml"))
 
+with st.expander("📡 Data Provider Usage", expanded=False):
+    # Render a compact HTML table with color-coded status per provider
+    rows = []
+    for p, v in provider_usage.items():
+        if not v.get("implemented"):
+            status = "Not implemented"
+            color = "#9ca3af"  # gray
+            tip = "Not implemented yet"
+        elif v.get("used_price") or v.get("used_fundamentals") or v.get("used_ml"):
+            status = "Used"
+            color = "#16a34a"  # green
+            used_parts = []
+            if v.get("used_price"):
+                used_parts.append("price")
+            if v.get("used_fundamentals"):
+                used_parts.append("fundamentals")
+            if v.get("used_ml"):
+                used_parts.append("ml")
+            tip = f"Used for: {', '.join(used_parts)}"
+        elif v.get("key_present"):
+            status = "Available"
+            color = "#f59e0b"  # yellow
+            tip = "Key present / implemented but not used in this run"
+        else:
+            status = "No key"
+            color = "#6b7280"
+            tip = "No API key (or not configured)"
 
-# Only show provider table in normal UI, debug flags in DEBUG_MODE
-if not CONFIG.get("DEBUG_MODE", False):
-    with st.expander("📡 Data Provider Usage", expanded=False):
-        rows = []
-        for p, v in provider_usage.items():
-            if not v.get("implemented"):
-                status = "Not implemented"
-                color = "#9ca3af"
-                tip = "Not implemented yet"
-            elif v.get("used_price") or v.get("used_fundamentals") or v.get("used_ml"):
-                status = "Used"
-                color = "#16a34a"
-                used_parts = []
-                if v.get("used_price"):
-                    used_parts.append("price")
-                if v.get("used_fundamentals"):
-                    used_parts.append("fundamentals")
-                if v.get("used_ml"):
-                    used_parts.append("ml")
-                tip = f"Used for: {', '.join(used_parts)}"
-            elif v.get("key_present"):
-                status = "Available"
-                color = "#f59e0b"
-                tip = "Key present / implemented but not used in this run"
-            else:
-                status = "No key"
-                color = "#6b7280"
-                tip = "No API key (or not configured)"
-            rows.append((p, status, color, tip))
-        table_html = "<table style='border-collapse:collapse;width:100%'><thead><tr><th style='text-align:left;padding:6px 8px;border-bottom:1px solid #e5e7eb'>Provider</th><th style='text-align:left;padding:6px 8px;border-bottom:1px solid #e5e7eb'>Status</th><th style='text-align:left;padding:6px 8px;border-bottom:1px solid #e5e7eb'>Notes</th></tr></thead><tbody>"
-        for p, status, color, tip in rows:
-            table_html += f"<tr title='{html_escape.escape(tip)}'><td style='padding:6px 8px;border-bottom:1px solid #f3f4f6'>{html_escape.escape(p)}</td><td style='padding:6px 8px;border-bottom:1px solid #f3f4f6'><span style='display:inline-block;padding:6px 10px;border-radius:6px;background:{color};color:white;font-weight:700'>{html_escape.escape(status)}</span></td><td style='padding:6px 8px;border-bottom:1px solid #f3f4f6'>{html_escape.escape(tip)}</td></tr>"
-        table_html += "</tbody></table>"
-        st.markdown(table_html, unsafe_allow_html=True)
-        st.caption(f"Used providers: {used_count} / {len(providers_meta)}")
+        rows.append((p, status, color, tip))
 
-if CONFIG.get("DEBUG_MODE", False):
-    with st.expander("🔧 Provider Debug Flags", expanded=False):
-        st.json(provider_usage)
+    table_html = "<table style='border-collapse:collapse;width:100%'><thead><tr><th style='text-align:left;padding:6px 8px;border-bottom:1px solid #e5e7eb'>Provider</th><th style='text-align:left;padding:6px 8px;border-bottom:1px solid #e5e7eb'>Status</th><th style='text-align:left;padding:6px 8px;border-bottom:1px solid #e5e7eb'>Notes</th></tr></thead><tbody>"
+    for p, status, color, tip in rows:
+        table_html += f"<tr title='{html_escape.escape(tip)}'><td style='padding:6px 8px;border-bottom:1px solid #f3f4f6'>{html_escape.escape(p)}</td><td style='padding:6px 8px;border-bottom:1px solid #f3f4f6'><span style='display:inline-block;padding:6px 10px;border-radius:6px;background:{color};color:white;font-weight:700'>{html_escape.escape(status)}</span></td><td style='padding:6px 8px;border-bottom:1px solid #f3f4f6'>{html_escape.escape(tip)}</td></tr>"
+    table_html += "</tbody></table>"
+    st.markdown(table_html, unsafe_allow_html=True)
+    st.caption(f"Used providers: {used_count} / {len(providers_meta)}")
 
 # Calculate target prices and dates WITH OPTIONAL OPENAI ENHANCEMENT
 from datetime import datetime, timedelta
@@ -5441,10 +5153,6 @@ if not rec_df.empty:
 
 # Add new export fields for 2025 improvements
 if not rec_df.empty:
-    import time
-    t_export_start = time.time()
-    st.info(f"🔧 Preparing {len(rec_df)} recommendations for display...")
-    
     # Market regime info
     regime_data = st.session_state.get('market_regime', {"regime": "neutral", "confidence": 50})
     rec_df["Market_Regime"] = regime_data.get("regime", "neutral")
@@ -5469,17 +5177,9 @@ if not rec_df.empty:
         price_rel = row.get("Price_Reliability_v2", 0)
         fund_sources = row.get("fund_sources_used_v2", 0)
         price_sources = row.get("price_sources_used_v2", 0)
-        # Handle cases where sources might be lists or other types
-        if isinstance(fund_sources, list):
-            fund_sources = len(fund_sources)
-        if isinstance(price_sources, list):
-            price_sources = len(price_sources)
         return f"F:{fund_rel:.0f}%(n={fund_sources}),P:{price_rel:.0f}%(n={price_sources})"
     
     rec_df["Reliability_Components"] = rec_df.apply(_get_reliability_components, axis=1)
-    
-    t_export_elapsed = time.time() - t_export_start
-    st.success(f"✅ Prepared recommendations in {t_export_elapsed:.2f}s")
     
     # Risk band (based on risk_meter_v2)
     rec_df["Risk_Band"] = rec_df.get("risk_band", "Unknown")
@@ -5528,9 +5228,6 @@ def format_rel(val) -> str:
 if rec_df.empty:
     st.info("No stocks currently pass the threshold with a positive buy amount.")
 else:
-    import time
-    t_split_start = time.time()
-    
     # Split into Core and Speculative (case-insensitive matching to avoid accidental drops)
     if "Risk_Level" in rec_df.columns:
         levels = rec_df["Risk_Level"].astype(str).str.lower()
@@ -5541,98 +5238,28 @@ else:
         core_df = rec_df.copy()
         spec_df = pd.DataFrame()
 
-    # DEBUG: dump tickers selected for Core/Spec into /tmp for quick inspection
-    try:
-        with open('/tmp/rec_tickers.txt', 'w', encoding='utf-8') as _f:
-            _f.write(f"CORE: {list(core_df['Ticker'])}\n")
-            _f.write(f"SPEC: {list(spec_df['Ticker'])}\n")
-    except Exception:
-        pass
-    
-    t_split_elapsed = time.time() - t_split_start
-    st.caption(f"⏱️ Split Core/Spec: {t_split_elapsed:.3f}s")
-
     # Re-display an accurate count reflecting what will be rendered
-    # Show total recommendations; allocation is now informational only
-    total_recs = len(core_df) + len(spec_df)
-    st.info(
-        f"📊 Final recommendations: {total_recs} stocks ({len(core_df)} Core, {len(spec_df)} Speculative)"
-    )
-
-    # Quick rendering override: render directly from `rec_df` grouped by Risk_Level.
-    # This avoids mismatches between pipeline output and displayed cards caused by
-    # earlier conditional paths or debug stops. Make this opt-in (default False)
-    # so normal rendering is used unless a developer explicitly enables the override.
-    try:
-        if CONFIG.get("FORCE_RENDER_RECS_FROM_RECDF", False):
-            # Group deterministically: Core then Speculative
-            for level_key, title in [("core", "🛡️ Core Stocks — Lower Relative Risk"), ("speculative", "⚡ Speculative Stocks — High Upside, High Risk")]:
-                level_df = rec_df[rec_df.get("Risk_Level", "").astype(str).str.lower() == level_key].copy()
-                if level_df.empty:
-                    continue
-                st.markdown(f"### {title}")
-                if level_key == "speculative":
-                    st.warning(f"⚠️ {len(level_df)} stocks with a higher risk profile")
-                else:
-                    st.caption(f"✅ {len(level_df)} stocks with high data quality and balanced risk profile")
-
-                # Inject CSS once per section
-                try:
-                    st.markdown(get_card_css(), unsafe_allow_html=True)
-                except Exception:
-                    pass
-
-                # Build cards HTML
-                all_cards_html = ""
-                card_counter = 0
-                for _, r in level_df.iterrows():
-                    card_counter += 1
-                    try:
-                        card_html = _safe_str(build_clean_card(r, speculative=(level_key=="speculative")), "")
-                    except Exception:
-                        esc = html_escape.escape
-                        ticker = esc(str(r.get('Ticker','UNKNOWN')))
-                        card_html = f"<div class='clean-card {'speculative' if level_key=='speculative' else 'core'}'><div class='card-header'><div class='ticker-line'><span class='ticker-badge'>{ticker}</span></div></div></div>"
-                    all_cards_html += card_html
-
-                # Dump HTML for offline inspection
-                try:
-                    pth = f"/tmp/{level_key}_cards.html"
-                    with open(pth, 'w', encoding='utf-8') as _f:
-                        _f.write(all_cards_html)
-                except Exception:
-                    pass
-
-                # Render via components for iframe isolation
-                try:
-                    import streamlit.components.v1 as components
-                    iframe_height = max(400, 220 * card_counter)
-                    components.html(all_cards_html, height=iframe_height)
-                except Exception:
-                    st.markdown(all_cards_html, unsafe_allow_html=True)
-
-            # Stop further rendering to avoid duplicates
-            st.success(f"✅ Rendered {len(rec_df)} recommendation cards (grouped by Risk_Level)")
-            st.stop()
-    except Exception:
-        # If anything fails, continue to the original rendering logic below
-        pass
-    # Optional: show suggested allocation summary if present
+    # Determine funded (allocated) positions vs total candidates for clearer caption
+    total_candidates = len(core_df) + len(spec_df)
+    funded_count = 0
     try:
         if 'buy_amount_v2' in rec_df.columns:
-            suggested_alloc_count = int((rec_df['buy_amount_v2'].fillna(0) > 0).sum())
-            if suggested_alloc_count > 0 and suggested_alloc_count != total_recs:
-                st.caption(
-                    f"ℹ️ Suggested allocation provided for {suggested_alloc_count}/{total_recs} stocks (you can ignore and allocate manually)"
-                )
+            funded_count = int((rec_df['buy_amount_v2'].fillna(0) > 0).sum())
+        elif 'סכום קנייה ($)' in rec_df.columns:
+            funded_count = int((rec_df['סכום קנייה ($)'].fillna(0) > 0).sum())
     except Exception:
-        pass
+        funded_count = total_candidates
+    if funded_count and funded_count != total_candidates:
+        st.info(
+            f"📊 Showing {funded_count} funded positions (out of {total_candidates} candidates) — {len(core_df)} Core, {len(spec_df)} Speculative"
+        )
+    else:
+        st.info(
+            f"📊 Showing {total_candidates} stocks after filters ({len(core_df)} Core, {len(spec_df)} Speculative)"
+        )
 
     # Display Core recommendations first
     if not core_df.empty:
-        import time
-        t_section_start = time.time()
-        
         st.markdown("### 🛡️ Core Stocks — Lower Relative Risk")
         st.caption(
             f"✅ {len(core_df)} stocks with high data quality and balanced risk profile"
@@ -5664,30 +5291,7 @@ else:
             unsafe_allow_html=True,
         )
 
-        # Inject CSS once for all Core cards
-        st.markdown(get_card_css(), unsafe_allow_html=True)
-
-
-        # DEBUG output only if DEBUG_MODE
-        if CONFIG.get("DEBUG_MODE", False):
-            st.info(f"🔍 DEBUG Core: About to render {len(core_df)} Core cards. Tickers: {list(core_df['Ticker'])}")
-            if CONFIG.get("DEBUG_RECOMMENDATION_ROWS", False):
-                st.write(f"DEBUG: Rendering {len(core_df)} Core cards:", list(core_df["Ticker"]))
-
-        # PERF: Time card building
-        import time
-        t_start = time.time()
-        
-        # Build all cards HTML in one go (faster than multiple st.markdown calls)
-        all_cards_html = ""
-        card_counter = 0
-        card_build_times = []  # Track per-card build time
         for _, r in core_df.iterrows():
-            card_counter += 1
-            ticker_name = r.get("Ticker", "UNKNOWN")
-            
-            # PERF: Time individual card build
-            t_card_start = time.time()
             mean = r.get("מחיר ממוצע", np.nan)
             std = r.get("סטיית תקן", np.nan)
             hist_std = r.get(
@@ -5951,11 +5555,7 @@ else:
             else:
                 risk_color = "#6b7280"
 
-            # Build card HTML (CSS already injected above)
-            t_build_card_start = time.time()
-            card_html = _safe_str(build_clean_card(r, speculative=False), "")
-            t_build_card = time.time() - t_build_card_start
-            card_build_times.append(t_build_card)
+            card_html = _safe_str(get_card_css(), "") + _safe_str(build_clean_card(r, speculative=False), "")
 
             # Add provider attribution if available (Core cards)
             attribution = r.get("Fund_Attribution", "")
@@ -5966,55 +5566,21 @@ else:
                     raw_html = html_escape.escape(str(raw_sources))
                     card_html += f"""
     <div class="item" style="grid-column:span 5;font-size:0.7em;color:#334155;background:#f1f5f9;border:1px dashed #cbd5e1;border-radius:6px;padding:4px;margin-top:4px"><b>RAW _sources:</b> {raw_html}</div>"""
-            # Note: build_clean_card already closes all its tags, no need to add </div></div> here
-            
-            # Accumulate card HTML instead of rendering immediately
-            all_cards_html += card_html
-        
-        # PERF: Measure build time
-        t_build = time.time() - t_start
-        
-        # Render all Core cards at once (much faster than individual st.markdown calls)
-        if all_cards_html:
-            html_size_kb = len(all_cards_html) / 1024
+            # Remove top-level data sources line (moved to details section inside card)
 
-            if CONFIG.get("DEBUG_MODE", False):
-                st.caption(f"📏 HTML size: {html_size_kb:.1f} KB for {card_counter} cards")
-                st.caption(f"DEBUG: all_cards_html len={len(all_cards_html)}")
-                try:
-                    st.code(all_cards_html[:800], language="html")
-                except Exception:
-                    st.write("DEBUG: (could not show HTML preview)")
-                try:
-                    with open('/tmp/core_cards.html', 'w', encoding='utf-8') as _f:
-                        _f.write(all_cards_html)
-                except Exception:
-                    pass
-
-            t_render_start = time.time()
-            try:
-                # Use components.html to render raw HTML inside an iframe (more robust)
-                import streamlit.components.v1 as components
-
-                iframe_height = max(400, 220 * card_counter)
-                components.html(all_cards_html, height=iframe_height)
-            except Exception:
-                st.markdown(all_cards_html, unsafe_allow_html=True)
-            t_render = time.time() - t_render_start
-            # Compute average per-card build time (safe fallback if list empty)
-            avg_card_time = sum(card_build_times) / len(card_build_times) if card_build_times else 0
-            st.success(f"✅ Successfully rendered {card_counter} Core cards | Build: {t_build:.2f}s (avg {avg_card_time*1000:.1f}ms/card) | Render: {t_render:.2f}s")
-            
-        # PERF: Total section time
-        t_section_total = time.time() - t_section_start
-        if CONFIG.get("DEBUG_MODE", False):
-            st.caption(f"⏱️ Core section total time: {t_section_total:.2f}s")
+            card_html += """
+  </div>
+</div>
+"""
+            # Use reasonable height with scrolling enabled to prevent text cutoff
+            # Reduced iframe height to tighten vertical spacing between cards.
+            # Previous fixed height (700) created large empty gaps below content.
+            # 430 provides enough space for collapsed + expanded details without excess.
+            # Render card directly (no inner scroll iframe) so expanding details pushes subsequent cards down.
+            st.markdown(card_html, unsafe_allow_html=True)
 
     # Display Speculative recommendations
     if not spec_df.empty:
-        import time
-        t_section_start = time.time()
-        
         st.markdown("### ⚡ Speculative Stocks — High Upside, High Risk")
         st.caption(f"⚠️ {len(spec_df)} stocks with a higher risk profile")
 
@@ -6039,30 +5605,7 @@ else:
             "🔔 Warning: These stocks are classified as speculative due to partial data or elevated risk factors. Suitable for experienced investors only."
         )
 
-        # Inject CSS once for all Speculative cards
-        st.markdown(get_card_css(), unsafe_allow_html=True)
-
-        # DEBUG: Always show what we're about to render (temporary for debugging)
-
-        if CONFIG.get("DEBUG_MODE", False):
-            st.info(f"🔍 DEBUG Spec: About to render {len(spec_df)} Speculative cards. Tickers: {list(spec_df['Ticker'])}")
-            if CONFIG.get("DEBUG_RECOMMENDATION_ROWS", False):
-                st.write(f"DEBUG: Rendering {len(spec_df)} Speculative cards:", list(spec_df["Ticker"]))
-
-        # PERF: Time card building
-        import time
-        t_start = time.time()
-        
-        # Build all cards HTML in one go (faster than multiple st.markdown calls)
-        all_cards_html = ""
-        card_counter = 0
-        card_build_times = []  # Track per-card build time
         for _, r in spec_df.iterrows():
-            card_counter += 1
-            ticker_name = r.get("Ticker", "UNKNOWN")
-            
-            # PERF: Time individual card build
-            t_card_start = time.time()
             mean = r.get("מחיר ממוצע", np.nan)
             std = r.get("סטיית תקן", np.nan)
             hist_std = r.get(
@@ -6321,11 +5864,7 @@ else:
             overall_score_val = r.get("overall_score", conv_v2)
             rr_ratio_val = r.get("rr", np.nan)
             rr_band = r.get("rr_band", "")
-            # Build card HTML (CSS already injected above)
-            t_build_card_start = time.time()
-            card_html = _safe_str(build_clean_card(r, speculative=True), "")
-            t_build_card = time.time() - t_build_card_start
-            card_build_times.append(t_build_card)
+            card_html = _safe_str(get_card_css(), "") + _safe_str(build_clean_card(r, speculative=True), "")
 
             # Add provider attribution if available (Speculative cards)
             attribution_spec = r.get("Fund_Attribution", "")
@@ -6336,70 +5875,35 @@ else:
                     raw_html = html_escape.escape(str(raw_sources))
                     card_html += f"""
     <div class="item" style="grid-column:span 5;font-size:0.7em;color:#334155;background:#f1f5f9;border:1px dashed #cbd5e1;border-radius:6px;padding:4px;margin-top:4px"><b>RAW _sources:</b> {raw_html}</div>"""
-            # Note: build_clean_card already closes all its tags, no need to add </div></div> here
 
-            # Accumulate card HTML instead of rendering immediately
-            all_cards_html += card_html
-        
-        # PERF: Measure build time
-        t_build = time.time() - t_start
-        avg_card_time = sum(card_build_times) / len(card_build_times) if card_build_times else 0
-        
-        # Render all Speculative cards at once (much faster than individual st.markdown calls)
-        if all_cards_html:
-            html_size_kb = len(all_cards_html) / 1024
-
-            if CONFIG.get("DEBUG_MODE", False):
-                st.caption(f"📏 HTML size: {html_size_kb:.1f} KB for {card_counter} cards")
-                st.caption(f"DEBUG: all_cards_html len={len(all_cards_html)}")
-                try:
-                    st.code(all_cards_html[:800], language="html")
-                except Exception:
-                    st.write("DEBUG: (could not show HTML preview)")
-                try:
-                    with open('/tmp/spec_cards.html', 'w', encoding='utf-8') as _f:
-                        _f.write(all_cards_html)
-                except Exception:
-                    pass
-
-            t_render_start = time.time()
-            try:
-                import streamlit.components.v1 as components
-
-                iframe_height = max(400, 220 * card_counter)
-                components.html(all_cards_html, height=iframe_height)
-            except Exception:
-                st.markdown(all_cards_html, unsafe_allow_html=True)
-            t_render = time.time() - t_render_start
-            st.success(f"✅ Successfully rendered {card_counter} Speculative cards | Build: {t_build:.2f}s (avg {avg_card_time*1000:.1f}ms/card) | Render: {t_render:.2f}s")
-            
-        # PERF: Total section time
-        t_section_total = time.time() - t_section_start
-        if CONFIG.get("DEBUG_MODE", False):
-            st.caption(f"⏱️ Speculative section total time: {t_section_total:.2f}s")
-
+            card_html += """
+  </div>
+</div>
+"""
+            # Match reduced height for speculative cards to remove large gaps.
+            st.markdown(card_html, unsafe_allow_html=True)
 
 # Inject compact mode JS to hide advanced/fundamental sections
 if st.session_state.get("compact_mode"):
-        st.markdown(
-                """
+    st.markdown(
+        """
 <script>
 for(const el of document.querySelectorAll('.card')){el.classList.add('compact-mode');}
 for(const el of document.querySelectorAll('.compact-mode .section-divider')){
-    if(el.textContent.includes('🔬')||el.textContent.includes('💎')){
-        let next=el.nextElementSibling;
-        while(next && !next.classList.contains('section-divider')){
-            let toHide=next;
-            next=next.nextElementSibling;
-            toHide.style.display='none';
-        }
-        el.style.display='none';
+  if(el.textContent.includes('🔬')||el.textContent.includes('💎')){
+    let next=el.nextElementSibling;
+    while(next && !next.classList.contains('section-divider')){
+      let toHide=next;
+      next=next.nextElementSibling;
+      toHide.style.display='none';
     }
+    el.style.display='none';
+  }
 }
 </script>
 """,
-                unsafe_allow_html=True,
-        )
+        unsafe_allow_html=True,
+    )
 
 # Final stage advancement
 _advance_stage("Recommendations")
