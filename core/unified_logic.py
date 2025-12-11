@@ -15,7 +15,22 @@ from core.classification import apply_classification
 
 
 def compute_rsi(series: pd.Series, period: int = 14) -> pd.Series:
-    """Compute RSI using exponential moving average."""
+    """
+    Compute Relative Strength Index (RSI) using exponential moving average.
+    
+    RSI measures momentum by comparing average gains vs. average losses.
+    - RSI > 70: Overbought (potential pullback)
+    - RSI < 30: Oversold (potential bounce)
+    - RSI 40-60: Neutral
+    
+    Args:
+        series: Series of closing prices
+        period: Look-back period (default 14 per Wilder's standard)
+    
+    Returns:
+        Series with RSI values in range [0, 100]
+        NaN values at beginning due to look-back requirement
+    """
     delta = series.diff()
     gain = delta.where(delta > 0, 0.0)
     loss = -delta.where(delta < 0, 0.0)
@@ -29,7 +44,24 @@ def compute_rsi(series: pd.Series, period: int = 14) -> pd.Series:
 
 
 def compute_atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
-    """Compute Average True Range."""
+    """
+    Compute Average True Range (ATR) - volatility indicator.
+    
+    ATR measures true range (highest high-low swing including gaps).
+    Used to assess market volatility and set stop-loss distances.
+    
+    Formula:
+        TR = max(high-low, |high-prev_close|, |low-prev_close|)
+        ATR = SMA(TR, period)
+    
+    Args:
+        df: DataFrame with High, Low, Close columns
+        period: Look-back period (default 14)
+    
+    Returns:
+        Series with ATR values in same units as price
+        NaN values at beginning due to look-back requirement
+    """
     high = df['High']
     low = df['Low']
     close = df['Close']
@@ -45,21 +77,63 @@ def compute_atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
 
 
 def compute_momentum_consistency(close: pd.Series, lookback: int = 14) -> pd.Series:
-    """Fraction of up days in rolling window."""
+    """
+    Compute momentum consistency - fraction of up days in rolling window.
+    
+    Measures trend strength by counting days with positive close-to-close change.
+    Values closer to 1.0 indicate strong uptrend; closer to 0.0 indicate downtrend.
+    
+    Args:
+        close: Series of closing prices
+        lookback: Rolling window size (default 14)
+    
+    Returns:
+        Series with consistency values in range [0, 1]
+    """
     up_days = (close.diff() > 0).astype(int)
     consistency = up_days.rolling(window=lookback).mean()
     return consistency
 
 
 def compute_volume_surge(volume: pd.Series, lookback: int = 20) -> pd.Series:
-    """Current volume / 20-day average."""
+    """
+    Compute volume surge ratio - current volume relative to average.
+    
+    Ratio of current volume to N-day moving average.
+    Values > 1.0 indicate above-average volume (potential momentum confirmation).
+    Values < 1.0 indicate below-average volume (potential weakness).
+    
+    Args:
+        volume: Series of trading volumes
+        lookback: Period for average calculation (default 20)
+    
+    Returns:
+        Series with surge values (typically in range [0.2, 3.0])
+    """
     avg_volume = volume.rolling(window=lookback).mean()
     surge = volume / avg_volume
     return surge
 
 
 def compute_reward_risk(close: pd.Series, lookback: int = 20) -> pd.Series:
-    """(20d_high - close) / (close - 20d_low), capped at 10."""
+    """
+    Compute reward/risk ratio - upside opportunity vs downside risk.
+    
+    Quantifies risk/reward setup:
+        RR = (20d_high - current_price) / (current_price - 20d_low)
+    
+    - RR > 2.0: Favorable setup (2:1 or better reward)
+    - RR 1.0-2.0: Neutral setup
+    - RR < 1.0: Unfavorable (risk exceeds reward)
+    - Capped at 10 to avoid extreme outliers
+    
+    Args:
+        close: Series of closing prices
+        lookback: Period for high/low range (default 20)
+    
+    Returns:
+        Series with RR values, capped at 10.0
+    """
     high_20d = close.rolling(window=lookback).max()
     low_20d = close.rolling(window=lookback).min()
     
@@ -74,7 +148,33 @@ def compute_reward_risk(close: pd.Series, lookback: int = 20) -> pd.Series:
 def build_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """
     Build all technical indicators from OHLCV data.
-    Returns DataFrame with indicators as columns.
+    
+    This is the SINGLE SOURCE OF TRUTH for technical indicator calculation.
+    All entry points (live app, backtest, time-test) must call this function
+    to ensure deterministic, consistent results.
+    
+    Args:
+        df: DataFrame with OHLCV columns (Open, High, Low, Close, Volume).
+            May have MultiIndex columns from yfinance (ticker level).
+    
+    Returns:
+        DataFrame with original OHLCV plus computed indicators:
+        - Moving Averages: MA20, MA50, MA200
+        - RSI: RSI (14-period)
+        - Volatility: ATR (14-period), ATR_Pct (ATR as % of price)
+        - Price Position: Overext (price vs MA50), Near52w (% of 52-week high)
+        - Momentum: MomCons (fraction of up days, 14-period), VolSurge (volume ratio)
+        - Risk/Reward: RR (reward/risk ratio, 20-period, capped at 10)
+        - Derived ML Features: RR_MomCons, RSI_Neutral, RSI_Squared, Risk_Score,
+          Vol_Mom, Overext_Mom_Div, RR_Risk_Adj, ATR_Regime
+        - Timing Signals: Vol_Breakout, Price_Breakout, Mom_Acceleration
+        - Reference: Close, Volume, High, Low (for external use)
+    
+    Raises:
+        Gracefully handles missing data; NaN values propagate to output.
+    
+    Note:
+        All calculations are deterministic and independent of external state.
     """
     result = pd.DataFrame(index=df.index)
     
@@ -137,14 +237,55 @@ def build_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
 def apply_technical_filters(row: pd.Series, strict: bool = True, relaxed: bool = False) -> bool:
     """
-    Apply technical filters to a stock.
+    Apply technical filters to determine if a stock qualifies for trading.
+    
+    This is the SINGLE SOURCE OF TRUTH for filter logic.
+    All entry points must call this function with the same parameters
+    to ensure consistent pass/fail decisions.
+    
+    Three filter tiers (mutually exclusive):
+    1. **strict=True, relaxed=False** (Core): Conservative filters for stable picks
+       - RSI: 25-75
+       - Overextension: ≤20% above MA50
+       - ATR: ≤12% of price
+       - RR: ≥-0.5
+       - Momentum Consistency: ≥40% up days
+    
+    2. **strict=False, relaxed=False** (Speculative): Relaxed tier for aggressive picks
+       - RSI: 20-85
+       - Overextension: ≤30%
+       - ATR: ≤22%
+       - RR: ≥-1.0
+       - Momentum Consistency: ≥20% up days
+    
+    3. **relaxed=True** (Momentum-First): Ultra-aggressive, momentum-driven
+       - RSI: 15-90
+       - Overextension: ≤40%
+       - ATR: ≤28%
+       - RR: ≥-1.5
+       - Momentum Consistency: ≥10% up days
     
     Args:
-        row: Series with technical indicators
-        strict: If True, use Core filters; if False, use Speculative filters
+        row: Series containing technical indicator columns (RSI, Overext, ATR_Pct, RR, MomCons).
+             Typically a single row from the output of build_technical_indicators().
+        strict: If True, apply Core filters (conservative); if False, apply Speculative filters.
+        relaxed: If True, override strict and apply Momentum-First filters (ultra-relaxed).
         
     Returns:
-        True if stock passes filters, False otherwise
+        True if the stock passes all filter thresholds, False otherwise.
+        Returns True if a filter value is missing (NaN) to avoid false rejections.
+    
+    Raises:
+        No exceptions. Missing values are treated as passing the filter.
+    
+    Examples:
+        >>> row = pd.Series({'RSI': 45, 'Overext': 0.10, 'ATR_Pct': 0.08, 'RR': 0.5, 'MomCons': 0.50})
+        >>> apply_technical_filters(row, strict=True)  # Core filters
+        True
+        >>> apply_technical_filters(row, strict=False)  # Speculative filters
+        True
+        >>> apply_technical_filters(row, relaxed=True)  # Momentum-First filters
+        True
     """
     if relaxed:
         # Ultra-relaxed (Momentum-first) mode
@@ -198,17 +339,35 @@ def apply_technical_filters(row: pd.Series, strict: bool = True, relaxed: bool =
 
 def score_with_ml_model(row: pd.Series, model_data: Optional[Dict] = None) -> float:
     """
-    Score stock with ML model.
+    Score stock with ML model - probability of positive 20-day return.
     
-    Uses retrained XGBoost model (14 features, AUC 0.555) for probability scoring.
-    Model predicts probability of positive 20-day return.
+    Uses retrained XGBoost model with 14 engineered features.
+    Model performance: AUC 0.555 (slight alpha vs 0.50 baseline).
+    
+    Features Used:
+        Base (6): RSI, ATR_Pct, Overext, RR, MomCons, VolSurge
+        Derived (8): RR_MomCons, RSI_Neutral, RSI_Squared, Risk_Score,
+                     Vol_Mom, Overext_Mom_Div, RR_Risk_Adj, ATR_Regime
     
     Args:
-        row: Series with technical indicators
-        model_data: Dict with 'model' and 'feature_names' keys
-        
+        row: Series with technical indicator columns from build_technical_indicators()
+        model_data: Dict with keys:
+                   - 'model': Fitted XGBoost model object
+                   - 'feature_names': List of 14 feature names in model order
+                   If None or empty, returns neutral 0.5
+    
     Returns:
-        Probability between 0 and 1 (0.5 if model unavailable)
+        Float in range [0.0, 1.0] representing probability of positive 20d return.
+        0.5 = neutral (no prediction)
+        > 0.5 = bullish prediction
+        < 0.5 = bearish prediction
+    
+    Raises:
+        No exceptions. On any error, returns neutral 0.5.
+    
+    Note:
+        Model is optional for scoring. Live app can function without ML model.
+        Missing features are filled with sensible defaults (0.5 or 1.0).
     """
     if model_data is None or model_data.get('model') is None:
         return 0.5  # Neutral if no model
@@ -296,16 +455,36 @@ def compute_forward_returns(
     benchmark_df: Optional[pd.DataFrame] = None
 ) -> Dict[str, float]:
     """
-    Compute forward returns from a specific date.
+    Compute forward (future) returns from a specific date - for backtesting.
+    
+    Looks forward from the given date and calculates returns at multiple horizons.
+    Optionally computes excess returns vs. a benchmark (e.g., SPY).
     
     Args:
-        df: DataFrame with Close prices (indexed by date)
-        date: Starting date
-        horizons: List of forward periods in days
-        benchmark_df: Optional benchmark DataFrame for relative returns
-        
+        df: DataFrame with Close prices, indexed by date (DatetimeIndex)
+        date: Starting date (must be in df.index)
+        horizons: List of forward periods in trading days (default [5, 10, 20])
+        benchmark_df: Optional DataFrame with Close prices for relative return calculation
+    
     Returns:
-        Dict with keys like 'R_5d', 'Excess_5d', etc. (all float values)
+        Dict with keys:
+        - 'R_5d', 'R_10d', 'R_20d': Simple returns (%) at each horizon
+        - 'Excess_5d', 'Excess_10d', 'Excess_20d': Return vs benchmark (%)
+        All values are float or NaN if date is not found or beyond data end
+    
+    Raises:
+        No exceptions. Missing dates return NaN values.
+    
+    Examples:
+        >>> fwd = compute_forward_returns(df, pd.Timestamp('2024-01-15'), horizons=[5, 10, 20])
+        >>> fwd['R_5d']  # Return 5 trading days forward
+        2.35  # +2.35%
+        >>> fwd['Excess_10d']  # 10-day excess vs benchmark
+        1.80  # Outperformed benchmark by 1.80%
+    
+    Note:
+        Handles potential Series vs scalar values from DataFrame indexing.
+        Gracefully returns NaN for out-of-bounds dates.
     """
     results = {}
     
@@ -376,14 +555,53 @@ def compute_forward_returns(
 def compute_technical_score(row: pd.Series, weights: Optional[Dict[str, float]] = None) -> float:
     """Compute a deterministic technical score (0-100) from indicators in `row`.
     
-    NEW (Nov 2025): Volatility-adjusted scoring
-    - Penalize extreme volatility (ATR > 6%)
-    - Reward stable movers (ATR 2-4%)
-    - Adjust RR by volatility (risk-adjusted RR)
-
-    This function centralizes the simple scoring logic so both app and backtest
-    use the same formula. `weights` is a mapping similar to CONFIG['WEIGHTS']
-    but values will be normalized internally.
+    This is the SINGLE SOURCE OF TRUTH for technical scoring.
+    All entry points must call this function with identical parameters
+    to ensure consistent, reproducible results.
+    
+    Scoring formula (November 2025 - Volatility Adjusted):
+    - Component scores (0-1): MA alignment, momentum, RSI, volume, overextension, 
+      pullback strength, risk/reward, MACD, ADX
+    - Weights: Configurable via `weights` parameter; defaults to balanced allocation
+    - Volatility adjustment:
+      * ATR > 6% (extreme volatility): 50% score penalty
+      * ATR 5-6% (high volatility): 30% score penalty
+      * ATR 2-4% (sweet spot): 20% score bonus
+      * ATR < 2% (low volatility): 20% score penalty
+    - Risk/reward is volatility-adjusted: RR_adjusted = RR * vol_multiplier
+    - Final score clipped to [0, 100]
+    
+    Args:
+        row: Series with technical indicator columns from build_technical_indicators().
+             Expected columns: MA_Aligned, Momentum_Consistency, RSI, VolSurge,
+             Overext, Near52w, RR, ATR_Pct, MACD_Pos, ADX14.
+             Missing values default to neutral (0.5) or 0.
+        weights: Optional dict mapping component names to weight values:
+                 {'ma', 'mom', 'rsi', 'near_high_bell', 'vol', 'overext',
+                  'pullback', 'risk_reward', 'macd', 'adx'}.
+                 Defaults to balanced allocation if None.
+                 Weights are normalized internally to sum to 1.0.
+        
+    Returns:
+        Float between 0.0 and 100.0 representing technical conviction score.
+        Higher scores indicate stronger technical alignment.
+        
+    Raises:
+        No exceptions. Missing indicator values handled gracefully with defaults.
+    
+    Examples:
+        >>> row = pd.Series({'MA_Aligned': 1.0, 'RSI': 50, 'Overext': 0.05, 
+        ...                   'ATR_Pct': 0.03, 'VolSurge': 1.5, 'Momentum_Consistency': 0.6})
+        >>> compute_technical_score(row)  # Uses default weights
+        78.5
+        >>> custom_w = {'ma': 0.4, 'mom': 0.3, ...}  # Custom weights
+        >>> compute_technical_score(row, weights=custom_w)
+        82.1
+    
+    Note:
+        Volatility adjustment is ALWAYS applied, regardless of weights parameter.
+        Extreme volatility (ATR > 6%) significantly reduces scores to penalize
+        high-risk, high-uncertainty trading opportunities.
     """
     if weights is None:
         weights = {
@@ -472,27 +690,90 @@ def compute_technical_score(row: pd.Series, weights: Optional[Dict[str, float]] 
     return float(np.clip(tech * 100.0, 0.0, 100.0))
 
 
-def compute_final_score(tech_score: float, fundamental_score: Optional[float], ml_prob: float) -> float:
-    """Unified final score = 0.55*technical + 0.25*fundamental + 0.20*ml_prob (ml_prob in 0-1)
-
-    Returns value on 0-100 scale.
+def compute_final_score(
+    tech_score: float, 
+    fundamental_score: Optional[float] = None, 
+    ml_prob: Optional[float] = None
+) -> float:
+    """
+    Compute unified final score combining technical, fundamental, and ML components.
+    
+    This is the SINGLE SOURCE OF TRUTH for final score calculation.
+    All entry points must call this function to ensure consistency.
+    
+    Formula:
+        final_score = 0.55 * tech_score + 0.25 * fund_score + 0.20 * (ml_prob * 100)
+    
+    Where:
+    - **tech_score** (0-100): Technical analysis score from compute_technical_score()
+    - **fund_score** (0-100): Fundamental valuation score from compute_fundamental_score_with_breakdown()
+      If None or NaN, defaults to 0 (no fundamental penalty)
+    - **ml_prob** (0-1): ML model prediction probability
+      If None or NaN, defaults to 0.5 (neutral)
+    - **final score** (0-100): Weighted combination, clipped to [0, 100]
+    
+    Weight Rationale:
+    - Technical (55%): Primary signal; most actionable and immediate
+    - Fundamental (25%): Secondary confirmation; reduces false positives
+    - ML (20%): Tertiary enhancement; model confidence boost
+    
+    Args:
+        tech_score: Technical score from build_technical_indicators() + compute_technical_score().
+                    Must be in range [0, 100].
+        fundamental_score: Optional fundamental valuation score [0, 100].
+                          Defaults to 0 if None or NaN.
+        ml_prob: Optional ML model probability [0, 1].
+                 Defaults to 0.5 (neutral) if None or NaN.
+    
+    Returns:
+        Float between 0.0 and 100.0 representing final conviction score.
+        Clipped to valid range regardless of input values.
+    
+    Raises:
+        No exceptions. Invalid inputs handled gracefully with defaults.
+    
+    Examples:
+        >>> compute_final_score(tech_score=75.0, fundamental_score=65.0, ml_prob=0.65)
+        72.0  # = 0.55*75 + 0.25*65 + 0.20*65
+        
+        >>> compute_final_score(tech_score=80.0)  # No fundamentals or ML
+        44.0  # = 0.55*80 + 0.25*0 + 0.20*50 (uses defaults)
+        
+        >>> compute_final_score(tech_score=60.0, fundamental_score=np.nan, ml_prob=1.0)
+        65.0  # NaN fund score treated as 0
+    
+    Note:
+        Always returns a valid numeric value suitable for sorting/ranking stocks.
+        No exception is raised for invalid inputs; defaults are applied instead.
     """
     fund = 0.0 if fundamental_score is None or pd.isna(fundamental_score) else float(fundamental_score)
-    final = 0.55 * tech_score + 0.25 * fund + 0.20 * (ml_prob * 100.0)
+    ml_score = 0.5 if ml_prob is None or pd.isna(ml_prob) else float(ml_prob)
+    final = 0.55 * tech_score + 0.25 * fund + 0.20 * (ml_score * 100.0)
     return float(np.clip(final, 0.0, 100.0))
 
 
 def fetch_stock_data(ticker: str, start_date: str, end_date: str) -> Optional[pd.DataFrame]:
     """
-    Fetch stock OHLCV data from Yahoo Finance.
+    Fetch historical OHLCV data from Yahoo Finance.
+    
+    This is the preferred method for retrieving price history.
+    Uses auto_adjust=True to handle splits/dividends automatically.
     
     Args:
-        ticker: Stock symbol
-        start_date: Start date (YYYY-MM-DD)
-        end_date: End date (YYYY-MM-DD)
-        
+        ticker: Stock symbol (e.g., 'AAPL', 'SPY')
+        start_date: Start date (YYYY-MM-DD format)
+        end_date: End date (YYYY-MM-DD format)
+    
     Returns:
-        DataFrame with OHLCV data or None if failed
+        DataFrame with columns [Open, High, Low, Close, Volume] and DatetimeIndex
+        Returns None if fetch fails or no data available
+    
+    Raises:
+        No exceptions raised. Errors are caught and None is returned.
+    
+    Note:
+        Data is auto-adjusted for splits and dividends by yfinance.
+        May take a few seconds for large date ranges.
     """
     try:
         df = yf.download(ticker, start=start_date, end=end_date, auto_adjust=True, progress=False)

@@ -22,16 +22,31 @@ logger = logging.getLogger(__name__)
 def normalize_score(value: float, min_val: float = 0.0, max_val: float = 100.0, 
                    default: float = 50.0) -> float:
     """
-    Normalize a score to 0-100 range with safety checks.
+    Normalize a value to 0-100 range with safety checks.
+    
+    Converts arbitrary numeric values to bounded [0, 100] range suitable for scoring.
+    Invalid inputs (NaN, inf, out-of-range) return sensible defaults.
+    
+    Normalization formula:
+        normalized = ((value - min_val) / (max_val - min_val)) * 100
+        clipped to [0, 100]
     
     Args:
-        value: Input value to normalize
-        min_val: Minimum expected value
-        max_val: Maximum expected value
-        default: Default value if input is invalid
+        value: Input value to normalize (any numeric)
+        min_val: Minimum expected value in original scale (default 0)
+        max_val: Maximum expected value in original scale (default 100)
+        default: Default return value if input invalid (default 50, neutral)
     
     Returns:
-        Normalized score 0-100
+        Float in range [0.0, 100.0]
+    
+    Examples:
+        >>> normalize_score(0.5, 0, 1.0)  # Convert [0,1] to [0,100]
+        50.0
+        >>> normalize_score(0.75, 0, 1.0)  # 75% of range
+        75.0
+        >>> normalize_score(np.nan)  # Invalid input
+        50.0  # Returns default
     """
     if not np.isfinite(value):
         return default
@@ -44,7 +59,28 @@ def normalize_score(value: float, min_val: float = 0.0, max_val: float = 100.0,
 
 
 def safe_divide(numerator: float, denominator: float, default: float = 0.0) -> float:
-    """Safe division with zero and NaN protection."""
+    """
+    Perform safe division with protection against zero and NaN.
+    
+    Returns default value instead of raising ZeroDivisionError or producing inf/NaN.
+    Useful for ratio calculations where zero denominators are common.
+    
+    Args:
+        numerator: Dividend value (any numeric)
+        denominator: Divisor value (any numeric)
+        default: Value to return if division is unsafe (default 0.0)
+    
+    Returns:
+        numerator / denominator if valid, else default
+        
+    Examples:
+        >>> safe_divide(10, 2)
+        5.0
+        >>> safe_divide(10, 0)  # Zero denominator
+        0.0
+        >>> safe_divide(np.nan, 5)  # NaN input
+        0.0
+    """
     if not np.isfinite(numerator) or not np.isfinite(denominator):
         return default
     if abs(denominator) < 1e-10:
@@ -54,19 +90,43 @@ def safe_divide(numerator: float, denominator: float, default: float = 0.0) -> f
 
 def evaluate_rr_unified(rr_ratio: Optional[float]) -> Tuple[float, float, str]:
     """
-    UNIFIED RR evaluation function used across all contexts.
+    UNIFIED RR evaluation - single source of truth for risk/reward assessment.
     
-    This is the SINGLE source of truth for RR evaluation.
-    All warnings, penalties, and displays must use this.
+    This function is the ONLY place where RR ratios are converted to scores.
+    All UI displays, warnings, and penalties must use the output of this function
+    to ensure consistency across live app, backtest, and time-test.
+    
+    Scoring Bands (tiered):
+    - ratio < 1.0: **Very Poor** - Risk exceeds reward (max 20 points)
+    - ratio 1.0-1.5: **Poor** - Weak setup (20-40 points)
+    - ratio 1.5-2.0: **Fair** - Moderate setup (40-70 points)
+    - ratio 2.0-3.0: **Good** - Strong setup (70-90 points)
+    - ratio ≥ 3.0: **Excellent** - Superior setup (90-100 points)
     
     Args:
-        rr_ratio: Reward/Risk ratio
-        
+        rr_ratio: Reward/Risk ratio (typically 0.5-5.0, capped at 10)
+                  None, negative, or non-finite values return zero score
+    
     Returns:
-        (rr_score_0_100, rr_ratio_float, rr_band_label)
-        - rr_score_0_100: Normalized score 0-100 with tiered penalties
-        - rr_ratio_float: The actual ratio (or 0.0 if invalid)
-        - rr_band_label: "Excellent", "Good", "Fair", "Poor", "Very Poor"
+        Tuple of (rr_score, rr_ratio, rr_band):
+        - rr_score (float 0-100): Normalized score for use in overall scoring
+        - rr_ratio (float): Actual ratio clipped to [0, 10], or 0 if invalid
+        - rr_band (str): Label "Very Poor", "Poor", "Fair", "Good", "Excellent", or "N/A"
+    
+    Raises:
+        No exceptions. Invalid inputs return (0.0, 0.0, "N/A")
+    
+    Examples:
+        >>> evaluate_rr_unified(0.8)  # Risk > reward
+        (16.0, 0.8, "Very Poor")
+        >>> evaluate_rr_unified(2.5)  # Good setup
+        (80.0, 2.5, "Good")
+        >>> evaluate_rr_unified(None)  # Invalid
+        (0.0, 0.0, "N/A")
+    
+    Note:
+        Scores are NOT linear with ratio. Poor RR (< 2.0) receives strong penalties
+        to discourage unfavorable setups.
     """
     if rr_ratio is None or not np.isfinite(rr_ratio) or rr_ratio < 0:
         return 0.0, 0.0, "N/A"
@@ -95,26 +155,65 @@ def evaluate_rr_unified(rr_ratio: Optional[float]) -> Tuple[float, float, str]:
 
 def compute_overall_score(row: pd.Series) -> Tuple[float, Dict[str, float]]:
     """
-    Compute mathematically correct overall score with explicit weights and penalties.
+    Compute mathematically correct overall conviction score with transparent penalties.
     
-    Formula: 35% fund + 35% tech + 15% RR + 15% reliability +/- ML (max +/-10%)
+    This is the SINGLE SOURCE OF TRUTH for overall conviction scoring.
+    All entry points must call this function to ensure consistency.
     
-    Applies penalties BEFORE final normalization for realistic spread:
-    - RR ratio penalties: <1.0 strong, 1.0-1.5 medium, 1.5-2.0 mild
-    - RiskMeter >65 penalty
-    - Reliability <0.75 penalty
-    - Missing data penalty
+    Scoring Formula (Explicit Weights):
+    - Fundamental: 35% (valuation, profitability, growth, debt)
+    - Technical: 35% (momentum, RSI, volatility, price position)
+    - Risk/Reward: 15% (upside/downside ratio with tiered penalties)
+    - Reliability: 15% (data completeness, source agreement, consistency)
+    - ML Boost: ±10% (optional, clamped when inputs are weak)
     
-    Target distributions:
-    - Core opportunities: 60-80
-    - Speculative: 45-60
-    - Problematic: 20-45
+    Penalties Applied (before final normalization):
+    1. **RR Penalties**: Strong penalty (<1.0), medium (1.0-1.5), mild (1.5-2.0)
+    2. **Risk Penalty**: >65 RiskMeter reduces score
+    3. **Reliability Penalty**: <75 reliability reduces score
+    4. **Missing Data Penalty**: Each missing key metric (-2 points)
+    5. **Caps & Limits**:
+       - Fundamental <50 + tech/RR weak → cap at 82
+       - Reliability <40 → cap at 75
+       - Reliability <30 → cap at 70
+       - Price disagreement (>3% STD) → soft cap at 88
+    
+    Target Distribution (after penalties):
+    - Core opportunities: 60-80 (high confidence)
+    - Speculative: 45-60 (moderate confidence)
+    - Problematic: 20-45 (low confidence, possible warning flags)
     
     Args:
-        row: DataFrame row with scoring components
+        row: Series/DataFrame row with scoring components:
+             Required: Fundamental_S, Technical_S, RR_Score, Reliability_v2
+             Optional: ML_Probability (0-1), RiskMeter (0-100), etc.
     
     Returns:
-        (overall_score 0-100, components_dict with all breakdowns)
+        Tuple of (overall_score, components_dict):
+        - overall_score (float 0-100): Final conviction score
+        - components_dict (dict): Detailed breakdown:
+          * Base components: fund_component, tech_component, rr_component, reliability_component
+          * Aggregate: base_score, score_before_penalties, penalty_total
+          * ML: ml_delta (±10 max)
+          * Penalties: penalty_rr_*, penalty_high_risk, penalty_low_reliability, penalty_missing_data
+          * Caps: caps_applied (list of caps that were applied)
+    
+    Raises:
+        No exceptions. Missing components default to 50 (neutral).
+    
+    Examples:
+        >>> row = pd.Series({
+        ...     'Fundamental_S': 70, 'Technical_S': 75, 'RR_Score': 70,
+        ...     'Reliability_v2': 80, 'ML_Probability': 0.65
+        ... })
+        >>> score, breakdown = compute_overall_score(row)
+        >>> score
+        76.25  # = 0.35*70 + 0.35*75 + 0.15*70 + 0.15*80 + ML bonus
+    
+    Note:
+        Penalties are applied to create realistic score spread (not all stocks
+        should score 75+). Weak fundamentals or data quality reduces score even
+        if technicals are strong, enforcing multi-factor confirmation.
     """
     # Extract base components (0-100 each)
     fund_score = float(row.get("Fundamental_S", 50.0))
@@ -268,23 +367,48 @@ def compute_overall_score(row: pd.Series) -> Tuple[float, Dict[str, float]]:
 
 def calculate_quality_score(row: pd.Series) -> Tuple[float, str]:
     """
-    Calculate quality score (0-1) based on fundamental health metrics.
+    Calculate fundamental quality score (0-1) based on financial health metrics.
     
-    Converts to 3-level system:
-    - High: ≥0.7 (strong fundamentals)
-    - Medium: 0.4-0.69 (acceptable fundamentals)
-    - Low: <0.4 (weak fundamentals)
+    Quality Assessment:
+    - **High** (≥0.70): Strong fundamentals (good for core/long-term)
+    - **Medium** (0.40-0.69): Acceptable fundamentals (okay for trading)
+    - **Low** (<0.40): Weak fundamentals (risky, prefer Core filter)
     
-    Quality components:
-    - Margins (ROE, Gross Margin, Profit Margin): Higher is better
-    - Growth (Revenue YoY, EPS YoY): Higher is better
-    - Debt (D/E ratio): Lower is better
+    Components (weighted by importance):
+    1. **Profitability** (40%): ROE, Gross Margin, Profit Margin
+       - ROE 15%+: Full points; 5%: Half points; <5%: Penalty
+    2. **Growth** (25%): Revenue YoY, EPS YoY
+       - 15%+ growth: Full points; 0-15%: Partial; <0%: Negative
+    3. **Debt** (20%): Debt-to-Equity ratio
+       - D/E <1.0: Full points; 1.0-2.0: Partial; >2.0: Penalty
+    4. **Stability** (15%): Consistency of metrics YoY
     
     Args:
-        row: DataFrame row with fundamental metrics
+        row: DataFrame row with fundamental metrics:
+             - ROE_f, GM_f, PM_f (profitability, 0-1 or %)
+             - RevG_f, EPG_f (growth rates, 0-1 or %)
+             - DE_f (debt-to-equity, 0-5+ range)
+             Missing values are treated as neutral (0.5)
     
     Returns:
-        (quality_score 0-1, quality_level "High"/"Medium"/"Low")
+        Tuple of (quality_score 0-1, quality_level):
+        - quality_score (float 0-1): Composite quality metric
+        - quality_level (str): "High", "Medium", or "Low" label
+    
+    Raises:
+        No exceptions. Missing/invalid metrics handled gracefully.
+    
+    Examples:
+        >>> row = pd.Series({'ROE_f': 0.18, 'GM_f': 0.35, 'DE_f': 0.8})
+        >>> score, level = calculate_quality_score(row)
+        >>> score
+        0.75  # High quality
+        >>> level
+        'High'
+    
+    Note:
+        Used by allocation logic to limit position size in low-quality stocks.
+        High-quality stocks get preference in portfolio construction.
     """
     scores = []
     weights = []
