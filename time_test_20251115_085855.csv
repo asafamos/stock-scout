@@ -1,5 +1,0 @@
-Ticker,EventDate,Status
-NVDA,2024-05-24,"Error: X has 6 features, but LogisticRegression is expecting 5 features as input."
-AAPL,2024-08-01,"Error: X has 6 features, but LogisticRegression is expecting 5 features as input."
-MSFT,2024-04-26,"Error: X has 6 features, but LogisticRegression is expecting 5 features as input."
-AMD,2024-07-31,"Error: X has 6 features, but LogisticRegression is expecting 5 features as input."

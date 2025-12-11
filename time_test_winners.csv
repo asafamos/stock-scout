@@ -1,9 +1,0 @@
-Ticker,EventDate,EvalDate,PreDays,DataAvailable,PassesCore,PassesSpec,ML_Prob,RSI,ATR_Pct,Overext,RR,MomCons,Error
-NVDA,2024-02-26,2024-02-21,5,False,False,False,,,,,,,Insufficient data
-SMCI,2024-02-29,2024-02-22,7,False,False,False,,,,,,,Insufficient data
-META,2024-02-05,2024-01-31,5,False,False,False,,,,,,,Insufficient data
-PLTR,2024-11-05,2024-10-31,5,False,False,False,,,,,,,Insufficient data
-AVGO,2024-03-15,2024-03-08,7,False,False,False,,,,,,,Insufficient data
-TSLA,2024-10-24,2024-10-14,10,False,False,False,,,,,,,Insufficient data
-AMD,2024-02-01,2024-01-27,5,False,False,False,,,,,,,Insufficient data
-ANET,2024-02-15,2024-02-08,7,False,False,False,,,,,,,Insufficient data

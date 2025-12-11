@@ -1,10 +1,54 @@
+# Environment and secrets
 .env
 *.nev
 
+# Python virtual environment
 .venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# macOS files
 .DS_Store
+.AppleDouble
+.LSOverride
 
 # Backup and temporary files
 *.bak
 *.tmp
-__pycache__/
+*~
+*.swp
+*.swo
+
+# Logs
+*.log
+streamlit*.log
+
+# Generated/temporary data files
+*.csv
+!requirements.txt
+!runtime.txt
+
+# Model artifacts (keep only production model)
+model_5d.pkl
+model_5d_full.pkl
+model_logistic_5d.pkl
+calibration_curve.csv
+feature_importance.csv
+shap_values*.csv
+
+# Old archives
+archive_*/
+old_*/
+backup_*/
+
+# IDE files
+.vscode/
+.idea/
+*.code-workspace

@@ -2135,12 +2135,18 @@ def get_eodhd_price(ticker: str) -> Optional[float]:
 
 
 # ==================== UI ====================
-from design_system import get_modern_css
-
 st.set_page_config(
     page_title="Asaf's Stock Scout — 2025", page_icon="📈", layout="wide"
 )
-st.markdown(get_modern_css(), unsafe_allow_html=True)
+
+# Basic modern CSS styling
+st.markdown("""
+<style>
+    .main { padding: 1rem; }
+    .stButton>button { border-radius: 8px; }
+    h1, h2, h3 { margin-top: 1rem; }
+</style>
+""", unsafe_allow_html=True)
 
 st.title("📈 Stock Scout — 2025 (Auto)")
 
