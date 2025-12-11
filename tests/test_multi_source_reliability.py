@@ -103,6 +103,72 @@ def test_aggregate_fundamentals_empty_sources():
     assert "sources_used" in result
     assert len(result["sources_used"]) == 0
     assert result["disagreement_score"] >= 0.0
+    # Explicit neutral metadata
+    assert result.get("Fundamental_Sources_Count", None) == 0
+    assert result.get("Fundamental_Coverage_Pct", None) == 0.0
+    assert result.get("Fundamental_S", None) == 50.0
+    assert result.get("Fund_from_FMP", None) is False
+    assert result.get("Fund_from_Finnhub", None) is False
+    assert result.get("Fund_from_Tiingo", None) is False
+    assert result.get("Fund_from_Alpha", None) is False
+
+
+def test_reliability_bounds_and_monotonicity():
+    """Reliability v2 should stay within bounds and respond to signals."""
+    from core.v2_risk_engine import calculate_reliability_v2
+    import pandas as pd
+
+    # Case 1: Empty fundamentals, single price source, high variance → low reliability
+    row1 = pd.Series({
+        "Fundamental_Coverage_Pct": 0.0,
+        "Fundamental_Sources_Count": 0,
+        "Price_Sources_Count": 1,
+        "Price_STD": 5.0,
+        "Price_Mean": 50.0,
+        "ATR_Pct": 0.06,
+        "Quality_Score": 50.0,
+    })
+    r1, _ = calculate_reliability_v2(row1)
+    assert 0.0 <= r1 <= 100.0
+    assert r1 < 35.0
+
+    # Case 2: Single fundamental source, partial coverage, moderate variance → medium reliability
+    row2 = pd.Series({
+        "Fundamental_Coverage_Pct": 50.0,
+        "Fundamental_Sources_Count": 1,
+        "Price_Sources_Count": 2,
+        "Price_STD": 0.5,
+        "Price_Mean": 100.0,
+        "ATR_Pct": 0.03,
+        "Quality_Score": 60.0,
+    })
+    r2, _ = calculate_reliability_v2(row2)
+    assert 0.0 <= r2 <= 100.0
+    assert r2 > r1
+    assert 40.0 <= r2 <= 75.0
+
+    # Case 3: Multiple sources, high coverage, low variance → high reliability
+    row3 = pd.Series({
+        "Fundamental_Coverage_Pct": 90.0,
+        "Fundamental_Sources_Count": 3,
+        "Price_Sources_Count": 4,
+        "Price_STD": 0.2,
+        "Price_Mean": 200.0,
+        "ATR_Pct": 0.025,
+        "Quality_Score": 75.0,
+    })
+    r3, _ = calculate_reliability_v2(row3)
+    assert 0.0 <= r3 <= 100.0
+    assert r3 > r2
+    assert r3 >= 75.0
+
+    # Case 4: High price disagreement reduces reliability
+    row4 = row3.copy()
+    row4["Price_STD"] = 15.0
+    row4["Price_Mean"] = 100.0
+    r4, _ = calculate_reliability_v2(row4)
+    assert 0.0 <= r4 <= 100.0
+    assert r4 < r3
 
 
 def test_reliability_formula_no_sources():

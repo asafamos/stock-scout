@@ -20,14 +20,34 @@ def calculate_reliability_v2(
     price_sources: Optional[Dict] = None
 ) -> Tuple[float, Dict[str, Any]]:
     """
-    Calculate MEANINGFUL reliability score (0-100) based on:
-    1. Data coverage (fundamental completeness)
-    2. Fundamentals coverage (number of sources)
-    3. Price source agreement (count + variance)
-    4. Inverse volatility (lower ATR/Price = higher reliability)
-    
+    Reliability v2 — multi-source trust score in [0, 100].
+
+    Inputs are taken from the unified row and should include:
+    - Fundamental_Coverage_Pct: float [0,100] — percent of key fields present
+    - Fundamental_Sources_Count: int — number of fundamental providers (FMP/Finnhub/Tiingo/Alpha)
+    - Price_Sources_Count: int — number of distinct price providers used
+    - Price_STD: float — standard deviation across price providers
+    - Price_Mean: float — mean of prices across providers
+    - ATR_Price or ATR_Pct: float — volatility proxy (ATR/Price)
+    - Quality_Score or Quality_Score_F: float [0,100] — optional trading quality proxy
+
+    Semantics:
+    - 0 = very low trust (missing fundamentals, single/zero price source, high disagreement)
+    - 100 = very high trust (multiple agreeing price sources, high fundamental coverage, decent liquidity/volatility)
+
+    Formula overview (weighted components):
+    - Fundamentals reliability (40%): coverage x source_factor, penalized when sources=0
+    - Price reliability (35%): agreement factor from CV (std/mean) and source count
+    - Volatility/Liquidity (15%): lower ATR/Price increases reliability, unknown incurs penalty
+    - Quality bonus (10%): optional, modest lift for higher quality
+
+    Strong penalties:
+    - Fundamental_Sources_Count == 0 or coverage very low → heavy reduction
+    - Price_Sources_Count in {0,1} → capped contribution and added penalty if high variance
+    - High CV (>5%) → large penalty; CV computed as std/mean
+
     Returns:
-        (reliability_v2: 0-100, details_dict)
+        (reliability_v2: float in [0,100], details_dict: component breakdown)
     """
     details = {
         "fundamental_completeness_pct": 0.0,
@@ -35,68 +55,77 @@ def calculate_reliability_v2(
         "price_sources_count": 0,
         "price_variance_penalty": 0.0,
         "volatility_penalty": 0.0,
-        "fund_disagreement": 0.0
+        "fund_component": 0.0,
+        "price_component": 0.0,
+        "vol_component": 0.0,
+        "quality_component": 0.0,
     }
     
     # 1) FUNDAMENTAL COMPLETENESS (0-100 scale)
     # Check all important fundamental fields
-    fundamental_fields = [
-        "PE_f", "PS_f", "PBRatio", "ROE_f", "ROIC_f", "GM_f", "ProfitMargin",
-        "DE_f", "RevG_f", "EPSG_f", "RevenueGrowthYoY", "EPSGrowthYoY",
-        "Fundamental_S", "Quality_Score_F", "Growth_Score_F", "Valuation_Score_F"
-    ]
-    
-    filled_count = 0
-    for field in fundamental_fields:
-        val = row.get(field)
-        if pd.notna(val) and val not in [0, "", "N/A"]:
-            filled_count += 1
-    
-    completeness_pct = (filled_count / len(fundamental_fields)) * 100
+    # Prefer explicit coverage metric if available
+    cov_pct_explicit = row.get("Fundamental_Coverage_Pct", None)
+    if cov_pct_explicit is not None and np.isfinite(cov_pct_explicit):
+        completeness_pct = float(np.clip(cov_pct_explicit, 0.0, 100.0))
+    else:
+        fundamental_fields = [
+            "PE_f", "PS_f", "PBRatio", "ROE_f", "ROIC_f", "GM_f", "ProfitMargin",
+            "DE_f", "RevG_f", "EPSG_f", "RevenueGrowthYoY", "EPSGrowthYoY",
+            "Fundamental_S", "Quality_Score_F", "Growth_Score_F", "Valuation_Score_F"
+        ]
+        filled_count = 0
+        for field in fundamental_fields:
+            val = row.get(field)
+            if pd.notna(val) and val not in [0, "", "N/A"]:
+                filled_count += 1
+        completeness_pct = (filled_count / len(fundamental_fields)) * 100
     details["fundamental_completeness_pct"] = completeness_pct
     
     # 2) NUMBER OF FUNDAMENTAL SOURCES
     fund_sources = 0
-    for src in ["Fund_from_FMP", "Fund_from_Alpha", "Fund_from_Finnhub", 
-                "Fund_from_SimFin", "Fund_from_EODHD"]:
-        if row.get(src, False):
+    for src in ["Fund_from_FMP", "Fund_from_Alpha", "Fund_from_Finnhub", "Fund_from_Tiingo"]:
+        if bool(row.get(src, False)):
             fund_sources += 1
-    
-    # Also check the count column if it exists
-    if "Fundamental_Sources_Count" in row.index:
-        fund_sources = max(fund_sources, int(row.get("Fundamental_Sources_Count", 0)))
+    # Use explicit count if provided
+    if "Fundamental_Sources_Count" in row.index or row.get("Fundamental_Sources_Count") is not None:
+        try:
+            fund_sources = max(fund_sources, int(row.get("Fundamental_Sources_Count", 0) or 0))
+        except Exception:
+            pass
     
     details["fund_sources_count"] = fund_sources
     
     # 3) PRICE SOURCE RELIABILITY
-    price_sources_count = int(row.get("Price_Sources_Count", 1))
+    price_sources_count = int(row.get("Price_Sources_Count", row.get("price_sources", 1) or 1))
     details["price_sources_count"] = price_sources_count
     
     # Price variance penalty
-    price_std = row.get("Price_STD", 0.0)
-    price_mean = row.get("Price_Mean", row.get("Price_Yahoo", 0.0))
-    
-    if price_mean > 0 and pd.notna(price_std):
-        cv = (price_std / price_mean) * 100  # Coefficient of variation
-        # CV > 2% is concerning, > 5% is very bad
-        variance_penalty = min(cv / 5.0, 1.0) * 30  # Up to 30 point penalty
-        details["price_variance_penalty"] = variance_penalty
+    price_std = row.get("Price_STD", row.get("price_std", 0.0))
+    price_mean = row.get("Price_Mean", row.get("price_mean", row.get("Price_Yahoo", 0.0)))
+    cv = None
+    if price_mean and np.isfinite(price_mean) and price_mean > 0 and price_std is not None and np.isfinite(price_std):
+        cv = float(price_std) / float(price_mean)
+        # Penalty scales steeply after 2% and saturates at 10%
+        variance_penalty = float(np.clip((cv - 0.02) / 0.08, 0.0, 1.0)) * 35.0
     else:
-        variance_penalty = 0.0
+        variance_penalty = 20.0 if price_sources_count <= 1 else 10.0  # Unknown variance penalty
+    details["price_variance_penalty"] = variance_penalty
     
     # 4) VOLATILITY PENALTY (inverse ATR/Price)
     # Lower volatility = higher reliability
     atr_price = row.get("ATR_Price", row.get("ATR_Pct", np.nan))
     if pd.notna(atr_price) and atr_price > 0:
-        # ATR/Price > 8% = very volatile (50pt penalty)
-        # ATR/Price 4-8% = moderate (25pt penalty)
-        # ATR/Price < 4% = stable (0pt penalty)
+        # Ideal band roughly 2-4%; harsher outside
         if atr_price > 0.08:
-            volatility_penalty = 50.0
-        elif atr_price > 0.04:
-            volatility_penalty = 25.0 * ((atr_price - 0.04) / 0.04)
+            volatility_penalty = 45.0
+        elif atr_price > 0.05:
+            volatility_penalty = 30.0
+        elif atr_price > 0.03:
+            volatility_penalty = 15.0
+        elif atr_price > 0.015:
+            volatility_penalty = 5.0
         else:
-            volatility_penalty = 0.0
+            volatility_penalty = 10.0  # Too quiet can also reduce trust
         details["volatility_penalty"] = volatility_penalty
     else:
         volatility_penalty = 15.0  # Unknown volatility = small penalty
@@ -110,37 +139,51 @@ def calculate_reliability_v2(
     # - 15% volatility (inverse)
     # - 10% price variance
     
-    # Completeness score (already 0-100)
-    completeness_score = completeness_pct
-    
-    # Fund sources score (0 sources = 0, 1 = 40, 2 = 70, 3 = 85, 4+ = 100)
-    if fund_sources == 0:
-        fund_sources_score = 0.0
+    # Fundamentals component: coverage scaled by sources
+    # source_factor: 0 sources → 0; 1 → 0.6; 2 → 0.8; 3+ → 1.0
+    if fund_sources <= 0:
+        source_factor_f = 0.0
     elif fund_sources == 1:
-        fund_sources_score = 40.0
+        source_factor_f = 0.6
     elif fund_sources == 2:
-        fund_sources_score = 70.0
-    elif fund_sources == 3:
-        fund_sources_score = 85.0
-    else:  # 4+
-        fund_sources_score = 100.0
-    
-    # Price sources score (1 = 50, 2 = 70, 3+ = 100)
-    if price_sources_count <= 1:
-        price_sources_score = 50.0
+        source_factor_f = 0.8
+    else:
+        source_factor_f = 1.0
+    fund_component = float(np.clip(completeness_pct, 0, 100)) * source_factor_f
+    details["fund_component"] = fund_component
+
+    # Price component: agreement (1 - penalty) scaled by sources
+    if price_sources_count <= 0:
+        source_factor_p = 0.0
+    elif price_sources_count == 1:
+        source_factor_p = 0.6
     elif price_sources_count == 2:
-        price_sources_score = 70.0
-    else:  # 3+
-        price_sources_score = 100.0
-    
-    # Weighted combination (NEW: includes volatility)
+        source_factor_p = 0.8
+    else:
+        source_factor_p = 1.0
+    price_agreement_score = float(np.clip(100.0 - variance_penalty, 0, 100))
+    price_component = price_agreement_score * source_factor_p
+    details["price_component"] = price_component
+
+    # Volatility component: invert penalty
+    vol_component = float(np.clip(100.0 - volatility_penalty, 0, 100))
+    details["vol_component"] = vol_component
+
+    # Quality component: optional small boost
+    quality = row.get("Quality_Score", row.get("Quality_Score_F", None))
+    if quality is not None and np.isfinite(quality):
+        quality_component = float(np.clip(quality, 0, 100))
+    else:
+        quality_component = 50.0
+    details["quality_component"] = quality_component
+
+    # Weighted combination
     reliability_v2 = (
-        0.30 * completeness_score +
-        0.25 * fund_sources_score +
-        0.20 * price_sources_score +
-        0.15 * (100 - volatility_penalty) +
-        0.10 * (100 - variance_penalty)
-    )
+        0.40 * fund_component +
+        0.35 * price_component +
+        0.15 * vol_component +
+        0.10 * quality_component
+    ) / 100.0 * 100.0
     
     reliability_v2 = float(np.clip(reliability_v2, 0, 100))
     

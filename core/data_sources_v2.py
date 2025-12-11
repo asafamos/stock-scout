@@ -355,18 +355,41 @@ def aggregate_fundamentals(ticker: str, prefer_source: str = "fmp") -> Dict:
         try:
             result = fetch_func(ticker)
             if result:
-                sources_data[source_name] = result
-                logger.debug(f"✓ {source_name} data fetched for {ticker}")
+                # Validate that at least one key field is present and finite
+                key_fields = ["pe", "ps", "pb", "roe", "margin", "rev_yoy", "eps_yoy", "debt_equity", "market_cap", "beta"]
+                has_signal = False
+                for k in key_fields:
+                    v = result.get(k)
+                    if v is not None and np.isfinite(v):
+                        has_signal = True
+                        break
+                if has_signal:
+                    sources_data[source_name] = result
+                    logger.debug(f"✓ {source_name} data fetched for {ticker}")
+                else:
+                    logger.debug(f"✗ {source_name} returned no usable fundamentals for {ticker}")
         except Exception as e:
             logger.warning(f"Failed to fetch from {source_name} for {ticker}: {e}")
     
     if not sources_data:
         logger.warning(f"No fundamental data available for {ticker}")
+        # Return a neutral, non-crashing structure with explicit metadata
         return {
             "ticker": ticker,
             "sources_used": [],
             "coverage": {},
             "disagreement_score": 1.0,
+            # Explicit fundamental coverage and counts
+            "Fundamental_Coverage_Pct": 0.0,
+            "Fundamental_Sources_Count": 0,
+            # Neutral default score used by downstream when fundamentals missing
+            "Fundamental_S": 50.0,
+            # Per-source flags for downstream logic
+            "Fund_from_FMP": False,
+            "Fund_from_Finnhub": False,
+            "Fund_from_Tiingo": False,
+            "Fund_from_Alpha": False,
+            "timestamp": time.time(),
         }
     
     # Aggregate fields
@@ -411,6 +434,23 @@ def aggregate_fundamentals(ticker: str, prefer_source: str = "fmp") -> Dict:
     aggregated["sources_used"] = list(sources_data.keys())
     aggregated["coverage"] = coverage
     aggregated["timestamp"] = time.time()
+
+    # Add explicit per-source flags
+    aggregated["Fund_from_FMP"] = "fmp" in sources_data
+    aggregated["Fund_from_Finnhub"] = "finnhub" in sources_data
+    aggregated["Fund_from_Tiingo"] = "tiingo" in sources_data
+    aggregated["Fund_from_Alpha"] = "alpha" in sources_data
+
+    # Compute coverage percentage across fundamental fields
+    covered_fields = sum(1 for f in fields if (f in aggregated and pd.notna(aggregated.get(f))) )
+    total_fields = len(fields)
+    coverage_pct = (covered_fields / total_fields) * 100.0 if total_fields > 0 else 0.0
+    aggregated["Fundamental_Coverage_Pct"] = float(coverage_pct)
+    aggregated["Fundamental_Sources_Count"] = int(len(aggregated["sources_used"]))
+
+    # Provide neutral Fundamental_S if not computed elsewhere
+    if "Fundamental_S" not in aggregated:
+        aggregated["Fundamental_S"] = 50.0
     
     # Cache the merged result
     cache_key = f"merged_fund_{ticker}"

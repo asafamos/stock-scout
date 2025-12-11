@@ -62,12 +62,14 @@ class FundamentalBreakdown:
     growth_score: float = 0.0
     valuation_score: float = 0.0
     leverage_score: float = 0.0
+    stability_score: float = 0.0
     
     # Human-friendly labels
     quality_label: str = "Unknown"  # Low / Medium / High
     growth_label: str = "Unknown"  # Declining / Slow / Moderate / Fast
     valuation_label: str = "Unknown"  # Expensive / Fair / Cheap
     leverage_label: str = "Unknown"  # High / Medium / Low
+    stability_label: str = "Unknown"  # Very Volatile / Volatile / Moderate / Stable
     
     # Raw metrics
     roe: Optional[float] = None
@@ -86,10 +88,12 @@ class FundamentalBreakdown:
             "growth_score": self.growth_score,
             "valuation_score": self.valuation_score,
             "leverage_score": self.leverage_score,
+            "stability_score": self.stability_score,
             "quality_label": self.quality_label,
             "growth_label": self.growth_label,
             "valuation_label": self.valuation_label,
             "leverage_label": self.leverage_label,
+            "stability_label": self.stability_label,
             "roe": self.roe,
             "roic": self.roic,
             "gross_margin": self.gross_margin,
