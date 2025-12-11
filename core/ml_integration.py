@@ -9,6 +9,7 @@ Design: ML is a helper, not a replacement. Hard risk rules always apply first.
 from __future__ import annotations
 import os
 import pickle
+from pathlib import Path
 import numpy as np
 import pandas as pd
 from typing import Optional, Tuple, Dict
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 # Global model cache
 _ML_MODEL = None
 _MODEL_LOADED = False
-_MODEL_PATH = "model_xgboost_5d.pkl"
+_MODEL_PATH = str(Path(__file__).resolve().parents[1] / "model_xgboost_5d.pkl")
 
 
 def load_ml_model(model_path: Optional[str] = None) -> bool:

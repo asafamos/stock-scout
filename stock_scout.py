@@ -3693,6 +3693,16 @@ else:
 spec_after_filter = len(spec_filtered)
 
 # ==================== ML SCORING ====================
+# Helper function for ML confidence band (defined outside to be available everywhere)
+def _ml_band(p: float) -> str:
+    if not np.isfinite(p):
+        return "N/A"
+    if p < 0.60:
+        return "Low"
+    if p < 0.75:
+        return "Medium"
+    return "High"
+
 if XGBOOST_MODEL is not None:
     logger.info("Applying XGBoost ML scoring...")
 
@@ -3701,16 +3711,6 @@ if XGBOOST_MODEL is not None:
         core_filtered["ML_Probability"] = core_filtered.apply(
             score_with_xgboost, axis=1
         )
-
-        def _ml_band(p: float) -> str:
-            if not np.isfinite(p):
-                return "N/A"
-            if p < 0.60:
-                return "Low"
-            if p < 0.75:
-                return "Medium"
-            return "High"
-
         core_filtered["ml_conf_band"] = core_filtered["ML_Probability"].apply(_ml_band)
         core_filtered["ML_Confidence"] = core_filtered["ml_conf_band"]
         core_filtered = core_filtered.sort_values("ML_Probability", ascending=False)
@@ -4635,6 +4635,31 @@ st.info(f"📊 Showing {len(rec_df)} stocks after filters")
 
 rec_df = rec_df.copy()
 
+# Responsive recommendation grid + card styles (full-width cards, auto-fit columns)
+st.markdown(
+        """
+<style>
+.recommend-grid{
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 8px;
+    margin-top: 6px;
+}
+.recommend-card{
+    direction: rtl;
+    text-align: right;
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 14px;
+    padding: 14px 16px;
+    margin: 10px 0;
+    box-shadow: 0 1px 3px rgba(0,0,0,.04);
+    width: 100%;
+}
+</style>
+""",
+        unsafe_allow_html=True,
+)
 # Deterministic ranking pre Core/Spec split
 if "Score" in rec_df.columns and "Ticker" in rec_df.columns:
     rec_df = apply_deterministic_ranking(rec_df)
@@ -5233,6 +5258,8 @@ else:
         levels = rec_df["Risk_Level"].astype(str).str.lower()
         core_df = rec_df[levels == "core"].copy()
         spec_df = rec_df[levels == "speculative"].copy()
+        # Inject card CSS once for all recommendation cards
+        st.markdown(get_card_css(), unsafe_allow_html=True)
     else:
         # Fallback if Risk_Level column doesn't exist: treat all as core
         core_df = rec_df.copy()
@@ -5555,29 +5582,16 @@ else:
             else:
                 risk_color = "#6b7280"
 
-            card_html = _safe_str(get_card_css(), "") + _safe_str(build_clean_card(r, speculative=False), "")
-
-            # Add provider attribution if available (Core cards)
+            st.text(f"CORE CARD: {r.get('Ticker', 'N/A')} (rank {r.get('Overall_Rank', 'N/A')})")
+            card_html = _safe_str(build_clean_card(r, speculative=False), "")
             attribution = r.get("Fund_Attribution", "")
             if show_debug_attr:
-                # Show raw provider map from _sources if available
                 raw_sources = r.get("_sources", {})
                 if raw_sources:
                     raw_html = html_escape.escape(str(raw_sources))
                     card_html += f"""
-    <div class="item" style="grid-column:span 5;font-size:0.7em;color:#334155;background:#f1f5f9;border:1px dashed #cbd5e1;border-radius:6px;padding:4px;margin-top:4px"><b>RAW _sources:</b> {raw_html}</div>"""
-            # Remove top-level data sources line (moved to details section inside card)
-
-            card_html += """
-  </div>
-</div>
-"""
-            # Use reasonable height with scrolling enabled to prevent text cutoff
-            # Reduced iframe height to tighten vertical spacing between cards.
-            # Previous fixed height (700) created large empty gaps below content.
-            # 430 provides enough space for collapsed + expanded details without excess.
-            # Render card directly (no inner scroll iframe) so expanding details pushes subsequent cards down.
-            st.markdown(card_html, unsafe_allow_html=True)
+<div class="item" style="grid-column:span 5;font-size:0.7em;color:#334155;background:#f1f5f9;border:1px dashed #cbd5e1;border-radius:6px;padding:4px;margin-top:4px"><b>RAW _sources:</b> {raw_html}</div>"""
+            st.markdown(f"<div class=\"recommend-card\">{card_html}</div>", unsafe_allow_html=True)
 
     # Display Speculative recommendations
     if not spec_df.empty:
@@ -5864,24 +5878,16 @@ else:
             overall_score_val = r.get("overall_score", conv_v2)
             rr_ratio_val = r.get("rr", np.nan)
             rr_band = r.get("rr_band", "")
-            card_html = _safe_str(get_card_css(), "") + _safe_str(build_clean_card(r, speculative=True), "")
-
-            # Add provider attribution if available (Speculative cards)
+            st.text(f"SPEC CARD: {r.get('Ticker', 'N/A')} (rank {r.get('Overall_Rank', 'N/A')})")
+            card_html = _safe_str(build_clean_card(r, speculative=True), "")
             attribution_spec = r.get("Fund_Attribution", "")
-            # Remove top-level data sources line for speculative cards as well
             if show_debug_attr:
                 raw_sources = r.get("_sources", {})
                 if raw_sources:
                     raw_html = html_escape.escape(str(raw_sources))
                     card_html += f"""
-    <div class="item" style="grid-column:span 5;font-size:0.7em;color:#334155;background:#f1f5f9;border:1px dashed #cbd5e1;border-radius:6px;padding:4px;margin-top:4px"><b>RAW _sources:</b> {raw_html}</div>"""
-
-            card_html += """
-  </div>
-</div>
-"""
-            # Match reduced height for speculative cards to remove large gaps.
-            st.markdown(card_html, unsafe_allow_html=True)
+<div class="item" style="grid-column:span 5;font-size:0.7em;color:#334155;background:#f1f5f9;border:1px dashed #cbd5e1;border-radius:6px;padding:4px;margin-top:4px"><b>RAW _sources:</b> {raw_html}</div>"""
+            st.markdown(f"<div class=\"recommend-card\">{card_html}</div>", unsafe_allow_html=True)
 
 # Inject compact mode JS to hide advanced/fundamental sections
 if st.session_state.get("compact_mode"):
@@ -5906,107 +5912,60 @@ for(const el of document.querySelectorAll('.compact-mode .section-divider')){
     )
 
 # Final stage advancement
-_advance_stage("Recommendations")
+    # --- Clean, minimal card rendering (new) ---
+    # Inject card CSS once for all cards
+    st.markdown(get_card_css(), unsafe_allow_html=True)
 
-# ==================== Results table + CSV ====================
-st.subheader("🎯 Filtered & Ranked Results")
-view_df_source = rec_df if not rec_df.empty else results
-
-# Augment with sources count if reliability columns present
-if (
-    "Reliability_Score" in view_df_source.columns
-    and "Source_List" in view_df_source.columns
-):
-    view_df_source["Sources_Count"] = view_df_source["Source_List"].apply(
-        lambda s: len(str(s).split(" · ")) if isinstance(s, str) and s else 0
+    st.markdown("## 🎯 Recommendations Now")
+    st.caption(
+        "These cards are buy recommendations only. This is not investment advice."
     )
 
-hebrew_cols = {
-    "Ticker": "Ticker",
-    "Price_Yahoo": "Price (Yahoo)",
-    "Price_Mean": "Average Price",
-    "Unit_Price": "Unit Price (calc)",
-    "Price_STD": "Std Dev",
-    "Source_List": "Price Sources",
-    "Price_Sources_Count": "# Price Sources",
-    "Fundamental_Sources_Count": "# Fund Sources",
-    "Price_Reliability": "Price Reliability",
-    "Fundamental_Reliability": "Fund Reliability",
-    "Reliability_Score": "Reliability Score",
-    "Sources_Count": "Sources Count",
-    # "Price_IEX" removed
-    "Price_Polygon": "Price Polygon",
-    "Price_Tiingo": "Price Tiingo",
-    "Price_Marketstack": "Price Marketstack",
-    "Price_NasdaqDL": "Price NasdaqDL",
-    "Price_EODHD": "Price EODHD",
-    "Score": "Score",
-    "Score_Tech": "Tech Score",
-    "Fundamental_S": "Fundamental Score",
-    "Quality_Score_F": "Fund Quality Score",
-    "Quality_Label": "Quality Label",
-    "Growth_Score_F": "Growth Score",
-    "Growth_Label": "Growth Label",
-    "Valuation_Score_F": "Valuation Score",
-    "Valuation_Label": "Valuation Label",
-    "Leverage_Score_F": "Leverage Score",
-    "Leverage_Label": "Leverage Label",
-    "Sector": "Sector",
-    "RSI": "RSI",
-    "Near52w": "Near 52w High (%)",
-    "Volx20d": "Volume / 20d Avg",
-    "OverextRatio": "Overextension vs MA_L",
-    "ATR_Price": "ATR/Price",
-    "RewardRisk": "Reward/Risk (≈R)",
-    "Beta": "Beta",
-    "טווח החזקה": "Holding Horizon",
-    "סכום קנייה ($)": "Buy Amount ($)",
-    "מניות לקנייה": "Shares to Buy",
-    "עודף ($)": "Leftover ($)",
-    "PE_f": "P/E",
-    "PS_f": "P/S",
-    "ROE_f": "ROE",
-    "ROIC_f": "ROIC",
-    "GM_f": "Margin",
-    "DE_f": "Debt/Equity",
-    "RevG_f": "Revenue YoY",
-    "EPSG_f": "EPS YoY",
-    "RS_63d": "Market vs (3M) (%)",
-    "Volume_Surge": "Volume Surge (x)",
-    "MA_Aligned": "MA Aligned",
-    "Quality_Score": "Quality Score",
-    "RR_Ratio": "Risk/Reward",
-    "Momentum_Consistency": "Momentum Consistency (%)",
-    "High_Confidence": "High Confidence",
-    "Risk_Level": "Risk Level",
-    "Data_Quality": "Data Quality",
-    "Confidence_Level": "Confidence Level",
-    "Classification_Warnings": "Warnings",
-    "ML_Probability": "ML Probability",
-    "ML_Confidence": "ML Confidence",
-    # V2 strict columns (export-friendly labels)
-    "conviction_v2_base": "Conviction v2 Base",
-    "conviction_v2_final": "Conviction v2 Final",
-    "reliability_v2": "Reliability Score v2",
-    "reliability_score_v2": "Reliability Score v2",
-    "risk_gate_status_v2": "Risk Gate Status v2",
-    "risk_gate_reason_v2": "Risk Gate Reason v2",
-    "rr_ratio_v2": "Reward/Risk v2",
-    "reward_risk_v2": "Reward/Risk v2",
-    "buy_amount_v2": "Buy Amount v2",
-    "shares_to_buy_v2": "Shares to Buy v2",
-    "fund_sources_used_v2": "Fund Sources Used",
-    "price_sources_used_v2": "Price Sources Used",
-    "fund_disagreement_score_v2": "Fund Disagreement Score",
-    "price_variance_score_v2": "Price Variance Score",
-    # Newly exposed transparency columns
-    "overall_score": "Overall Score",
-    "fund_score": "Fund Score",
-    "tech_score": "Tech Score",
-    "rr_score": "RR Score",
-    "reliability_score": "Reliability Score (Unified)",
-    "ml_delta": "ML Delta",
-}
+    # Helper: safe sort by Overall_Rank if available
+    def _sort_by_rank(df: pd.DataFrame) -> pd.DataFrame:
+        if "Overall_Rank" in df.columns:
+            return df.sort_values("Overall_Rank", ascending=True)
+        return df
+
+    # Core cards
+    if not core_df.empty:
+        core_sorted = _sort_by_rank(core_df)
+        st.markdown("### 🛡️ Core Stocks — Lower Relative Risk")
+        st.caption(
+            f"✅ {len(core_sorted)} stocks with high data quality and balanced risk profile"
+        )
+
+        for _, r in core_sorted.iterrows():
+            # Temporary debug – one line per card
+            st.text(
+                f"CORE CARD: {r.get('Ticker', 'N/A')} "
+                f"(rank {r.get('Overall_Rank', 'N/A')})"
+            )
+            card_html = _safe_str(build_clean_card(r, speculative=False), "")
+            st.markdown(
+                f"<div class='recommend-card'>{card_html}</div>",
+                unsafe_allow_html=True,
+            )
+
+    # Speculative cards
+    if not spec_df.empty:
+        spec_sorted = _sort_by_rank(spec_df)
+        st.markdown("### ⚡ Speculative Stocks — High Upside, High Risk")
+        st.caption(
+            f"⚠️ {len(spec_sorted)} stocks with a higher risk profile"
+        )
+
+        for _, r in spec_sorted.iterrows():
+            # Temporary debug – one line per card
+            st.text(
+                f"SPEC CARD: {r.get('Ticker', 'N/A')} "
+                f"(rank {r.get('Overall_Rank', 'N/A')})"
+            )
+            card_html = _safe_str(build_clean_card(r, speculative=True), "")
+            st.markdown(
+                f"<div class='recommend-card'>{card_html}</div>",
+                unsafe_allow_html=True,
+            )
 show_order = [
     "Ticker",
     "Sector",
@@ -6106,7 +6065,34 @@ show_order = [
     "Volatility_Penalty",
     "Safety_Caps_Applied",
 ]
-csv_df = view_df_source.rename(columns=hebrew_cols)
+# --- Hebrew column mapping for CSV export ---
+hebrew_cols = {
+    "Ticker": "סימול",
+    "Sector": "סקטור",
+    "Risk Level": "רמת סיכון",
+    "Data Quality": "איכות נתונים",
+    "ML Probability": "הסתברות ML",
+    "ML Confidence": "רמת ביטחון ML",
+    "Confidence Level": "רמת ביטחון",
+    "Reliability Score": "ציון אמינות",
+    "Score": "ציון כולל",
+    "Buy Amount v2": "סכום קנייה ($)",
+    "Shares to Buy v2": "מניות לקנייה",
+    "Buy Amount ($)": "סכום קנייה ($)",
+    "Shares to Buy": "מניות לקנייה",
+    "Leftover ($)": "עודף ($)",
+    "Entry_Price": "מחיר כניסה",
+    "Target_Price": "מחיר יעד",
+    "RR": "סיכון/סיכוי",
+    "Reliability_Band": "רצועת אמינות",
+    "Market_Regime": "מצב שוק",
+    "Regime_Confidence": "ביטחון מצב שוק",
+    "Fundamental_S": "ציון יסודות",
+    "Technical_S": "ציון טכני",
+    # Add more mappings as needed for full export
+}
+
+csv_df = rec_df.rename(columns=hebrew_cols)
 
 
 # Ensure column names unique after rename (pandas JSON export requires uniqueness)
@@ -6190,7 +6176,7 @@ st.markdown("</div>", unsafe_allow_html=True)
 
 # ==================== Quick chart ====================
 st.subheader("🔍 Chart Ticker from Results")
-choices = ["(Select)"] + view_df_source["Ticker"].astype(str).tolist()
+choices = ["(Select)"] + rec_df["Ticker"].astype(str).tolist()
 choice = st.selectbox("Select ticker", choices, index=0)
 if choice and choice != "(Select)" and choice in data_map:
     dfv = data_map[choice].copy()
