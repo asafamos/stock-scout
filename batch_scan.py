@@ -216,9 +216,16 @@ def run_batch_scan(
             coverage_pct = agg_fund.get("coverage_pct", 0.0)
             sources_used = len(agg_fund.get("sources_used", []))
             
-            # Compute fundamental score
+            # Compute fundamental score (FundamentalScore.total is the overall score)
             fund_score_obj = compute_fundamental_score_with_breakdown(fund_data, coverage_pct=coverage_pct)
-            fund_score = fund_score_obj.overall_score
+            # Defensive access: use .total if present, else try 'score' or dict fallback
+            try:
+                fund_score = float(getattr(fund_score_obj, "total", float("nan")))
+            except Exception:
+                try:
+                    fund_score = float(fund_score_obj.get("total", float("nan")))
+                except Exception:
+                    fund_score = float("nan")
             
             fund_scores.append(fund_score)
             fund_coverage.append(coverage_pct)

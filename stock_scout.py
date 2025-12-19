@@ -2366,7 +2366,12 @@ skip_pipeline = st.session_state.get("skip_pipeline", False) and use_precomputed
 t0_regime = t_start()
 if not skip_pipeline:
     status_manager.update_detail("Analyzing SPY/QQQ/VIX trends...")
-market_regime_data = detect_market_regime(lookback_days=60)
+
+@st.cache_data(ttl=3600)
+def _cached_detect_market_regime(lookback_days: int = 60):
+    return detect_market_regime(lookback_days=lookback_days)
+
+market_regime_data = _cached_detect_market_regime(lookback_days=60)
 regime = market_regime_data.get("regime", "neutral")
 regime_confidence = market_regime_data.get("confidence", 50)
 phase_times["market_regime"] = t_end(t0_regime)
@@ -2395,7 +2400,7 @@ if skip_pipeline:
     # Skip to recommendations section (results already loaded)
     st.info("⚡ Using precomputed scan — skipping live pipeline execution")
     # Stop the script so we don't execute the heavy pipeline below
-    st.stop()
+    # (Previously used to halt execution; now we continue and prefer precomputed results for rendering.)
     
 else:
     # Run live pipeline as normal
@@ -4142,6 +4147,28 @@ if total_alloc > total_budget_value and total_alloc > 0:
         )
     
 # Live-mode-only: offer saving this run as latest precomputed scan
+# If a precomputed scan was loaded earlier, prefer it for rendering instead of re-running the pipeline.
+if st.session_state.get("precomputed_results") is not None and st.session_state.get("skip_pipeline", False):
+    try:
+        results = st.session_state.get("precomputed_results").copy()
+        # Rename columns to match live pipeline naming
+        column_renames = {
+            'Close': 'Price_Yahoo',
+            'Technical_Score': 'Score_Tech',
+            'Fundamental_Score': 'Fundamental_S',
+            'Overall_Score': 'Score',
+            'Fund_Sources_Count': 'fund_sources_used_v2',
+            'Reliability_v2': 'reliability_v2',
+        }
+        results = results.rename(columns=column_renames)
+    except Exception:
+        results = st.session_state.get("precomputed_results")
+    data_map = {}
+    phase_times = phase_times if 'phase_times' in locals() else {}
+    logger.info(f"Rendering using precomputed scan with {len(results)} tickers")
+    status_manager.complete(f"✅ Precomputed scan loaded: {len(results)} tickers")
+    st.info("⚡ Rendering using precomputed scan (no live pipeline run)")
+
 if not use_precomputed:
     st.markdown("---")
     save_live = st.checkbox(
@@ -5036,7 +5063,9 @@ if not rec_df.empty:
                 return "Low"
         return "Unknown"
     
-    rec_df["Reliability_Band"] = rec_df.get("Reliability_v2", rec_df.get("reliability_pct", 50)).apply(_get_reliability_band)
+    # Get reliability values, defaulting to 50 if columns don't exist
+    reliability_series = rec_df.get("Reliability_v2", rec_df.get("reliability_pct", pd.Series([50] * len(rec_df), index=rec_df.index)))
+    rec_df["Reliability_Band"] = reliability_series.apply(_get_reliability_band)
     
     # Reliability components summary
     def _get_reliability_components(row):
@@ -5055,9 +5084,13 @@ if not rec_df.empty:
     rec_df["Fund_Coverage_Pct"] = rec_df.get("Fund_Coverage_Pct", 0).fillna(0)
     
     # Volatility penalty (from reliability calculation)
-    rec_df["Volatility_Penalty"] = rec_df.get("ATR_Price", 0).apply(
-        lambda x: "High" if x > 0.08 else ("Moderate" if x > 0.04 else "Low") if pd.notna(x) else "Unknown"
-    )
+    atr_price = rec_df.get("ATR_Price")
+    if atr_price is not None:
+        rec_df["Volatility_Penalty"] = atr_price.apply(
+            lambda x: "High" if x > 0.08 else ("Moderate" if x > 0.04 else "Low") if pd.notna(x) else "Unknown"
+        )
+    else:
+        rec_df["Volatility_Penalty"] = "Unknown"
     
     # Safety caps applied (if overall score was capped)
     rec_df["Safety_Caps_Applied"] = "No"  # Placeholder - would need to track during scoring
