@@ -59,6 +59,13 @@ from core.v2_risk_engine import score_ticker_v2_enhanced
 from indicators import rsi, atr, macd_line, adx, _sigmoid
 from core.scoring_engine import evaluate_rr_unified
 from core.market_regime import detect_market_regime, adjust_target_for_regime
+from core.ui_helpers import (
+    StatusManager,
+    SourcesOverview,
+    get_pipeline_stages,
+    show_config_summary,
+    create_debug_expander,
+)
 
 # Helper: build clean minimal card
 
@@ -415,7 +422,10 @@ def _empty_fund_row() -> dict:
 
 # Provider usage tracker promoted to module level (was nested in legacy fundamentals function)
 def mark_provider_usage(provider: str, category: str):
-    """Record usage of a provider for a given category (price/fundamentals/ml). Safe no-throw."""
+    """Record usage of a provider for a given category (price/fundamentals/ml). Safe no-throw.
+    
+    DEPRECATED: Use SourcesOverview.mark_usage() instead. Kept for backward compatibility.
+    """
     try:
         usage = st.session_state.setdefault("provider_usage", {})
         cats = usage.setdefault(provider, set())
@@ -2221,189 +2231,58 @@ elif not alpha_ok and finn_ok:
     )
 
 ###############################
-# Data Sources Usage & Keys Table (improved)
+# 🔌 Data Sources — Dynamic Overview (2026)
 ###############################
-st.markdown("### 🔌 Data Sources — Keys, Connectivity & Usage")
+st.markdown("### 🔌 Data Sources")
 
-DATA_SOURCES = {
-    "Yahoo": {"env_keys": []},
-    "FMP": {"env_keys": ["FMP_API_KEY"]},
-    "Alpha": {"env_keys": ["ALPHA_VANTAGE_API_KEY"]},
-    "Finnhub": {"env_keys": ["FINNHUB_API_KEY"]},
-    "Polygon": {"env_keys": ["POLYGON_API_KEY"]},
-    "Tiingo": {"env_keys": ["TIINGO_API_KEY"]},
-    "SimFin": {"env_keys": ["SIMFIN_API_KEY"]},
-    "EODHD": {"env_keys": ["EODHD_API_KEY"]},
-    "Marketstack": {"env_keys": ["MARKETSTACK_API_KEY"]},
-    "Nasdaq": {"env_keys": ["NASDAQ_API_KEY", "NASDAQ_DL_API_KEY"]},
-    "OpenAI": {"env_keys": ["OPENAI_API_KEY"]},
-}
+# Initialize sources overview and status manager
+sources_overview = SourcesOverview()
 
+# Store provider status in session state for connectivity checks
+st.session_state["_alpha_vantage_ok"] = alpha_ok
+st.session_state["_finnhub_ok"] = finn_ok
+st.session_state["_polygon_ok"] = poly_ok
+st.session_state["_tiingo_ok"] = tiin_ok
+st.session_state["_fmp_ok"] = fmp_ok
 
-def _has_key(provider: str, keys: list) -> bool:
-    if not keys:  # Yahoo always available
-        return True
-    for k in keys:
-        if _env(k) or os.getenv(k) or st.secrets.get(k):
-            return True
-    return False
+# Render initial sources table
+sources_overview.render(show_legend=True)
 
+# Check for critical missing providers
+critical_warning = sources_overview.check_critical_missing()
+if critical_warning:
+    st.error(critical_warning)
 
-# Dot styles: green=used, yellow=available not yet used, gray=missing
-dot_used = "<span style='color:#16a34a;font-weight:700'>●</span>"
-dot_avail = "<span style='color:#f59e0b;font-weight:700'>●</span>"
-dot_missing = "<span style='color:#94a3b8'>●</span>"
+# Developer debug info (collapsible, only if debug mode)
+create_debug_expander({
+    "alpha_ok": alpha_ok,
+    "finn_ok": finn_ok,
+    "fmp_ok": fmp_ok,
+    "poly_ok": poly_ok,
+    "tiin_ok": tiin_ok,
+    "simfin_key": bool(simfin_key),
+    "eodhd_key": bool(eodhd_key),
+    "marketstack_key": bool(marketstack_key),
+    "nasdaq_key": bool(nasdaq_key),
+}, title="🔧 Provider Connectivity Debug")
 
-
-def _status_dot(
-    provider: str, category: str, connected: bool, has_key: bool, usage: dict
-) -> str:
-    if provider in usage and category in usage.get(provider, set()):
-        return dot_used
-    if connected and has_key:
-        return dot_avail
-    return dot_missing
+# Initialize centralized status manager
+status_manager = StatusManager(get_pipeline_stages())
 
 
-def _connectivity_flags(name: str) -> tuple[bool, bool, bool]:
-    price = fund = ml = False
-    if name == "Yahoo":
-        price = True
-    elif name == "FMP":
-        fund = bool(fmp_ok)
-    elif name == "Alpha":
-        price = bool(alpha_ok)
-        fund = bool(alpha_ok)
-    elif name == "Finnhub":
-        price = bool(finn_ok)
-        fund = bool(finn_ok)
-    elif name == "Polygon":
-        price = bool(poly_ok)
-    elif name == "Tiingo":
-        price = bool(tiin_ok)
-        fund = bool(tiin_ok)
-    elif name == "SimFin":
-        fund = bool(_env("SIMFIN_API_KEY"))
-    elif name == "EODHD":
-        fund = bool(_env("EODHD_API_KEY"))
-    elif name == "Marketstack":
-        price = bool(_env("MARKETSTACK_API_KEY")) and CONFIG.get("ENABLE_MARKETSTACK")
-    elif name == "Nasdaq":
-        price = bool(
-            _env("NASDAQ_API_KEY") or _env("NASDAQ_DL_API_KEY")
-        ) and CONFIG.get("ENABLE_NASDAQ_DL")
-    elif name == "OpenAI":
-        ml = bool(
-            OPENAI_AVAILABLE
-            and (os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY"))
-        )
-    return price, fund, ml
-
-
-def render_sources_table(final: bool = False):
-    usage = st.session_state.get("provider_usage", {})
-    table_rows = [
-        "<tr><th style='text-align:left'>Provider</th><th>Key</th><th>Price</th><th>Fundamentals</th><th>ML/AI</th></tr>"
-    ]
-    used_count = 0
-    for name, meta in DATA_SOURCES.items():
-        keys = meta.get("env_keys", [])
-        has_key = _has_key(name, keys)
-        c_price, c_fund, c_ml = _connectivity_flags(name)
-        key_dot = dot_used if has_key else dot_missing
-        price_dot = _status_dot(name, "price", c_price, has_key, usage)
-        fund_dot = _status_dot(name, "fundamentals", c_fund, has_key, usage)
-        ml_dot = _status_dot(name, "ml", c_ml, has_key, usage)
-        if name in usage:
-            used_count += 1
-        table_rows.append(
-            f"<tr><td style='text-align:left'>{name}</td><td>{key_dot}</td><td>{price_dot}</td><td>{fund_dot}</td><td>{ml_dot}</td></tr>"
-        )
-    sources_css = """
-<style>
-.sources-overview table {width:100%; border-collapse:collapse; margin:4px 0 6px 0;}
-.sources-overview th, .sources-overview td {padding:4px 6px; font-size:12px; text-align:center; border-bottom:1px solid #e5e7eb;}
-.sources-overview th {background:#f8fafc; font-weight:600; font-size:11px; letter-spacing:0.5px;}
-.sources-overview tr:last-child td {border-bottom:none;}
-.sources-overview td:first-child, .sources-overview th:first-child {text-align:left;}
-@media (max-width:600px){.sources-overview th,.sources-overview td{font-size:11px;padding:3px 4px;}}
-.sources-overview caption {text-align:left;font-size:11px;color:#64748b;margin-top:4px;}
-</style>
-"""
-    legend = (
-        "<caption>Legend: Green=used this run | Yellow=available not yet used | Gray=missing key/not connected."
-        + (" Used providers: " + str(used_count) if final else "")
-        + "</caption>"
-    )
-    html = (
-        sources_css
-        + "<div class='sources-overview'><table>"
-        + "".join(table_rows)
-        + legend
-        + "</table></div>"
-    )
-    return html
-
-
-sources_placeholder = st.empty()
-sources_placeholder.markdown(render_sources_table(final=False), unsafe_allow_html=True)
-
-# Provider debug (expandable) and global multi-stage progress setup
-with st.expander("🔍 Provider Debug Flags", expanded=False):
-    st.write(
-        {
-            "alpha_ok": alpha_ok,
-            "finn_ok": finn_ok,
-            "fmp_ok": fmp_ok,
-            "poly_ok": poly_ok,
-            "tiin_ok": tiin_ok,
-            "simfin_key": bool(simfin_key),
-            "eodhd_key": bool(eodhd_key),
-            "marketstack_key": bool(marketstack_key),
-            "nasdaq_key": bool(nasdaq_key),
-        }
-    )
-
-stage_labels = [
-    "Universe",
-    "History",
-    "Technical",
-    "Beta Filter",
-    "Advanced Filters",
-    "Fundamentals",
-    "Risk Classification",
-    "Price Verification",
-    "Recommendations",
-]
-stage_index = 0
-global_progress = st.progress(0)
-stage_status = st.empty()
-
-
-def _advance_stage(label: str):
-    global stage_index
-    stage_index += 1
-    pct = min(stage_index / len(stage_labels), 1.0)
-    global_progress.progress(pct)
-    stage_status.text(f"⏱ Stage {stage_index}/{len(stage_labels)}: {label}")
-
-
-# Show config debug info
-st.caption(
-    f"⚙️ Config: Universe={CONFIG['UNIVERSE_LIMIT']} | Lookback={CONFIG['LOOKBACK_DAYS']}d | Smart={CONFIG['SMART_SCAN']}"
-)
+# Show config summary
+show_config_summary(CONFIG)
 
 # Utility buttons row
 col_secrets, col_cache, _ = st.columns([1, 1, 3])
 with col_secrets:
     if st.button("Check Secrets 🔐"):
-        st.info(
-            f"Alpha: {_mask(_env('ALPHA_VANTAGE_API_KEY'))}\\n\\n"
-            f"Finnhub: {_mask(_env('FINNHUB_API_KEY'))}\\n\\n"
-            f"Polygon: {_mask(_env('POLYGON_API_KEY'))}\\n\\n"
-            f"Tiingo: {_mask(_env('TIINGO_API_KEY'))}\\n\\n"
-            f"FMP: {_mask(_env('FMP_API_KEY'))}"
-        )
+        with st.expander("🔐 API Key Status", expanded=True):
+            st.text(f"Alpha Vantage: {_mask(_env('ALPHA_VANTAGE_API_KEY'))}")
+            st.text(f"Finnhub: {_mask(_env('FINNHUB_API_KEY'))}")
+            st.text(f"Polygon: {_mask(_env('POLYGON_API_KEY'))}")
+            st.text(f"Tiingo: {_mask(_env('TIINGO_API_KEY'))}")
+            st.text(f"FMP: {_mask(_env('FMP_API_KEY'))}")
 
 # Cache reset button
 with col_cache:
@@ -2425,71 +2304,143 @@ phase_times: Dict[str, float] = {}
 if "av_calls" not in st.session_state:
     st.session_state.av_calls = 0
 
-# Detect market regime EARLY (before processing stocks)
+# ==================== DATA SOURCE MODE ====================
+st.markdown("---")
+st.markdown("### ⚡ Data Source")
+
+# Import scan I/O helpers
+from core.scan_io import load_latest_scan, save_scan as save_scan_helper
+
+# Data source mode toggle
+data_mode = st.radio(
+    "Choose data source:",
+    ["📦 Precomputed (recommended)", "🔴 Live scan"],
+    index=0,
+    help="Precomputed: Load results from batch scanner (instant). Live scan: Run full pipeline now (several minutes)."
+)
+
+use_precomputed = (data_mode == "📦 Precomputed (recommended)")
+st.session_state["data_mode"] = "precomputed" if use_precomputed else "live"
+
+# Try to load precomputed scan if in precomputed mode
+precomputed_df = None
+precomputed_meta = None
+
+if use_precomputed:
+    scan_path = Path(__file__).parent / "data" / "scans" / "latest_scan.parquet"
+    
+    status_manager.update_detail("Loading precomputed scan from disk...")
+    precomputed_df, precomputed_meta = load_latest_scan(scan_path)
+    
+    if precomputed_df is not None and precomputed_meta is not None:
+        # Successfully loaded
+        timestamp_str = precomputed_meta.get("timestamp", "unknown")
+        universe_size = precomputed_meta.get("universe_size", 0)
+        
+        status_manager.advance(f"Precomputed scan loaded: {universe_size} tickers (last updated: {timestamp_str})")
+        
+        # Show scan info
+        st.success(f"✅ Using precomputed scan from {timestamp_str}")
+        st.caption(f"📊 {universe_size} tickers analyzed | 🔄 Run batch scanner to update")
+        
+        # Skip to recommendations section (set flag)
+        st.session_state["skip_pipeline"] = True
+        st.session_state["precomputed_results"] = precomputed_df
+        
+    else:
+        # No precomputed scan found
+        st.warning("⚠️ No precomputed scan found. Falling back to Live scan mode.")
+        st.caption(f"Expected file: {scan_path}")
+        st.caption("💡 Run `python batch_scan.py` to generate a precomputed scan.")
+        use_precomputed = False
+        st.session_state["skip_pipeline"] = False
+
+# ==================== MAIN PIPELINE ====================
+st.markdown("---")
+st.markdown("### 🚀 Pipeline Execution")
+
+# Check if we should skip pipeline (precomputed mode)
+skip_pipeline = st.session_state.get("skip_pipeline", False) and use_precomputed
+
+# Always show market regime
 t0_regime = t_start()
-with st.spinner("📊 Detecting market regime (SPY/QQQ/VIX)..."):
-    market_regime_data = detect_market_regime(lookback_days=60)
-    regime = market_regime_data.get("regime", "neutral")
-    regime_confidence = market_regime_data.get("confidence", 50)
-    phase_times["market_regime"] = t_end(t0_regime)
+if not skip_pipeline:
+    status_manager.update_detail("Analyzing SPY/QQQ/VIX trends...")
+market_regime_data = detect_market_regime(lookback_days=60)
+regime = market_regime_data.get("regime", "neutral")
+regime_confidence = market_regime_data.get("confidence", 50)
+phase_times["market_regime"] = t_end(t0_regime)
+
+# Show regime with color coding
+regime_emoji = {"bullish": "📈", "neutral": "➡️", "bearish": "📉"}
+regime_color = {"bullish": "#16a34a", "neutral": "#f59e0b", "bearish": "#dc2626"}
+
+st.markdown(
+    f"""<div style='background:{regime_color[regime]};color:white;padding:12px;border-radius:8px;margin:10px 0'>
+    <strong>{regime_emoji[regime]} Market Regime: {regime.upper()}</strong> (confidence: {regime_confidence}%)<br>
+    <small>{market_regime_data.get('details', '')}</small>
+    </div>""",
+    unsafe_allow_html=True
+)
+
+# Store in session state for use in target calculations
+st.session_state['market_regime'] = market_regime_data
+
+if skip_pipeline:
+    # Use precomputed results
+    results = st.session_state.get("precomputed_results")
+    logger.info(f"Using precomputed scan with {len(results)} tickers")
+    status_manager.complete(f"✅ Precomputed scan loaded: {len(results)} tickers")
     
-    # Show regime with color coding
-    regime_emoji = {"bullish": "📈", "neutral": "➡️", "bearish": "📉"}
-    regime_color = {"bullish": "#16a34a", "neutral": "#f59e0b", "bearish": "#dc2626"}
+    # Skip to recommendations section (results already loaded)
+    st.info("⚡ Using precomputed scan — skipping live pipeline execution")
+    # Stop the script so we don't execute the heavy pipeline below
+    st.stop()
     
-    st.markdown(
-        f"""<div style='background:{regime_color[regime]};color:white;padding:12px;border-radius:8px;margin:10px 0'>
-        <strong>{regime_emoji[regime]} Market Regime: {regime.upper()}</strong> (confidence: {regime_confidence}%)<br>
-        <small>{market_regime_data.get('details', '')}</small>
-        </div>""",
-        unsafe_allow_html=True
-    )
-    
-    # Store in session state for use in target calculations
-    st.session_state['market_regime'] = market_regime_data
-    
-    # Debug logging if enabled
-    if CONFIG.get("DEBUG_MODE"):
-        logger.info(f"Market regime: {regime} (conf: {regime_confidence}%), SPY trend: {market_regime_data.get('spy_trend', 0):.3f}, QQQ trend: {market_regime_data.get('qqq_trend', 0):.3f}")
+else:
+    # Run live pipeline as normal
+    status_manager.advance(f"Market regime: {regime.upper()}")
+
+# Debug logging if enabled
+create_debug_expander({
+    "regime": regime,
+    "confidence": regime_confidence,
+    "spy_trend": market_regime_data.get("spy_trend", 0),
+    "qqq_trend": market_regime_data.get("qqq_trend", 0),
+    "vix_level": market_regime_data.get("vix", 0),
+}, title="📊 Market Regime Details")
 
 # 1) Universe
 t0 = t_start()
-with st.spinner("🔍 Building stock universe..."):
-    # Override UNIVERSE_LIMIT with user-selected sidebar value
-    selected_universe_size = int(st.session_state.get("universe_size", CONFIG["UNIVERSE_LIMIT"]))
-    universe = build_universe(limit=selected_universe_size)
-    phase_times["build_universe"] = t_end(t0)
-    st.success(f"Universe built: {len(universe)} tickers")
-    _advance_stage("Universe")
+status_manager.update_detail("Building stock universe...")
+selected_universe_size = int(st.session_state.get("universe_size", CONFIG["UNIVERSE_LIMIT"]))
+universe = build_universe(limit=selected_universe_size)
+phase_times["build_universe"] = t_end(t0)
+sources_overview.mark_usage("Yahoo", "price")  # Universe always uses Yahoo
+status_manager.advance(f"{len(universe)} tickers in universe")
 
 # 2) History
 t0 = t_start()
-with st.spinner(f"📊 Fetching historical data for {len(universe)} stocks..."):
-    data_map = fetch_history_bulk(universe, CONFIG["LOOKBACK_DAYS"], CONFIG["MA_LONG"])
+status_manager.update_detail(f"Fetching historical data for {len(universe)} stocks...")
+data_map = fetch_history_bulk(universe, CONFIG["LOOKBACK_DAYS"], CONFIG["MA_LONG"])
 phase_times["fetch_history"] = t_end(t0)
-st.success(f"History fetched: {len(data_map)} stocks with data")
-_advance_stage("History")
+status_manager.advance(f"{len(data_map)} stocks with data ({t_end(t0):.1f}s)")
 
 # 3) Technical score + hard filters
 t0 = t_start()
-progress_bar = st.progress(0)
-status_text = st.empty()
-status_text.text(f"📈 Computing technical indicators: 0/{len(data_map)} stocks...")
+status_manager.update_detail(f"Computing indicators for {len(data_map)} stocks...")
 
 W = CONFIG["WEIGHTS"]
-
-
 W = _normalize_weights(W)
 
 rows: List[dict] = []
 lo_rsi, hi_rsi = CONFIG["RSI_BOUNDS"]
 
 for idx_num, (tkr, df) in enumerate(data_map.items(), 1):
-    # Update progress
-    if idx_num % 5 == 0 or idx_num == len(data_map):  # Update every 5 stocks
-        progress_bar.progress(idx_num / len(data_map))
-        status_text.text(
-            f"📈 Computing technical indicators: {idx_num}/{len(data_map)} - {tkr}"
+    # Update progress periodically (every 10 stocks or last)
+    if idx_num % 10 == 0 or idx_num == len(data_map):
+        status_manager.update_detail(
+            f"Computing indicators: {idx_num}/{len(data_map)} ({(idx_num/len(data_map)*100):.0f}%)"
         )
 
     # Skip invalid history
@@ -2599,21 +2550,12 @@ for idx_num, (tkr, df) in enumerate(data_map.items(), 1):
 
     # end for loop
 
-# Clear progress indicators
-progress_bar.empty()
-status_text.empty()
-
 results = pd.DataFrame(rows)
 phase_times["calc_score_technical"] = t_end(t0)
-st.success(
-    f"Technical indicators computed: {len(results)} stocks scored in {phase_times['calc_score_technical']:.1f}s"
-)
-_advance_stage("Technical")
+status_manager.advance(f"Technical scoring: {len(results)} stocks ({phase_times['calc_score_technical']:.1f}s)")
 
 if results.empty:
-    st.warning(
-        "No stocks passed initial technical scoring. Showing empty recommendation section (adjust filters/universe)."
-    )
+    status_manager.update_detail("⚠️ No stocks passed technical filters")
     # Do NOT stop; allow later stages to render graceful empty state.
 sort_col = "Final_Score" if "Final_Score" in results.columns else "Score_Tech"
 results = results.sort_values(
@@ -2652,10 +2594,7 @@ else:
     results["Score"] = results.get("Final_Score", results["Score_Tech"])
 
 if CONFIG["FUNDAMENTAL_ENABLED"] and not fundamental_available:
-    st.warning(
-        "Fundamentals skipped – no provider connectivity (Alpha/Finnhub/FMP/SimFin/EODHD)."
-    )
-_advance_stage("Fundamentals")
+    status_manager.update_detail("⚠️ Fundamentals skipped: no provider connectivity")
 
 # Earnings blackout
 if CONFIG["EARNINGS_BLACKOUT_DAYS"] > 0:
@@ -2678,9 +2617,7 @@ if CONFIG["EARNINGS_BLACKOUT_DAYS"] > 0:
             results.at[idx, "EarningsNote"] = f"Excluded: earnings within {gap_days}d"
     results = results[keep_mask].reset_index(drop=True)
     if results.empty:
-        st.warning(
-            "All top-K candidates excluded by earnings blackout window – relaxing blackout for display fallback."
-        )
+        status_manager.update_detail("⚠️ Earnings blackout eliminated all candidates, using fallback")
         # Fallback: restore original pre-blackout set (keep original rows variable if available)
         try:
             results = pd.DataFrame(rows) if 'rows' in locals() else results
@@ -2703,8 +2640,7 @@ if CONFIG["BETA_FILTER_ENABLED"]:
         )
     ].reset_index(drop=True)
     phase_times["beta_filter"] = t_end(t0)
-    st.write(f"✅ Beta filter completed: {len(results)} stocks passed")
-_advance_stage("Beta Filter")
+    status_manager.advance(f"Beta filter: {len(results)} passed")
 
 # 3c) Advanced Filters (dynamic penalty approach)
 t0 = t_start()
@@ -2858,11 +2794,10 @@ results = results.sort_values(["Score", "Ticker"], ascending=[False, True]).rese
     drop=True
 )
 phase_times["advanced_filters"] = t_end(t0)
-st.success(f"Advanced filters completed: {len(results)} stocks passed")
-_advance_stage("Advanced Filters")
+status_manager.advance(f"Advanced filters: {len(results)} passed ({t_end(t0):.1f}s)")
 
 if results.empty:
-    st.warning("Advanced filters eliminated all stocks – using pre-advanced technical results as fallback.")
+    status_manager.update_detail("⚠️ All stocks filtered out, using fallback...")
     try:
         results = pd.DataFrame(rows) if 'rows' in locals() else results
     except Exception:
@@ -2873,7 +2808,7 @@ if results.empty:
 if CONFIG["FUNDAMENTAL_ENABLED"] and fundamental_available:
     t0 = t_start()
     tickers_list = results["Ticker"].tolist()
-    st.write("📊 Fetching fundamentals (batch fusion)…")
+    status_manager.update_detail("Fetching fundamentals from multi-source providers...")
     try:
         fund_df = fetch_fundamentals_batch(tickers_list, alpha_top_n=15)
     except Exception as e:
@@ -2939,7 +2874,7 @@ if CONFIG["FUNDAMENTAL_ENABLED"] and fundamental_available:
         results.loc[idx, "Fund_Coverage_Pct"] = row.get("Fund_Coverage_Pct", 0.0)
         results.loc[idx, "fundamentals_available"] = bool(row.get("fundamentals_available", False))
     phase_times["fundamentals_v2"] = t_end(t0)
-    st.success(f"Fundamentals enrichment completed: {len(results)} stocks processed")
+    status_manager.advance(f"Fundamentals: {len(results)} enriched")
     try:
         # Light debug sample (first 2 tickers) showing coverage & sources
         sample_tickers = tickers_list[:2]
@@ -2966,7 +2901,7 @@ else:
     if "Fund_Coverage_Pct" not in results.columns:
         results["Fund_Coverage_Pct"] = 0.0
 
-_advance_stage("Fundamentals")
+# Stage tracking now handled by StatusManager
 
 # --- Multi-Source Aggregation & Reliability Injection (v2) ---
 # Apply after initial per-ticker fundamentals fetch; enrich with multi-source merged view
@@ -3090,7 +3025,7 @@ if "reliability_v2" not in results.columns or results["reliability_v2"].isna().a
     results["reliability_v2"] = combined_rel.clip(0, 100)
 
     # V2 RISK ENGINE: Apply FULL risk gates, reliability penalties, and position sizing
-    st.info("🚨 Applying V2 risk gates and reliability enforcement...")
+    status_manager.update_detail("Applying V2 risk gates and reliability scoring...")
 
     budget = float(st.session_state.get("budget", CONFIG.get("BUDGET", 5000)))
 
@@ -3361,7 +3296,7 @@ if "reliability_v2" not in results.columns or results["reliability_v2"].isna().a
 
 # 3e) Apply risk classification and data quality evaluation
 t0 = t_start()
-st.info("🔍 Classifying stocks by risk level and data quality...")
+status_manager.update_detail("Classifying by risk level and data quality...")
 
 # Debug: Check what data we have
 logger.info(f"Columns available: {results.columns.tolist()}")
@@ -3426,15 +3361,15 @@ high_qual = len(results[results["Data_Quality"] == "high"])
 med_qual = len(results[results["Data_Quality"] == "medium"])
 low_qual = len(results[results["Data_Quality"] == "low"])
 
-st.success(
-    f"Initial classification: {core_count} Core / {spec_count} Speculative | Quality bands: {high_qual} high, {med_qual} medium, {low_qual} low"
+status_manager.update_detail(
+    f"Initial: {core_count} Core, {spec_count} Speculative | Quality: {high_qual}H {med_qual}M {low_qual}L"
 )
 
 # Filter out stocks that shouldn't be displayed (very low quality)
 displayable = results[results["Should_Display"]].copy()
 hidden_count = len(results) - len(displayable)
 if hidden_count > 0:
-    st.write(f"🔻 Hidden {hidden_count} stocks due to very low data quality")
+    status_manager.update_detail(f"Hiding {hidden_count} very low quality stocks")
     logger.info(f"Hidden {hidden_count} stocks due to very low data quality")
 
 results = displayable.reset_index(drop=True)
@@ -3443,14 +3378,10 @@ results = displayable.reset_index(drop=True)
 core_stocks = results[results["Risk_Level"] == "core"].copy()
 spec_stocks = results[results["Risk_Level"] == "speculative"].copy()
 
-st.write(
-    f"📊 **Before filtering:** {len(core_stocks)} Core, {len(spec_stocks)} Speculative"
-)
-
 # Fallback: if no Core, promote top relaxed candidates from Speculative
 # Updated Nov 2025: More lenient fallback aligned with balanced criteria
 if len(core_stocks) == 0 and not spec_stocks.empty:
-    st.warning("⚠️ No Core stocks classified. Applying adaptive Core fallback…")
+    status_manager.update_detail("⚠️ No Core stocks, applying adaptive fallback")
     try:
         rr = spec_stocks.get("RewardRisk")
         if rr is None:
@@ -3527,8 +3458,8 @@ core_filtered = (
 core_after_filter = len(core_filtered)
 
 if core_before_filter > 0:
-    st.info(
-        f"Core filter: {core_before_filter} → {core_after_filter} passed strict criteria"
+    status_manager.update_detail(
+        f"Core filtering: {core_before_filter} → {core_after_filter}"
     )
 
 # Filter Speculative with relaxed criteria (allow higher volatility, missing some fundamentals)
@@ -3676,44 +3607,25 @@ if not results.empty:
 
 phase_times["risk_quality_classification"] = t_end(t0)
 
-if results.empty:
-    st.warning("All stocks filtered out during risk/quality classification – rendering empty recommendations (adjust filters or universe).")
-    # Do not stop; downstream sections will show graceful empty state.
-
-# Show results count with guidance
 results_count = len(results)
 core_count_final = len(results[results["Risk_Level"] == "core"]) if not results.empty else 0
 spec_count_final = len(results[results["Risk_Level"] == "speculative"]) if not results.empty else 0
 
-if results_count == 0:
-    st.info("ℹ️ No recommendations for the current configuration and universe. Try relaxing filters or expanding the universe limit.")
-else:
-    st.success(
-        f"✅ **Final recommendations:** {core_count_final} 🛡️ Core + {spec_count_final} ⚡ Speculative = {results_count} total"
-    )
-_advance_stage("Risk Classification")
+if results.empty:
+    status_manager.update_detail("⚠️ All stocks filtered out, showing empty recommendations")
+elif results_count > 0:
+    status_manager.advance(f"Final: {core_count_final} Core + {spec_count_final} Speculative = {results_count} total")
 
-# Updated targets: aim for balanced mix
+# Quality guidance (shown only if significant issues)
 target_min = CONFIG.get("TARGET_RECOMMENDATIONS_MIN", 5)
-target_max = CONFIG.get("TARGET_RECOMMENDATIONS_MAX", 12)
 target_core_min = 3
-target_spec_min = 2
 
 if results_count < target_min:
-    st.warning(
-        f"⚠️ Only {results_count} stocks passed filters (target: {target_min}-{target_max}). "
-        f"Consider checking market conditions or relaxing filters."
-    )
-elif core_count_final < target_core_min:
-    st.info(
-        f"ℹ️ Only {core_count_final} Core stocks (target: {target_core_min}+). "
-        f"Core stocks meet strict quality criteria. {spec_count_final} Speculative stocks offer higher-risk opportunities."
-    )
-elif spec_count_final < target_spec_min and core_count_final >= target_core_min:
-    st.info(
-        f"ℹ️ Good Core selection ({core_count_final} stocks). "
-        f"Few Speculative opportunities today - market may be in consolidation phase."
-    )
+    with st.expander("⚠️ Low recommendation count", expanded=False):
+        st.write(f"Only {results_count} stocks passed (target: {target_min}+). Consider relaxing filters or checking market conditions.")
+elif core_count_final < target_core_min and results_count > 0:
+    with st.expander("ℹ️ Limited Core stocks", expanded=False):
+        st.write(f"Only {core_count_final} Core stocks meet strict criteria. {spec_count_final} Speculative stocks available.")
 
 # External price verification (Top-K)
 t0 = t_start()
@@ -3728,18 +3640,7 @@ results["Price_EODHD"] = np.nan
 results["Price_Mean"] = np.nan
 results["Price_STD"] = np.nan
 results["Source_List"] = "🟡Yahoo"
-
-# Compute standard deviation from historical price data (last 20-30 candles)
-results["Historical_StdDev"] = np.nan
-for i, row in results.iterrows():
-    ticker = row.get("Ticker", "")
-    if ticker in data_map:
-        hist = data_map[ticker]
-        if len(hist) >= 5:  # Minimum 5 candles
-            # Use last 20-30 candles for std dev
-            recent = hist["Close"].tail(min(30, len(hist)))
-            if len(recent) >= 5:
-                results.at[i, "Historical_StdDev"] = float(recent.std())
+results["Historical_StdDev"] = np.nan  # Initialize for all, fill selectively below
 
 
 def _fetch_external_for(
@@ -3809,7 +3710,7 @@ def _fetch_external_for(
             _mark_price("EODHD")
     # Return collected prices and source badges
     return tkr, vals, srcs
-    _advance_stage("Price Verification")
+    # Stage tracking now handled by StatusManager
 
 
 # External price verification - run if ANY provider is available
@@ -3872,6 +3773,14 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and any_price_provider:
                     pstd,
                     " · ".join(srcs),
                 ]
+                # Compute historical std dev for this ticker (only for verified subset)
+                ticker = results.loc[idx, "Ticker"]
+                if ticker in data_map:
+                    hist = data_map[ticker]
+                    if len(hist) >= 5:  # Minimum 5 candles
+                        recent = hist["Close"].tail(min(30, len(hist)))
+                        if len(recent) >= 5:
+                            results.at[idx, "Historical_StdDev"] = float(recent.std())
     # Price reliability metric (enhanced with better spread: 0.1-1.0)
     results["Price_Reliability"] = np.nan
     for i, row in results.iterrows():
@@ -4020,8 +3929,7 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and any_price_provider:
     else:
         results["Reliability_Score"] = np.nan
 phase_times["price_verification"] = t_end(t0)
-st.write("✅ Price verification completed")
-_advance_stage("Price Verification")
+status_manager.advance(f"Price verification: {len(results)} validated")
 
 
 # Horizon heuristic
@@ -4210,29 +4118,53 @@ if total_alloc > total_budget_value and total_alloc > 0:
     results["סכום קנייה ($)"] = results["position_value"].round(2)
     results["עודף ($)"] = 0.0  # leftover per row not tracked post-scale
 
-
-# KPI
-budget_used = float(
-    results["מניות לקנייה"].to_numpy() @ results["Unit_Price"].fillna(0).to_numpy()
-)
-k0, k1, k2, k3 = st.columns(4)
-k0.metric("Universe size after history filtering", len(data_map))
-k1.metric("Results after filtering", len(results))
-total_budget_value = float(st.session_state.get("total_budget", CONFIG["BUDGET_TOTAL"]))
-budget_used = min(budget_used, total_budget_value)  # safety clamp
-k2.metric("Budget used (≈$)", f"{budget_used:,.0f}")
-k3.metric("Remaining budget (≈$)", f"{max(0.0, total_budget_value - budget_used):,.0f}")
-
-# Timings
-st.subheader("⏱️ Execution Times")
-times_df = pd.DataFrame(
-    [{"Phase": k, "Duration (s)": round(v, 2)} for k, v in phase_times.items()]
-)
-st.table(times_df.style.set_properties(**{"text-align": "center"}))
-if alpha_ok:
-    st.caption(
-        f"Alpha Vantage — calls this session: {int(st.session_state.get('av_calls', 0))} (respect rate limits)."
+    # KPI
+    budget_used = float(
+        results["מניות לקנייה"].to_numpy() @ results["Unit_Price"].fillna(0).to_numpy()
     )
+    k0, k1, k2, k3 = st.columns(4)
+    k0.metric("Universe size after history filtering", len(data_map))
+    k1.metric("Results after filtering", len(results))
+    total_budget_value = float(st.session_state.get("total_budget", CONFIG["BUDGET_TOTAL"]))
+    budget_used = min(budget_used, total_budget_value)  # safety clamp
+    k2.metric("Budget used (≈$)", f"{budget_used:,.0f}")
+    k3.metric("Remaining budget (≈$)", f"{max(0.0, total_budget_value - budget_used):,.0f}")
+
+    # Timings
+    st.subheader("⏱️ Execution Times")
+    times_df = pd.DataFrame(
+        [{"Phase": k, "Duration (s)": round(v, 2)} for k, v in phase_times.items()]
+    )
+    st.table(times_df.style.set_properties(**{"text-align": "center"}))
+    if alpha_ok:
+        st.caption(
+            f"Alpha Vantage — calls this session: {int(st.session_state.get('av_calls', 0))} (respect rate limits)."
+        )
+    
+# Live-mode-only: offer saving this run as latest precomputed scan
+if not use_precomputed:
+    st.markdown("---")
+    save_live = st.checkbox(
+        "💾 Save this run as latest precomputed scan",
+        value=False,
+        help="Persist these results to load instantly next time via Precomputed mode."
+    )
+    if save_live:
+        try:
+            from pathlib import Path
+            output_dir = Path(__file__).parent / "data" / "scans"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            path_latest = output_dir / "latest_scan.parquet"
+            ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+            path_timestamped = output_dir / f"scan_{ts}.parquet"
+            save_scan_helper(results, CONFIG, path_latest, path_timestamped, metadata={"timestamp": ts})
+            st.success(f"Saved this run as latest_scan ({len(results)} tickers, timestamp {ts})")
+            if CONFIG.get("DEBUG_MODE"):
+                with st.expander("Developer details: saved paths"):
+                    st.write({"latest": str(path_latest), "timestamped": str(path_timestamped)})
+        except Exception as e:
+            st.error(f"Failed to save scan: {e}")
+    # (Save option moved outside scaling branch)
 
 # ==================== Recommendation Cards ====================
 try:
@@ -4249,6 +4181,22 @@ st.caption("These cards are buy recommendations only. This is not investment adv
 with st.sidebar:
     st.header("🎛️ Scan Controls")
     st.caption("Essential parameters for this run")
+    
+    # === Fast vs Deep Mode Toggle (NEW) ===
+    st.markdown("---")
+    analysis_mode = st.radio(
+        "⚡ Analysis Mode",
+        ["Fast (30-60s)", "Deep (Full)"],
+        index=0,
+        help="Fast mode reduces universe size and disables optional computations for quick results. Deep mode processes the full configured universe."
+    )
+    fast_mode = (analysis_mode == "Fast (30-60s)")
+    st.session_state["fast_mode"] = fast_mode
+    
+    if fast_mode:
+        st.caption("🚀 Fast mode: Reduced universe, no optional backtest/diagnostics")
+    else:
+        st.caption("🔬 Deep mode: Full universe with all computations enabled")
 
     # V2 SCORING ENGINE (NOW DEFAULT)
     st.markdown("---")
@@ -4260,10 +4208,17 @@ with st.sidebar:
     # Essential only; advanced toggles moved to expander below
 
     # Universe size selection (overrides env default)
+    # In Fast mode, cap at 50; in Deep mode, allow full range
+    available_sizes = [20, 50] if fast_mode else [20, 50, 100, 200, 500]
+    default_size = int(st.session_state.get("universe_size", CONFIG.get("UNIVERSE_LIMIT", 100)))
+    # Clamp default_size to available options
+    if default_size not in available_sizes:
+        default_size = available_sizes[-1]  # Use max available
+    
     universe_size = st.selectbox(
         "Universe size",
-        options=[20,50,100,200,500],
-        index=[20,50,100,200,500].index(int(st.session_state.get("universe_size", CONFIG.get("UNIVERSE_LIMIT", 100)))) if int(st.session_state.get("universe_size", CONFIG.get("UNIVERSE_LIMIT", 100))) in [20,50,100,200,500] else 2,
+        options=available_sizes,
+        index=available_sizes.index(default_size),
         key="universe_size_main",
         help="Number of tickers to include in scan universe (deterministic trim).",
     )
@@ -5799,13 +5754,23 @@ for(const el of document.querySelectorAll('.compact-mode .section-divider')){
     )
 
 # Final stage advancement
+    # Mark pipeline complete
+    status_manager.complete(f"✅ Pipeline complete: {len(rec_df)} recommendations")
+    
+    # Render performance timing report (only in debug mode)
+    status_manager.render_timing_report()
+    
+    # Update sources overview with final usage
+    sources_overview.render(show_legend=True)
+    
     # --- Clean, minimal card rendering (new) ---
     # Inject card CSS once for all cards
     st.markdown(get_card_css(), unsafe_allow_html=True)
 
-    st.markdown("## 🎯 Recommendations Now")
+    st.markdown("---")
+    st.markdown("## 🎯 Recommendations")
     st.caption(
-        "These cards are buy recommendations only. This is not investment advice."
+        "Buy recommendations only. Not investment advice."
     )
 
     # Helper: safe sort by Overall_Rank if available

@@ -1,0 +1,31 @@
+{
+  "timestamp": "2025-12-12T08:33:15.105971",
+  "universe_size": 5,
+  "universe_name": "default",
+  "config_version": "unknown",
+  "lookback_days": 60,
+  "columns": [
+    "Ticker",
+    "Close",
+    "Volume",
+    "RSI",
+    "ATR_Pct",
+    "MACD",
+    "ADX",
+    "Beta",
+    "Technical_Score",
+    "Fundamental_Score",
+    "Fund_Coverage_Pct",
+    "Fund_Sources_Count",
+    "Reliability_v2",
+    "Overall_Score",
+    "Risk_Level",
+    "Data_Quality",
+    "Confidence_Level",
+    "Should_Display",
+    "Classification_Warnings",
+    "Overall_Rank"
+  ],
+  "scan_type": "batch_deep",
+  "pipeline_stages": 6
+}

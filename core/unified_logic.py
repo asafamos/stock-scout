@@ -603,23 +603,43 @@ def compute_technical_score(row: pd.Series, weights: Optional[Dict[str, float]] 
         Extreme volatility (ATR > 6%) significantly reduces scores to penalize
         high-risk, high-uncertainty trading opportunities.
     """
-    if weights is None:
-        weights = {
-            'ma': 0.2,
-            'mom': 0.25,
-            'rsi': 0.12,
-            'near_high_bell': 0.10,
-            'vol': 0.08,
-            'overext': 0.06,
-            'pullback': 0.05,
-            'risk_reward': 0.06,
-            'macd': 0.04,
-            'adx': 0.04,
-        }
+    default_weights = {
+        'ma': 0.2,
+        'mom': 0.25,
+        'rsi': 0.12,
+        'near_high_bell': 0.10,
+        'vol': 0.08,
+        'overext': 0.06,
+        'pullback': 0.05,
+        'risk_reward': 0.06,
+        'macd': 0.04,
+        'adx': 0.04,
+    }
+
+    # Sanitize weights: coerce to float, clamp negatives, drop invalid to 0.0
+    raw_weights = default_weights.copy()
+    if weights is not None:
+        raw_weights.update(weights)
+
+    def _safe_weight(val: float) -> float:
+        try:
+            w = float(val)
+            if not np.isfinite(w):
+                return 0.0
+            return max(w, 0.0)
+        except Exception:
+            return 0.0
+
+    sanitized = {k: _safe_weight(v) for k, v in raw_weights.items()}
+    total_w = sum(sanitized.values())
+
+    # If everything zero/invalid, fall back to defaults
+    if total_w <= 0:
+        sanitized = default_weights
+        total_w = sum(sanitized.values())
 
     # Normalize weights to sum 1
-    total_w = sum(weights.values())
-    norm_w = {k: (v / total_w) for k, v in weights.items()}
+    norm_w = {k: (v / total_w) for k, v in sanitized.items()}
 
     # Extract components from row (use safe defaults)
     ma_ok = float(row.get('MA_Aligned', 0.0)) if pd.notna(row.get('MA_Aligned', np.nan)) else 0.0
