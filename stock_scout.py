@@ -24,11 +24,6 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Tuple
 
 import numpy as np
-from core.data_sources_v2 import (
-    aggregate_fundamentals as agg_fund_v2,
-    fetch_price_multi_source as fetch_price_multi_v2,
-    aggregate_price as aggregate_price_v2,
-)
 import pandas as pd
 import requests
 import yfinance as yf
@@ -38,8 +33,29 @@ from dotenv import load_dotenv, find_dotenv
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from streamlit.components.v1 import html as st_html
 import html as html_escape
+
+from core.data_sources_v2 import (
+    aggregate_fundamentals as agg_fund_v2,
+    fetch_price_multi_source as fetch_price_multi_v2,
+    aggregate_price as aggregate_price_v2,
+)
 from card_styles import get_card_css
 from core.portfolio import _normalize_weights, allocate_budget
+from ui_redesign import (
+    render_simplified_sidebar,
+    render_native_recommendation_row,
+)
+from hebrew_ui import (
+    setup_hebrew_rtl,
+    render_top_control_bar,
+    render_hebrew_sidebar_expander,
+    render_view_controls,
+    render_recommendation_row_hebrew,
+    render_core_section_hebrew,
+    render_speculative_section_hebrew,
+    render_kpi_cards_hebrew,
+    force_ml_and_sorting,
+)
 from core.config import get_config
 from advanced_filters import (
     compute_advanced_score,
@@ -271,28 +287,28 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
         card_html = f"""
 <div class='clean-card { 'speculative' if speculative else 'core' }'>
     <div class='card-header'>
-        <div class='ticker-line'><span class='ticker-badge'>{ticker}</span><span class='type-badge'>{type_badge}</span><span class='rank-badge'>#{overall_rank}</span></div>
-        <h2 class='overall-score'>{overall_score_fmt}<span class='score-label'>/100</span>{warning}</h2>
+        <div class='ticker-line'><span class='ticker-badge ltr'>{ticker}</span><span class='type-badge'>{type_badge}</span><span class='rank-badge ltr'>#{overall_rank}</span></div>
+        <h2 class='overall-score'>{overall_score_fmt}<span class='score-label ltr'>/100</span>{warning}</h2>
     </div>
-    <div class='entry-target-line'>Entry <b>{entry_fmt}</b> -> Target <b>{target_fmt}</b> {target_badge} <span class='potential'>{potential_fmt}</span></div>
+    <div class='entry-target-line'>Entry <b class='ltr'>{entry_fmt}</b> -> Target <b class='ltr'>{target_fmt}</b> {target_badge} <span class='potential ltr'>{potential_fmt}</span></div>
     {bullet_html}
     <div class='top-grid'>
-        <div class='field'><span class='label'>R/R</span><span class='value tabular'>{rr_ratio_fmt} <span class='band'>{rr_band}</span></span></div>
-        <div class='field'><span class='label'>Risk</span><span class='value tabular'>{risk_fmt}</span></div>
-        <div class='field'><span class='label'>Reliability</span><span class='value tabular'>{reliability_fmt}</span></div>
-        <div class='field'><span class='label'>ML</span><span class='value tabular'>{ml_fmt}</span></div>
-        <div class='field'><span class='label'>Quality</span><span class='value tabular'>{quality_level} ({quality_score_fmt})</span></div>
-        <div class='field'><span class='label'>Fundamental Score</span><span class='value tabular'>{fmt_score(fund_score)}</span></div>
+        <div class='field'><span class='label'>R/R</span><span class='value tabular ltr'>{rr_ratio_fmt} <span class='band ltr'>{rr_band}</span></span></div>
+        <div class='field'><span class='label'>Risk</span><span class='value tabular ltr'>{risk_fmt}</span></div>
+        <div class='field'><span class='label'>Reliability</span><span class='value tabular ltr'>{reliability_fmt}</span></div>
+        <div class='field'><span class='label'>ML</span><span class='value tabular ltr'>{ml_fmt}</span></div>
+        <div class='field'><span class='label'>Quality</span><span class='value tabular ltr'>{quality_level} ({quality_score_fmt})</span></div>
+        <div class='field'><span class='label'>Fundamental Score</span><span class='value tabular ltr'>{fmt_score(fund_score)}</span></div>
     </div>
     <details class='more-info'>
         <summary>More Details</summary>
         <div class='detail-grid'>
-            <div class='field'><span class='label'>Target Date</span><span class='value'>{target_date}</span></div>
-            <div class='field'><span class='label'>ML Probability</span><span class='value'>{fmt_pct(ml_prob * 100) if np.isfinite(ml_prob) else 'N/A'}</span></div>
-            <div class='field'><span class='label'>Base Conviction</span><span class='value'>{fmt_score(conv_base)}</span></div>
-            <div class='field'><span class='label'>Fund Sources</span><span class='value'>{fmt_score(row.get('fund_sources_used_v2', 0))}</span></div>
-            <div class='field'><span class='label'>Price Sources</span><span class='value'>{fmt_score(row.get('price_sources_used_v2', 0))}</span></div>
-            <div class='field'><span class='label'>Price Std Dev</span><span class='value'>{fmt_money(row.get('Price_STD_v2', np.nan))}</span></div>
+            <div class='field'><span class='label'>Target Date</span><span class='value ltr'>{target_date}</span></div>
+            <div class='field'><span class='label'>ML Probability</span><span class='value ltr'>{fmt_pct(ml_prob * 100) if np.isfinite(ml_prob) else 'N/A'}</span></div>
+            <div class='field'><span class='label'>Base Conviction</span><span class='value ltr'>{fmt_score(conv_base)}</span></div>
+            <div class='field'><span class='label'>Fund Sources</span><span class='value ltr'>{fmt_score(row.get('fund_sources_used_v2', 0))}</span></div>
+            <div class='field'><span class='label'>Price Sources</span><span class='value ltr'>{fmt_score(row.get('price_sources_used_v2', 0))}</span></div>
+            <div class='field'><span class='label'>Price Std Dev</span><span class='value ltr'>{fmt_money(row.get('Price_STD_v2', np.nan))}</span></div>
         </div>
     </details>
 </div>
@@ -436,6 +452,131 @@ def mark_provider_usage(provider: str, category: str):
         usage[provider] = cats
     except Exception:
         pass
+
+
+def render_data_sources_overview(provider_status: dict, provider_usage: dict, results: pd.DataFrame) -> None:
+    """
+    Render a dynamic, compact data sources table showing which providers were actually used in this run.
+    Uses emoji indicators and Hebrew labels with RTL layout and avoids any raw HTML inside the dataframe.
+    """
+    import pandas as pd
+    import streamlit as st
+
+    table_rows = []
+    for provider_name, usage_info in provider_usage.items():
+        status_info = provider_status.get(provider_name, {})
+        ok = bool(status_info.get("ok", False))
+
+        status_icon = "🟢" if ok else "🔴"
+        status_text = "פעיל" if ok else "תקלה / חסום"
+
+        used_price = bool(usage_info.get("used_price"))
+        used_fund = bool(usage_info.get("used_fundamentals"))
+        used_ml = bool(usage_info.get("used_ml"))
+        implemented = bool(usage_info.get("implemented", True))
+
+        if not implemented:
+            # Provider not really relevant in this run
+            status_icon = "⚪"
+            status_text = "לא רלוונטי בריצה זו"
+
+        if used_price or used_fund or used_ml:
+            used_icon = "🟢"
+            used_text = "בשימוש"
+        else:
+            used_icon = "⚪"
+            used_text = "לא בשימוש"
+
+        details_parts = []
+        if used_price:
+            details_parts.append("מחיר")
+        if used_fund:
+            details_parts.append("פונדמנטלי")
+        if used_ml:
+            details_parts.append("ML")
+
+        usage_detail = " | ".join(details_parts) if details_parts else "—"
+
+        table_rows.append(
+            {
+                "ספק": provider_name,  # Plain text, no HTML spans
+                "סטטוס": f"{status_icon} {status_text}",
+                "שימוש": f"{used_icon} {used_text}",
+                "פרטים": usage_detail,
+            }
+        )
+
+    if not table_rows:
+        return
+
+    df_sources = pd.DataFrame(table_rows)
+    df_sources["ספק"] = df_sources["ספק"].astype(str)
+    
+    styled = (
+        df_sources.style
+        .set_properties(
+            subset=["ספק"],
+            **{
+                "direction": "ltr",
+                "text-align": "left",
+                "font-size": "14px",
+                "white-space": "nowrap"
+            }
+        )
+        .set_properties(
+            subset=["סטטוס", "שימוש", "פרטים"],
+            **{
+                "text-align": "center",
+                "font-size": "14px"
+            }
+        )
+        .set_table_styles([
+            {"selector": "th", "props": [
+                ("text-align", "center"),
+                ("font-size", "15px")
+            ]}
+        ])
+    )
+    
+    st.markdown("### 🔌 מקורות נתונים")
+    st.dataframe(styled, use_container_width=True, hide_index=True)
+
+    used_count = sum(
+        1
+        for info in provider_usage.values()
+        if info.get("used_price") or info.get("used_fundamentals") or info.get("used_ml")
+    )
+    st.caption(f"סה\"כ ספקים פעילים: {used_count} / {len(provider_usage)}")
+
+
+def save_latest_scan_from_results(results_df: pd.DataFrame, metadata: dict = None) -> None:
+    """Save results dataframe as the latest precomputed scan snapshot.
+    
+    Args:
+        results_df: Results dataframe to save
+        metadata: Optional metadata dict (e.g., {"timestamp": "..."})
+    """
+    if results_df is None or results_df.empty:
+        return
+    if metadata is None:
+        metadata = {}
+    
+    try:
+        from pathlib import Path
+        scan_dir = Path(__file__).parent / "data" / "scans"
+        scan_dir.mkdir(parents=True, exist_ok=True)
+        path_latest = scan_dir / "latest_scan.parquet"
+        ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        path_timestamped = scan_dir / f"scan_{ts}.parquet"
+        
+        # Update metadata with timestamp if not present
+        if "timestamp" not in metadata:
+            metadata["timestamp"] = ts
+        
+        save_scan_helper(results_df, CONFIG, path_latest, path_timestamped, metadata=metadata)
+        logger.info(f"Auto-saved latest scan: {len(results_df)} tickers to {path_latest}")
+    except Exception as e:
+        logger.warning(f"Failed to auto-save latest scan: {e}")
 
 
 # Load environment variables
@@ -690,67 +831,27 @@ def build_universe(limit: int) -> List[str]:
         return fallback[:limit]
 
 
-# ==================== Universe & data ====================
-def safe_yf_download(
-    tickers: List[str], start: datetime, end: datetime
-) -> Dict[str, pd.DataFrame]:
-    """Download with fallback for single tickers."""
-    out: Dict[str, pd.DataFrame] = {}
-    try:
-        data = yf.download(
-            tickers,
-            start=start,
-            end=end,
-            auto_adjust=True,
-            progress=False,
-            group_by="ticker" if len(tickers) > 1 else None,
-            threads=True,
-        )
-        if isinstance(data.columns, pd.MultiIndex):
-            for ticker in tickers:
-                try:
-                    df = data[ticker].dropna()
-                    if not df.empty:
-                        out[ticker] = df
-                except Exception:
-                    continue
-        elif not data.empty:
-            out[tickers[0]] = data.dropna()
-    except Exception:
-        pass
-
-    # Download missing individually
-    missing = [t for t in tickers if t not in out]
-    for ticker in missing:
-        try:
-            df = yf.download(
-                ticker, start=start, end=end, auto_adjust=True, progress=False
-            ).dropna()
-            if not df.empty:
-                out[ticker] = df
-        except Exception:
-            continue
-    return out
-
-
-@st.cache_data(show_spinner=True, ttl=60 * 60 * 4)  # 4 hours - history changes slowly
 def fetch_history_bulk(
     tickers: List[str], period_days: int, ma_long: int
 ) -> Dict[str, pd.DataFrame]:
     """Fetch bulk historical data with sufficient lookback for moving averages."""
+    import yfinance as yf
+
     end = datetime.utcnow()
     start = end - timedelta(days=period_days + 50)
-    data_map = safe_yf_download(tickers, start, end)
 
-    # Filter: need at least ma_long + 40 rows (relaxed from +50 to handle weekends/holidays)
+    data_map: Dict[str, pd.DataFrame] = {}
     min_rows = ma_long + 40
-    filtered = {}
-    for tkr, df in data_map.items():
-        if len(df) >= min_rows:
-            filtered[tkr] = df
-    return filtered
 
+    for tkr in tickers:
+        try:
+            df = yf.download(tkr, start=start, end=end, progress=False)
+            if df is not None and len(df) >= min_rows:
+                data_map[tkr] = df
+        except Exception as exc:  # best-effort fetch per ticker
+            logger.warning(f"Historical fetch failed for {tkr}: {exc}")
 
+    return data_map
 # ==================== Earnings ====================
 @st.cache_data(ttl=60 * 60)
 def get_next_earnings_date(ticker: str) -> Optional[datetime]:
@@ -2154,23 +2255,160 @@ def get_eodhd_price(ticker: str) -> Optional[float]:
 
 # ==================== UI ====================
 st.set_page_config(
-    page_title="Asaf's Stock Scout — 2025", page_icon="📈", layout="wide"
+    page_title="סקאוט מניות — 2025", page_icon="📈", layout="wide"
 )
 
+# === HEBREW RTL STYLING WITH LTR ENGLISH TEXT ===
+st.markdown("""
+<style>
+    /* Global RTL direction */
+    body, .stApp, .main, .block-container {
+        direction: rtl;
+        text-align: right;
+    }
+    
+    /* Streamlit overrides */
+    .css-1l269bu { direction: rtl; }  /* Main content */
+    .stSidebar { direction: rtl; }
+    
+    /* RTL text alignment */
+    h1, h2, h3, h4, h5, h6 { text-align: right; }
+    
+    /* Force LTR for English text, tickers, numbers, provider names */
+    span.ltr, .ltr, .stMetricDelta, [class*="st-emotion"] {
+        direction: ltr !important;
+        text-align: left !important;
+        unicode-bidi: embed;
+    }
+    
+    /* Button styling */
+    .stButton > button { border-radius: 8px; }
+    
+    /* Card styling */
+    .stContainer { direction: rtl; border: 1px solid #e5e7eb; border-radius: 8px; padding: 1rem; margin: 0.5rem 0; }
+    
+    /* Metric styling */
+    .stMetric { text-align: right; }
+    
+    /* Margin adjustments */
+    h1, h2, h3 { margin-top: 1rem; margin-bottom: 0.5rem; }
+</style>
+""", unsafe_allow_html=True)
 
+st.title("📈 סקאוט מניות — 2025 אסף")
+st.caption("🇮🇱 סקאן מניות אישי בעברית | כלי למחקר בלבד. לא ייעוץ השקעות.")
 
+# === TOP CONTROL BAR (REPLACING SIDEBAR) ===
+st.markdown("### ⚙️ הגדרות סריקה")
 
-# Basic modern CSS styling
+with st.container():
+    col1, col2, col3, col4 = st.columns([2, 2, 2, 1])
+    
+    with col1:
+        universe_size = st.selectbox(
+            "יקום מניות",
+            options=[20, 50, 100, 200, 500],
+            index=2,  # default 100
+            key="universe_size_top",
+            help="מספר המניות לבדיקה"
+        )
+        st.session_state["universe_size"] = int(universe_size)
+    
+    with col2:
+        alloc_style = st.selectbox(
+            "סגנון השקעה",
+            ["Balanced (core tilt)", "Conservative", "Aggressive"],
+            index=0,
+            key="alloc_style_top"
+        )
+        st.session_state["alloc_style_idx"] = ["Balanced (core tilt)", "Conservative", "Aggressive"].index(alloc_style)
+    
+    with col3:
+        total_budget = st.number_input(
+            "תקציב ($)",
+            min_value=0.0,
+            value=float(st.session_state.get("total_budget", CONFIG["BUDGET_TOTAL"])),
+            step=1000.0,
+            key="budget_top"
+        )
+        st.session_state["total_budget"] = float(total_budget)
+    
+    with col4:
+        st.markdown("<br>", unsafe_allow_html=True)  # Vertical spacing
+        run_scan = st.button("🚀 הרץ סריקה", use_container_width=True, type="primary")
 
-# Basic modern CSS styling
-st.markdown('<style>.main { padding: 1rem; } .stButton>button { border-radius: 8px; } h1, h2, h3 { margin-top: 1rem; }</style>', unsafe_allow_html=True)
+# Advanced options in collapsible expander
+with st.expander("🎛️ אפשרויות מתקדמות", expanded=False):
+    col_a1, col_a2, col_a3 = st.columns(3)
+    
+    with col_a1:
+        fast_mode = st.checkbox(
+            "⚡ מצב מהיר",
+            value=bool(st.session_state.get("fast_mode", False)),
+            help="מצמצם יקום וזמני סריקה"
+        )
+        st.session_state["fast_mode"] = fast_mode
+        
+        min_position = st.number_input(
+            "פוזיציה מינימלית ($)",
+            min_value=0.0,
+            value=float(st.session_state.get("min_position", max(50.0, round(float(total_budget) * 0.10)))),
+            step=50.0
+        )
+        st.session_state["min_position"] = float(min_position)
+    
+    with col_a2:
+        enable_multi_source = st.checkbox(
+            "מקורות נתונים מרובים",
+            value=bool(st.session_state.get("enable_multi_source", True)),
+            help="שילוב נתונים ממספר ספקים"
+        )
+        st.session_state["enable_multi_source"] = enable_multi_source
+        
+        max_position_pct = st.slider(
+            "פוזיציה מקסימלית (% מסך התיק)",
+            min_value=5.0,
+            max_value=60.0,
+            value=float(st.session_state.get("max_position_pct", CONFIG["MAX_POSITION_PCT"])),
+            step=1.0
+        )
+        st.session_state["max_position_pct"] = float(max_position_pct)
+    
+    with col_a3:
+        enable_ml_boost = st.checkbox(
+            "ML Boost",
+            value=bool(st.session_state.get("enable_ml_boost", True)),
+            help="התאמת ציון באמצעות מודל ML"
+        )
+        st.session_state["enable_ml_boost"] = enable_ml_boost
+        
+        ml_threshold = st.slider(
+            "סף ML (%)",
+            min_value=0,
+            max_value=100,
+            value=int(st.session_state.get("ml_threshold", 0)),
+            step=5,
+            help="מינימום הסתברות ML (0=ללא סינון)"
+        )
+        st.session_state["ml_threshold"] = int(ml_threshold)
 
-st.title("📈 Stock Scout — 2025 (Auto)")
+# OpenAI target price enhancement
+if OPENAI_AVAILABLE and (os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")):
+    with col_a1:
+        enable_openai_targets = st.checkbox(
+            "🤖 חיזוי מחירים AI",
+            value=bool(st.session_state.get("enable_openai_targets", True)),
+            help="שימוש ב-GPT לחיזוי מחירי יעד"
+        )
+        st.session_state["enable_openai_targets"] = enable_openai_targets
+else:
+    st.session_state["enable_openai_targets"] = False
 
-ADVANCED_PLACEHOLDER = True  # moved to sidebar expander; keep variable for downstream logic
-RELAXED_MODE = False
-FAST_MODE = False
-DEBUG_SKIP_PIPELINE = False
+# Force ML always on (no visible toggle)
+st.session_state["ENABLE_ML"] = True
+st.session_state["USE_FINAL_SCORE_SORT"] = True
+
+st.markdown("---")
 
 
 # Secrets button
@@ -2236,14 +2474,6 @@ elif not alpha_ok and finn_ok:
         "⚠️ Alpha Vantage unavailable (rate limits or config) - falling back to Finnhub and other providers. Recommendations will still be generated."
     )
 
-###############################
-# 🔌 Data Sources — Dynamic Overview (2026)
-###############################
-st.markdown("### 🔌 Data Sources")
-
-# Initialize sources overview and status manager
-sources_overview = SourcesOverview()
-
 # Store provider status in session state for connectivity checks
 st.session_state["_alpha_vantage_ok"] = alpha_ok
 st.session_state["_finnhub_ok"] = finn_ok
@@ -2251,51 +2481,8 @@ st.session_state["_polygon_ok"] = poly_ok
 st.session_state["_tiingo_ok"] = tiin_ok
 st.session_state["_fmp_ok"] = fmp_ok
 
-# Render initial sources table
-sources_overview.render(show_legend=True)
-
-# Check for critical missing providers
-critical_warning = sources_overview.check_critical_missing()
-if critical_warning:
-    st.error(critical_warning)
-
-# Developer debug info (collapsible, only if debug mode)
-create_debug_expander({
-    "alpha_ok": alpha_ok,
-    "finn_ok": finn_ok,
-    "fmp_ok": fmp_ok,
-    "poly_ok": poly_ok,
-    "tiin_ok": tiin_ok,
-    "simfin_key": bool(simfin_key),
-    "eodhd_key": bool(eodhd_key),
-    "marketstack_key": bool(marketstack_key),
-    "nasdaq_key": bool(nasdaq_key),
-}, title="🔧 Provider Connectivity Debug")
-
 # Initialize centralized status manager
 status_manager = StatusManager(get_pipeline_stages())
-
-
-# Show config summary
-show_config_summary(CONFIG)
-
-# Utility buttons row
-col_secrets, col_cache, _ = st.columns([1, 1, 3])
-with col_secrets:
-    if st.button("Check Secrets 🔐"):
-        with st.expander("🔐 API Key Status", expanded=True):
-            st.text(f"Alpha Vantage: {_mask(_env('ALPHA_VANTAGE_API_KEY'))}")
-            st.text(f"Finnhub: {_mask(_env('FINNHUB_API_KEY'))}")
-            st.text(f"Polygon: {_mask(_env('POLYGON_API_KEY'))}")
-            st.text(f"Tiingo: {_mask(_env('TIINGO_API_KEY'))}")
-            st.text(f"FMP: {_mask(_env('FMP_API_KEY'))}")
-
-# Cache reset button
-with col_cache:
-    if st.button("🔄 Clear Cache & Reload"):
-        st.cache_data.clear()
-        st.rerun()
-
 
 # timers
 def t_start() -> float:
@@ -2312,56 +2499,69 @@ if "av_calls" not in st.session_state:
 
 # ==================== DATA SOURCE MODE ====================
 st.markdown("---")
-st.markdown("### ⚡ Data Source")
+st.markdown("### ⚡ מצב נתונים")
+
+# One-shot Live Scan button:
+# - By default, the app prefers precomputed scan (if it exists).
+# - If the user clicks the button, we force a single live run and ignore the snapshot for this run only.
+if st.button("🔄 הרץ לייב סריקה עכשיו", key="live_scan_button"):
+    st.session_state["force_live_scan_once"] = True
+
+force_live_scan_once = st.session_state.get("force_live_scan_once", False)
 
 # Import scan I/O helpers
 from core.scan_io import load_latest_scan, save_scan as save_scan_helper
 import time
 
-# Data source mode toggle
-data_mode = st.radio(
-    "Choose data source:",
-    ["📦 Precomputed (recommended)", "🔴 Live scan"],
-    index=0,
-    help="Precomputed: Load results from batch scanner (instant). Live scan: Run full pipeline now (several minutes)."
-)
-
-use_precomputed = (data_mode == "📦 Precomputed (recommended)")
-st.session_state["data_mode"] = "precomputed" if use_precomputed else "live"
-# Always reset skip_pipeline when switching to live mode
-if not use_precomputed:
-    st.session_state["skip_pipeline"] = False
-
-# Try to load precomputed scan if in precomputed mode
+# Attempt to load precomputed scan (internal, no user dropdown)
 precomputed_df = None
 precomputed_meta = None
+use_precomputed = False
 
-if use_precomputed:
-    scan_path = Path(__file__).parent / "data" / "scans" / "latest_scan.parquet"
-    t0_precomputed = time.perf_counter()
+scan_path = Path(__file__).parent / "data" / "scans" / "latest_scan.parquet"
+t0_precomputed = time.perf_counter()
+try:
     status_manager.update_detail("Loading precomputed scan from disk...")
     precomputed_df, precomputed_meta = load_latest_scan(scan_path)
     t1_precomputed = time.perf_counter()
     load_time = t1_precomputed - t0_precomputed
     logger.info(f"[PERF] Precomputed scan load time: {load_time:.3f}s")
-    if precomputed_df is not None and precomputed_meta is not None:
-        # Successfully loaded
-        timestamp_str = precomputed_meta.get("timestamp", "unknown")
-        universe_size = precomputed_meta.get("universe_size", 0)
-        status_manager.advance(f"Precomputed scan loaded: {universe_size} tickers (last updated: {timestamp_str})")
-        st.success(f"✅ Using precomputed scan from {timestamp_str}")
-        st.caption(f"📊 {universe_size} tickers analyzed | 🔄 Run batch scanner to update")
-        # Skip to recommendations section (set flag)
-        st.session_state["skip_pipeline"] = True
-        st.session_state["precomputed_results"] = precomputed_df
-        logger.info(f"[PERF] Precomputed scan: DataFrame shape {precomputed_df.shape}")
+except Exception as exc:
+    logger.warning(f"Precomputed scan load failed: {exc}")
+    t1_precomputed = time.perf_counter()
+    load_time = t1_precomputed - t0_precomputed
+
+timestamp_str = "unknown"
+universe_size = 0
+if precomputed_meta is not None:
+    timestamp_str = precomputed_meta.get("timestamp", "unknown")
+    universe_size = precomputed_meta.get("universe_size", 0)
+
+if precomputed_df is not None and precomputed_meta is not None and not force_live_scan_once:
+    # Successfully loaded and NOT forcing live scan -> use precomputed snapshot
+    status_manager.advance(
+        f"Precomputed scan loaded: {universe_size} tickers (last updated: {timestamp_str})"
+    )
+    st.success(f"✅ Using precomputed scan from {timestamp_str}")
+    st.caption(f"📊 {universe_size} tickers analyzed | 🔄 Run batch scanner to update")
+
+    st.session_state["skip_pipeline"] = True
+    st.session_state["precomputed_results"] = precomputed_df
+    logger.info(f"[PERF] Precomputed scan: DataFrame shape {precomputed_df.shape}")
+    use_precomputed = True
+else:
+    # Either no snapshot exists, or user forced a live scan
+    if precomputed_df is not None and precomputed_meta is not None and force_live_scan_once:
+        st.info("🔄 Live scan forced — ignoring precomputed snapshot for this run.")
+        st.caption(f"📊 Snapshot from {timestamp_str} ignored for this run.")
     else:
-        # No precomputed scan found
-        st.warning("⚠️ No precomputed scan found. Falling back to Live scan mode.")
-        st.caption(f"Expected file: {scan_path}")
-        st.caption("💡 Run `python batch_scan.py` to generate a precomputed scan.")
-        use_precomputed = False
-        st.session_state["skip_pipeline"] = False
+        st.info("📊 Running live scan mode (no precomputed data available).")
+        st.caption("💡 Run `python batch_scan.py` to generate precomputed results for faster loading.")
+
+    use_precomputed = False
+    st.session_state["skip_pipeline"] = False
+    # Reset the one-shot flag so the next run can go back to precomputed mode by default
+    st.session_state["force_live_scan_once"] = False
 
 # ==================== MAIN PIPELINE ====================
 st.markdown("---")
@@ -2404,7 +2604,11 @@ if skip_pipeline:
     t0_stage3 = time.perf_counter()
     results = st.session_state.get("precomputed_results")
     logger.info(f"Using precomputed scan with {len(results)} tickers")
-    status_manager.complete(f"✅ Precomputed scan loaded: {len(results)} tickers")
+    try:
+        status_manager.update_detail("Precomputed scan loaded — using cached results")
+        status_manager.set_progress(1.0)
+    except Exception:
+        pass
     # Skip to recommendations section (results already loaded)
     st.info("⚡ Using precomputed scan — skipping live pipeline execution")
     t1_stage3 = time.perf_counter()
@@ -2422,6 +2626,9 @@ create_debug_expander({
     "qqq_trend": market_regime_data.get("qqq_trend", 0),
     "vix_level": market_regime_data.get("vix", 0),
 }, title="📊 Market Regime Details")
+
+# Initialize sources tracker
+sources_overview = SourcesOverview()
 
 if not skip_pipeline:
     # 1) Universe
@@ -2925,25 +3132,6 @@ if CONFIG["FUNDAMENTAL_ENABLED"] and fundamental_available:
         results.loc[idx, "fundamentals_available"] = bool(row.get("fundamentals_available", False))
     phase_times["fundamentals_v2"] = t_end(t0)
     status_manager.advance(f"Fundamentals: {len(results)} enriched")
-    try:
-        # Light debug sample (first 2 tickers) showing coverage & sources
-        sample_tickers = tickers_list[:2]
-        sample_rows = []
-        for tkr in sample_tickers:
-            if tkr in fund_df.index:
-                r = fund_df.loc[tkr]
-                sample_rows.append(
-                    {
-                        "Ticker": tkr,
-                        "Fund_Coverage_Pct": r.get("Fund_Coverage_Pct"),
-                        "Sources": ",".join(r.get("_sources_used", [])),
-                    }
-                )
-        if sample_rows:
-            with st.expander("🔧 Developer debug: fundamentals sample", expanded=False):
-                st.dataframe(pd.DataFrame(sample_rows))
-    except Exception:
-        pass
 else:
     # Even if disabled still ensure columns exist for downstream reliability logic
     if "fundamentals_available" not in results.columns:
@@ -3139,6 +3327,7 @@ if "reliability_v2" not in results.columns or results["reliability_v2"].isna().a
     st.success(
         f"✅ V2 scoring completed: {len(results)} stocks scored in {phase_times['risk_v2_scoring']:.1f}s"
     )
+    status_manager.advance(f"V2 risk & reliability: {len(results)} stocks scored")
 
     # Ensure canonical V2 column aliases exist for UI/CSV and enforce blocked zeros
     # Map rr -> reward_risk_v2, reliability -> reliability_score_v2
@@ -3565,53 +3754,14 @@ else:
 
 spec_after_filter = len(spec_filtered)
 
-# ==================== ML SCORING ====================
-# Helper function for ML confidence band (defined outside to be available everywhere)
-def _ml_band(p: float) -> str:
-    if not np.isfinite(p):
-        return "N/A"
-    if p < 0.60:
-        return "Low"
-    if p < 0.75:
-        return "Medium"
-    return "High"
-
-if XGBOOST_MODEL is not None:
-    logger.info("Applying XGBoost ML scoring...")
-
-    # Score Core stocks
-    if not core_filtered.empty:
-        core_filtered["ML_Probability"] = core_filtered.apply(
-            score_with_xgboost, axis=1
-        )
-        core_filtered["ml_conf_band"] = core_filtered["ML_Probability"].apply(_ml_band)
-        core_filtered["ML_Confidence"] = core_filtered["ml_conf_band"]
-        core_filtered = core_filtered.sort_values("ML_Probability", ascending=False)
-        logger.info(
-            f"Core stocks scored: avg probability {core_filtered['ML_Probability'].mean():.3f}"
-        )
-
-    # Score Speculative stocks
-    if not spec_filtered.empty:
-        spec_filtered["ML_Probability"] = spec_filtered.apply(
-            score_with_xgboost, axis=1
-        )
-        spec_filtered["ml_conf_band"] = spec_filtered["ML_Probability"].apply(_ml_band)
-        spec_filtered["ML_Confidence"] = spec_filtered["ml_conf_band"]
-        spec_filtered = spec_filtered.sort_values("ML_Probability", ascending=False)
-        logger.info(
-            f"Speculative stocks scored: avg probability {spec_filtered['ML_Probability'].mean():.3f}"
-        )
-else:
-    logger.info("ML scoring skipped - model not available")
-    if not core_filtered.empty:
-        core_filtered["ML_Probability"] = np.nan
-        core_filtered["ml_conf_band"] = "N/A"
-        core_filtered["ML_Confidence"] = "N/A"
-    if not spec_filtered.empty:
-        spec_filtered["ML_Probability"] = np.nan
-        spec_filtered["ml_conf_band"] = "N/A"
-        spec_filtered["ML_Confidence"] = "N/A"
+if not core_filtered.empty:
+    core_filtered["ML_Probability"] = np.nan
+    core_filtered["ml_conf_band"] = "N/A"
+    core_filtered["ML_Confidence"] = "N/A"
+if not spec_filtered.empty:
+    spec_filtered["ML_Probability"] = np.nan
+    spec_filtered["ml_conf_band"] = "N/A"
+    spec_filtered["ML_Confidence"] = "N/A"
 
 # === CALCULATE QUALITY SCORE FOR ALL STOCKS ===
 from core.scoring_engine import calculate_quality_score
@@ -3670,17 +3820,6 @@ if results.empty:
     status_manager.update_detail("⚠️ All stocks filtered out, showing empty recommendations")
 elif results_count > 0:
     status_manager.advance(f"Final: {core_count_final} Core + {spec_count_final} Speculative = {results_count} total")
-
-# Quality guidance (shown only if significant issues)
-target_min = CONFIG.get("TARGET_RECOMMENDATIONS_MIN", 5)
-target_core_min = 3
-
-if results_count < target_min:
-    with st.expander("⚠️ Low recommendation count", expanded=False):
-        st.write(f"Only {results_count} stocks passed (target: {target_min}+). Consider relaxing filters or checking market conditions.")
-elif core_count_final < target_core_min and results_count > 0:
-    with st.expander("ℹ️ Limited Core stocks", expanded=False):
-        st.write(f"Only {core_count_final} Core stocks meet strict criteria. {spec_count_final} Speculative stocks available.")
 
 # External price verification (Top-K)
 t0 = t_start()
@@ -3830,7 +3969,7 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and any_price_provider and "Price_Yahoo" in r
                 ]
                 # Compute historical std dev for this ticker (only for verified subset)
                 ticker = results.loc[idx, "Ticker"]
-                if ticker in data_map:
+                if not skip_pipeline and ticker in data_map:
                     hist = data_map[ticker]
                     if len(hist) >= 5:  # Minimum 5 candles
                         recent = hist["Close"].tail(min(30, len(hist)))
@@ -4216,32 +4355,48 @@ if st.session_state.get("precomputed_results") is not None and st.session_state.
     data_map = {}
     phase_times = phase_times if 'phase_times' in locals() else {}
     logger.info(f"Rendering using precomputed scan with {len(results)} tickers")
-    status_manager.complete(f"✅ Precomputed scan loaded: {len(results)} tickers")
+    try:
+        status_manager.update_detail("Precomputed scan loaded — using cached results")
+        status_manager.set_progress(1.0)
+    except Exception:
+        pass
     st.info("⚡ Rendering using precomputed scan (no live pipeline run)")
 
 if not use_precomputed:
     st.markdown("---")
-    save_live = st.checkbox(
+    if st.button(
         "💾 Save this run as latest precomputed scan",
-        value=False,
+        key="save_precomputed",
         help="Persist these results to load instantly next time via Precomputed mode."
-    )
-    if save_live:
+    ):
         try:
-            from pathlib import Path
-            output_dir = Path(__file__).parent / "data" / "scans"
-            output_dir.mkdir(parents=True, exist_ok=True)
-            path_latest = output_dir / "latest_scan.parquet"
             ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-            path_timestamped = output_dir / f"scan_{ts}.parquet"
-            save_scan_helper(results, CONFIG, path_latest, path_timestamped, metadata={"timestamp": ts})
+            save_latest_scan_from_results(results, metadata={"timestamp": ts})
             st.success(f"Saved this run as latest_scan ({len(results)} tickers, timestamp {ts})")
             if CONFIG.get("DEBUG_MODE"):
+                from pathlib import Path
+                output_dir = Path(__file__).parent / "data" / "scans"
+                path_latest = output_dir / "latest_scan.parquet"
+                path_timestamped = output_dir / f"scan_{ts}.parquet"
                 with st.expander("Developer details: saved paths"):
                     st.write({"latest": str(path_latest), "timestamped": str(path_timestamped)})
         except Exception as e:
             st.error(f"Failed to save scan: {e}")
+    
+    # Auto-save latest scan at end of live pipeline
+    try:
+        ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        save_latest_scan_from_results(results, metadata={"timestamp": ts})
+    except Exception as e:
+        logger.warning(f"Failed to auto-save latest scan: {e}")
     # (Save option moved outside scaling branch)
+
+# Mark pipeline completion at UI level
+try:
+    status_manager.update_detail("Pipeline complete — generating recommendations")
+    status_manager.set_progress(1.0)
+except Exception:
+    pass
 
 # Close the skip_pipeline conditional block
 # (The if not skip_pipeline block ends here)
@@ -4252,275 +4407,45 @@ if not use_precomputed:
 
 
 
-# ==================== Recommendation Cards ====================
-try:
-    # Re-render sources table now that pipeline likely populated usage
-    sources_placeholder.markdown(
-        render_sources_table(final=True), unsafe_allow_html=True
-    )
-except Exception:
-    pass
 st.subheader("🤖 Recommendations Now")
 st.caption("These cards are buy recommendations only. This is not investment advice.")
 
 # Sidebar filters
-with st.sidebar:
-    st.header("🎛️ Scan Controls")
-    st.caption("Essential parameters for this run")
-    
-    # === Fast vs Deep Mode Toggle (NEW) ===
-    st.markdown("---")
-    analysis_mode = st.radio(
-        "⚡ Analysis Mode",
-        ["Fast (30-60s)", "Deep (Full)"],
-        index=0,
-        help="Fast mode reduces universe size and disables optional computations for quick results. Deep mode processes the full configured universe."
-    )
-    fast_mode = (analysis_mode == "Fast (30-60s)")
-    st.session_state["fast_mode"] = fast_mode
-    
-    if fast_mode:
-        st.caption("🚀 Fast mode: Reduced universe, no optional backtest/diagnostics")
-    else:
-        st.caption("🔬 Deep mode: Full universe with all computations enabled")
+# Sidebar removed - all controls moved to top bar above
 
-    # V2 SCORING ENGINE (NOW DEFAULT)
-    st.markdown("---")
-    st.subheader("🚀 Advanced Scoring")
-    st.caption(
-        "Multi-source fundamentals (FMP->Finnhub->Tiingo->Alpha) • Unified conviction (35% fund, 35% tech, 15% RR, 15% reliability) • ML boost ±10%"
-    )
+# Read session state values set by top control bar
+universe_size = int(st.session_state.get("universe_size", CONFIG.get("UNIVERSE_LIMIT", 100)))
+fast_mode = bool(st.session_state.get("fast_mode", False))
+total_budget = float(st.session_state.get("total_budget", CONFIG["BUDGET_TOTAL"]))
+min_position = float(st.session_state.get("min_position", max(50.0, round(total_budget * 0.10))))
+max_position_pct = float(st.session_state.get("max_position_pct", CONFIG["MAX_POSITION_PCT"]))
+alloc_style_idx = int(st.session_state.get("alloc_style_idx", 0))
+enable_multi_source = bool(st.session_state.get("enable_multi_source", True))
+enable_ml_boost = bool(st.session_state.get("enable_ml_boost", True))
+ml_threshold = int(st.session_state.get("ml_threshold", 0))
+enable_openai_targets = bool(st.session_state.get("enable_openai_targets", False))
 
-    # Essential only; advanced toggles moved to expander below
+# Legacy variables for backward compatibility
+RELAXED_MODE = bool(st.session_state.get("RELAXED_MODE", False))
+FAST_MODE = bool(st.session_state.get("FAST_MODE", False))
+DEBUG_SKIP_PIPELINE = bool(st.session_state.get("DEBUG_SKIP_PIPELINE", False))
+use_full_export = bool(st.session_state.get("use_full_export", False))
 
-    # Universe size selection (overrides env default)
-    # In Fast mode, cap at 50; in Deep mode, allow full range
-    available_sizes = [20, 50] if fast_mode else [20, 50, 100, 200, 500]
-    default_size = int(st.session_state.get("universe_size", CONFIG.get("UNIVERSE_LIMIT", 100)))
-    # Clamp default_size to available options
-    if default_size not in available_sizes:
-        default_size = available_sizes[-1]  # Use max available
-    
-    universe_size = st.selectbox(
-        "Universe size",
-        options=available_sizes,
-        index=available_sizes.index(default_size),
-        key="universe_size_main",
-        help="Number of tickers to include in scan universe (deterministic trim).",
-    )
-    st.session_state["universe_size"] = int(universe_size)
+# Initialize view filters from session state or defaults
+risk_filter = st.session_state.get("risk_filter", ["core", "speculative"])
+quality_filter = st.session_state.get("quality_filter", ["high", "medium", "low"])
+score_min = st.session_state.get("score_min", 0.0)
+score_max = st.session_state.get("score_max", 100.0)
+rsi_max = st.session_state.get("rsi_max", 100.0)
+sector_filter = st.session_state.get("sector_filter", [])
 
-    st.subheader("💰 Allocation")
-    total_budget = st.number_input(
-        "Total investment ($)",
-        min_value=0.0,
-        value=float(st.session_state.get("total_budget", CONFIG["BUDGET_TOTAL"])),
-        step=100.0,
-    )
-    st.session_state["total_budget"] = float(total_budget)
-    min_position = st.number_input(
-        "Min position ($)",
-        min_value=0.0,
-        value=float(
-            st.session_state.get(
-                "min_position", max(50.0, round(float(total_budget) * 0.10))
-            )
-        ),
-        step=50.0,
-    )
-    st.session_state["min_position"] = float(min_position)
-    max_position_pct = st.slider(
-        "Max position (% of total)",
-        min_value=5.0,
-        max_value=60.0,
-        value=float(
-            st.session_state.get("max_position_pct", CONFIG["MAX_POSITION_PCT"])
-        ),
-        step=1.0,
-    )
-    st.session_state["max_position_pct"] = float(max_position_pct)
-    alloc_style = st.selectbox(
-        "Allocation style",
-        ["Balanced (core tilt)", "Conservative", "Aggressive"],
-        index=int(st.session_state.get("alloc_style_idx", 0)),
-    )
-    st.session_state["alloc_style_idx"] = [
-        "Balanced (core tilt)",
-        "Conservative",
-        "Aggressive",
-    ].index(alloc_style)
+# Continue with main app flow
+st.markdown("---")
 
-    with st.expander("Advanced / Developer Options", expanded=False):
-        RELAXED_MODE = st.checkbox(
-            "Relaxed Mode (Momentum-first)",
-            value=bool(st.session_state.get("RELAXED_MODE", False)),
-            help="Looser speculative filters; momentum prioritized.",
-        )
-        st.session_state["RELAXED_MODE"] = RELAXED_MODE
-        FAST_MODE = st.checkbox(
-            "Fast Mode (skip slow providers)",
-            value=bool(st.session_state.get("FAST_MODE", False)),
-            help="Skip Alpha Vantage & Tiingo for faster scan.",
-        )
-        st.session_state["FAST_MODE"] = FAST_MODE
-        DEBUG_SKIP_PIPELINE = st.checkbox(
-            "Debug: Skip data pipeline (dummy cards)",
-            value=bool(st.session_state.get("DEBUG_SKIP_PIPELINE", False)),
-            help="Show synthetic cards to debug UI if pipeline stalls.",
-        )
-        st.session_state["DEBUG_SKIP_PIPELINE"] = DEBUG_SKIP_PIPELINE
-        enable_multi_source = st.checkbox(
-            "Fetch multi-source fundamentals",
-            value=bool(st.session_state.get("enable_multi_source", True)),
-            help="Aggregate fundamentals across providers for higher reliability.",
-        )
-        st.session_state["enable_multi_source"] = enable_multi_source
-        enable_ml_boost = st.checkbox(
-            "Enable ML confidence boost",
-            value=bool(st.session_state.get("enable_ml_boost", True)),
-            help="ML adjusts conviction ±10% based on historical patterns.",
-        )
-        st.session_state["enable_ml_boost"] = enable_ml_boost
-        if OPENAI_AVAILABLE and (
-            os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")
-        ):
-            enable_openai_targets = st.checkbox(
-                "AI target prices & timing",
-                value=bool(st.session_state.get("enable_openai_targets", True)),
-                help="Use GPT model for target & holding period.",
-            )
-            st.session_state["enable_openai_targets"] = enable_openai_targets
-        ml_threshold = st.slider(
-            "ML confidence threshold (%)",
-            min_value=0,
-            max_value=100,
-            value=int(st.session_state.get("ml_threshold", 0)),
-            step=5,
-            help="Minimum ML probability to include stock (0 disables).",
-        )
-        st.session_state["ml_threshold"] = int(ml_threshold)
-        use_full_export = st.checkbox(
-            "Use full debug export",
-            value=bool(st.session_state.get("use_full_export", False)),
-            help="Include all internal scoring & diagnostics in exports.",
-        )
-        st.session_state["use_full_export"] = use_full_export
-
-    # OpenAI target price enhancement (ENABLED BY DEFAULT)
-    if OPENAI_AVAILABLE and (
-        os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")
-    ):
-        enable_openai_targets = st.checkbox(
-            "🤖 Enable AI-enhanced target prices & timing",
-            value=bool(st.session_state.get("enable_openai_targets", True)),
-            help="Use OpenAI GPT-4o-mini to predict target prices AND holding periods based on fundamentals + technicals. Without this, timing is calculated from RR + RSI + Momentum.",
-        )
-        st.session_state["enable_openai_targets"] = enable_openai_targets
-
-        # Show status
-        if enable_openai_targets:
-            st.success("✅ AI predictions ACTIVE - target dates will be AI-generated")
-        else:
-            st.info(
-                "ℹ️ AI predictions OFF - using technical calculation (RR + RSI + Momentum)"
-            )
-    else:
-        st.session_state["enable_openai_targets"] = False
-        if not OPENAI_AVAILABLE:
-            st.caption("ℹ️ Install `openai` package for AI target predictions")
-        elif not (os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")):
-            st.caption("ℹ️ Add OPENAI_API_KEY to enable AI predictions")
-
-    st.markdown("---")
-    # ML confidence threshold
-    ml_threshold = st.slider(
-        "ML confidence threshold (%)",
-        min_value=0,
-        max_value=100,
-        value=int(st.session_state.get("ml_threshold", 0)),
-        step=5,
-        help="Minimum ML probability to include stock (0=disabled). 🔥High: 70%+, 🟡Med: 50-70%, ⚠️Low: <50%",
-    )
-    st.session_state["ml_threshold"] = int(ml_threshold)
-
-    st.markdown("---")
-
-    # Universe size selection (overrides env default)
-    universe_size = st.selectbox(
-        "Universe size",
-        options=[20,50,100,200,500],
-        index=[20,50,100,200,500].index(int(st.session_state.get("universe_size", CONFIG.get("UNIVERSE_LIMIT", 100)))) if int(st.session_state.get("universe_size", CONFIG.get("UNIVERSE_LIMIT", 100))) in [20,50,100,200,500] else 2,
-        key="universe_size_main_content",
-        help="Number of tickers to include in scan universe (deterministic trim).",
-    )
-    st.session_state["universe_size"] = int(universe_size)
-
-    # Risk level filter
-    risk_filter = st.multiselect(
-        "Risk level",
-        options=["core", "speculative"],
-        default=["core", "speculative"],
-        format_func=lambda x: "🛡️ Core" if x == "core" else "⚡ Speculative",
-        help="Choose which types of stocks to show",
-    )
-
-    # Data quality filter
-    quality_filter = st.multiselect(
-        "Minimum data quality",
-        options=["high", "medium", "low"],
-        default=["high", "medium", "low"],
-        format_func=lambda x: {
-            "high": "✅ High (85%+)",
-            "medium": "⚠️ Medium (60-85%)",
-            "low": "❌ Low (<60%)",
-        }[x],
-        help="Filter by data quality level",
-    )
-
-    # Score range
-    if not results.empty and "Score" in results.columns:
-        min_score_val = float(results["Score"].min())
-        max_score_val = float(results["Score"].max())
-        # Only show slider if there's a range
-        if max_score_val > min_score_val:
-            score_range = st.slider(
-                "Score range",
-                min_value=min_score_val,
-                max_value=max_score_val,
-                value=(min_score_val, max_score_val),
-                help="Show only stocks in this score range",
-            )
-        else:
-            st.caption(f"Score: {min_score_val:.1f} (single stock)")
-            score_range = (min_score_val, max_score_val)
-    else:
-        score_range = (0.0, 100.0)
-
-    # Sector filter removed - not useful in sidebar at this stage
-    sector_filter = []
-
-    # RSI filter
-    rsi_max = st.slider(
-        "Max RSI",
-        min_value=0,
-        max_value=100,
-        value=80,
-        help="Filter stocks with too high RSI (overbought)",
-    )
-
-    # Developer debug toggle for raw attribution
-    show_debug_attr = st.checkbox(
-        "🧪 Show raw source attribution (Debug)",
-        value=False,
-        help="Display _sources mapping for developers",
-    )
-    st.session_state["show_debug_attr"] = show_debug_attr
-    compact_mode = st.checkbox(
-        "📦 Compact view",
-        value=bool(st.session_state.get("compact_mode", False)),
-        help="Hide indicator/fundamental details to reduce card height",
-    )
-    st.session_state["compact_mode"] = compact_mode
+# Initialize view parameters from session state
+show_debug_attr = bool(st.session_state.get("show_debug_attr", False))
+compact_mode = bool(st.session_state.get("compact_mode", False))
+score_range = st.session_state.get("score_range", (0.0, 100.0))
 
 # Apply filters
 rec_df = results.copy()
@@ -4586,21 +4511,6 @@ if rec_df.empty:
     rec_df["Fallback_Display"] = True
 else:
     rec_df["Fallback_Display"] = False
-
-# DEBUG: surface counts before card rendering to diagnose empty UI issues
-try:
-    with st.expander("🔧 Developer debug: recommendation internals", expanded=False):
-        st.caption(
-            f"🔎 Debug — rec_df={len(rec_df)} results={len(results)} columns={list(rec_df.columns)[:12]}"
-        )
-        if "risk_gate_status_v2" in results.columns:
-            gate_counts = results["risk_gate_status_v2"].value_counts().to_dict()
-            st.caption(f"🔎 Gate distribution: {gate_counts}")
-        if "buy_amount_v2" in results.columns:
-            pos_buy = int((results["buy_amount_v2"].fillna(0) > 0).sum())
-            st.caption(f"🔎 Positive buy_amount_v2: {pos_buy}/{len(results)}")
-except Exception:
-    pass
 
 # Provider usage tracking (aggregate from source lines)
 # Build accurate provider usage tracker using session markers and per-row flags
@@ -4697,42 +4607,17 @@ for p, meta in providers_meta.items():
 # Count used providers (any usage)
 used_count = sum(1 for v in provider_usage.values() if v.get("used_price") or v.get("used_fundamentals") or v.get("used_ml"))
 
-with st.expander("📡 Data Provider Usage", expanded=False):
-    # Render a compact HTML table with color-coded status per provider
-    rows = []
-    for p, v in provider_usage.items():
-        if not v.get("implemented"):
-            status = "Not implemented"
-            color = "#9ca3af"  # gray
-            tip = "Not implemented yet"
-        elif v.get("used_price") or v.get("used_fundamentals") or v.get("used_ml"):
-            status = "Used"
-            color = "#16a34a"  # green
-            used_parts = []
-            if v.get("used_price"):
-                used_parts.append("price")
-            if v.get("used_fundamentals"):
-                used_parts.append("fundamentals")
-            if v.get("used_ml"):
-                used_parts.append("ml")
-            tip = f"Used for: {', '.join(used_parts)}"
-        elif v.get("key_present"):
-            status = "Available"
-            color = "#f59e0b"  # yellow
-            tip = "Key present / implemented but not used in this run"
-        else:
-            status = "No key"
-            color = "#6b7280"
-            tip = "No API key (or not configured)"
-
-        rows.append((p, status, color, tip))
-
-    table_html = "<table style='border-collapse:collapse;width:100%'><thead><tr><th style='text-align:left;padding:6px 8px;border-bottom:1px solid #e5e7eb'>Provider</th><th style='text-align:left;padding:6px 8px;border-bottom:1px solid #e5e7eb'>Status</th><th style='text-align:left;padding:6px 8px;border-bottom:1px solid #e5e7eb'>Notes</th></tr></thead><tbody>"
-    for p, status, color, tip in rows:
-        table_html += f"<tr title='{html_escape.escape(tip)}'><td style='padding:6px 8px;border-bottom:1px solid #f3f4f6'>{html_escape.escape(p)}</td><td style='padding:6px 8px;border-bottom:1px solid #f3f4f6'><span style='display:inline-block;padding:6px 10px;border-radius:6px;background:{color};color:white;font-weight:700'>{html_escape.escape(status)}</span></td><td style='padding:6px 8px;border-bottom:1px solid #f3f4f6'>{html_escape.escape(tip)}</td></tr>"
-    table_html += "</tbody></table>"
-    st.markdown(table_html, unsafe_allow_html=True)
-    st.caption(f"Used providers: {used_count} / {len(providers_meta)}")
+# Render data sources overview (single dynamic table, no HTML)
+render_data_sources_overview(
+    provider_status={
+        "Alpha": {"ok": alpha_ok},
+        "Finnhub": {"ok": finn_ok},
+        "Polygon": {"ok": poly_ok},
+        "Tiingo": {"ok": tiin_ok},
+    },
+    provider_usage=provider_usage,
+    results=results
+)
 
 # Calculate target prices and dates WITH OPTIONAL OPENAI ENHANCEMENT
 from datetime import datetime, timedelta
@@ -5177,20 +5062,16 @@ def format_rel(val) -> str:
 if rec_df.empty:
     st.info("No stocks currently pass the threshold with a positive buy amount.")
 else:
-    # Split into Core and Speculative (case-insensitive matching to avoid accidental drops)
+    # Split into Core and Speculative
     if "Risk_Level" in rec_df.columns:
         levels = rec_df["Risk_Level"].astype(str).str.lower()
         core_df = rec_df[levels == "core"].copy()
         spec_df = rec_df[levels == "speculative"].copy()
-        # Inject card CSS once for all recommendation cards
-        st.markdown(get_card_css(), unsafe_allow_html=True)
     else:
-        # Fallback if Risk_Level column doesn't exist: treat all as core
         core_df = rec_df.copy()
         spec_df = pd.DataFrame()
 
-    # Re-display an accurate count reflecting what will be rendered
-    # Determine funded (allocated) positions vs total candidates for clearer caption
+    # Summary info
     total_candidates = len(core_df) + len(spec_df)
     funded_count = 0
     try:
@@ -5200,6 +5081,7 @@ else:
             funded_count = int((rec_df['סכום קנייה ($)'].fillna(0) > 0).sum())
     except Exception:
         funded_count = total_candidates
+    
     if funded_count and funded_count != total_candidates:
         st.info(
             f"📊 Showing {funded_count} funded positions (out of {total_candidates} candidates) — {len(core_df)} Core, {len(spec_df)} Speculative"
@@ -5209,40 +5091,116 @@ else:
             f"📊 Showing {total_candidates} stocks after filters ({len(core_df)} Core, {len(spec_df)} Speculative)"
         )
 
-    # Display Core recommendations first
+    # Core recommendations
     if not core_df.empty:
         st.markdown("### 🛡️ Core Stocks — Lower Relative Risk")
-        st.caption(
-            f"✅ {len(core_df)} stocks with high data quality and balanced risk profile"
-        )
-
-        # Sector diversification warning
-        if "Sector" in core_df.columns:
-            sector_counts = core_df["Sector"].value_counts()
-            total_stocks = len(core_df)
-            concentrated_sectors = []
-            for sector, count in sector_counts.items():
-                pct = (count / total_stocks) * 100
-                if pct > 30:
-                    concentrated_sectors.append(
-                        f"{sector} ({count}/{total_stocks}, {pct:.0f}%)"
-                    )
-
-            if concentrated_sectors:
-                st.warning(
-                    f"⚠️ **Sector Concentration Alert:** {', '.join(concentrated_sectors)}. Consider diversifying across more sectors to reduce correlation risk."
-                )
-
-        st.markdown(
-            """
-<div style='direction:ltr;text-align:left;font-size:0.75em;margin:4px 0 10px 0'>
-<b>Reliability legend:</b> <span style='color:#16a34a;font-weight:600'>High >= 0.75</span> - <span style='color:#f59e0b;font-weight:600'>Medium 0.40-0.74</span> - <span style='color:#dc2626;font-weight:600'>Low &lt; 0.40</span>
-</div>
-""",
-            unsafe_allow_html=True,
-        )
-
+        st.caption(f"✅ {len(core_df)} stocks with high data quality and balanced risk profile")
+        
         for _, r in core_df.iterrows():
+            ticker = r.get("Ticker", "N/A")
+            sector = r.get("Sector", "N/A")
+            overall_score = r.get("overall_score_20d", r.get("Score", "N/A"))
+            ml_prob = r.get("ML_Probability", np.nan)
+            entry_price = r.get("Entry_Price", np.nan)
+            target_price = r.get("Target_Price", np.nan)
+            rr = r.get("RewardRisk", r.get("rr", np.nan))
+            risk_level = r.get("risk_band", "N/A")
+            reliability = r.get("Reliability_v2", r.get("reliability_pct", np.nan))
+            buy_amt = float(r.get("buy_amount_v2", r.get("סכום קנייה ($)", 0.0)) or 0.0)
+            
+            # Format values
+            score_fmt = f"{overall_score:.0f}" if pd.notna(overall_score) else "N/A"
+            ml_fmt = f"{ml_prob*100:.0f}%" if pd.notna(ml_prob) else "N/A"
+            entry_fmt = f"${entry_price:.2f}" if pd.notna(entry_price) else "N/A"
+            target_fmt = f"${target_price:.2f}" if pd.notna(target_price) else "N/A"
+            rr_fmt = f"{rr:.2f}R" if pd.notna(rr) else "N/A"
+            rel_fmt = f"{reliability:.0f}%" if pd.notna(reliability) else "N/A"
+            
+            # Create a container for each stock
+            with st.container(border=True):
+                # Header row
+                col1, col2, col3 = st.columns([1, 2, 2])
+                with col1:
+                    st.subheader(ticker)
+                with col2:
+                    st.metric("Score", score_fmt)
+                with col3:
+                    st.metric("ML Confidence", ml_fmt)
+                
+                # Details row
+                col4, col5, col6, col7 = st.columns(4)
+                with col4:
+                    st.metric("Entry", entry_fmt)
+                with col5:
+                    st.metric("Target", target_fmt)
+                with col6:
+                    st.metric("R/R", rr_fmt)
+                with col7:
+                    st.metric("Reliability", rel_fmt)
+                
+                # Additional info
+                col8, col9 = st.columns(2)
+                with col8:
+                    st.caption(f"Sector: {sector}")
+                with col9:
+                    st.caption(f"Risk: {risk_level} | Buy: ${buy_amt:.2f}")
+
+    # Speculative recommendations
+    if not spec_df.empty:
+        st.markdown("### ⚡ Speculative Stocks — High Upside, High Risk")
+        st.caption(f"⚠️ {len(spec_df)} stocks with a higher risk profile")
+        st.warning("🔔 Warning: These stocks are classified as speculative due to partial data or elevated risk factors. Suitable for experienced investors only.")
+        
+        for _, r in spec_df.iterrows():
+            ticker = r.get("Ticker", "N/A")
+            sector = r.get("Sector", "N/A")
+            overall_score = r.get("overall_score_20d", r.get("Score", "N/A"))
+            ml_prob = r.get("ML_Probability", np.nan)
+            entry_price = r.get("Entry_Price", np.nan)
+            target_price = r.get("Target_Price", np.nan)
+            rr = r.get("RewardRisk", r.get("rr", np.nan))
+            risk_level = r.get("risk_band", "N/A")
+            reliability = r.get("Reliability_v2", r.get("reliability_pct", np.nan))
+            buy_amt = float(r.get("buy_amount_v2", r.get("סכום קנייה ($)", 0.0)) or 0.0)
+            
+            # Format values
+            score_fmt = f"{overall_score:.0f}" if pd.notna(overall_score) else "N/A"
+            ml_fmt = f"{ml_prob*100:.0f}%" if pd.notna(ml_prob) else "N/A"
+            entry_fmt = f"${entry_price:.2f}" if pd.notna(entry_price) else "N/A"
+            target_fmt = f"${target_price:.2f}" if pd.notna(target_price) else "N/A"
+            rr_fmt = f"{rr:.2f}R" if pd.notna(rr) else "N/A"
+            rel_fmt = f"{reliability:.0f}%" if pd.notna(reliability) else "N/A"
+            
+            # Create a container for each stock
+            with st.container(border=True):
+                # Header row
+                col1, col2, col3 = st.columns([1, 2, 2])
+                with col1:
+                    st.subheader(ticker)
+                with col2:
+                    st.metric("Score", score_fmt)
+                with col3:
+                    st.metric("ML Confidence", ml_fmt)
+                
+                # Details row
+                col4, col5, col6, col7 = st.columns(4)
+                with col4:
+                    st.metric("Entry", entry_fmt)
+                with col5:
+                    st.metric("Target", target_fmt)
+                with col6:
+                    st.metric("R/R", rr_fmt)
+                with col7:
+                    st.metric("Reliability", rel_fmt)
+                
+                # Additional info
+                col8, col9 = st.columns(2)
+                with col8:
+                    st.caption(f"Sector: {sector}")
+                with col9:
+                    st.caption(f"Risk: {risk_level} | Buy: ${buy_amt:.2f}")
+
+    # Export section (single, unified)
             mean = r.get("מחיר ממוצע", np.nan)
             std = r.get("סטיית תקן", np.nan)
             hist_std = r.get(
@@ -5508,408 +5466,8 @@ else:
                     risk_color = "#f59e0b"  # orange
                 else:
                     risk_color = "#dc2626"  # red
-            else:
-                risk_color = "#6b7280"
 
-            st.text(f"CORE CARD: {r.get('Ticker', 'N/A')} (rank {r.get('Overall_Rank', 'N/A')})")
-            card_html = _safe_str(build_clean_card(r, speculative=False), "")
-            attribution = r.get("Fund_Attribution", "")
-            if show_debug_attr:
-                raw_sources = r.get("_sources", {})
-                if raw_sources:
-                    raw_html = html_escape.escape(str(raw_sources))
-                    card_html += f"""
-<div class="item" style="grid-column:span 5;font-size:0.7em;color:#334155;background:#f1f5f9;border:1px dashed #cbd5e1;border-radius:6px;padding:4px;margin-top:4px"><b>RAW _sources:</b> {raw_html}</div>"""
-            st.markdown(f"<div class=\"recommend-card\">{card_html}</div>", unsafe_allow_html=True)
-
-    # Display Speculative recommendations
-    if not spec_df.empty:
-        st.markdown("### ⚡ Speculative Stocks — High Upside, High Risk")
-        st.caption(f"⚠️ {len(spec_df)} stocks with a higher risk profile")
-
-        # Sector diversification warning
-        if "Sector" in spec_df.columns:
-            sector_counts = spec_df["Sector"].value_counts()
-            total_stocks = len(spec_df)
-            concentrated_sectors = []
-            for sector, count in sector_counts.items():
-                pct = (count / total_stocks) * 100
-                if pct > 30:
-                    concentrated_sectors.append(
-                        f"{sector} ({count}/{total_stocks}, {pct:.0f}%)"
-                    )
-
-            if concentrated_sectors:
-                st.warning(
-                    f"⚠️ **Sector Concentration Alert:** {', '.join(concentrated_sectors)}. Consider diversifying across more sectors to reduce correlation risk."
-                )
-
-        st.warning(
-            "🔔 Warning: These stocks are classified as speculative due to partial data or elevated risk factors. Suitable for experienced investors only."
-        )
-
-        for _, r in spec_df.iterrows():
-            mean = r.get("מחיר ממוצע", np.nan)
-            std = r.get("סטיית תקן", np.nan)
-            hist_std = r.get(
-                "Historical_StdDev", np.nan
-            )  # NEW: Use historical price std dev
-            show_mean = mean if not np.isnan(mean) else r["Price_Yahoo"]
-            # Prefer Historical_StdDev if available, fallback to old std
-            show_std = (
-                f"${hist_std:.2f}"
-                if np.isfinite(hist_std)
-                else (f"${std:.2f}" if np.isfinite(std) else "N/A")
-            )
-            sources = r.get("מקורות מחיר", "N/A")
-            buy_amt = float(r.get("סכום קנייה ($)", 0.0))
-            horizon = r.get("טווח החזקה", "N/A")
-            rsi_v = r.get("RSI", np.nan)
-            near52 = r.get("Near52w", np.nan)
-            score = r.get("Score", 0)
-            unit_price = r.get("Unit_Price", np.nan)
-            shares = int(r.get("מניות לקנייה", 0))
-            leftover = r.get("עודף ($)", 0.0)
-            rr = r.get("RewardRisk", np.nan)
-            atrp = r.get("ATR_Price", np.nan)
-            overx = r.get("OverextRatio", np.nan)
-
-            rs_63d = r.get("RS_63d", np.nan)
-            vol_surge = r.get("Volume_Surge", np.nan)
-            ma_aligned = r.get("MA_Aligned", False)
-            quality_score = r.get("Quality_Score", 0.0)
-            rr_ratio = r.get("RR_Ratio", np.nan)
-            mom_consistency = r.get("Momentum_Consistency", 0.0)
-
-            risk_level = r.get("Risk_Level", "speculative")
-            data_quality = r.get("Data_Quality", "low")
-            confidence_level = r.get("Confidence_Level", "low")
-            warnings = r.get("Classification_Warnings", "")
-
-            # ML scoring info
-            ml_prob = r.get("ML_Probability", np.nan)
-            ml_confidence = r.get("ML_Confidence", "N/A")
-
-            if data_quality == "high":
-                quality_badge_class = "badge-quality-high"
-                quality_icon = "✅"
-                quality_pct = "85%+"
-            elif data_quality == "medium":
-                quality_badge_class = "badge-quality-medium"
-                quality_icon = "⚠️"
-                quality_pct = "60-85%"
-            else:
-                quality_badge_class = "badge-quality-low"
-                quality_icon = "❌"
-                quality_pct = "<60%"
-
-            # ML confidence badge: High>=70%, Med 50-70%, Low<50%
-            if np.isfinite(ml_prob):
-                if ml_prob >= 0.70:
-                    ml_badge_color = "#16a34a"  # green
-                    ml_badge_text = "🔥 גבוה"
-                elif ml_prob >= 0.50:
-                    ml_badge_color = "#f59e0b"  # orange
-                    ml_badge_text = "🟡 בינוני"
-                else:
-                    ml_badge_color = "#dc2626"  # red
-                    ml_badge_text = "⚠️ נמוך"
-                def _fmt_pct2(val, fmt):
-                    try:
-                        return format(float(val), fmt) if val is not None and str(val) not in ("N/A", "nan") else str(val)
-                    except Exception:
-                        return str(val)
-                ml_badge_html = f"""<span style='display:inline-block;padding:3px 8px;border-radius:4px;background:{ml_badge_color};color:white;font-weight:bold;font-size:0.85em;margin-left:8px'>ML: {ml_badge_text} ({_fmt_pct2(ml_prob*100, '.0f')}%)</span>"""
-                ml_status_esc = f"{ml_badge_text} ({_fmt_pct2(ml_prob*100, '.0f')}%)"
-            else:
-                ml_badge_html = ""
-                ml_status_esc = "N/A"
-
-            show_mean_fmt = f"{show_mean:.2f}" if np.isfinite(show_mean) else "N/A"
-            unit_price_fmt = f"{unit_price:.2f}" if np.isfinite(unit_price) else "N/A"
-            rr_fmt = f"{rr:.2f}R" if np.isfinite(rr) else "N/A"
-            atrp_fmt = f"{atrp:.2f}" if np.isfinite(atrp) else "N/A"
-            overx_fmt = f"{overx:.2f}" if np.isfinite(overx) else "N/A"
-            near52_fmt = f"{near52:.1f}" if np.isfinite(near52) else "N/A"
-            rs_fmt = f"{rs_63d*100:+.1f}%" if np.isfinite(rs_63d) else "N/A"
-            vol_surge_fmt = f"{vol_surge:.2f}x" if np.isfinite(vol_surge) else "N/A"
-            ma_status = "✅ Aligned" if ma_aligned else "⚠️ Not aligned"
-            quality_fmt = f"{quality_score:.0f}/50"
-            rr_ratio_fmt = f"{rr_ratio:.2f}" if np.isfinite(rr_ratio) else "N/A"
-            mom_fmt = f"{mom_consistency*100:.0f}%"
-            confidence_badge = (
-                f"{confidence_level.upper()}" if confidence_level else "LOW"
-            )
-
-            qual_score_f = r.get("Quality_Score_F", np.nan)
-            qual_label = r.get("Quality_Label", "N/A")
-            growth_score_f = r.get("Growth_Score_F", np.nan)
-            growth_label = r.get("Growth_Label", "N/A")
-            val_score_f = r.get("Valuation_Score_F", np.nan)
-            val_label = r.get("Valuation_Label", "N/A")
-            lev_score_f = r.get("Leverage_Score_F", np.nan)
-            lev_label = r.get("Leverage_Label", "N/A")
-
-            qual_fmt = (
-                f"{qual_score_f:.0f} ({qual_label})"
-                if np.isfinite(qual_score_f)
-                else "N/A"
-            )
-            growth_fmt = (
-                f"{growth_score_f:.0f} ({growth_label})"
-                if np.isfinite(growth_score_f)
-                else "N/A"
-            )
-            val_fmt = (
-                f"{val_score_f:.0f} ({val_label})"
-                if np.isfinite(val_score_f)
-                else "N/A"
-            )
-            lev_fmt = (
-                f"{lev_score_f:.0f} ({lev_label})"
-                if np.isfinite(lev_score_f)
-                else "N/A"
-            )
-
-            def label_color(label, good_vals):
-                if label in good_vals:
-                    return "#16a34a"
-                elif label in ["Medium", "Fair", "Moderate"]:
-                    return "#f59e0b"
-                else:
-                    return "#dc2626"
-
-            qual_color = label_color(qual_label, ["High"])
-            growth_color = label_color(growth_label, ["Fast", "Moderate"])
-            val_color = label_color(val_label, ["Cheap", "Fair"])
-            lev_color = label_color(lev_label, ["Low", "Medium"])
-
-            # Detect missing fundamental data
-            missing_fundamental_count = 0
-            fundamental_fields = ["ROE_f", "ROIC_f", "DE_f", "PE_f", "GM_f"]
-            for field in fundamental_fields:
-                val = r.get(field, np.nan)
-                if not np.isfinite(val):
-                    missing_fundamental_count += 1
-
-            # Create partial data badge if applicable
-            data_quality_badge = ""
-            if missing_fundamental_count >= 4:
-                data_quality_badge = (
-                    "<span class='modern-badge badge-missing'>⚠️ Missing Data</span>"
-                )
-            elif missing_fundamental_count >= 2:
-                data_quality_badge = (
-                    "<span class='modern-badge badge-partial'>📊 Partial Data</span>"
-                )
-
-            # Reliability scores formatting (same as Core section)
-            def format_rel(val):
-                if np.isfinite(val):
-                    return f"{val:.1f}%"
-                return "N/A"
-
-            price_rel_fmt = format_rel(r.get("Price_Reliability", np.nan))
-            fund_rel_fmt = format_rel(r.get("Fundamental_Reliability", np.nan))
-            rel_score_fmt = format_rel(r.get("Reliability_Score", np.nan))
-
-            esc = html_escape.escape
-            ticker = esc(str(r["Ticker"]))
-            sources_esc = esc(str(sources))
-            next_earnings = r.get("NextEarnings", "Unknown")
-            warnings_esc = esc(warnings) if warnings else ""
-
-            # NEW: Ranking and target prices
-            overall_rank = r.get("Overall_Rank", "N/A")
-            entry_price = r.get("Entry_Price", np.nan)
-            target_price = r.get("Target_Price", np.nan)
-            target_date = r.get("Target_Date", "N/A")
-            target_source = r.get("Target_Source", "N/A")
-
-            entry_price_fmt = (
-                f"${entry_price:.2f}" if np.isfinite(entry_price) else "N/A"
-            )
-            target_price_fmt = (
-                f"${target_price:.2f}" if np.isfinite(target_price) else "N/A"
-            )
-
-            # Add badge for AI-enhanced targets
-            target_badge_spec = ""
-            if target_source == "AI":
-                target_badge_spec = " <span style='background:#10b981;color:white;padding:2px 6px;border-radius:4px;font-size:0.75em;font-weight:bold'>🤖 AI</span>"
-            elif target_source == "Technical":
-                target_badge_spec = " <span style='background:#6366f1;color:white;padding:2px 6px;border-radius:4px;font-size:0.75em'>📊 Tech</span>"
-
-            # Calculate potential gain %
-            if (
-                np.isfinite(entry_price)
-                and np.isfinite(target_price)
-                and entry_price > 0
-            ):
-                potential_gain_pct = ((target_price - entry_price) / entry_price) * 100
-                gain_fmt = f"+{potential_gain_pct:.1f}%"
-                gain_color = "#16a34a"
-            else:
-                gain_fmt = "N/A"
-                gain_color = "#6b7280"
-
-            # Inject CSS for iframe isolation
-
-            # V2 SCORES (NOW ALWAYS ENABLED AS DEFAULT)
-            conv_v2 = r.get("conviction_v2_final", np.nan)
-            conv_v2_base = r.get("conviction_v2_base", np.nan)
-            fund_v2 = r.get("fundamental_score_v2", np.nan)
-            tech_v2 = r.get("technical_score_v2", np.nan)
-            rr_v2 = r.get("rr_score_v2", np.nan)
-            rel_v2 = r.get("reliability_score_v2", np.nan)
-            risk_v2 = r.get("risk_meter_v2", np.nan)
-            risk_label_v2 = r.get("risk_label_v2", "N/A")
-            ml_boost_v2 = r.get("ml_boost", 0.0)
-            # Strict V2 gate fields for speculative cards
-            gate_status = r.get("risk_gate_status_v2", None)
-            gate_reason = r.get("risk_gate_reason_v2", "")
-            buy_amount_v2 = float(r.get("buy_amount_v2", 0.0) or 0.0)
-            shares_v2 = int(r.get("shares_to_buy_v2", 0) or 0)
-
-            # Format V2 scores for inline display
-            conv_v2_fmt = f"{conv_v2:.0f}" if np.isfinite(conv_v2) else "N/A"
-            fund_v2_fmt = f"{fund_v2:.0f}" if np.isfinite(fund_v2) else "N/A"
-            tech_v2_fmt = f"{tech_v2:.0f}" if np.isfinite(tech_v2) else "N/A"
-            rr_v2_fmt = f"{rr_v2:.0f}" if np.isfinite(rr_v2) else "N/A"
-            rel_v2_fmt = f"{rel_v2:.0f}" if np.isfinite(rel_v2) else "N/A"
-            risk_v2_fmt = f"{risk_v2:.0f}" if np.isfinite(risk_v2) else "N/A"
-
-            if np.isfinite(conv_v2):
-                if conv_v2 >= 75:
-                    conv_color = "#16a34a"
-                elif conv_v2 >= 60:
-                    conv_color = "#f59e0b"
-                else:
-                    conv_color = "#dc2626"
-            else:
-                conv_color = "#6b7280"
-
-            if np.isfinite(risk_v2):
-                if risk_v2 < 35:
-                    risk_color = "#16a34a"
-                elif risk_v2 < 65:
-                    risk_color = "#f59e0b"
-                else:
-                    risk_color = "#dc2626"
-            else:
-                risk_color = "#6b7280"
-
-            # Build strict-mode badge for speculative
-            badge_html_spec = ""
-            if gate_status == "blocked":
-                badge_html_spec = "<span style='background:#dc2626;color:white;padding:4px 8px;border-radius:6px;font-weight:700;margin-left:8px'>❌ Blocked (Strict Risk Gate)</span>"
-            elif gate_status == "reduced" or gate_status == "severely_reduced":
-                badge_html_spec = "<span style='background:#f59e0b;color:black;padding:4px 8px;border-radius:6px;font-weight:700;margin-left:8px'>⚠️ Reduced (Strict Risk Gate)</span>"
-            elif gate_status == "full":
-                badge_html_spec = "<span style='background:#16a34a;color:white;padding:4px 8px;border-radius:6px;font-weight:700;margin-left:8px'>✅ Full Allocation Allowed (Strict Mode)</span>"
-
-            # Minimal speculative card
-            overall_score_val = r.get("overall_score", conv_v2)
-            rr_ratio_val = r.get("rr", np.nan)
-            rr_band = r.get("rr_band", "")
-            st.text(f"SPEC CARD: {r.get('Ticker', 'N/A')} (rank {r.get('Overall_Rank', 'N/A')})")
-            card_html = _safe_str(build_clean_card(r, speculative=True), "")
-            attribution_spec = r.get("Fund_Attribution", "")
-            if show_debug_attr:
-                raw_sources = r.get("_sources", {})
-                if raw_sources:
-                    raw_html = html_escape.escape(str(raw_sources))
-                    card_html += f"""
-<div class="item" style="grid-column:span 5;font-size:0.7em;color:#334155;background:#f1f5f9;border:1px dashed #cbd5e1;border-radius:6px;padding:4px;margin-top:4px"><b>RAW _sources:</b> {raw_html}</div>"""
-            st.markdown(f"<div class=\"recommend-card\">{card_html}</div>", unsafe_allow_html=True)
-
-# Inject compact mode JS to hide advanced/fundamental sections
-if st.session_state.get("compact_mode"):
-    st.markdown(
-        """
-<script>
-for(const el of document.querySelectorAll('.card')){el.classList.add('compact-mode');}
-for(const el of document.querySelectorAll('.compact-mode .section-divider')){
-  if(el.textContent.includes('🔬')||el.textContent.includes('💎')){
-    let next=el.nextElementSibling;
-    while(next && !next.classList.contains('section-divider')){
-      let toHide=next;
-      next=next.nextElementSibling;
-      toHide.style.display='none';
-    }
-    el.style.display='none';
-  }
-}
-</script>
-""",
-        unsafe_allow_html=True,
-    )
-
-# Final stage advancement
-    # Mark pipeline complete
-    status_manager.complete(f"✅ Pipeline complete: {len(rec_df)} recommendations")
-    
-    # Render performance timing report (only in debug mode)
-    status_manager.render_timing_report()
-    
-    # Update sources overview with final usage
-    sources_overview.render(show_legend=True)
-    
-    # --- Clean, minimal card rendering (new) ---
-    # Inject card CSS once for all cards
-    st.markdown(get_card_css(), unsafe_allow_html=True)
-
-    st.markdown("---")
-    st.markdown("## 🎯 Recommendations")
-    st.caption(
-        "Buy recommendations only. Not investment advice."
-    )
-
-    # Helper: safe sort by Overall_Rank if available
-    def _sort_by_rank(df: pd.DataFrame) -> pd.DataFrame:
-        if "Overall_Rank" in df.columns:
-            return df.sort_values("Overall_Rank", ascending=True)
-        return df
-
-    # Core cards
-    if not core_df.empty:
-        core_sorted = _sort_by_rank(core_df)
-        st.markdown("### 🛡️ Core Stocks — Lower Relative Risk")
-        st.caption(
-            f"✅ {len(core_sorted)} stocks with high data quality and balanced risk profile"
-        )
-
-        for _, r in core_sorted.iterrows():
-            # Temporary debug - one line per card
-            st.text(
-                f"CORE CARD: {r.get('Ticker', 'N/A')} "
-                f"(rank {r.get('Overall_Rank', 'N/A')})"
-            )
-            card_html = _safe_str(build_clean_card(r, speculative=False), "")
-            st.markdown(
-                f"<div class='recommend-card'>{card_html}</div>",
-                unsafe_allow_html=True,
-            )
-
-    # Speculative cards
-    if not spec_df.empty:
-        spec_sorted = _sort_by_rank(spec_df)
-        st.markdown("### ⚡ Speculative Stocks — High Upside, High Risk")
-        st.caption(
-            f"⚠️ {len(spec_sorted)} stocks with a higher risk profile"
-        )
-
-        for _, r in spec_sorted.iterrows():
-            # Temporary debug - one line per card
-            st.text(
-                f"SPEC CARD: {r.get('Ticker', 'N/A')} "
-                f"(rank {r.get('Overall_Rank', 'N/A')})"
-            )
-            card_html = _safe_str(build_clean_card(r, speculative=True), "")
-            st.markdown(
-                f"<div class='recommend-card'>{card_html}</div>",
-                unsafe_allow_html=True,
-            )
+    # Export section (single, unified)
 show_order = [
     "Ticker",
     "overall_score_20d",  # 20-day conviction score
@@ -6112,13 +5670,11 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.markdown('<div class="rtl-table">', unsafe_allow_html=True)
 st.dataframe(
     csv_df[[c for c in show_order if c in csv_df.columns]],
     use_container_width=True,
     hide_index=True,
 )
-st.markdown("</div>", unsafe_allow_html=True)
 
 # ==================== Quick chart ====================
 st.subheader("🔍 Chart Ticker from Results")
