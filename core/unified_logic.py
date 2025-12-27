@@ -1,9 +1,391 @@
-"""
-Unified logic for Stock Scout - shared between live app and backtest.
-Ensures exact same calculations for consistency and validation.
-"""
 
 from __future__ import annotations
+import pandas as pd
+import numpy as np
+from core.classification import apply_classification
+from core.scoring_engine import compute_overall_score
+
+def compute_big_winner_signal_20d(row: pd.Series) -> dict:
+    """
+    Compute a purely technical 'big winner' signal for a 20d horizon.
+
+    Inputs (from build_technical_indicators):
+        - row["TechScore_20d"]
+        - row["RSI"]
+        - row["ATR_Pct"]
+        - row["RR"]        # optional, used lightly
+        - row["MomCons"]   # optional
+        - row["VolSurge"]  # optional
+
+    Returns a dict with:
+        - "BigWinnerScore_20d": float in [0, 100]
+        - "BigWinnerFlag_20d": int (1 = strong candidate, 0 = else)
+    """
+    score = 0.0
+    try:
+        tech_score = row.get("TechScore_20d", np.nan)
+        rsi = row.get("RSI", np.nan)
+        atr = row.get("ATR_Pct", np.nan)
+        rr = row.get("RR", np.nan)
+        # Optionals
+        mom = row.get("MomCons", np.nan)
+        vol = row.get("VolSurge", np.nan)
+
+        # If any core field is missing, return 0,0
+        if np.isnan(tech_score) or np.isnan(rsi) or np.isnan(atr):
+            return {"BigWinnerScore_20d": 0.0, "BigWinnerFlag_20d": 0}
+
+        # --- Thresholds (easy to tune) ---
+        ATR_MIN = 0.03
+        ATR_BONUS = 0.05
+        SCORE_MID_LOW = 40
+        SCORE_MID_HIGH = 80
+        SCORE_WEAK_LOW = 30
+        SCORE_WEAK_HIGH = 90
+        RSI_MAX = 70
+        RSI_BONUS = 60
+        RR_MIN = 1.2
+        RR_MAX = 3.0
+
+        # --- Scoring logic ---
+        # ATR filter
+        if atr >= ATR_MIN:
+            score += 40
+            if atr >= ATR_BONUS:
+                score += 20
+
+        # TechScore band
+        if SCORE_MID_LOW <= tech_score < SCORE_MID_HIGH:
+            score += 30
+        elif SCORE_WEAK_LOW <= tech_score < SCORE_WEAK_HIGH:
+            score += 15
+
+        # RSI filter
+        if rsi < RSI_MAX:
+            score += 10
+            if rsi < RSI_BONUS:
+                score += 5
+
+        # RR bonus (optional)
+        if not np.isnan(rr) and RR_MIN <= rr <= RR_MAX:
+            score += 5
+
+        # Optionally, could add small bonuses for MomCons/VolSurge if desired
+
+        # Clip to [0, 100]
+        score = float(np.clip(score, 0, 100))
+        flag = 1 if score >= 60 else 0
+        return {"BigWinnerScore_20d": score, "BigWinnerFlag_20d": flag}
+    except Exception:
+        return {"BigWinnerScore_20d": 0.0, "BigWinnerFlag_20d": 0}
+
+
+def compute_recommendation_scores(
+    row: pd.Series,
+    ticker: str | None = None,
+    as_of_date: datetime | None = None,
+    enable_ml: bool = True,
+    use_multi_source: bool = True,
+) -> pd.Series:
+    """Compute all recommendation scores and labels for a single stock row.
+
+    This MUST be the single source of truth used by:
+    - the live Streamlit app
+    - experiments/offline_recommendation_audit.py
+
+    It should:
+    1) Call score_ticker_v2 to get the full v2 scoring + breakdown
+    2) Merge all original row fields (technical indicators) into the result
+    3) Add As_Of_Date if provided
+    4) Run apply_classification(...) to compute Risk_Level, Data_Quality, Confidence_Level, Should_Display, Classification_Warnings
+    5) Call compute_overall_score(rec_row) to populate:
+       - rec_row["Score"]
+       - rec_row["Score_Breakdown"]
+    and return rec_row as a pandas Series.
+    """
+    base_ticker = ticker or row.get("Ticker")
+    v2_result = score_ticker_v2(
+        ticker=base_ticker,
+        row=row,
+        historical_df=None,
+        enable_ml=enable_ml,
+        use_multi_source=use_multi_source,
+    )
+
+    # Start from v2_result
+    rec_row = pd.Series(v2_result, dtype="object")
+
+    # Preserve original indicators from the input row
+    for k, v in row.items():
+        if k not in rec_row:
+            rec_row[k] = v
+
+    # Store As_Of_Date for traceability
+    if as_of_date is not None:
+        rec_row["As_Of_Date"] = pd.to_datetime(as_of_date)
+
+    # Classification (risk, quality, display flags)
+    classified = apply_classification(pd.DataFrame([rec_row])).iloc[0]
+    for col in [
+        "Risk_Level",
+        "Data_Quality",
+        "Confidence_Level",
+        "Should_Display",
+        "Classification_Warnings",
+    ]:
+        rec_row[col] = classified.get(col)
+
+    # Unified overall score (for backwards compatibility with old UI)
+    score, breakdown = compute_overall_score(rec_row)
+    rec_row["Score"] = score
+    rec_row["Score_Breakdown"] = breakdown
+
+    return rec_row
+
+def compute_overall_score_20d(row):
+    """
+    Compute a 20-day technical score targeting big-winner setups, using only technical features.
+    Returns a float in [0, 100].
+    """
+    rsi = row.get("RSI", np.nan)
+    atr = row.get("ATR_Pct", np.nan)
+    rr = row.get("RR", np.nan)
+    vs = row.get("VolSurge", np.nan)
+    mom = row.get("MomCons", np.nan)
+
+    def _score_atr(atr_val: float) -> float:
+        if pd.isna(atr_val):
+            return 0.5
+        if atr_val < 0.01 or atr_val > 0.06:
+            return 0.2
+        if 0.013 <= atr_val <= 0.03:
+            return 1.0
+        if 0.01 <= atr_val < 0.013 or 0.03 < atr_val <= 0.05:
+            return 0.7
+        return 0.5
+
+    def _score_rr(rr_val: float) -> float:
+        if pd.isna(rr_val):
+            return 0.5
+        if rr_val < 1.0:
+            return 0.2
+        elif rr_val < 2.0:
+            return 0.4
+        elif rr_val < 4.0:
+            return 0.7
+        elif rr_val <= 7.0:
+            return 1.0
+        else:
+            return 0.8
+
+    def _score_rsi(rsi_val: float) -> float:
+        if pd.isna(rsi_val):
+            return 0.5
+        if 36.0 <= rsi_val <= 50.0:
+            return 1.0
+        if 50.0 < rsi_val <= 58.0:
+            return 0.7
+        if 30.0 <= rsi_val < 36.0:
+            return 0.6
+        if 58.0 < rsi_val <= 65.0:
+            return 0.4
+        if rsi_val < 30.0:
+            return 0.5
+        return 0.2
+
+    def _score_mom(mom_val: float) -> float:
+        if pd.isna(mom_val):
+            return 0.5
+        if 0.25 <= mom_val <= 0.55:
+            return 1.0
+        if 0.15 <= mom_val < 0.25:
+            return 0.7
+        if 0.55 < mom_val <= 0.70:
+            return 0.5
+        if mom_val < 0.10:
+            return 0.2
+        if mom_val > 0.70:
+            return 0.3
+        return 0.5
+
+    def _score_vol_surge(vs_val: float) -> float:
+        if pd.isna(vs_val):
+            return 0.5
+        if 1.0 <= vs_val <= 1.6:
+            return 1.0
+        if 0.7 <= vs_val < 1.0:
+            return 0.7
+        if 1.6 < vs_val <= 2.5:
+            return 0.6
+        if vs_val < 0.7:
+            return 0.2
+        return 0.3
+
+    atr_score = _score_atr(atr)
+    rr_score = _score_rr(rr)
+    rsi_score = _score_rsi(rsi)
+    mom_score = _score_mom(mom)
+    vol_score = _score_vol_surge(vs)
+
+    w_atr = 0.25
+    w_rr = 0.30
+    w_rsi = 0.20
+    w_mom = 0.15
+    w_vol = 0.10
+
+    base = (
+        w_atr * atr_score +
+        w_rr * rr_score +
+        w_rsi * rsi_score +
+        w_mom * mom_score +
+        w_vol * vol_score
+    )
+
+    # Synergy: strong RR + not overbought RSI
+    if rr_score >= 0.8 and rsi is not None and not pd.isna(rsi) and rsi <= 45.0:
+        base += 0.05
+
+    # Synergy: nice volatility + good momentum consistency
+    if atr_score >= 0.8 and mom is not None and not pd.isna(mom) and 0.25 <= mom <= 0.55:
+        base += 0.05
+
+    base = float(np.clip(base, 0.0, 1.0))
+    return base * 100.0
+
+
+def compute_tech_score_20d_v2_components(row: pd.Series) -> dict:
+    """
+    Compute TechScore_20d_v2 component scores based on technical analysis summary recommendations.
+    
+    Returns 4 component scores (each 0-1) plus the combined raw score:
+    - TrendScore: 40% weight (price vs MA50, MA50 vs MA200, MA50 slope)
+    - MomentumScore: 35% weight (1m/3m/6m returns, de-emphasize extremes)
+    - VolatilityScore: 15% weight (ATR_Pct sweet-spot in mid-quantiles)
+    - LocationScore: 10% weight (penalize extreme RSI and near-highs)
+    
+    Note: These scores are RAW [0, 1] before normalization. 
+    To get final TechScore_20d_v2, normalize per date using percent-rank.
+    """
+    # --- TrendScore (40%): Reward clean uptrends ---
+    trend_score = 0.5  # Default neutral
+    
+    price_vs_ma50 = row.get('Overext', np.nan)  # (Price / MA50) - 1
+    ma50 = row.get('MA50', np.nan)
+    ma200 = row.get('MA200', np.nan)
+    ma50_slope = row.get('MA50_Slope', np.nan)
+    
+    if pd.notna(price_vs_ma50) and pd.notna(ma50) and pd.notna(ma200):
+        # Price above MA50
+        if price_vs_ma50 > 0:
+            trend_score = 0.6
+            # MA50 above MA200 (golden cross territory)
+            if ma50 > ma200:
+                trend_score = 0.8
+                # Positive MA50 slope
+                if pd.notna(ma50_slope) and ma50_slope > 0:
+                    trend_score = 1.0
+        # Downtrend penalty
+        elif price_vs_ma50 < -0.05:  # Price > 5% below MA50
+            trend_score = 0.3
+            if pd.notna(ma50) and pd.notna(ma200) and ma50 < ma200:
+                trend_score = 0.1  # Death cross territory
+    
+    # --- MomentumScore (35%): Moderate positive momentum, de-emphasize parabolic ---
+    momentum_score = 0.5  # Default neutral
+    
+    ret_1m = row.get('Return_1m', np.nan)
+    ret_3m = row.get('Return_3m', np.nan)
+    ret_6m = row.get('Return_6m', np.nan)
+    
+    # Compute average momentum (if available)
+    rets = [r for r in [ret_1m, ret_3m, ret_6m] if pd.notna(r)]
+    if rets:
+        avg_ret = np.mean(rets)
+        # Sweet spot: +5% to +25% (good momentum, not parabolic)
+        if 0.05 <= avg_ret <= 0.25:
+            momentum_score = 1.0
+        elif 0.0 <= avg_ret < 0.05:
+            momentum_score = 0.7
+        elif 0.25 < avg_ret <= 0.50:
+            momentum_score = 0.6  # Too hot, de-emphasize
+        elif avg_ret > 0.50:
+            momentum_score = 0.3  # Parabolic, likely to mean-revert
+        elif -0.10 <= avg_ret < 0.0:
+            momentum_score = 0.4  # Slight negative
+        else:
+            momentum_score = 0.2  # Strong negative
+    
+    # --- VolatilityScore (15%): ATR_Pct sweet-spot (mid-to-high quantiles) ---
+    volatility_score = 0.5  # Default neutral
+    
+    atr_pct = row.get('ATR_Pct', np.nan)
+    if pd.notna(atr_pct):
+        # Sweet spot: 1.5% - 4.5% (active but not casino)
+        if 0.015 <= atr_pct <= 0.045:
+            volatility_score = 1.0
+        elif 0.01 <= atr_pct < 0.015:
+            volatility_score = 0.6  # Slightly low
+        elif 0.045 < atr_pct <= 0.08:
+            volatility_score = 0.7  # Slightly high but acceptable
+        elif atr_pct < 0.01:
+            volatility_score = 0.2  # Dead stock
+        else:
+            volatility_score = 0.3  # Too volatile (casino)
+    
+    # --- LocationScore (10%): Penalize chasing (extreme RSI, near highs) ---
+    location_score = 0.5  # Default neutral
+    
+    rsi = row.get('RSI', np.nan)
+    near_52w = row.get('Near52w', np.nan)
+    
+    # Penalize extreme overbought
+    if pd.notna(rsi):
+        if rsi >= 75:
+            location_score = 0.2  # Very overbought
+        elif rsi >= 65:
+            location_score = 0.5  # Moderately overbought
+        elif 40 <= rsi < 65:
+            location_score = 0.8  # Healthy zone
+        elif 30 <= rsi < 40:
+            location_score = 0.7  # Slightly oversold (can be good)
+        elif rsi < 30:
+            location_score = 0.5  # Very oversold (risky)
+    
+    # Penalize near 52-week high (chasing)
+    if pd.notna(near_52w) and near_52w > 95:
+        location_score *= 0.7  # Reduce score if very near highs
+    
+    # Compute raw combined score
+    raw_score = (
+        0.40 * trend_score +
+        0.35 * momentum_score +
+        0.15 * volatility_score +
+        0.10 * location_score
+    )
+    
+    return {
+        'TrendScore': trend_score,
+        'MomentumScore': momentum_score,
+        'VolatilityScore': volatility_score,
+        'LocationScore': location_score,
+        'TechScore_20d_v2_raw': raw_score
+    }
+
+
+def compute_tech_score_20d_v2(row: pd.Series) -> float:
+    """
+    Compute TechScore_20d_v2 using the hybrid technical formula.
+    
+    Returns a raw score in [0, 1] that should be normalized to [0, 100] 
+    using percent-rank within the daily universe (grouped by As_Of_Date).
+    
+    This is a more balanced technical score compared to the legacy TechScore_20d,
+    based on empirical analysis in experiments/outputs/technical_logic/summary.txt
+    """
+    components = compute_tech_score_20d_v2_components(row)
+    return components['TechScore_20d_v2_raw']
+
+
 from typing import Dict, List, Tuple, Optional
 from datetime import datetime, timedelta
 import pandas as pd
@@ -17,16 +399,16 @@ from core.classification import apply_classification
 def compute_rsi(series: pd.Series, period: int = 14) -> pd.Series:
     """
     Compute Relative Strength Index (RSI) using exponential moving average.
-    
+
     RSI measures momentum by comparing average gains vs. average losses.
     - RSI > 70: Overbought (potential pullback)
     - RSI < 30: Oversold (potential bounce)
     - RSI 40-60: Neutral
-    
+
     Args:
         series: Series of closing prices
-        period: Look-back period (default 14 per Wilder's standard)
-    
+        period: Look-back period (default 14 per Wilders standard)
+
     Returns:
         Series with RSI values in range [0, 100]
         NaN values at beginning due to look-back requirement
@@ -118,19 +500,19 @@ def compute_volume_surge(volume: pd.Series, lookback: int = 20) -> pd.Series:
 def compute_reward_risk(close: pd.Series, lookback: int = 20) -> pd.Series:
     """
     Compute reward/risk ratio - upside opportunity vs downside risk.
-    
+
     Quantifies risk/reward setup:
-        RR = (20d_high - current_price) / (current_price - 20d_low)
-    
+        RR = (high_20d - current_price) / (current_price - low_20d)
+
     - RR > 2.0: Favorable setup (2:1 or better reward)
     - RR 1.0-2.0: Neutral setup
     - RR < 1.0: Unfavorable (risk exceeds reward)
     - Capped at 10 to avoid extreme outliers
-    
+
     Args:
         close: Series of closing prices
         lookback: Period for high/low range (default 20)
-    
+
     Returns:
         Series with RR values, capped at 10.0
     """
@@ -224,7 +606,55 @@ def build_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     # Timing indicators
     result['Vol_Breakout'] = volume > (volume.rolling(20).mean() * 1.5)
     result['Price_Breakout'] = close > close.rolling(20).quantile(0.90)
-    result['Mom_Acceleration'] = (close.pct_change(5) > close.shift(5).pct_change(5))
+    result['Mom_Acceleration'] = (close.pct_change(5, fill_method=None) > close.shift(5).pct_change(5, fill_method=None))
+    
+    # Multi-period momentum returns (for TechScore_20d_v2)
+    # Note: fill_method=None to avoid FutureWarning in pandas 2.1+
+    result['Return_1m'] = close.pct_change(20, fill_method=None)  # ~1 month (20 trading days)
+    result['Return_3m'] = close.pct_change(60, fill_method=None)  # ~3 months
+    result['Return_6m'] = close.pct_change(120, fill_method=None)  # ~6 months
+    
+    # Additional returns for ML features v3
+    result['Return_5d'] = close.pct_change(5, fill_method=None)
+    result['Return_10d'] = close.pct_change(10, fill_method=None)
+    
+    # MA50 slope for trend component
+    result['MA50_Slope'] = result['MA50'].pct_change(10, fill_method=None)  # 10-day slope
+    
+    # Sequential pattern features (streaks, pullbacks, etc.)
+    # Streaks: consecutive up/down closes
+    daily_change = close.diff()
+    
+    def compute_streak_column(change_series, is_up: bool):
+        """Compute consecutive streak length efficiently."""
+        streak_list = []
+        count = 0
+        for change_val in change_series:
+            if pd.notna(change_val):
+                if (is_up and change_val > 0) or (not is_up and change_val < 0):
+                    count += 1
+                else:
+                    count = 0
+            else:
+                count = 0
+            streak_list.append(count)
+        return pd.Series(streak_list, index=change_series.index)
+    
+    result['UpStreak_Days'] = compute_streak_column(daily_change, is_up=True)
+    result['DownStreak_Days'] = compute_streak_column(daily_change, is_up=False)
+    
+    # Rolling 20d high/low for pullback/extension metrics
+    result['High_20d'] = high.rolling(20).max()
+    result['Low_20d'] = low.rolling(20).min()
+    result['PullbackFromHigh_20d'] = (close - result['High_20d']) / result['High_20d']
+    result['DistanceFromLow_20d'] = (close - result['Low_20d']) / result['Low_20d']
+    
+    # Days since 20d high/low (simplified version)
+    result['DaysSince20dHigh'] = 0.0  # Placeholder - can be computed with more complex logic if needed
+    result['DaysSince20dLow'] = 0.0   # Placeholder
+    
+    # Intraday range as volatility proxy
+    result['Range_Pct'] = (high - low) / close
     
     # Copy price/volume for reference
     result['Close'] = close
@@ -245,25 +675,25 @@ def apply_technical_filters(row: pd.Series, strict: bool = True, relaxed: bool =
     
     Three filter tiers (mutually exclusive):
     1. **strict=True, relaxed=False** (Core): Conservative filters for stable picks
-       - RSI: 25-75
-       - Overextension: ≤20% above MA50
-       - ATR: ≤12% of price
-       - RR: ≥-0.5
-       - Momentum Consistency: ≥40% up days
-    
-    2. **strict=False, relaxed=False** (Speculative): Relaxed tier for aggressive picks
-       - RSI: 20-85
-       - Overextension: ≤30%
-       - ATR: ≤22%
-       - RR: ≥-1.0
-       - Momentum Consistency: ≥20% up days
-    
-    3. **relaxed=True** (Momentum-First): Ultra-aggressive, momentum-driven
-       - RSI: 15-90
-       - Overextension: ≤40%
-       - ATR: ≤28%
-       - RR: ≥-1.5
-       - Momentum Consistency: ≥10% up days
+         - RSI: 25-75
+         - Overextension: <=20% above MA50
+         - ATR: <=12% of price
+         - RR: >=-0.5
+         - Momentum Consistency: >=40% up days
+
+     2. **strict=False, relaxed=False** (Speculative): Relaxed tier for aggressive picks
+         - RSI: 20-85
+         - Overextension: <=30%
+         - ATR: <=22%
+         - RR: >=-1.0
+         - Momentum Consistency: >=20% up days
+
+     3. **relaxed=True** (Momentum-First): Ultra-aggressive, momentum-driven
+         - RSI: 15-90
+         - Overextension: <=40%
+         - ATR: <=28%
+         - RR: >=-1.5
+         - Momentum Consistency: >=10% up days
     
     Args:
         row: Series containing technical indicator columns (RSI, Overext, ATR_Pct, RR, MomCons).
@@ -1116,3 +1546,142 @@ def batch_score_v2(
     df.set_index("ticker", inplace=True)
     
     return df
+
+
+# ============================================================================
+# MARKET CONTEXT & REGIME CLASSIFICATION
+# ============================================================================
+
+def build_market_context_table(
+    start_date: str,
+    end_date: str,
+    provider_status: Optional[Dict[str, bool]] = None
+) -> pd.DataFrame:
+    """
+    Build a market context table keyed by date with SPY/VIX features and regime classification.
+    
+    Computes for each trading date:
+    - SPY returns (20d, 60d)
+    - SPY drawdown from 60d high
+    - VIX percentile (vs 1-year rolling window)
+    - Market regime classification (TREND_UP, SIDEWAYS, CORRECTION, PANIC)
+    - One-hot encoded regime flags
+    
+    Args:
+        start_date: Start date 'YYYY-MM-DD'
+        end_date: End date 'YYYY-MM-DD'  
+        provider_status: Optional provider availability dict
+    
+    Returns:
+        DataFrame with columns:
+        - date: trading date
+        - SPY_20d_ret, SPY_60d_ret: SPY returns
+        - SPY_drawdown_60d: drawdown from 60d high
+        - VIX_close, VIX_pct: VIX level and percentile
+        - Market_Regime: categorical string
+        - Regime_TrendUp, Regime_Sideways, Regime_Correction, Regime_Panic: binary flags
+    """
+    from core.data_sources_v2 import get_index_series
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # Extend date range to compute rolling windows
+    start_dt = pd.to_datetime(start_date) - timedelta(days=400)  # ~1.5 years buffer
+    end_dt = pd.to_datetime(end_date)
+    
+    start_extended = start_dt.strftime('%Y-%m-%d')
+    end_extended = end_dt.strftime('%Y-%m-%d')
+    
+    # Fetch SPY data
+    spy_df = get_index_series('SPY', start_extended, end_extended, provider_status)
+    if spy_df is None or spy_df.empty:
+        logger.error("Failed to fetch SPY data for market context")
+        return pd.DataFrame()
+    
+    # Fetch VIX data (optional, use defaults if unavailable)
+    vix_df = get_index_series('^VIX', start_extended, end_extended, provider_status)
+    if vix_df is None or vix_df.empty:
+        logger.warning("VIX data unavailable, using default neutral values")
+        vix_df = pd.DataFrame({
+            'date': spy_df['date'],
+            'close': 20.0  # Neutral VIX level
+        })
+    
+    # Prepare SPY features
+    spy_df = spy_df.sort_values('date').reset_index(drop=True)
+    spy_df['SPY_20d_ret'] = spy_df['close'].pct_change(20)
+    spy_df['SPY_60d_ret'] = spy_df['close'].pct_change(60)
+    spy_df['SPY_high_60d'] = spy_df['close'].rolling(60).max()
+    spy_df['SPY_drawdown_60d'] = (spy_df['close'] / spy_df['SPY_high_60d']) - 1.0
+    
+    # Prepare VIX features
+    vix_df = vix_df.sort_values('date').reset_index(drop=True)
+    vix_df['VIX_close'] = vix_df['close']
+    # VIX percentile over 252 days (~1 year)
+    vix_df['VIX_pct'] = vix_df['VIX_close'].rolling(252, min_periods=60).apply(
+        lambda x: (x.iloc[-1] <= x).sum() / len(x) if len(x) > 0 else 0.5
+    )
+    
+    # Merge SPY and VIX
+    context_df = spy_df[['date', 'SPY_20d_ret', 'SPY_60d_ret', 'SPY_drawdown_60d']].copy()
+    context_df = context_df.merge(
+        vix_df[['date', 'VIX_close', 'VIX_pct']],
+        on='date',
+        how='left'
+    )
+    
+    # Fill any missing VIX values
+    context_df['VIX_close'] = context_df['VIX_close'].fillna(20.0)
+    context_df['VIX_pct'] = context_df['VIX_pct'].fillna(0.5)
+    
+    # Classify market regime
+    def classify_regime(row):
+        """
+        Classify market regime based on SPY performance and VIX.
+        
+        PANIC: SPY drawdown < -15% OR VIX percentile > 85%
+        CORRECTION: SPY drawdown < -8% OR VIX percentile > 70%
+        TREND_UP: SPY 60d return > +8% AND drawdown > -5%
+        SIDEWAYS: everything else
+        """
+        dd = row.get('SPY_drawdown_60d', 0)
+        ret_60d = row.get('SPY_60d_ret', 0)
+        vix_pct = row.get('VIX_pct', 0.5)
+        
+        # Handle NaN values
+        if pd.isna(dd) or pd.isna(ret_60d) or pd.isna(vix_pct):
+            return 'SIDEWAYS'
+        
+        # Panic conditions
+        if dd < -0.15 or vix_pct > 0.85:
+            return 'PANIC'
+        
+        # Correction conditions
+        if dd < -0.08 or vix_pct > 0.70:
+            return 'CORRECTION'
+        
+        # Trend up conditions
+        if ret_60d > 0.08 and dd > -0.05:
+            return 'TREND_UP'
+        
+        # Default sideways
+        return 'SIDEWAYS'
+    
+    context_df['Market_Regime'] = context_df.apply(classify_regime, axis=1)
+    
+    # One-hot encode regime flags
+    context_df['Regime_TrendUp'] = (context_df['Market_Regime'] == 'TREND_UP').astype(int)
+    context_df['Regime_Sideways'] = (context_df['Market_Regime'] == 'SIDEWAYS').astype(int)
+    context_df['Regime_Correction'] = (context_df['Market_Regime'] == 'CORRECTION').astype(int)
+    context_df['Regime_Panic'] = (context_df['Market_Regime'] == 'PANIC').astype(int)
+    
+    # Filter to requested date range
+    context_df = context_df[
+        (context_df['date'] >= pd.to_datetime(start_date)) &
+        (context_df['date'] <= pd.to_datetime(end_date))
+    ].copy()
+    
+    logger.info(f"✓ Built market context table: {len(context_df)} dates")
+    logger.info(f"  Regime distribution: {context_df['Market_Regime'].value_counts().to_dict()}")
+    
+    return context_df

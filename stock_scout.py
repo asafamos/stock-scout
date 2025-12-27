@@ -31,7 +31,6 @@ import streamlit as st
 import plotly.graph_objs as go
 from dotenv import load_dotenv, find_dotenv
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from streamlit.components.v1 import html as st_html
 import html as html_escape
 
 from core.data_sources_v2 import (
@@ -83,6 +82,7 @@ from core.ui_helpers import (
     show_config_summary,
     create_debug_expander,
 )
+from core.pipeline_runner import run_scan_pipeline
 
 # Helper: build clean minimal card
 
@@ -462,13 +462,21 @@ def render_data_sources_overview(provider_status: dict, provider_usage: dict, re
     import pandas as pd
     import streamlit as st
 
-    table_rows = []
-    for provider_name, usage_info in provider_usage.items():
-        status_info = provider_status.get(provider_name, {})
-        ok = bool(status_info.get("ok", False))
+    # Canonical provider names; map to internal usage labels if needed
+    synonyms = {
+        "Alpha Vantage": "Alpha",
+        "Nasdaq": "NasdaqDL",
+        "Yahoo": "Yahoo",
+    }
 
+    table_rows = []
+    for provider_name, status_info in provider_status.items():
+        ok = bool(status_info.get("ok", False))
         status_icon = "🟢" if ok else "🔴"
         status_text = "פעיל" if ok else "תקלה / חסום"
+
+        usage_key = provider_name if provider_name in provider_usage else synonyms.get(provider_name, provider_name)
+        usage_info = provider_usage.get(usage_key, {})
 
         used_price = bool(usage_info.get("used_price"))
         used_fund = bool(usage_info.get("used_fundamentals"))
@@ -476,7 +484,6 @@ def render_data_sources_overview(provider_status: dict, provider_usage: dict, re
         implemented = bool(usage_info.get("implemented", True))
 
         if not implemented:
-            # Provider not really relevant in this run
             status_icon = "⚪"
             status_text = "לא רלוונטי בריצה זו"
 
@@ -499,7 +506,7 @@ def render_data_sources_overview(provider_status: dict, provider_usage: dict, re
 
         table_rows.append(
             {
-                "ספק": provider_name,  # Plain text, no HTML spans
+                "ספק": provider_name,
                 "סטטוס": f"{status_icon} {status_text}",
                 "שימוש": f"{used_icon} {used_text}",
                 "פרטים": usage_detail,
@@ -511,7 +518,7 @@ def render_data_sources_overview(provider_status: dict, provider_usage: dict, re
 
     df_sources = pd.DataFrame(table_rows)
     df_sources["ספק"] = df_sources["ספק"].astype(str)
-    
+
     styled = (
         df_sources.style
         .set_properties(
@@ -520,63 +527,36 @@ def render_data_sources_overview(provider_status: dict, provider_usage: dict, re
                 "direction": "ltr",
                 "text-align": "left",
                 "font-size": "14px",
-                "white-space": "nowrap"
+                "white-space": "nowrap",
             }
         )
         .set_properties(
             subset=["סטטוס", "שימוש", "פרטים"],
             **{
                 "text-align": "center",
-                "font-size": "14px"
+                "font-size": "14px",
             }
         )
-        .set_table_styles([
-            {"selector": "th", "props": [
-                ("text-align", "center"),
-                ("font-size", "15px")
-            ]}
-        ])
+        .set_table_styles(
+            [
+                {
+                    "selector": "th",
+                    "props": [("text-align", "center"), ("font-size", "15px")],
+                }
+            ]
+        )
     )
-    
+
     st.markdown("### 🔌 מקורות נתונים")
-    st.dataframe(styled, use_container_width=True, hide_index=True)
+    st.dataframe(styled, width='stretch', hide_index=True)
 
-    used_count = sum(
-        1
-        for info in provider_usage.values()
-        if info.get("used_price") or info.get("used_fundamentals") or info.get("used_ml")
-    )
-    st.caption(f"סה\"כ ספקים פעילים: {used_count} / {len(provider_usage)}")
-
-
-def save_latest_scan_from_results(results_df: pd.DataFrame, metadata: dict = None) -> None:
-    """Save results dataframe as the latest precomputed scan snapshot.
-    
-    Args:
-        results_df: Results dataframe to save
-        metadata: Optional metadata dict (e.g., {"timestamp": "..."})
-    """
-    if results_df is None or results_df.empty:
-        return
-    if metadata is None:
-        metadata = {}
-    
-    try:
-        from pathlib import Path
-        scan_dir = Path(__file__).parent / "data" / "scans"
-        scan_dir.mkdir(parents=True, exist_ok=True)
-        path_latest = scan_dir / "latest_scan.parquet"
-        ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        path_timestamped = scan_dir / f"scan_{ts}.parquet"
-        
-        # Update metadata with timestamp if not present
-        if "timestamp" not in metadata:
-            metadata["timestamp"] = ts
-        
-        save_scan_helper(results_df, CONFIG, path_latest, path_timestamped, metadata=metadata)
-        logger.info(f"Auto-saved latest scan: {len(results_df)} tickers to {path_latest}")
-    except Exception as e:
-        logger.warning(f"Failed to auto-save latest scan: {e}")
+    used_count = 0
+    for provider_name in provider_status.keys():
+        usage_key = provider_name if provider_name in provider_usage else synonyms.get(provider_name, provider_name)
+        info = provider_usage.get(usage_key, {})
+        if info.get("used_price") or info.get("used_fundamentals") or info.get("used_ml"):
+            used_count += 1
+    st.caption(f"סה\"כ ספקים פעילים: {used_count} / {len(provider_status)}")
 
 
 # Load environment variables
@@ -2082,7 +2062,10 @@ def fetch_beta_vs_benchmark(ticker: str, bench: str = "SPY", days: int = 252) ->
         if df_t.empty or df_b.empty:
             return np.nan
         j = pd.concat(
-            [df_t["Close"].pct_change().dropna(), df_b["Close"].pct_change().dropna()],
+            [
+                df_t["Close"].pct_change(fill_method=None).dropna(),
+                df_b["Close"].pct_change(fill_method=None).dropna(),
+            ],
             axis=1,
         ).dropna()
         j.columns = ["rt", "rb"]
@@ -2335,7 +2318,7 @@ with st.container():
     
     with col4:
         st.markdown("<br>", unsafe_allow_html=True)  # Vertical spacing
-        run_scan = st.button("🚀 הרץ סריקה", use_container_width=True, type="primary")
+        run_scan = st.button("🚀 הרץ סריקה", width='stretch', type="primary")
 
 # Advanced options in collapsible expander
 with st.expander("🎛️ אפשרויות מתקדמות", expanded=False):
@@ -2631,1195 +2614,19 @@ create_debug_expander({
 sources_overview = SourcesOverview()
 
 if not skip_pipeline:
-    # 1) Universe
-    t0 = t_start()
-    status_manager.update_detail("Building stock universe...")
+    # Use the unified pipeline runner
     selected_universe_size = int(st.session_state.get("universe_size", CONFIG["UNIVERSE_LIMIT"]))
     universe = build_universe(limit=selected_universe_size)
-    phase_times["build_universe"] = t_end(t0)
-    sources_overview.mark_usage("Yahoo", "price")  # Universe always uses Yahoo
-    status_manager.advance(f"{len(universe)} tickers in universe")
-
-    # 2) History
-    t0 = t_start()
-    status_manager.update_detail(f"Fetching historical data for {len(universe)} stocks...")
-    data_map = fetch_history_bulk(universe, CONFIG["LOOKBACK_DAYS"], CONFIG["MA_LONG"])
-    phase_times["fetch_history"] = t_end(t0)
-    status_manager.advance(f"{len(data_map)} stocks with data ({t_end(t0):.1f}s)")
-
-    # 3) Technical score + hard filters
-    t0 = t_start()
-    status_manager.update_detail(f"Computing indicators for {len(data_map)} stocks...")
-
-    W = CONFIG["WEIGHTS"]
-    W = _normalize_weights(W)
-
-    rows: List[dict] = []
-    lo_rsi, hi_rsi = CONFIG["RSI_BOUNDS"]
-
-    for idx_num, (tkr, df) in enumerate(data_map.items(), 1):
-        # Update progress periodically (every 10 stocks or last)
-        if idx_num % 10 == 0 or idx_num == len(data_map):
-            status_manager.update_detail(
-                f"Computing indicators: {idx_num}/{len(data_map)} ({(idx_num/len(data_map)*100):.0f}%)"
-            )
-
-        # Skip invalid history
-        if df is None or df.empty:
-            continue
-
-        df = df.copy()
-        
-        # ===== UNIFIED INDICATOR CALCULATION (SINGLE SOURCE OF TRUTH) =====
-        # Call build_technical_indicators() once to compute all indicators consistently
-        # This ensures live app, backtest, and time-test all use identical calculations
-        try:
-            tech_indicators_df = build_technical_indicators(df)
-            row_indicators = tech_indicators_df.iloc[-1]  # Get latest row
-        except Exception as e:
-            logger.warning(f"build_technical_indicators failed for {tkr}: {e}, skipping")
-            continue
-        
-        # Extract required fields for hard filtering and scoring
-        price = float(row_indicators.get('Close', np.nan))
-        if (not np.isfinite(price)) or (price < CONFIG["MIN_PRICE"]):
-            continue
-        
-        # Hard filters using core functions (exact same as backtest.py and unified_time_test.py)
-        if not apply_technical_filters(row_indicators, strict=True):
-            continue
-        
-        # Get indicator values for output columns
-        rsi_val = float(row_indicators.get('RSI', np.nan))
-        atr14 = float(row_indicators.get('ATR', np.nan))
-        vol_rel = float(row_indicators.get('ATR_Pct', np.nan))
-        overext_ratio = float(row_indicators.get('Overext', np.nan))
-        reward_risk = float(row_indicators.get('RR', np.nan))
-        
-        # Get volume info
-        vol20 = float(tech_indicators_df['Volume'].rolling(20).mean().iloc[-1])
-        vol_today = float(row_indicators.get('Volume', np.nan))
-        
-        # Volume check (min average volume)
-        if np.isfinite(vol20) and vol20 < CONFIG["MIN_AVG_VOLUME"]:
-            continue
-        
-        # Hard ATR/Price and Overextension caps
-        if np.isfinite(vol_rel) and vol_rel > CONFIG["ATR_PRICE_HARD"]:
-            continue
-        if np.isfinite(overext_ratio) and overext_ratio > CONFIG["OVEREXT_HARD"]:
-            continue
-        
-        # Dollar volume check
-        dollar_vol = (price * vol20) if (np.isfinite(price) and np.isfinite(vol20)) else 0.0
-        if dollar_vol < CONFIG["MIN_DOLLAR_VOLUME"]:
-            continue
     
-    # ===== COMPUTE TECHNICAL SCORE (SINGLE SOURCE OF TRUTH) =====
-    # Call compute_technical_score() to get 0-100 score using core logic
-    try:
-        tech_score_0_100 = compute_technical_score(row_indicators, weights=W)
-        score = tech_score_0_100 / 100.0  # Convert to 0-1 for weighted sum (if needed)
-    except Exception as e:
-        logger.warning(f"compute_technical_score failed for {tkr}: {e}, using fallback")
-        score = 0.5
+    results, data_map = run_scan_pipeline(
+        universe=universe,
+        config=CONFIG,
+        status_callback=status_manager.update_detail
+    )
     
-    # Get Near52w for output
-    near_high_raw = float(row_indicators.get('Near52w', np.nan)) / 100.0 if pd.notna(row_indicators.get('Near52w', np.nan)) else np.nan
-    
-    # Compute Reward/Risk for output (keeping same formula for consistency)
-    try:
-        hi_52w = float(tech_indicators_df['Close'].tail(min(len(tech_indicators_df), 252)).max())
-        entry_price_for_rr = price if np.isfinite(price) else np.nan
-        target_price_for_rr = (
-            hi_52w
-            if (np.isfinite(hi_52w) and hi_52w > 0)
-            else (price * 1.10 if np.isfinite(price) else np.nan)
-        )
-        reward_risk = calculate_rr(
-            entry_price_for_rr, target_price_for_rr, atr14, history_df=tech_indicators_df
-        )
-    except Exception:
-        reward_risk = np.nan
-    
-    # Build output row with same format as before
-    rows.append(
-        {
-            "Ticker": tkr,
-            "Price_Yahoo": price,
-            "Score_Tech": round(100 * float(score), 1),
-            "RSI": round(rsi_val, 1) if np.isfinite(rsi_val) else np.nan,
-            "Near52w": (
-                round(near_high_raw * 100, 1) if np.isfinite(near_high_raw) else np.nan
-            ),
-            "Volx20d": (
-                round(vol_today / vol20, 2)
-                if (np.isfinite(vol_today) and np.isfinite(vol20) and vol20 > 0)
-                else np.nan
-            ),
-            "OverextRatio": (
-                round(overext_ratio, 3) if np.isfinite(overext_ratio) else np.nan
-            ),
-            "ATR_Price": round(vol_rel, 4) if np.isfinite(vol_rel) else np.nan,
-            # Always show numeric RewardRisk (force 0.0 when missing)
-            "RewardRisk": round(
-                float(reward_risk) if np.isfinite(reward_risk) else 0.0, 2
-            ),
-            "ATR14": atr14,
-        }
-    )
-
-    # end for loop
-
-if not skip_pipeline:
-    results = pd.DataFrame(rows)
-    phase_times["calc_score_technical"] = t_end(t0)
-    status_manager.advance(f"Technical scoring: {len(results)} stocks ({phase_times['calc_score_technical']:.1f}s)")
-
-if results.empty:
-    status_manager.update_detail("⚠️ No stocks passed technical filters")
-    # Do NOT stop; allow later stages to render graceful empty state.
-# Handle different column names between live and precomputed results
-if "Final_Score" in results.columns:
-    sort_col = "Final_Score"
-elif "Overall_Score" in results.columns:
-    sort_col = "Overall_Score"
-elif "Score_Tech" in results.columns:
-    sort_col = "Score_Tech"
-elif "Technical_Score" in results.columns:
-    sort_col = "Technical_Score"
-else:
-    sort_col = results.columns[0]  # fallback to first column
-results = results.sort_values(
-    [sort_col, "Ticker"], ascending=[False, True]
-).reset_index(drop=True)
-
-# 3a) Initialize fundamental columns (will populate after advanced_filters)
-fundamental_available = (
-    alpha_ok or finn_ok or fmp_ok or bool(simfin_key) or bool(eodhd_key)
-)
-if CONFIG["FUNDAMENTAL_ENABLED"] and fundamental_available:
-    # Initialize columns - will fetch data AFTER advanced_filters
-    for c in [
-        "Fundamental_S",
-        "Sector",
-        "PE_f",
-        "PS_f",
-        "ROE_f",
-        "ROIC_f",
-        "GM_f",
-        "DE_f",
-        "RevG_f",
-        "EPSG_f",
-    ]:
-        results[c] = np.nan
-    # Add provider flag columns
-    results["Fund_from_FMP"] = False
-    results["Fund_from_Alpha"] = False
-    results["Fund_from_Finnhub"] = False
-    results["Fund_from_SimFin"] = False
-    results["Fund_from_EODHD"] = False
-    results["Score"] = results.get(
-        "Final_Score", results.get("Overall_Score", results.get("Score_Tech", results.get("Technical_Score", 0)))
-    )  # unified final score or fallback
-else:
-    results["Score"] = results.get("Final_Score", results.get("Overall_Score", results.get("Score_Tech", results.get("Technical_Score", 0))))
-
-if CONFIG["FUNDAMENTAL_ENABLED"] and not fundamental_available:
-    status_manager.update_detail("⚠️ Fundamentals skipped: no provider connectivity")
-
-# Earnings blackout
-if CONFIG["EARNINGS_BLACKOUT_DAYS"] > 0:
-    to_check_idx = list(results.head(int(CONFIG["EARNINGS_CHECK_TOPK"])).index)
-    symbols = [results.at[i, "Ticker"] for i in to_check_idx]
-    ed_map = _earnings_batch(symbols)
-    now_utc = datetime.utcnow().replace(tzinfo=None)
-    keep_mask = np.ones(len(results), dtype=bool)
-    for idx in to_check_idx:
-        tkr = results.at[idx, "Ticker"]
-        dt_earn = ed_map.get(tkr)
-        if dt_earn is None:
-            continue
-        # Ensure dt_earn is timezone-naive
-        if hasattr(dt_earn, "tzinfo") and dt_earn.tzinfo is not None:
-            dt_earn = dt_earn.replace(tzinfo=None)
-        gap_days = abs((dt_earn - now_utc).days)
-        if gap_days <= int(CONFIG["EARNINGS_BLACKOUT_DAYS"]):
-            keep_mask[idx] = False
-            results.at[idx, "EarningsNote"] = f"Excluded: earnings within {gap_days}d"
-    results = results[keep_mask].reset_index(drop=True)
-    if results.empty:
-        status_manager.update_detail("⚠️ Earnings blackout eliminated all candidates, using fallback")
-        # Fallback: restore original pre-blackout set (keep original rows variable if available)
-        try:
-            results = pd.DataFrame(rows) if 'rows' in locals() else results
-        except Exception:
-            pass
-
-# 3b) Beta filter
-if CONFIG["BETA_FILTER_ENABLED"]:
-    t0 = t_start()
-    take_k_beta = int(min(CONFIG["BETA_TOP_K"], len(results)))
-    for idx in results.head(take_k_beta).index:
-        tkr = results.at[idx, "Ticker"]
-        results.loc[idx, "Beta"] = fetch_beta_vs_benchmark(
-            tkr, bench=CONFIG["BETA_BENCHMARK"], days=252
-        )
-    results = results[
-        ~(
-            (results["Beta"].notna())
-            & (results["Beta"] > float(CONFIG["BETA_MAX_ALLOWED"]))
-        )
-    ].reset_index(drop=True)
-    phase_times["beta_filter"] = t_end(t0)
-    status_manager.advance(f"Beta filter: {len(results)} passed")
-
-# 3c) Advanced Filters (dynamic penalty approach)
-t0 = t_start()
-
-with st.spinner("🔬 Running advanced filters (dynamic penalties)..."):
-
-    benchmark_df = fetch_benchmark_data(
-        CONFIG["BETA_BENCHMARK"], CONFIG["LOOKBACK_DAYS"]
-    )
-
-    # הגדרת adv_cols עבור כל מצב (live/precomputed)
-    adv_cols = [
-        "RS_63d",
-        "Volume_Surge",
-        "MA_Aligned",
-        "Quality_Score",
-        "RR_Ratio",
-        "Momentum_Consistency",
-        "High_Confidence",
-        "AdvPenalty",
-        "AdvFlags",
-        "RejectionReason",
-    ]
-
-if not skip_pipeline:
-    for col in adv_cols:
-        if col in ["MA_Aligned", "High_Confidence"]:
-            results[col] = False
-        elif col == "AdvFlags":
-            results[col] = ""
-        else:
-            results[col] = np.nan
-
-    logger.info(f"🔬 Advanced filters pre-pass on {len(results)} stocks...")
-
-    # Step 1: Compute all signals first (without rejection)
-    signals_store = []  # (idx, signals, enhanced_score)
-    for idx in results.index:
-        tkr = results.at[idx, "Ticker"]
-        if tkr not in data_map or benchmark_df.empty:
-            signals_store.append((idx, {}, results.at[idx, "Score"]))
-            continue
-        df = data_map[tkr]
-        base_score = results.at[idx, "Score"]
-        enhanced_score, signals = compute_advanced_score(tkr, df, benchmark_df, base_score)
-        signals_store.append((idx, signals, enhanced_score))
-
-    # Step 2: Calculate dynamic thresholds from all signals
-    rs_vals = []
-    mom_vals = []
-    rr_vals = []
-    for _, sig, _ in signals_store:
-        v_rs = sig.get("rs_63d")
-        if isinstance(v_rs, (int, float)) and np.isfinite(v_rs):
-            rs_vals.append(v_rs)
-        v_mom = sig.get("momentum_consistency")
-        if isinstance(v_mom, (int, float)) and np.isfinite(v_mom):
-            mom_vals.append(v_mom)
-        v_rr = sig.get("risk_reward_ratio")
-        if isinstance(v_rr, (int, float)) and np.isfinite(v_rr):
-            rr_vals.append(v_rr)
-
-    def _q(vals, q, default):
-        return float(np.quantile(vals, q)) if vals else default
-
-
-    # More permissive percentiles to allow more stocks through
-    rs_thresh_dyn = _q(
-        rs_vals, 0.05, -0.30
-    )  # 5th percentile (was 15th), allow more underperformers
-    mom_thresh_dyn = _q(
-        mom_vals, 0.10, 0.15
-    )  # 10th percentile (was 20th), allow weaker momentum
-    rr_thresh_dyn = _q(rr_vals, 0.10, 0.50)  # 10th percentile (was 25th), allow lower RR
-    logger.info(
-        f"Dynamic thresholds -> RS:{rs_thresh_dyn:.3f} MOM:{mom_thresh_dyn:.3f} RR:{rr_thresh_dyn:.3f}"
-    )
-
-    # Step 3: NOW apply rejection with dynamic thresholds
-    dynamic_thresholds = {
-        "rs_63d": rs_thresh_dyn,
-        "momentum_consistency": mom_thresh_dyn,
-        "risk_reward_ratio": rr_thresh_dyn,
-    }
-
-    catastrophic_count = 0
-    kept = 0
-    for idx, sig, enhanced_score in signals_store:
-        # Apply rejection with dynamic thresholds
-        catastrophic, reason = should_reject_ticker(sig, dynamic=dynamic_thresholds)
-
-        if catastrophic:
-            catastrophic_count += 1
-            results.loc[idx, "RejectionReason"] = reason
-            # Skip penalty calculation for rejected stocks
-            results.loc[idx, "RS_63d"] = sig.get("rs_63d", np.nan)
-            results.loc[idx, "Volume_Surge"] = sig.get("volume_surge", np.nan)
-            results.loc[idx, "MA_Aligned"] = sig.get("ma_aligned", False)
-            results.loc[idx, "Quality_Score"] = sig.get("quality_score", 0.0)
-            results.loc[idx, "RR_Ratio"] = sig.get("risk_reward_ratio", np.nan)
-            results.loc[idx, "Momentum_Consistency"] = sig.get("momentum_consistency", 0.0)
-            results.loc[idx, "High_Confidence"] = sig.get("high_confidence", False)
-            results.loc[idx, "AdvPenalty"] = 0.0
-            results.loc[idx, "AdvFlags"] = "REJECTED"
-            results.loc[idx, "Score"] = 0.0
-            continue
-
-        # Not catastrophic - apply normal penalty logic
-        kept += 1
-        flags = []
-        penalty = 0.0
-        if sig:
-            rs_val = sig.get("rs_63d", np.nan)
-            mom_val = sig.get("momentum_consistency", 0.0)
-            rr_val = sig.get("risk_reward_ratio", np.nan)
-            if np.isfinite(rs_val) and rs_val < rs_thresh_dyn:
-                penalty += 2.0  # reduced from 8.0
-                flags.append("LowRS")
-            if mom_val < mom_thresh_dyn:
-                penalty += 2.0  # reduced from 6.0
-                flags.append("WeakMomentum")
-            if np.isfinite(rr_val) and rr_val < rr_thresh_dyn:
-                penalty += 3.0  # reduced from 10.0
-                flags.append("LowRR")
-
-        results.loc[idx, "RS_63d"] = sig.get("rs_63d", np.nan)
-        results.loc[idx, "Volume_Surge"] = sig.get("volume_surge", np.nan)
-        results.loc[idx, "MA_Aligned"] = sig.get("ma_aligned", False)
-        results.loc[idx, "Quality_Score"] = sig.get("quality_score", 0.0)
-        results.loc[idx, "RR_Ratio"] = sig.get("risk_reward_ratio", np.nan)
-        results.loc[idx, "Momentum_Consistency"] = sig.get("momentum_consistency", 0.0)
-        results.loc[idx, "High_Confidence"] = sig.get("high_confidence", False)
-        results.loc[idx, "AdvPenalty"] = penalty
-        results.loc[idx, "AdvFlags"] = ",".join(flags)
-        adj_score = max(0.0, enhanced_score - penalty)
-        results.loc[idx, "Score"] = adj_score
-
-    if catastrophic_count == len(signals_store):
-        logger.warning(
-            "All stocks met catastrophic rejection; overriding to keep all for inspection."
-        )
-        kept = len(signals_store)
-
-    logger.info(
-        f"Advanced filters dynamic: kept {kept}/{len(signals_store)} catastrophic={catastrophic_count}"
-    )
-
-    if catastrophic_count > 0 and catastrophic_count < len(signals_store):
-        # Remove catastrophic stocks
-        drop_indices = results[results["Score"] == 0.0].index
-        results = results[~results.index.isin(drop_indices)].reset_index(drop=True)
-
-    # Sort after applying removals
-    results = results.sort_values(["Score", "Ticker"], ascending=[False, True]).reset_index(
-        drop=True
-    )
-    phase_times["advanced_filters"] = t_end(t0)
-    status_manager.advance(f"Advanced filters: {len(results)} passed ({t_end(t0):.1f}s)")
-else:
-    # For precomputed results, initialize advanced filter columns with defaults
-    adv_cols = [
-        "RS_63d",
-        "Volume_Surge",
-        "MA_Aligned",
-        "Quality_Score",
-        "RR_Ratio",
-        "Momentum_Consistency",
-        "High_Confidence",
-        "AdvPenalty",
-        "AdvFlags",
-        "RejectionReason",
-    ]
-    for col in adv_cols:
-        if col in ["MA_Aligned", "High_Confidence"]:
-            results[col] = False
-        elif col == "AdvFlags":
-            results[col] = ""
-        elif col == "RejectionReason":
-            results[col] = None
-        else:
-            results[col] = np.nan
-    status_manager.update_detail("⚠️ All stocks filtered out, using fallback...")
-    try:
-        results = pd.DataFrame(rows) if 'rows' in locals() else results
-    except Exception:
-        pass
-    # If still empty, we let later stages handle empty gracefully.
-
-# 3d) Batch fundamentals enrichment (decoupled; technical set preserved even if failure)
-if CONFIG["FUNDAMENTAL_ENABLED"] and fundamental_available:
-    t0 = t_start()
-    tickers_list = results["Ticker"].tolist()
-    status_manager.update_detail("Fetching fundamentals from multi-source providers...")
-    try:
-        fund_df = fetch_fundamentals_batch(tickers_list, alpha_top_n=15)
-    except Exception as e:
-        logger.warning(
-            f"Fundamentals bundle failed, continuing with technical-only recommendations: {e}"
-        )
-        fund_df = pd.DataFrame(index=pd.Index(tickers_list, name="Ticker"))
-    # Iterate results and enrich
-    for idx in results.index:
-        tkr = results.at[idx, "Ticker"]
-        row = {}
-        if tkr in fund_df.index:
-            try:
-                row = fund_df.loc[tkr].to_dict()
-            except Exception:
-                row = {}
-        if not row:
-            row = _empty_fund_row()
-        # Provider flags
-        sources_used = row.get("_sources_used", []) or []
-        results.loc[idx, "Fund_from_FMP"] = "FMP" in sources_used
-        results.loc[idx, "Fund_from_Alpha"] = "Alpha" in sources_used
-        results.loc[idx, "Fund_from_Finnhub"] = "Finnhub" in sources_used
-        results.loc[idx, "Fund_from_SimFin"] = "SimFin" in sources_used
-        results.loc[idx, "Fund_from_EODHD"] = "EODHD" in sources_used
-        results.loc[idx, "Fund_from_Tiingo"] = "Tiingo" in sources_used
-        # Legacy flag columns (maintain compatibility with reliability logic)
-        results.loc[idx, "from_fmp_full"] = "FMP" in sources_used
-        results.loc[idx, "from_fmp"] = "FMP" in sources_used
-        results.loc[idx, "from_alpha"] = "Alpha" in sources_used
-        results.loc[idx, "from_finnhub"] = "Finnhub" in sources_used
-        results.loc[idx, "from_simfin"] = "SimFin" in sources_used
-        results.loc[idx, "from_eodhd"] = "EODHD" in sources_used
-        results.loc[idx, "from_tiingo"] = "Tiingo" in sources_used
-        # Raw metrics (canonical)
-        results.loc[idx, "PE_f"] = row.get("pe", np.nan)
-        results.loc[idx, "PS_f"] = row.get("ps", np.nan)
-        results.loc[idx, "ROE_f"] = row.get("roe", np.nan)
-        results.loc[idx, "ROIC_f"] = row.get("roic", np.nan)
-        results.loc[idx, "GM_f"] = row.get("gm", np.nan)
-        results.loc[idx, "DE_f"] = row.get("de", np.nan)
-        results.loc[idx, "RevG_f"] = row.get("rev_g_yoy", np.nan)
-        results.loc[idx, "EPSG_f"] = row.get("eps_g_yoy", np.nan)
-        results.loc[idx, "Sector"] = row.get("sector") or "Unknown"
-        # Attribution string
-        sources_dict = row.get("_sources", {}) or {}
-        if sources_dict:
-            attrs = [f"{k.upper()}: {v}" for k, v in sources_dict.items() if k in FUND_SCHEMA_FIELDS]
-            results.loc[idx, "Fund_Attribution"] = " | ".join(attrs[:5])
-        else:
-            results.loc[idx, "Fund_Attribution"] = ""
-        # Fundamental score breakdown
-        fund_result = compute_fundamental_score_with_breakdown(row)
-        results.loc[idx, "Fundamental_S"] = round(fund_result.total, 1)
-        results.loc[idx, "Quality_Score_F"] = round(fund_result.breakdown.quality_score, 1)
-        results.loc[idx, "Quality_Label"] = fund_result.breakdown.quality_label
-        results.loc[idx, "Growth_Score_F"] = round(fund_result.breakdown.growth_score, 1)
-        results.loc[idx, "Growth_Label"] = fund_result.breakdown.growth_label
-        results.loc[idx, "Valuation_Score_F"] = round(fund_result.breakdown.valuation_score, 1)
-        results.loc[idx, "Valuation_Label"] = fund_result.breakdown.valuation_label
-        results.loc[idx, "Leverage_Score_F"] = round(fund_result.breakdown.leverage_score, 1)
-        results.loc[idx, "Leverage_Label"] = fund_result.breakdown.leverage_label
-        results.loc[idx, "Fund_Coverage_Pct"] = row.get("Fund_Coverage_Pct", 0.0)
-        results.loc[idx, "fundamentals_available"] = bool(row.get("fundamentals_available", False))
-    phase_times["fundamentals_v2"] = t_end(t0)
-    status_manager.advance(f"Fundamentals: {len(results)} enriched")
-else:
-    # Even if disabled still ensure columns exist for downstream reliability logic
-    if "fundamentals_available" not in results.columns:
-        results["fundamentals_available"] = False
-    if "Fund_Coverage_Pct" not in results.columns:
-        results["Fund_Coverage_Pct"] = 0.0
-
-# Stage tracking now handled by StatusManager
-
-# --- Multi-Source Aggregation & Reliability Injection (v2) ---
-# Apply after initial per-ticker fundamentals fetch; enrich with multi-source merged view
-multi_sources_fields = [
-    "pe",
-    "ps",
-    "pb",
-    "roe",
-    "margin",
-    "rev_yoy",
-    "eps_yoy",
-    "debt_equity",
-    "market_cap",
-    "beta",
-]
-
-fund_sources_used_list = []
-fund_disagreement_list = []
-fund_coverage_pct_list = []
-fund_reliability_list = []
-price_sources_used_list = []
-price_variance_score_list = []
-price_reliability_list = []
-price_mean_list = []
-price_std_list = []
-
-for idx in results.index:
-    tkr = results.at[idx, "Ticker"]
-    pos = list(results.index).index(idx)
-    fast_mode = CONFIG.get("PERF_FAST_MODE")
-    top_n_limit = CONFIG.get("PERF_MULTI_SOURCE_TOP_N", 0)
-    # If fast mode and beyond top N tickers: skip heavy multi-source calls, append neutral defaults
-    if fast_mode and top_n_limit > 0 and pos >= top_n_limit:
-        fund_sources_used_list.append(0)
-        fund_disagreement_list.append(1.0)
-        fund_coverage_pct_list.append(0.0)
-        fund_reliability_list.append(np.nan)
-        price_sources_used_list.append(0)
-        price_variance_score_list.append(1.0)
-        price_reliability_list.append(np.nan)
-        price_mean_list.append(np.nan)
-        price_std_list.append(np.nan)
-        continue
-    try:
-        agg_fund = agg_fund_v2(tkr)
-    except Exception:
-        agg_fund = {"sources_used": [], "coverage": {}, "disagreement_score": 1.0}
-    # Fundamentals source metrics
-    f_sources = agg_fund.get("sources_used", []) or []
-    f_disagreement = float(agg_fund.get("disagreement_score", 1.0) or 1.0)
-    coverage_dict = agg_fund.get("coverage", {}) or {}
-    covered_fields = sum(1 for f in multi_sources_fields if coverage_dict.get(f))
-    coverage_pct = (
-        covered_fields / float(len(multi_sources_fields))
-        if multi_sources_fields
-        else 0.0
-    )
-    # Fundamental reliability formula:
-    #   base = coverage_pct * (1 - disagreement)
-    #   source_factor = 0.5 + 0.5 * min(count/4, 1)
-    #   reliability_raw = base * source_factor
-    #   floor 0.15 if at least one source
-    source_factor = 0.5 + 0.5 * min(len(f_sources) / 4.0, 1.0)
-    fund_raw = coverage_pct * (1.0 - f_disagreement) * source_factor
-    if len(f_sources) >= 1:
-        fund_raw = max(
-            fund_raw, 0.15 * source_factor
-        )  # ensure partial reliability when any source contributes
-    fund_reliability_pct = max(0.0, min(fund_raw * 100.0, 100.0))
-
-    # Price multi-source
-    try:
-        prices_map = fetch_price_multi_v2(tkr)
-    except Exception:
-        prices_map = {}
-    mean_price, std_price, price_count = aggregate_price_v2(prices_map)
-    if mean_price and mean_price > 0 and np.isfinite(std_price):
-        variance_ratio = min(std_price / mean_price, 1.0)
-    else:
-        variance_ratio = 1.0
-    # Price reliability:
-    #   stability = (1 - variance_ratio)
-    #   source_factor_price = min(price_count/5, 1)
-    #   reliability_raw = stability * (0.4 + 0.6*source_factor_price)
-    #   floor 0.20 if any source
-    source_factor_price = min(price_count / 5.0, 1.0)
-    price_raw = (1.0 - variance_ratio) * (0.4 + 0.6 * source_factor_price)
-    if price_count >= 1:
-        price_raw = max(price_raw, 0.20 * (0.4 + 0.6 * source_factor_price))
-    price_reliability_pct = max(0.0, min(price_raw * 100.0, 100.0))
-
-    # Append lists
-    fund_sources_used_list.append(len(f_sources))
-    fund_disagreement_list.append(f_disagreement)
-    fund_coverage_pct_list.append(coverage_pct)
-    fund_reliability_list.append(fund_reliability_pct)
-    price_sources_used_list.append(price_count)
-    price_variance_score_list.append(variance_ratio)
-    price_reliability_list.append(price_reliability_pct)
-    price_mean_list.append(mean_price)
-    price_std_list.append(std_price)
-
-# Inject columns
-results["fund_sources_used_v2"] = fund_sources_used_list
-results["fund_disagreement_score_v2"] = fund_disagreement_list
-results["fund_coverage_pct_v2"] = fund_coverage_pct_list
-results["Fundamental_Reliability_v2"] = fund_reliability_list
-results["price_sources_used_v2"] = price_sources_used_list
-results["price_variance_score_v2"] = price_variance_score_list
-results["Price_Reliability_v2"] = price_reliability_list
-results["Price_Mean_v2"] = price_mean_list
-results["Price_STD_v2"] = price_std_list
-
-# Combined reliability (override or create reliability_v2)
-if "reliability_v2" not in results.columns or results["reliability_v2"].isna().all():
-    risk_t0 = t_start()
-    combined_rel = (
-        0.6 * results["Fundamental_Reliability_v2"]
-        + 0.4 * results["Price_Reliability_v2"]
-    )
-    results["reliability_v2"] = combined_rel.clip(0, 100)
-
-    # V2 RISK ENGINE: Apply FULL risk gates, reliability penalties, and position sizing
-    status_manager.update_detail("Applying V2 risk gates and reliability scoring...")
-
-    budget = float(st.session_state.get("budget", CONFIG.get("BUDGET", 5000)))
-
-    # Apply enhanced V2 scoring to each ticker
-    v2_results = []
-    for idx, row in results.iterrows():
-        ticker = row.get("Ticker")
-        v2_result = score_ticker_v2_enhanced(
-            ticker,
-            row,
-            budget_total=float(
-                st.session_state.get("total_budget", CONFIG.get("BUDGET_TOTAL", 5000))
-            ),
-            min_position=float(CONFIG.get("MIN_POSITION", 50.0)),
-            enable_ml=bool(CONFIG.get("ENABLE_ML", True)),
-        )
-        v2_results.append(v2_result)
-
-    # Add V2 columns to results DataFrame
-    v2_df = pd.DataFrame(v2_results)
-
-    # Merge V2 results back into main results
-    for col in v2_df.columns:
-        if col != "ticker":
-            results[col] = v2_df[col].values
-
-    # Use V2 final conviction as Score
-    results["Score"] = results["conviction_v2_final"]
-
-    # Add risk meter
-    results["risk_meter_v2"] = 100 - results["conviction_v2_final"]
-
-    logger.info(f"✓ Applied V2 risk gates to {len(results)} stocks")
-    logger.info(
-        f"  - Blocked: {len(results[results['risk_gate_status_v2'] == 'blocked'])} stocks"
-    )
-    logger.info(
-        f"  - Severely reduced: {len(results[results['risk_gate_status_v2'] == 'severely_reduced'])} stocks"
-    )
-    logger.info(
-        f"  - Reduced: {len(results[results['risk_gate_status_v2'] == 'reduced'])} stocks"
-    )
-    logger.info(
-        f"  - Full allocation: {len(results[results['risk_gate_status_v2'] == 'full'])} stocks"
-    )
-
-    # Clear progress indicators if they exist
-    try:
-        if 'progress_bar' in locals() and hasattr(progress_bar, 'empty'):
-            progress_bar.empty()
-        if 'status_text' in locals() and hasattr(status_text, 'empty'):
-            status_text.empty()
-    except Exception:
-        pass
-
-    results = results.sort_values(
-        ["Score", "Ticker"], ascending=[False, True]
-    ).reset_index(drop=True)
-    phase_times["risk_v2_scoring"] = t_end(risk_t0)
-    logger.info(f"✓ Scored {len(results)} stocks with V2-enhanced conviction")
-    st.success(
-        f"✅ V2 scoring completed: {len(results)} stocks scored in {phase_times['risk_v2_scoring']:.1f}s"
-    )
-    status_manager.advance(f"V2 risk & reliability: {len(results)} stocks scored")
-
-    # Ensure canonical V2 column aliases exist for UI/CSV and enforce blocked zeros
-    # Map rr -> reward_risk_v2, reliability -> reliability_score_v2
-    if "rr_ratio_v2" in results.columns:
-        results["reward_risk_v2"] = results["rr_ratio_v2"]
-    else:
-        results["reward_risk_v2"] = results.get("RR_Ratio", np.nan)
-
-    if "reliability_v2" in results.columns:
-        results["reliability_score_v2"] = results["reliability_v2"]
-    else:
-        results["reliability_score_v2"] = results.get("Reliability_Score", np.nan)
-
-    # Ensure presence of other requested keys (fill with defaults if missing)
-    for k in [
-        "risk_gate_status_v2",
-        "risk_gate_reason_v2",
-        "conviction_v2_base",
-        "conviction_v2_final",
-        "buy_amount_v2",
-        "shares_to_buy_v2",
-        "fund_sources_used_v2",
-        "price_sources_used_v2",
-        "fund_disagreement_score_v2",
-        "price_variance_score_v2",
-    ]:
-        if k not in results.columns:
-            results[k] = np.nan
-
-    # Unified RR evaluation (raw ratio + penalized score + band)
-    results["rr"] = results.get("RewardRisk", results.get("RR_Ratio", np.nan))
-
-    def _rr_eval(row_rr):
-        try:
-            score, ratio_adj, band = evaluate_rr_unified(float(row_rr))
-            return score, band
-        except Exception:
-            return np.nan, "N/A"
-
-    rr_evals = results["rr"].apply(_rr_eval)
-    results["rr_score_v2"] = [e[0] for e in rr_evals]
-    results["rr_band"] = [e[1] for e in rr_evals]
-
-    # Provide canonical aliases expected by unified scoring engine
-    # RR_Score (0-100), RR ratio (RR), Reliability_v2 (0-100)
-    results["RR_Score"] = results["rr_score_v2"].copy()
-    # Ensure raw ratio alias RR for penalty logic; fall back gracefully
-    if "rr" in results.columns:
-        results["RR"] = results["rr"].copy()
-    else:
-        results["RR"] = results.get("RewardRisk", results.get("RR_Ratio", np.nan))
-    if "reliability_v2" in results.columns:
-        results["Reliability_v2"] = results["reliability_v2"].copy()
-    else:
-        results["Reliability_v2"] = results.get("reliability_score_v2", np.nan)
-
-    # === COMPUTE OVERALL SCORE WITH EXPLICIT FORMULA ===
-        # === COMPUTE 20-DAY RULE-BASED SCORE (NEW) ===
-        # Add a new column with the 20-day conviction score
-        results["overall_score_20d"] = results.apply(compute_overall_score_20d, axis=1)
-        # Filter out tickers with score < 2 for 20d recommendations
-        results = results[results["overall_score_20d"] >= 2].reset_index(drop=True)
-    # Use the new compute_overall_score function from scoring_engine
-    # Formula: 35% fund + 35% tech + 15% RR + 15% reliability ± ML (max ±10%)
-    # Includes penalties for realistic spread
-
-    def _compute_overall(row):
-        try:
-            from core.scoring_engine import compute_overall_score
-
-            score, components = compute_overall_score(row)
-            return pd.Series(
-                {
-                    "overall_score": score,
-                    "fund_component": components.get("fund_component", 0.0),
-                    "tech_component": components.get("tech_component", 0.0),
-                    "rr_component": components.get("rr_component", 0.0),
-                    "reliability_component": components.get(
-                        "reliability_component", 0.0
-                    ),
-                    "base_score": components.get("base_score", 0.0),
-                    "ml_delta": components.get("ml_delta", 0.0),
-                    "score_before_penalties": components.get(
-                        "score_before_penalties", 0.0
-                    ),
-                    "penalty_total": components.get("penalty_total", 0.0),
-                }
-            )
-        except Exception as e:
-            logger.warning(f"compute_overall_score failed: {e}")
-            # Fallback to old logic
-            return pd.Series(
-                {
-                    "overall_score": row.get("conviction_v2_final", 50.0),
-                    "fund_component": 0.0,
-                    "tech_component": 0.0,
-                    "rr_component": 0.0,
-                    "reliability_component": 0.0,
-                    "base_score": 0.0,
-                    "ml_delta": 0.0,
-                    "score_before_penalties": 0.0,
-                    "penalty_total": 0.0,
-                }
-            )
-
-    overall_components = results.apply(_compute_overall, axis=1)
-    results = pd.concat([results, overall_components], axis=1)
-
-    # === PRESERVE RAW SCORE + COMPUTE PRETTY SCORE FOR DISPLAY ===
-    # Keep overall_score as the raw model score for all internal logic
-    results["overall_score_raw"] = results["overall_score"].copy()
-
-    # Compute "pretty" score in 60-90 range for display only
-    raw_scores = results["overall_score_raw"]
-    s_min = float(raw_scores.min())
-    s_max = float(raw_scores.max())
-
-    if s_max == s_min:
-        # All scores are identical, use neutral value
-        results["overall_score_pretty"] = 75.0
-    else:
-        # Normalize to 0-1, then scale to 60-90
-        normalized = (raw_scores - s_min) / (s_max - s_min)
-        pretty = 60.0 + normalized * 30.0
-        results["overall_score_pretty"] = pretty.clip(0, 100)
-
-    logger.info(f"Score mapping: raw [{s_min:.1f}, {s_max:.1f}] -> pretty [60, 90]")
-
-    # === ADD DISPLAY BANDS FOR UI ===
-    # Reliability band (High/Medium/Low)
-    def reliability_band(x):
-        if pd.isna(x) or not np.isfinite(x):
-            return "N/A"
-        if x >= 75:
-            return "High"
-        if x >= 40:
-            return "Medium"
-        return "Low"
-
-    # Get reliability score (0-100 scale)
-    rel_col = results.get(
-        "reliability_v2",
-        results.get("Reliability_v2", results.get("Reliability Score v2", np.nan)),
-    )
-    if isinstance(rel_col, pd.Series):
-        results["reliability_pct"] = rel_col.clip(0, 100)
-    else:
-        results["reliability_pct"] = 50.0
-    results["reliability_band"] = results["reliability_pct"].apply(reliability_band)
-
-    # Risk band (Low/Medium/High/Very High)
-    def risk_band(v):
-        if pd.isna(v) or not np.isfinite(v):
-            return "N/A"
-        if v < 45:
-            return "Low"
-        if v < 60:
-            return "Medium"
-        if v < 75:
-            return "High"
-        return "Very High"
-
-    risk_col = results.get("risk_meter_v2", results.get("RiskMeter", np.nan))
-    if isinstance(risk_col, pd.Series):
-        results["risk_band"] = risk_col.apply(risk_band)
-    else:
-        results["risk_band"] = "N/A"
-
-    # ML Confidence band (Low/Medium/High)
-    def ml_conf_band(p):
-        if pd.isna(p) or not np.isfinite(p):
-            return "N/A"
-        if p < 0.60:
-            return "Low"
-        if p < 0.75:
-            return "Medium"
-        return "High"
-
-    ml_prob_col = results.get("ML_Probability", np.nan)
-    if isinstance(ml_prob_col, pd.Series):
-        results["ml_conf_band"] = ml_prob_col.apply(ml_conf_band)
-    else:
-        results["ml_conf_band"] = "N/A"
-
-    # Component breakdowns (fallback to legacy names if needed)
-    results["fund_score"] = results.get(
-        "fundamental_score_v2", results.get("Fundamental Score", np.nan)
-    )
-    results["tech_score"] = results.get(
-        "technical_score_v2", results.get("Tech Score", np.nan)
-    )
-
-    results["rr_score"] = results.get("rr_score_v2", np.nan)
-    results["reliability_score"] = results.get(
-        "reliability_score_v2", results.get("Reliability Score", np.nan)
-    )
-    base_conv = results.get(
-        "conviction_v2_base", results.get("conviction_v2_final", np.nan)
-    )
-    results["ml_delta"] = results["overall_score"] - base_conv
-
-    # Enforce blocked rows have zero buy and shares
-    if "risk_gate_status_v2" in results.columns:
-        blocked_mask = results["risk_gate_status_v2"] == "blocked"
-        if "buy_amount_v2" in results.columns:
-            results.loc[blocked_mask, "buy_amount_v2"] = 0.0
-        if "shares_to_buy_v2" in results.columns:
-            results.loc[blocked_mask, "shares_to_buy_v2"] = 0
-
-
-# 3e) Apply risk classification and data quality evaluation
-t0 = t_start()
-status_manager.update_detail("Classifying by risk level and data quality...")
-
-# Debug: Check what data we have
-logger.info(f"Columns available: {results.columns.tolist()}")
-logger.info(
-    f"Sample RS_63d values: {results['RS_63d'].head().tolist() if 'RS_63d' in results.columns else 'MISSING'}"
-)
-logger.info(
-    f"Sample Volume_Surge values: {results['Volume_Surge'].head().tolist() if 'Volume_Surge' in results.columns else 'MISSING'}"
-)
-logger.info(
-    f"Sample RR_Ratio values: {results['RR_Ratio'].head().tolist() if 'RR_Ratio' in results.columns else 'MISSING'}"
-)
-logger.info(
-    f"Sample Quality_Score values: {results['Quality_Score'].head().tolist() if 'Quality_Score' in results.columns else 'MISSING'}"
-)
-logger.info(
-    f"Sample Fundamental_S values: {results['Fundamental_S'].head().tolist() if 'Fundamental_S' in results.columns else 'MISSING'}"
-)
-logger.info(
-    f"Sample Momentum_Consistency values: {results['Momentum_Consistency'].head().tolist() if 'Momentum_Consistency' in results.columns else 'MISSING'}"
-)
-
-results = apply_classification(results)
-
-# Fundamentals coverage summary
-if "Fund_Coverage_Pct" in results.columns:
-    coverage_vals = results["Fund_Coverage_Pct"].dropna().tolist()
-    if coverage_vals:
-        avg_cov = float(np.mean(coverage_vals))
-        pct_good = float(sum(v >= 0.5 for v in coverage_vals)) / float(
-            len(coverage_vals)
-        )
-        # Histogram buckets
-        buckets = {"0-25%": 0, "25-50%": 0, "50-75%": 0, "75-100%": 0}
-        for v in coverage_vals:
-            if v < 0.25:
-                buckets["0-25%"] += 1
-            elif v < 0.50:
-                buckets["25-50%"] += 1
-            elif v < 0.75:
-                buckets["50-75%"] += 1
-            else:
-                buckets["75-100%"] += 1
-        logger.info(f"Fundamentals coverage buckets: {buckets}")
-        logger.info(
-            f"Fundamentals coverage: mean={avg_cov:.2f}, >=50% fields for {pct_good*100:.1f}% of tickers"
-        )
-        warn_thresh = CONFIG.get("COVERAGE_WARN_THRESHOLD", 0.4)
-        if avg_cov < warn_thresh:
-            st.warning(
-                f"⚠️ Low fundamentals coverage: mean {avg_cov:.2f} ({pct_good*100:.1f}% with >=50% fields). Consider adding sources or API keys."
-            )
-        else:
-            st.info(
-                f"🧬 Avg fundamentals coverage: {avg_cov:.2f} | {pct_good*100:.0f}% of tickers have >=50% fields."
-            )
-
-# Show classification statistics
-core_count = len(results[results["Risk_Level"] == "core"])
-spec_count = len(results[results["Risk_Level"] == "speculative"])
-high_qual = len(results[results["Data_Quality"] == "high"])
-med_qual = len(results[results["Data_Quality"] == "medium"])
-low_qual = len(results[results["Data_Quality"] == "low"])
-
-status_manager.update_detail(
-    f"Initial: {core_count} Core, {spec_count} Speculative | Quality: {high_qual}H {med_qual}M {low_qual}L"
-)
-
-# Filter out stocks that shouldn't be displayed (very low quality)
-displayable = results[results["Should_Display"]].copy()
-hidden_count = len(results) - len(displayable)
-if hidden_count > 0:
-    status_manager.update_detail(f"Hiding {hidden_count} very low quality stocks")
-    logger.info(f"Hidden {hidden_count} stocks due to very low data quality")
-
-results = displayable.reset_index(drop=True)
-
-# Split and filter Core vs Speculative separately
-core_stocks = results[results["Risk_Level"] == "core"].copy()
-spec_stocks = results[results["Risk_Level"] == "speculative"].copy()
-
-# Fallback: if no Core, promote top relaxed candidates from Speculative
-# Updated Nov 2025: More lenient fallback aligned with balanced criteria
-if len(core_stocks) == 0 and not spec_stocks.empty:
-    status_manager.update_detail("⚠️ No Core stocks, applying adaptive fallback")
-    try:
-        rr = spec_stocks.get("RewardRisk")
-        if rr is None:
-            rr = spec_stocks.get("RR_Ratio")
-        # Fallback uses even more relaxed criteria (RSI 20-60, RR>=0.8)
-        mask = (
-            spec_stocks.get("RSI").between(20, 60, inclusive="both")
-            & (rr.fillna(0) >= 0.8)
-            & (
-                spec_stocks.get(
-                    "Momentum_Consistency", pd.Series([0] * len(spec_stocks))
-                ).fillna(0)
-                >= 0.3
-            )
-            & (
-                spec_stocks.get("ATR_Price", pd.Series([1] * len(spec_stocks))).fillna(
-                    1
-                )
-                <= 0.09
-            )
-            & (
-                spec_stocks.get(
-                    "OverextRatio", pd.Series([1] * len(spec_stocks))
-                ).fillna(1)
-                <= 0.15
-            )
-            & (
-                spec_stocks.get(
-                    "Should_Display", pd.Series([True] * len(spec_stocks))
-                ).fillna(True)
-            )
-        )
-        fallback = (
-            spec_stocks[mask]
-            .copy()
-            .sort_values(["Score", "Ticker"], ascending=[False, True])
-            .head(5)
-        )
-        if not fallback.empty:
-            fallback["Risk_Level"] = "core"
-            # Mark reason
-            if "Classification_Warnings" in fallback.columns:
-                fallback["Classification_Warnings"] = (
-                    fallback["Classification_Warnings"].fillna("")
-                    + "; Adaptive Core fallback"
-                ).str.strip("; ")
-            else:
-                fallback["Classification_Warnings"] = "Adaptive Core fallback"
-            # Lower confidence if missing
-            if "Confidence_Level" in fallback.columns:
-                fallback.loc[
-                    fallback["Confidence_Level"].isna(), "Confidence_Level"
-                ] = "low"
-            else:
-                fallback["Confidence_Level"] = "low"
-            # Update sets
-            core_stocks = fallback
-            spec_stocks = spec_stocks.drop(fallback.index)
-            st.info(
-                f"🔄 Promoted {len(core_stocks)} fallback Core candidates based on relaxed criteria"
-            )
-        else:
-            logger.info("Adaptive Core fallback found no eligible candidates")
-    except Exception as e:
-        logger.warning(f"Adaptive Core fallback error: {e}")
-
-# Filter Core with strict criteria
-core_before_filter = len(core_stocks)
-core_filtered = (
-    filter_core_recommendations(core_stocks, CONFIG, adaptive=True)
-    if not core_stocks.empty
-    else pd.DataFrame()
-)
-core_after_filter = len(core_filtered)
-
-if core_before_filter > 0:
-    status_manager.update_detail(
-        f"Core filtering: {core_before_filter} -> {core_after_filter}"
-    )
-
-# Filter Speculative with relaxed criteria (allow higher volatility, missing some fundamentals)
-spec_before_filter = len(spec_stocks)
-if not spec_stocks.empty:
-    # Apply looser technical filters for speculative
-    spec_filtered = spec_stocks.copy()
-
-    # Filter 1: RSI bounds (wider range)
-    if "RSI" in spec_filtered.columns:
-        rsi_min = max(CONFIG.get("RSI_MIN_CORE", 40) - 10, 25)
-        rsi_max = min(CONFIG.get("RSI_MAX_CORE", 75) + 10, 85)
-        spec_filtered = spec_filtered[
-            (spec_filtered["RSI"].isna())
-            | ((spec_filtered["RSI"] >= rsi_min) & (spec_filtered["RSI"] <= rsi_max))
-        ]
-
-    # Filter 2: Maximum ATR/Price (allow higher volatility)
-    if "ATR_Price" in spec_filtered.columns:
-        max_atr = (
-            CONFIG.get("MAX_ATR_PRICE_CORE", 0.09) + 0.06
-        )  # +6% more volatility allowed
-        spec_filtered = spec_filtered[
-            (spec_filtered["ATR_Price"].isna())
-            | (spec_filtered["ATR_Price"] <= max_atr)
-        ]
-
-    # Filter 3: Maximum overextension (allow stronger uptrends)
-    if "OverextRatio" in spec_filtered.columns:
-        max_overext = CONFIG.get("MAX_OVEREXTENSION_CORE", 0.12) + 0.08
-        spec_filtered = spec_filtered[
-            (spec_filtered["OverextRatio"].isna())
-            | (spec_filtered["OverextRatio"] <= max_overext)
-        ]
-
-    # Filter 4: Minimum reward/risk (more lenient)
-    if "RewardRisk" in spec_filtered.columns:
-        min_rr = max(CONFIG.get("MIN_RR_CORE", 1.3) - 0.5, 0.8)
-        spec_filtered = spec_filtered[
-            (spec_filtered["RewardRisk"].isna())
-            | (spec_filtered["RewardRisk"] >= min_rr)
-        ]
-
-    spec_filtered = spec_filtered.reset_index(drop=True)
-    logger.info(f"Speculative filter: {spec_before_filter} -> {len(spec_filtered)}")
-else:
-    spec_filtered = pd.DataFrame()
-
-spec_after_filter = len(spec_filtered)
-
-if not core_filtered.empty:
-    core_filtered["ML_Probability"] = np.nan
-    core_filtered["ml_conf_band"] = "N/A"
-    core_filtered["ML_Confidence"] = "N/A"
-if not spec_filtered.empty:
-    spec_filtered["ML_Probability"] = np.nan
-    spec_filtered["ml_conf_band"] = "N/A"
-    spec_filtered["ML_Confidence"] = "N/A"
-
-# === CALCULATE QUALITY SCORE FOR ALL STOCKS ===
-from core.scoring_engine import calculate_quality_score
-
-
-def _calc_quality(row):
-    try:
-        score, level = calculate_quality_score(row)
-        return pd.Series({"Quality_Score_Numeric": score, "Quality_Level": level})
-    except Exception as e:
-        logger.warning(f"Quality calculation failed: {e}")
-        return pd.Series({"Quality_Score_Numeric": 0.5, "Quality_Level": "Medium"})
-
-
-if not core_filtered.empty:
-    quality_data = core_filtered.apply(_calc_quality, axis=1)
-    core_filtered["Quality_Score_Numeric"] = quality_data["Quality_Score_Numeric"]
-    core_filtered["Quality_Level"] = quality_data["Quality_Level"]
-    logger.info(
-        f"Core quality: {core_filtered['Quality_Level'].value_counts().to_dict()}"
-    )
-
-if not spec_filtered.empty:
-    quality_data = spec_filtered.apply(_calc_quality, axis=1)
-    spec_filtered["Quality_Score_Numeric"] = quality_data["Quality_Score_Numeric"]
-    spec_filtered["Quality_Level"] = quality_data["Quality_Level"]
-    logger.info(
-        f"Spec quality: {spec_filtered['Quality_Level'].value_counts().to_dict()}"
-    )
-
-if spec_before_filter > 0:
-    st.info(
-        f"Speculative filter: {spec_before_filter} -> {spec_after_filter} passed relaxed criteria"
-    )
-
-# Combine Core and Speculative
-results = pd.concat([core_filtered, spec_filtered], ignore_index=True)
-
-# Sort by score within each risk level
-if not results.empty:
-    results = results.sort_values(
-        ["Risk_Level", "Score"],
-        ascending=[
-            True,
-            False,
-        ],  # Core first (comes before Spec alphabetically), then by score
-    ).reset_index(drop=True)
-
-phase_times["risk_quality_classification"] = t_end(t0)
-
-results_count = len(results)
-core_count_final = len(results[results["Risk_Level"] == "core"]) if not results.empty else 0
-spec_count_final = len(results[results["Risk_Level"] == "speculative"]) if not results.empty else 0
-
-if results.empty:
-    status_manager.update_detail("⚠️ All stocks filtered out, showing empty recommendations")
-elif results_count > 0:
-    status_manager.advance(f"Final: {core_count_final} Core + {spec_count_final} Speculative = {results_count} total")
+    # Mark yfinance as used for price history (always runs in pipeline)
+    # Mark Yahoo prices used for this run
+    mark_provider_usage("Yahoo", "price")
 
 # External price verification (Top-K)
 t0 = t_start()
@@ -4154,13 +2961,10 @@ def apply_sector_cap(df: pd.DataFrame, cap: int) -> pd.DataFrame:
         return df
     if "Sector" not in df.columns:
         df["Sector"] = "Unknown"
-    counts: Dict[str, int] = {}
-    keep: List[bool] = []
-    for _, r in df.iterrows():
-        s = r.get("Sector", "Unknown") or "Unknown"
-        counts[s] = counts.get(s, 0) + 1
-        keep.append(counts[s] <= cap)
-    return df[pd.Series(keep).values].reset_index(drop=True)
+    # Vectorized: rank within each sector, keep rank <= cap
+    df["_rank"] = df.groupby("Sector", sort=False).cumcount() + 1
+    result = df[df["_rank"] <= cap].drop("_rank", axis=1).reset_index(drop=True)
+    return result
 
 
 results = apply_sector_cap(
@@ -4227,64 +3031,24 @@ if ml_threshold_value > 0 and "ML_Prob" in results.columns:
     )
     TOPN = len(results)  # Update TOPN after filtering
 
+# === ALLOCATE BUDGET (must happen before using 'סכום קנייה ($)') ===
+total_budget = float(st.session_state.get("total_budget", CONFIG["BUDGET_TOTAL"]))
+min_position = float(st.session_state.get("min_position", 50.0))
+max_position_pct = float(st.session_state.get("max_position_pct", 15.0))
+results = allocate_budget(
+    results,
+    total=total_budget,
+    min_pos=min_position,
+    max_pos_pct=max_position_pct,
+    score_col="Score" if "Score" in results.columns else "conviction_v2_final",
+    dynamic_sizing=True
+)
+
 alloc_df = results.reset_index(drop=True).copy()
 
-# V2 ALLOCATION: Use buy_amount_v2 from risk engine (already has gates + penalties applied)
-# For backward compatibility, keep old AllocScore but use buy_amount_v2 as primary allocation
-if "buy_amount_v2" in alloc_df.columns:
-    logger.info("Using V2 position sizing with risk gates and reliability penalties")
-
-    # Use buy_amount_v2 directly - it already includes:
-    # - Risk gate penalties (blocked stocks = $0)
-    # - Reliability penalties (low reliability = reduced allocation)
-    # - Core vs speculative caps (3% vs 15% of budget)
-    # - ML boost applied AFTER penalties
-    alloc_df["Buy_Amount"] = alloc_df["buy_amount_v2"]
-    alloc_df["AllocScore"] = alloc_df["Score"].clip(lower=0)  # Keep for display only
-
-else:
-    # Fallback to old allocation logic if V2 columns missing
-    logger.warning("V2 columns missing - using legacy allocation logic")
-    risk_mult_core, risk_mult_spec = 1.2, 0.8
-    if st.session_state.get("alloc_style_idx", 0) == 1:  # Conservative
-        risk_mult_core, risk_mult_spec = 1.5, 0.5
-    elif st.session_state.get("alloc_style_idx", 0) == 2:  # Aggressive
-        risk_mult_core, risk_mult_spec = 1.0, 1.2
-    if "Risk_Level" in alloc_df.columns:
-        alloc_df["_risk_mult"] = np.where(
-            alloc_df["Risk_Level"] == "core", risk_mult_core, risk_mult_spec
-        )
-    else:
-        alloc_df["_risk_mult"] = 1.0
-    if "Reliability_Score" in alloc_df.columns:
-        rel = alloc_df["Reliability_Score"].fillna(0.5).clip(0, 1)
-        alloc_df["_rel_mult"] = 0.6 + 0.6 * rel
-    else:
-        alloc_df["_rel_mult"] = 1.0
-    alloc_df["AllocScore"] = (
-        alloc_df["Score"].clip(lower=0) * alloc_df["_risk_mult"] * alloc_df["_rel_mult"]
-    )
-
-# Skip legacy allocate_budget if using V2 (already sized)
-if "buy_amount_v2" not in alloc_df.columns:
-    results = allocate_budget(
-        alloc_df,
-        float(st.session_state.get("total_budget", CONFIG["BUDGET_TOTAL"])),
-        float(st.session_state.get("min_position", CONFIG["MIN_POSITION"])),
-        float(st.session_state.get("max_position_pct", CONFIG["MAX_POSITION_PCT"])),
-        score_col="AllocScore",
-    )
-else:
-    # V2: Use already-computed Buy_Amount
-    results = alloc_df.copy()
-    # Ensure Hebrew purchase amount column exists for downstream calculations
-    if "סכום קנייה ($)" not in results.columns:
-        if "Buy_Amount" in results.columns:
-            results["סכום קנייה ($)"] = results["Buy_Amount"].round(2)
-        elif "buy_amount_v2" in results.columns:
-            results["סכום קנייה ($)"] = results["buy_amount_v2"].round(2)
-        else:
-            results["סכום קנייה ($)"] = 0.0
+# Defensive: ensure allocation column exists even if upstream function changed
+if "סכום קנייה ($)" not in results.columns:
+    results["סכום קנייה ($)"] = 0.0
 
 results["מניות לקנייה"] = np.floor(
     np.where(
@@ -4379,7 +3143,7 @@ if not use_precomputed:
                 path_latest = output_dir / "latest_scan.parquet"
                 path_timestamped = output_dir / f"scan_{ts}.parquet"
                 with st.expander("Developer details: saved paths"):
-                    st.write({"latest": str(path_latest), "timestamped": str(path_timestamped)})
+                    st.json({"latest": str(path_latest), "timestamped": str(path_timestamped)})
         except Exception as e:
             st.error(f"Failed to save scan: {e}")
     
@@ -4488,6 +3252,15 @@ if not rec_df.empty:
 
 st.info(f"📊 Showing {len(rec_df)} stocks after filters")
 
+# --- DEBUG: Show top 5 with canonical 20d ML columns ---
+if not rec_df.empty and "FinalScore_20d" in rec_df.columns:
+    debug_cols = ["Ticker", "TechScore_20d", "ML_20d_Prob", "FinalScore_20d", "FinalScore"]
+    available_debug_cols = [c for c in debug_cols if c in rec_df.columns]
+    if available_debug_cols:
+        st.info("🔍 Top 5 recommendations (20d ML scoring):")
+        top5_debug = rec_df.head(5)[available_debug_cols].copy()
+        st.dataframe(top5_debug, width='stretch', hide_index=True)
+
 rec_df = rec_df.copy()
 
 
@@ -4520,11 +3293,13 @@ providers_meta = {
     "Finnhub": {"env": "FINNHUB_API_KEY", "implemented": True, "label": "Finnhub"},
     "Tiingo": {"env": "TIINGO_API_KEY", "implemented": True, "label": "Tiingo"},
     "Polygon": {"env": "POLYGON_API_KEY", "implemented": True, "label": "Polygon"},
+    "FMP": {"env": "FMP_API_KEY", "implemented": True, "label": "FMP"},
     "OpenAI": {"env": "OPENAI_API_KEY", "implemented": True, "label": "OpenAI"},
-    "SimFin": {"env": "SIMFIN_API_KEY", "implemented": bool(CONFIG.get("ENABLE_SIMFIN", False)), "label": "SimFin"},
-    "Marketstack": {"env": "MARKETSTACK_API_KEY", "implemented": bool(CONFIG.get("ENABLE_MARKETSTACK", False)), "label": "Marketstack"},
-    "EODHD": {"env": "EODHD_API_KEY", "implemented": bool(CONFIG.get("ENABLE_EODHD", False)), "label": "EODHD"},
-    "NasdaqDL": {"env": "NASDAQ_API_KEY", "implemented": bool(CONFIG.get("ENABLE_NASDAQ_DL", False)), "label": "NasdaqDL"},
+    # Mark optional providers as implemented by default; connectivity/key presence will reflect availability
+    "SimFin": {"env": "SIMFIN_API_KEY", "implemented": True, "label": "SimFin"},
+    "Marketstack": {"env": "MARKETSTACK_API_KEY", "implemented": True, "label": "Marketstack"},
+    "EODHD": {"env": "EODHD_API_KEY", "implemented": True, "label": "EODHD"},
+    "NasdaqDL": {"env": "NASDAQ_API_KEY", "implemented": True, "label": "NasdaqDL"},
 }
 
 # session-level usage markers updated by data fetch helpers (see _fetch_external_for and mark_provider_usage)
@@ -4608,13 +3383,31 @@ for p, meta in providers_meta.items():
 used_count = sum(1 for v in provider_usage.values() if v.get("used_price") or v.get("used_fundamentals") or v.get("used_ml"))
 
 # Render data sources overview (single dynamic table, no HTML)
+# Build comprehensive provider status map for overview table
+openai_key = _env("OPENAI_API_KEY")
+simfin_ok = bool(simfin_key)
+marketstack_ok = bool(marketstack_key)
+nasdaq_ok = bool(nasdaq_key)
+eodhd_ok = bool(eodhd_key)
+
+# Build provider status map from canonical list in SourcesOverview
+status_lookup = {
+    "Yahoo": True,
+    "Alpha Vantage": bool(alpha_ok),
+    "Finnhub": bool(finn_ok),
+    "Polygon": bool(poly_ok),
+    "Tiingo": bool(tiin_ok),
+    "FMP": bool(fmp_ok),
+    "OpenAI": bool(openai_key),
+    "SimFin": bool(simfin_ok),
+    "Marketstack": bool(marketstack_ok),
+    "EODHD": bool(eodhd_ok),
+    "Nasdaq": bool(nasdaq_ok),
+}
+provider_status_map = {name: {"ok": bool(status_lookup.get(name, False))} for name in SourcesOverview.PROVIDERS.keys()}
+
 render_data_sources_overview(
-    provider_status={
-        "Alpha": {"ok": alpha_ok},
-        "Finnhub": {"ok": finn_ok},
-        "Polygon": {"ok": poly_ok},
-        "Tiingo": {"ok": tiin_ok},
-    },
+    provider_status=provider_status_map,
     provider_usage=provider_usage,
     results=results
 )
@@ -5010,7 +3803,10 @@ if not rec_df.empty:
     rec_df["Risk_Band"] = rec_df.get("risk_band", "Unknown")
     
     # Fundamental coverage percentage
-    rec_df["Fund_Coverage_Pct"] = rec_df.get("Fund_Coverage_Pct", 0).fillna(0)
+    if "Fund_Coverage_Pct" in rec_df.columns:
+        rec_df["Fund_Coverage_Pct"] = rec_df["Fund_Coverage_Pct"].fillna(0)
+    else:
+        rec_df["Fund_Coverage_Pct"] = 0
     
     # Volatility penalty (from reliability calculation)
     atr_price = rec_df.get("ATR_Price")
@@ -5206,7 +4002,9 @@ else:
             hist_std = r.get(
                 "Historical_StdDev", np.nan
             )  # NEW: Use historical price std dev
-            show_mean = mean if not np.isnan(mean) else r["Price_Yahoo"]
+            # Robust fallback if Price_Yahoo is missing: try Close, then Unit_Price
+            base_price = r.get("Price_Yahoo", r.get("Close", r.get("Unit_Price", np.nan)))
+            show_mean = mean if np.isfinite(mean) else base_price
             # Prefer Historical_StdDev if available, fallback to old std
             show_std = (
                 f"${hist_std:.2f}"
@@ -5470,6 +4268,10 @@ else:
     # Export section (single, unified)
 show_order = [
     "Ticker",
+    "TechScore_20d",
+    "ML_20d_Prob",
+    "FinalScore_20d",
+    "FinalScore",
     "overall_score_20d",  # 20-day conviction score
     "Sector",
     "Risk Level",
@@ -5567,6 +4369,13 @@ show_order = [
     "Fund_Coverage_Pct",
     "Volatility_Penalty",
     "Safety_Caps_Applied",
+    # ML live_v3 debug columns
+    "ML_20d_Prob_live_v3",
+    "ML_20d_Prob_raw",
+    "TechScore_20d_v2",
+    "ATR_Pct_percentile",
+    "Price_As_Of_Date",
+    "ReliabilityFactor",
 ]
 # --- Hebrew column mapping for CSV export ---
 hebrew_cols = {
@@ -5625,6 +4434,15 @@ for c in show_order:
         if first not in seen_cols:
             cols_for_export.append(first)
             seen_cols.add(first)
+
+# Deduplicate show_order for display to avoid Arrow errors
+show_order_unique = []
+seen_show = set()
+for c in show_order:
+    if c not in seen_show:
+        show_order_unique.append(c)
+        seen_show.add(c)
+
 lean_export_fields = [
     c for c in cols_for_export if c in {
         "Ticker","Score","Overall_Rank","Rank","Entry_Price","Target_Price","RR","Risk_Level","Reliability_Band","Market_Regime","Regime_Confidence","Fundamental_S","Technical_S"
@@ -5671,8 +4489,8 @@ st.markdown(
 )
 
 st.dataframe(
-    csv_df[[c for c in show_order if c in csv_df.columns]],
-    use_container_width=True,
+    csv_df[[c for c in show_order_unique if c in csv_df.columns]],
+    width='stretch',
     hide_index=True,
 )
 
@@ -5711,7 +4529,7 @@ if choice and choice != "(Select)" and choice in data_map:
     fig.update_layout(
         height=480, xaxis_rangeslider_visible=False, legend_orientation="h"
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
     dfv["RSI"] = rsi(dfv["Close"], 14)
     fig2 = go.Figure()
     fig2.add_trace(go.Scatter(x=dfv.index, y=dfv["RSI"], mode="lines", name="RSI14"))
@@ -5723,7 +4541,7 @@ if choice and choice != "(Select)" and choice in data_map:
         line_width=0,
     )
     fig2.update_layout(height=220, legend_orientation="h")
-    st.plotly_chart(fig2, use_container_width=True)
+    st.plotly_chart(fig2, width='stretch')
 
 # ==================== Notes ====================
 with st.expander("ℹ️ Methodology (Summary)"):

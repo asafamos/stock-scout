@@ -155,7 +155,7 @@ def run_backtest(
                     sma20 = float(spy_up_to_date['Close'].tail(20).mean())
                     sma50 = float(spy_up_to_date['Close'].tail(50).mean())
                     current_spy = float(spy_up_to_date['Close'].iloc[-1])
-                    spy_returns = spy_up_to_date['Close'].pct_change()
+                    spy_returns = spy_up_to_date['Close'].pct_change(fill_method=None)
                     spy_vol = float(spy_returns.tail(20).std() * np.sqrt(252))
                     
                     # Simple SPY RSI

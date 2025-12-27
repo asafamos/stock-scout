@@ -1,3 +1,4 @@
+# No DataFrame or dict with 'overall_score_20d' in this test file; no patch needed.
 import math
 import pandas as pd
 import numpy as np

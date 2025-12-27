@@ -21,6 +21,7 @@ from typing import Dict, List, Optional, Tuple, Any
 from datetime import datetime, timedelta
 from functools import lru_cache
 import logging
+from core.api_monitor import record_api_call
 
 logger = logging.getLogger(__name__)
 
@@ -127,7 +128,7 @@ def _put_in_cache(cache_key: str, data: Dict) -> None:
 # FMP (Financial Modeling Prep) - PRIMARY SOURCE
 # ============================================================================
 
-def fetch_fundamentals_fmp(ticker: str) -> Optional[Dict]:
+def fetch_fundamentals_fmp(ticker: str, provider_status: Dict | None = None) -> Optional[Dict]:
     """
     Fetch fundamentals from FMP (primary source).
     
@@ -135,6 +136,22 @@ def fetch_fundamentals_fmp(ticker: str) -> Optional[Dict]:
     - pe, ps, pb, roe, margin, rev_yoy, eps_yoy, debt_equity
     - market_cap, beta, etc.
     """
+    # Preflight skip
+    if provider_status is not None:
+        s = provider_status.get("FMP")
+        if s and not s.get("ok", True):
+            try:
+                record_api_call(
+                    provider="FMP",
+                    endpoint="key-metrics",
+                    status="skipped_preflight",
+                    latency_sec=0.0,
+                    extra={"ticker": ticker, "reason": "disabled_by_preflight"},
+                )
+            except Exception:
+                pass
+            return None
+
     if not FMP_API_KEY:
         return None
     
@@ -149,15 +166,51 @@ def fetch_fundamentals_fmp(ticker: str) -> Optional[Dict]:
     url = f"https://financialmodelingprep.com/api/v3/key-metrics/{ticker}"
     params = {"apikey": FMP_API_KEY, "limit": 1}
     
-    data = _http_get_with_retry(url, params=params)
+    start = time.time()
+    try:
+        data = _http_get_with_retry(url, params=params)
+        status = "ok" if data and isinstance(data, list) and len(data) > 0 else "empty"
+        record_api_call(
+            provider="FMP",
+            endpoint="key-metrics",
+            status=status,
+            latency_sec=time.time() - start,
+            extra={"ticker": ticker}
+        )
+    except Exception as e:
+        record_api_call(
+            provider="FMP",
+            endpoint="key-metrics",
+            status="exception",
+            latency_sec=time.time() - start,
+            extra={"ticker": ticker, "error": str(e)[:200]}
+        )
+        return None
     if not data or not isinstance(data, list) or len(data) == 0:
         return None
-    
     metrics = data[0]
-    
     # Fetch ratios
     url_ratios = f"https://financialmodelingprep.com/api/v3/ratios/{ticker}"
-    ratios_data = _http_get_with_retry(url_ratios, params=params)
+    start_ratios = time.time()
+    try:
+        ratios_data = _http_get_with_retry(url_ratios, params=params)
+        status = "ok" if ratios_data and isinstance(ratios_data, list) and len(ratios_data) > 0 else "empty"
+        record_api_call(
+            provider="FMP",
+            endpoint="ratios",
+            status=status,
+            latency_sec=time.time() - start_ratios,
+            extra={"ticker": ticker}
+        )
+    except Exception as e:
+        record_api_call(
+            provider="FMP",
+            endpoint="ratios",
+            status="exception",
+            latency_sec=time.time() - start_ratios,
+            extra={"ticker": ticker, "error": str(e)[:200]}
+        )
+        ratios_data = None
     ratios = ratios_data[0] if ratios_data and isinstance(ratios_data, list) and len(ratios_data) > 0 else {}
     
     # Standardize output
@@ -184,8 +237,24 @@ def fetch_fundamentals_fmp(ticker: str) -> Optional[Dict]:
 # FINNHUB - SECONDARY SOURCE
 # ============================================================================
 
-def fetch_fundamentals_finnhub(ticker: str) -> Optional[Dict]:
+def fetch_fundamentals_finnhub(ticker: str, provider_status: Dict | None = None) -> Optional[Dict]:
     """Fetch fundamentals from Finnhub."""
+    # Preflight skip
+    if provider_status is not None:
+        s = provider_status.get("FINNHUB")
+        if s and not s.get("ok", True):
+            try:
+                record_api_call(
+                    provider="Finnhub",
+                    endpoint="metric",
+                    status="skipped_preflight",
+                    latency_sec=0.0,
+                    extra={"ticker": ticker, "reason": "disabled_by_preflight"},
+                )
+            except Exception:
+                pass
+            return None
+
     if not FINNHUB_API_KEY:
         return None
     
@@ -200,12 +269,29 @@ def fetch_fundamentals_finnhub(ticker: str) -> Optional[Dict]:
     url = "https://finnhub.io/api/v1/stock/metric"
     params = {"symbol": ticker, "metric": "all", "token": FINNHUB_API_KEY}
     
-    data = _http_get_with_retry(url, params=params)
+    start = time.time()
+    try:
+        data = _http_get_with_retry(url, params=params)
+        status = "ok" if data and "metric" in data else "empty"
+        record_api_call(
+            provider="Finnhub",
+            endpoint="metric",
+            status=status,
+            latency_sec=time.time() - start,
+            extra={"ticker": ticker}
+        )
+    except Exception as e:
+        record_api_call(
+            provider="Finnhub",
+            endpoint="metric",
+            status="exception",
+            latency_sec=time.time() - start,
+            extra={"ticker": ticker, "error": str(e)[:200]}
+        )
+        return None
     if not data or "metric" not in data:
         return None
-    
     metric = data.get("metric", {})
-    
     result = {
         "source": "finnhub",
         "pe": metric.get("peBasicExclExtraTTM"),
@@ -220,7 +306,6 @@ def fetch_fundamentals_finnhub(ticker: str) -> Optional[Dict]:
         "eps_yoy": metric.get("epsGrowthTTMYoy"),
         "timestamp": time.time()
     }
-    
     _put_in_cache(cache_key, result)
     return result
 
@@ -229,8 +314,24 @@ def fetch_fundamentals_finnhub(ticker: str) -> Optional[Dict]:
 # TIINGO - EXISTING SOURCE (PRESERVE)
 # ============================================================================
 
-def fetch_fundamentals_tiingo(ticker: str) -> Optional[Dict]:
+def fetch_fundamentals_tiingo(ticker: str, provider_status: Dict | None = None) -> Optional[Dict]:
     """Fetch fundamentals from Tiingo (existing source - preserved)."""
+    # Preflight skip
+    if provider_status is not None:
+        s = provider_status.get("TIINGO")
+        if s and not s.get("ok", True):
+            try:
+                record_api_call(
+                    provider="Tiingo",
+                    endpoint="statements",
+                    status="skipped_preflight",
+                    latency_sec=0.0,
+                    extra={"ticker": ticker, "reason": "disabled_by_preflight"},
+                )
+            except Exception:
+                pass
+            return None
+
     if not TIINGO_API_KEY:
         return None
     
@@ -245,13 +346,30 @@ def fetch_fundamentals_tiingo(ticker: str) -> Optional[Dict]:
     url = f"https://api.tiingo.com/tiingo/fundamentals/{ticker}/statements"
     headers = {"Content-Type": "application/json", "Authorization": f"Token {TIINGO_API_KEY}"}
     
-    data = _http_get_with_retry(url, headers=headers)
+    start = time.time()
+    try:
+        data = _http_get_with_retry(url, headers=headers)
+        status = "ok" if data and isinstance(data, list) and len(data) > 0 else "empty"
+        record_api_call(
+            provider="Tiingo",
+            endpoint="statements",
+            status=status,
+            latency_sec=time.time() - start,
+            extra={"ticker": ticker}
+        )
+    except Exception as e:
+        record_api_call(
+            provider="Tiingo",
+            endpoint="statements",
+            status="exception",
+            latency_sec=time.time() - start,
+            extra={"ticker": ticker, "error": str(e)[:200]}
+        )
+        return None
     if not data or not isinstance(data, list) or len(data) == 0:
         return None
-    
     # Parse latest annual statement
     latest = data[0] if data else {}
-    
     result = {
         "source": "tiingo",
         "pe": latest.get("priceToEarnings"),
@@ -265,7 +383,6 @@ def fetch_fundamentals_tiingo(ticker: str) -> Optional[Dict]:
         "eps_yoy": latest.get("epsGrowth"),
         "timestamp": time.time()
     }
-    
     _put_in_cache(cache_key, result)
     return result
 
@@ -274,8 +391,24 @@ def fetch_fundamentals_tiingo(ticker: str) -> Optional[Dict]:
 # ALPHA VANTAGE - EXISTING SOURCE (PRESERVE)
 # ============================================================================
 
-def fetch_fundamentals_alpha(ticker: str) -> Optional[Dict]:
+def fetch_fundamentals_alpha(ticker: str, provider_status: Dict | None = None) -> Optional[Dict]:
     """Fetch fundamentals from Alpha Vantage (existing source - preserved)."""
+    # Preflight skip
+    if provider_status is not None:
+        s = provider_status.get("ALPHAVANTAGE")
+        if s and not s.get("ok", True):
+            try:
+                record_api_call(
+                    provider="AlphaVantage",
+                    endpoint="overview",
+                    status="skipped_preflight",
+                    latency_sec=0.0,
+                    extra={"ticker": ticker, "reason": "disabled_by_preflight"},
+                )
+            except Exception:
+                pass
+            return None
+
     if not ALPHA_VANTAGE_API_KEY:
         return None
     
@@ -293,10 +426,28 @@ def fetch_fundamentals_alpha(ticker: str) -> Optional[Dict]:
         "apikey": ALPHA_VANTAGE_API_KEY
     }
     
-    data = _http_get_with_retry(url, params=params)
+    start = time.time()
+    try:
+        data = _http_get_with_retry(url, params=params)
+        status = "ok" if data and "Symbol" in data else "empty"
+        record_api_call(
+            provider="AlphaVantage",
+            endpoint="overview",
+            status=status,
+            latency_sec=time.time() - start,
+            extra={"ticker": ticker}
+        )
+    except Exception as e:
+        record_api_call(
+            provider="AlphaVantage",
+            endpoint="overview",
+            status="exception",
+            latency_sec=time.time() - start,
+            extra={"ticker": ticker, "error": str(e)[:200]}
+        )
+        return None
     if not data or "Symbol" not in data:
         return None
-    
     result = {
         "source": "alpha",
         "pe": float(data["PERatio"]) if data.get("PERatio") and data["PERatio"] != "None" else None,
@@ -311,7 +462,6 @@ def fetch_fundamentals_alpha(ticker: str) -> Optional[Dict]:
         "eps_yoy": float(data["QuarterlyEarningsGrowthYOY"]) if data.get("QuarterlyEarningsGrowthYOY") and data["QuarterlyEarningsGrowthYOY"] != "None" else None,
         "timestamp": time.time()
     }
-    
     _put_in_cache(cache_key, result)
     return result
 
@@ -320,7 +470,7 @@ def fetch_fundamentals_alpha(ticker: str) -> Optional[Dict]:
 # MULTI-SOURCE AGGREGATION
 # ============================================================================
 
-def aggregate_fundamentals(ticker: str, prefer_source: str = "fmp") -> Dict:
+def aggregate_fundamentals(ticker: str, prefer_source: str = "fmp", provider_status: Dict | None = None) -> Dict:
     """
     Fetch and aggregate fundamentals from ALL available sources.
     
@@ -352,8 +502,29 @@ def aggregate_fundamentals(ticker: str, prefer_source: str = "fmp") -> Dict:
     ]
     
     for source_name, fetch_func in fetch_funcs:
+        # Respect preflight: skip disabled providers
+        if provider_status is not None:
+            key_map = {
+                "fmp": "FMP",
+                "finnhub": "FINNHUB",
+                "tiingo": "TIINGO",
+                "alpha": "ALPHAVANTAGE",
+            }
+            s = provider_status.get(key_map.get(source_name, source_name))
+            if s and not s.get("ok", True):
+                try:
+                    record_api_call(
+                        provider=key_map.get(source_name, source_name),
+                        endpoint="fundamentals",
+                        status="skipped_preflight",
+                        latency_sec=0.0,
+                        extra={"ticker": ticker, "reason": "disabled_by_preflight"},
+                    )
+                except Exception:
+                    pass
+                continue
         try:
-            result = fetch_func(ticker)
+            result = fetch_func(ticker, provider_status=provider_status)
             if result:
                 # Validate that at least one key field is present and finite
                 key_fields = ["pe", "ps", "pb", "roe", "margin", "rev_yoy", "eps_yoy", "debt_equity", "market_cap", "beta"]
@@ -464,7 +635,7 @@ def aggregate_fundamentals(ticker: str, prefer_source: str = "fmp") -> Dict:
 # MULTI-SOURCE PRICE VERIFICATION (EXISTING + ENHANCED)
 # ============================================================================
 
-def fetch_price_multi_source(ticker: str) -> Dict[str, Optional[float]]:
+def fetch_price_multi_source(ticker: str, provider_status: Dict | None = None) -> Dict[str, Optional[float]]:
     """
     Fetch current price from multiple sources for verification.
     
@@ -477,7 +648,22 @@ def fetch_price_multi_source(ticker: str) -> Dict[str, Optional[float]]:
     prices = {}
     
     # FMP price
-    if FMP_API_KEY:
+    if provider_status is not None:
+        s = provider_status.get("FMP")
+        if s and not s.get("ok", True):
+            try:
+                record_api_call(
+                    provider="FMP",
+                    endpoint="quote",
+                    status="skipped_preflight",
+                    latency_sec=0.0,
+                    extra={"ticker": ticker, "reason": "disabled_by_preflight"},
+                )
+            except Exception:
+                pass
+        else:
+            pass
+    if FMP_API_KEY and (provider_status is None or provider_status.get("FMP", {"ok": True}).get("ok", True)):
         try:
             _rate_limit("fmp")
             url = f"https://financialmodelingprep.com/api/v3/quote/{ticker}"
@@ -490,7 +676,22 @@ def fetch_price_multi_source(ticker: str) -> Dict[str, Optional[float]]:
             prices["fmp"] = None
     
     # Finnhub price
-    if FINNHUB_API_KEY:
+    if provider_status is not None:
+        s = provider_status.get("FINNHUB")
+        if s and not s.get("ok", True):
+            try:
+                record_api_call(
+                    provider="Finnhub",
+                    endpoint="quote",
+                    status="skipped_preflight",
+                    latency_sec=0.0,
+                    extra={"ticker": ticker, "reason": "disabled_by_preflight"},
+                )
+            except Exception:
+                pass
+        else:
+            pass
+    if FINNHUB_API_KEY and (provider_status is None or provider_status.get("FINNHUB", {"ok": True}).get("ok", True)):
         try:
             _rate_limit("finnhub")
             url = "https://finnhub.io/api/v1/quote"
@@ -503,7 +704,22 @@ def fetch_price_multi_source(ticker: str) -> Dict[str, Optional[float]]:
             prices["finnhub"] = None
     
     # Tiingo price (existing)
-    if TIINGO_API_KEY:
+    if provider_status is not None:
+        s = provider_status.get("TIINGO")
+        if s and not s.get("ok", True):
+            try:
+                record_api_call(
+                    provider="Tiingo",
+                    endpoint="daily/prices",
+                    status="skipped_preflight",
+                    latency_sec=0.0,
+                    extra={"ticker": ticker, "reason": "disabled_by_preflight"},
+                )
+            except Exception:
+                pass
+        else:
+            pass
+    if TIINGO_API_KEY and (provider_status is None or provider_status.get("TIINGO", {"ok": True}).get("ok", True)):
         try:
             _rate_limit("tiingo")
             url = f"https://api.tiingo.com/tiingo/daily/{ticker}/prices"
@@ -516,7 +732,22 @@ def fetch_price_multi_source(ticker: str) -> Dict[str, Optional[float]]:
             prices["tiingo"] = None
     
     # Alpha Vantage price (existing)
-    if ALPHA_VANTAGE_API_KEY:
+    if provider_status is not None:
+        s = provider_status.get("ALPHAVANTAGE")
+        if s and not s.get("ok", True):
+            try:
+                record_api_call(
+                    provider="AlphaVantage",
+                    endpoint="global_quote",
+                    status="skipped_preflight",
+                    latency_sec=0.0,
+                    extra={"ticker": ticker, "reason": "disabled_by_preflight"},
+                )
+            except Exception:
+                pass
+        else:
+            pass
+    if ALPHA_VANTAGE_API_KEY and (provider_status is None or provider_status.get("ALPHAVANTAGE", {"ok": True}).get("ok", True)):
         try:
             _rate_limit("alpha")
             url = "https://www.alphavantage.co/query"
@@ -534,7 +765,22 @@ def fetch_price_multi_source(ticker: str) -> Dict[str, Optional[float]]:
             prices["alpha"] = None
     
     # Polygon price (existing)
-    if POLYGON_API_KEY:
+    if provider_status is not None:
+        s = provider_status.get("POLYGON")
+        if s and not s.get("ok", True):
+            try:
+                record_api_call(
+                    provider="Polygon",
+                    endpoint="prev",
+                    status="skipped_preflight",
+                    latency_sec=0.0,
+                    extra={"ticker": ticker, "reason": "disabled_by_preflight"},
+                )
+            except Exception:
+                pass
+        else:
+            pass
+    if POLYGON_API_KEY and (provider_status is None or provider_status.get("POLYGON", {"ok": True}).get("ok", True)):
         try:
             _rate_limit("polygon")
             url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/prev"
@@ -571,7 +817,7 @@ def aggregate_price(prices: Dict[str, Optional[float]]) -> Tuple[float, float, i
 # PUBLIC API
 # ============================================================================
 
-def fetch_multi_source_data(ticker: str) -> Dict:
+def fetch_multi_source_data(ticker: str, provider_status: Dict | None = None) -> Dict:
     """
     Main entry point: fetch fundamentals and price from all sources.
     
@@ -582,10 +828,10 @@ def fetch_multi_source_data(ticker: str) -> Dict:
     - Individual source prices for verification
     """
     # Get fundamentals
-    fundamentals = aggregate_fundamentals(ticker)
+    fundamentals = aggregate_fundamentals(ticker, provider_status=provider_status)
     
     # Get prices
-    prices = fetch_price_multi_source(ticker)
+    prices = fetch_price_multi_source(ticker, provider_status=provider_status)
     price_mean, price_std, price_count = aggregate_price(prices)
     
     # Merge everything
@@ -614,3 +860,190 @@ def get_cache_stats() -> Dict:
             for source in ["fmp", "finnhub", "tiingo", "alpha", "merged"]
         }
     }
+
+
+def get_index_series(
+    symbol: str,
+    start_date: str,
+    end_date: str,
+    provider_status: Optional[Dict[str, bool]] = None
+) -> Optional[pd.DataFrame]:
+    """
+    Fetch daily OHLCV series for market indices (SPY, QQQ, ^VIX, etc.).
+    
+    Uses FMP as primary, with fallback to Tiingo/Alpha Vantage.
+    Applies caching and rate-limiting like other v2 functions.
+    
+    Args:
+        symbol: Index symbol (e.g., 'SPY', 'QQQ', '^VIX')
+        start_date: Start date in 'YYYY-MM-DD' format
+        end_date: End date in 'YYYY-MM-DD' format
+        provider_status: Optional dict with provider availability flags
+    
+    Returns:
+        DataFrame with columns ['date', 'open', 'high', 'low', 'close', 'volume']
+        or None if all sources fail
+    """
+    # Normalize VIX symbol for different providers
+    fmp_symbol = symbol.replace('^', '')  # FMP uses 'VIX' not '^VIX'
+    
+    # Check cache
+    cache_key = f"index_series_{symbol}_{start_date}_{end_date}"
+    if cache_key in _CACHE:
+        cached = _CACHE[cache_key]
+        if time.time() - cached["timestamp"] < CACHE_TTL_SECONDS:
+            logger.debug(f"✓ Cache hit for index series {symbol}")
+            return cached["data"]
+    
+    provider_status = provider_status or {}
+    df_result = None
+    
+    # Try FMP first (most reliable for indices)
+    if provider_status.get("fmp", True) and FMP_API_KEY:
+        try:
+            _rate_limit("fmp")
+            url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{fmp_symbol}"
+            params = {
+                "apikey": FMP_API_KEY,
+                "from": start_date,
+                "to": end_date
+            }
+            
+            record_api_call("fmp", f"index_series_{symbol}")
+            data = _http_get_with_retry(url, params=params, timeout=15)
+            
+            if data and "historical" in data and data["historical"]:
+                df = pd.DataFrame(data["historical"])
+                df = df.rename(columns={
+                    "date": "date",
+                    "open": "open",
+                    "high": "high", 
+                    "low": "low",
+                    "close": "close",
+                    "volume": "volume"
+                })
+                df["date"] = pd.to_datetime(df["date"])
+                df = df.sort_values("date").reset_index(drop=True)
+                df_result = df[["date", "open", "high", "low", "close", "volume"]]
+                logger.info(f"✓ FMP: Fetched {len(df_result)} days for {symbol}")
+                
+        except Exception as e:
+            logger.warning(f"FMP index series failed for {symbol}: {e}")
+    
+    # Fallback to Tiingo
+    if df_result is None and provider_status.get("tiingo", True) and TIINGO_API_KEY:
+        try:
+            _rate_limit("tiingo")
+            # Tiingo uses different URL structure for indices
+            tiingo_symbol = symbol.replace('^', '$')  # $VIX for Tiingo
+            url = f"https://api.tiingo.com/tiingo/daily/{tiingo_symbol}/prices"
+            headers = {"Content-Type": "application/json"}
+            params = {
+                "token": TIINGO_API_KEY,
+                "startDate": start_date,
+                "endDate": end_date
+            }
+            
+            record_api_call("tiingo", f"index_series_{symbol}")
+            data = _http_get_with_retry(url, params=params, headers=headers, timeout=15)
+            
+            if data and isinstance(data, list) and len(data) > 0:
+                df = pd.DataFrame(data)
+                df = df.rename(columns={
+                    "date": "date",
+                    "open": "open",
+                    "high": "high",
+                    "low": "low",
+                    "close": "close",
+                    "volume": "volume"
+                })
+                df["date"] = pd.to_datetime(df["date"])
+                df = df.sort_values("date").reset_index(drop=True)
+                df_result = df[["date", "open", "high", "low", "close", "volume"]]
+                logger.info(f"✓ Tiingo: Fetched {len(df_result)} days for {symbol}")
+                
+        except Exception as e:
+            logger.warning(f"Tiingo index series failed for {symbol}: {e}")
+    
+    # Fallback to Alpha Vantage (slower but reliable)
+    if df_result is None and provider_status.get("alpha", True) and ALPHA_VANTAGE_API_KEY:
+        try:
+            _rate_limit("alpha")
+            url = "https://www.alphavantage.co/query"
+            params = {
+                "function": "TIME_SERIES_DAILY",
+                "symbol": symbol,
+                "apikey": ALPHA_VANTAGE_API_KEY,
+                "outputsize": "full"
+            }
+            
+            record_api_call("alpha", f"index_series_{symbol}")
+            data = _http_get_with_retry(url, params=params, timeout=20)
+            
+            if data and "Time Series (Daily)" in data:
+                ts = data["Time Series (Daily)"]
+                records = []
+                for date_str, values in ts.items():
+                    date_obj = pd.to_datetime(date_str)
+                    if pd.to_datetime(start_date) <= date_obj <= pd.to_datetime(end_date):
+                        records.append({
+                            "date": date_obj,
+                            "open": float(values.get("1. open", 0)),
+                            "high": float(values.get("2. high", 0)),
+                            "low": float(values.get("3. low", 0)),
+                            "close": float(values.get("4. close", 0)),
+                            "volume": float(values.get("5. volume", 0))
+                        })
+                
+                if records:
+                    df_result = pd.DataFrame(records).sort_values("date").reset_index(drop=True)
+                    logger.info(f"✓ Alpha: Fetched {len(df_result)} days for {symbol}")
+                    
+        except Exception as e:
+            logger.warning(f"Alpha Vantage index series failed for {symbol}: {e}")
+    
+    # Cache result
+    if df_result is not None:
+        _CACHE[cache_key] = {
+            "data": df_result,
+            "timestamp": time.time()
+        }
+    else:
+        logger.error(f"❌ All sources failed for index series {symbol}")
+    
+    return df_result
+
+
+def fetch_fundamentals_batch(tickers: List[str], provider_status: Dict | None = None) -> pd.DataFrame:
+    """
+    Batch fetch fundamentals for multiple tickers using aggregate_fundamentals.
+    Returns a DataFrame indexed by Ticker.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    
+    if not tickers:
+        return pd.DataFrame()
+        
+    rows = []
+    # Limit workers to avoid hitting rate limits too hard
+    with ThreadPoolExecutor(max_workers=min(len(tickers), 10)) as executor:
+        future_to_ticker = {
+            executor.submit(aggregate_fundamentals, t, "fmp", provider_status): t
+            for t in tickers
+        }
+        for future in as_completed(future_to_ticker):
+            try:
+                res = future.result()
+                rows.append(res)
+            except Exception as e:
+                logger.error(f"Batch fetch failed for {future_to_ticker[future]}: {e}")
+                
+    if not rows:
+        return pd.DataFrame()
+        
+    df = pd.DataFrame(rows)
+    if "ticker" in df.columns:
+        df = df.rename(columns={"ticker": "Ticker"})
+        df = df.set_index("Ticker")
+    
+    return df

@@ -301,45 +301,41 @@ def integrate_ml_with_conviction(
     """
     ml_info = {
         "ml_enabled": enable_ml,
-        "ml_probability": None,
+        "ml_probability": 0.5,
         "ml_boost": 0.0,
         "ml_status": "Disabled",
         "final_conviction": base_conviction
     }
-    
     if not enable_ml:
         return base_conviction, ml_info
-    
-    # Ensure model is loaded
-    if not _MODEL_LOADED:
-        load_ml_model()
-    
-    if _ML_MODEL is None:
-        ml_info["ml_status"] = "Model not available"
-        return base_conviction, ml_info
-    
-    # Prepare features
     try:
+        # Defensive: If model is a dict, treat as unavailable
+        if not _MODEL_LOADED:
+            load_ml_model()
+        model = _ML_MODEL
+        if isinstance(model, dict):
+            ml_info["ml_status"] = "ML unavailable (dict instead of model)"
+            return base_conviction, ml_info
+        if model is None:
+            ml_info["ml_status"] = "Model not available"
+            return base_conviction, ml_info
         features = prepare_ml_features(ticker_data, technical_indicators, fundamental_scores)
         ml_probability = get_ml_prediction(features)
-        
         if ml_probability is None:
             ml_info["ml_status"] = "Prediction failed"
             return base_conviction, ml_info
-        
-        # Calculate boost
         final_conviction, ml_boost, status = calculate_ml_boost(base_conviction, ml_probability)
-        
         ml_info["ml_probability"] = ml_probability
         ml_info["ml_boost"] = ml_boost
         ml_info["ml_status"] = status
         ml_info["final_conviction"] = final_conviction
-        
         return final_conviction, ml_info
-        
     except Exception as e:
-        logger.error(f"ML integration error: {e}")
-        ml_info["ml_status"] = f"Error: {str(e)[:50]}"
+        print(f"ML prediction failed: {e}")
+        ml_info["ml_status"] = "ML error, using neutral"
+        ml_info["ml_probability"] = 0.5
+        ml_info["ml_boost"] = 0.0
+        ml_info["final_conviction"] = base_conviction
         return base_conviction, ml_info
 
 

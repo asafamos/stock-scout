@@ -843,45 +843,42 @@ def calculate_conviction_score(
     rr_score = np.clip(rr_score, 0, 100)
     reliability_score = np.clip(reliability_score, 0, 100)
     
-    # Apply confidence weighting (REDUCED pull toward 50 to increase spread)
-    # Old: full pull to 50 when confidence low
-    # New: only 30% pull to 50 (reduced from 100% to allow more variance)
-    pull_strength = 0.3  # Reduced from 1.0 to allow scores to vary more
-    fundamental_weighted = fundamental_score * (fundamental_confidence / 100.0) + 50 * pull_strength * (1 - fundamental_confidence / 100.0)
-    momentum_weighted = momentum_score * (momentum_confidence / 100.0) + 50 * pull_strength * (1 - momentum_confidence / 100.0)
-    rr_weighted = rr_score * (rr_confidence / 100.0) + 50 * pull_strength * (1 - rr_confidence / 100.0)
-    
-    # Calculate base conviction (before ML)
-    base_conviction = (
-        fundamental_weighted * 0.35 +
-        momentum_weighted * 0.35 +
-        rr_weighted * 0.15 +
-        reliability_score * 0.15
-    )
-    
-    # ML adjustment (capped at +/-10%)
-    ml_adjustment = 0.0
+    # New v3: No fixed base, all components proportional, wide spread
+    # Confidence: linear blend, but only 20% pull to 50 (wider spread)
+    def conf_blend(val, conf):
+        return val * (conf / 100.0) + 50 * 0.2 * (1 - conf / 100.0)
+
+    f = conf_blend(fundamental_score, fundamental_confidence)
+    m = conf_blend(momentum_score, momentum_confidence)
+    r = conf_blend(rr_score, rr_confidence)
+    rel = reliability_score
+
+    # Proportional weights, sum to 1.0
+    w_f, w_m, w_r, w_rel = 0.35, 0.35, 0.15, 0.15
+    base = f * w_f + m * w_m + r * w_r + rel * w_rel
+
+    # ML adjustment: proportional, up to +/-10, but only if reliability and confidence are decent
+    ml_adj = 0.0
     if ml_probability is not None and np.isfinite(ml_probability):
-        # ML probability should be 0-1
         ml_prob_clamped = np.clip(ml_probability, 0, 1)
-        # Convert to +/-10% adjustment: 0.5 = no change, 1.0 = +10%, 0.0 = -10%
-        ml_adjustment = (ml_prob_clamped - 0.5) * 20.0  # Range: -10 to +10
-    
-    final_conviction = base_conviction + ml_adjustment
-    final_conviction = float(np.clip(final_conviction, 0, 100))
-    
-    # Breakdown for transparency
+        # Only allow full boost if reliability >= 50 and all confidences >= 40
+        min_conf = min(fundamental_confidence, momentum_confidence, rr_confidence)
+        if reliability_score >= 50 and min_conf >= 40:
+            ml_adj = (ml_prob_clamped - 0.5) * 20.0
+        else:
+            ml_adj = (ml_prob_clamped - 0.5) * 8.0  # Soft cap if weak data
+
+    final = float(np.clip(base + ml_adj, 0, 100))
     breakdown = {
-        "fundamental_component": fundamental_weighted * 0.35,
-        "momentum_component": momentum_weighted * 0.35,
-        "rr_component": rr_weighted * 0.15,
-        "reliability_component": reliability_score * 0.15,
-        "ml_adjustment": ml_adjustment,
-        "base_conviction": base_conviction,
-        "final_conviction": final_conviction,
+        "fundamental_component": f * w_f,
+        "momentum_component": m * w_m,
+        "rr_component": r * w_r,
+        "reliability_component": rel * w_rel,
+        "ml_adjustment": ml_adj,
+        "base_conviction": base,
+        "final_conviction": final,
     }
-    
-    return final_conviction, breakdown
+    return final, breakdown
 
 
 def calculate_risk_meter(

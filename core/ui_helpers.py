@@ -69,6 +69,18 @@ class StatusManager:
         self._progress.progress(1.0)
         self._status.success(message)
         self._details.empty()
+
+    def set_progress(self, value: float, label: Optional[str] = None) -> None:
+        """Explicitly set progress value (0.0-1.0) and optional label.
+        Safe no-throw; updates internal progress bar and status text.
+        """
+        try:
+            v = float(max(0.0, min(1.0, value)))
+            self._progress.progress(v)
+            if label:
+                self._status.markdown(label)
+        except Exception:
+            pass
     
     def render_timing_report(self) -> None:
         """Render performance report showing stage durations and percentages.
@@ -101,7 +113,7 @@ class StatusManager:
             if table_rows:
                 import pandas as pd
                 df_timing = pd.DataFrame(table_rows)
-                st.dataframe(df_timing, use_container_width=True)
+                st.dataframe(df_timing, width='stretch')
                 st.caption(f"⏱️ **Total pipeline time: {total_time:.2f}s**")
 
 

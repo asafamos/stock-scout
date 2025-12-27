@@ -217,6 +217,68 @@ def get_card_css() -> str:
     font-variant-numeric: tabular-nums;
 }
 
+/* Signal bullets list */
+.signal-bullets {
+    list-style: none;
+    margin: 4px 0;
+    padding-left: 0;
+}
+
+.signal-bullets li {
+    padding: 2px 0;
+    font-size: 0.78rem;
+    color: #374151;
+    line-height: 1.3;
+}
+
+.signal-bullets li::before {
+    content: "• ";
+    color: #10b981;
+    font-weight: 600;
+    margin-right: 4px;
+}
+
+/* ML 20d line */
+.ml20d-line {
+    font-size: 0.75rem;
+    color: #6b7280;
+    margin: 2px 0;
+}
+
+/* ML gating badge */
+.ml-gating-badge {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: #dcfce7;
+    color: #15803d;
+    font-size: 0.7rem;
+    font-weight: 600;
+    margin: 2px 0;
+}
+
+/* Type badge styling */
+.type-badge {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    margin-left: 4px;
+}
+
+.type-badge.core {
+    background: #dcfce7;
+    color: #15803d;
+}
+
+.type-badge.spec {
+    background: #fef3c7;
+    color: #b45309;
+}
+
 /* Responsive tweaks */
 @media (max-width: 920px) {
     .clean-card {

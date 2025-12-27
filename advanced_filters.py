@@ -49,8 +49,8 @@ def detect_volume_surge(df: pd.DataFrame, lookback: int = 20) -> Dict[str, float
     surge_ratio = float(recent_vol / avg_vol) if avg_vol > 0 else 0.0
     
     # Price-volume correlation (positive = healthy)
-    price_change = df["Close"].pct_change().tail(lookback)
-    vol_change = df["Volume"].pct_change().tail(lookback)
+    price_change = df["Close"].pct_change(fill_method=None).tail(lookback)
+    vol_change = df["Volume"].pct_change(fill_method=None).tail(lookback)
     
     # Combine into DataFrame and calculate correlation
     combined = pd.concat([price_change, vol_change], axis=1).dropna()
@@ -181,8 +181,8 @@ def compute_momentum_quality(df: pd.DataFrame) -> Dict[str, float]:
         return {"momentum_consistency": 0.0, "momentum_acceleration": 0.0}
     
     # Calculate returns over multiple periods
-    returns_1w = df["Close"].pct_change(5).tail(12)
-    returns_1m = df["Close"].pct_change(21).tail(12)
+    returns_1w = df["Close"].pct_change(5, fill_method=None).tail(12)
+    returns_1m = df["Close"].pct_change(21, fill_method=None).tail(12)
     
     # Consistency: what % of recent periods were positive
     consistency_1w = float((returns_1w > 0).sum() / len(returns_1w)) if len(returns_1w) > 0 else 0.0
@@ -191,7 +191,7 @@ def compute_momentum_quality(df: pd.DataFrame) -> Dict[str, float]:
     momentum_consistency = float((consistency_1w + consistency_1m) / 2)
     
     # Acceleration: is momentum increasing
-    recent_returns = df["Close"].pct_change(21).tail(3)
+    recent_returns = df["Close"].pct_change(21, fill_method=None).tail(3)
     acceleration = 1.0 if len(recent_returns) >= 2 and float(recent_returns.iloc[-1]) > float(recent_returns.iloc[0]) else 0.0
     
     return {
