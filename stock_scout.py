@@ -2659,6 +2659,29 @@ if not skip_pipeline:
     # Mark yfinance as used for price history (always runs in pipeline)
     # Mark Yahoo prices used for this run
     mark_provider_usage("Yahoo", "price")
+    
+    # Apply same strong filters as auto_scan_runner to ensure consistency
+    logger.info(f"[LIVE] Filtering live scan results: {len(results)} initial")
+    
+    # Filter: Only allow passed or reduced (not blocked)
+    if 'risk_gate_status_v2' in results.columns:
+        before = len(results)
+        results = results[results['risk_gate_status_v2'] != 'blocked'].copy()
+        logger.info(f"[LIVE] Risk gate filter: {len(results)} remain (removed {before - len(results)})")
+    
+    # Filter: Must have allocation
+    if 'buy_amount_v2' in results.columns:
+        before = len(results)
+        results = results[results['buy_amount_v2'] > 0].copy()
+        logger.info(f"[LIVE] Allocation filter: {len(results)} remain (removed {before - len(results)})")
+    
+    # Filter: Data quality
+    if 'Data_Quality' in results.columns:
+        before = len(results)
+        results = results[results['Data_Quality'].isin(['high', 'medium'])].copy()
+        logger.info(f"[LIVE] Quality filter: {len(results)} remain (removed {before - len(results)})")
+    
+    logger.info(f"[LIVE] Final live results: {len(results)} stocks")
 
 # External price verification (Top-K)
 t0 = t_start()

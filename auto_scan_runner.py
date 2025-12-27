@@ -165,6 +165,57 @@ except Exception as e:
 # Prepare for saving
 print(f"\n💾 Preparing results for export...")
 
+# STRONG FILTERING: Apply quality gates BEFORE saving
+print(f"\n🔍 Applying quality filters...")
+original_count = len(results_df)
+
+# Filter 1: Status check (only allow passed or reduced, not blocked)
+if 'risk_gate_status_v2' in results_df.columns:
+    before_gate = len(results_df)
+    results_df = results_df[results_df['risk_gate_status_v2'] != 'blocked'].copy()
+    filtered_gate = before_gate - len(results_df)
+    if filtered_gate > 0:
+        print(f"   ❌ Removed {filtered_gate} blocked by risk gate")
+
+# Filter 2: Minimum buy amount (only stocks with actual allocation)
+if 'buy_amount_v2' in results_df.columns:
+    before_buy = len(results_df)
+    results_df = results_df[results_df['buy_amount_v2'] > 0].copy()
+    filtered_buy = before_buy - len(results_df)
+    if filtered_buy > 0:
+        print(f"   ❌ Removed {filtered_buy} with zero allocation")
+
+# Filter 3: Data quality (high or medium only)
+if 'Data_Quality' in results_df.columns:
+    before_quality = len(results_df)
+    results_df = results_df[results_df['Data_Quality'].isin(['high', 'medium'])].copy()
+    filtered_quality = before_quality - len(results_df)
+    if filtered_quality > 0:
+        print(f"   ❌ Removed {filtered_quality} with low data quality")
+
+# Filter 4: Minimum score (conviction must be >= 50 on normalized scale)
+score_col = 'conviction_v2_final' if 'conviction_v2_final' in results_df.columns else 'Score'
+if score_col in results_df.columns:
+    before_score = len(results_df)
+    # Normalize to 0-100 if needed
+    score_values = results_df[score_col]
+    if (score_values > 2).any():  # Likely already normalized
+        min_score = 50.0
+    else:  # Likely 0-1 range
+        min_score = 0.5
+    results_df = results_df[score_values >= min_score].copy()
+    filtered_score = before_score - len(results_df)
+    if filtered_score > 0:
+        print(f"   ❌ Removed {filtered_score} below minimum score threshold")
+
+# Filter 5: Take only top N by conviction score
+top_n = 15
+if len(results_df) > top_n:
+    results_df = results_df.nlargest(top_n, score_col).copy()
+    print(f"   ✂️ Kept top {top_n} by score")
+
+print(f"\n   ✅ Final results: {len(results_df)} stocks (from {original_count})")
+
 # Ensure required columns exist
 required_cols = [
     'Ticker', 'Score', 'FinalScore_20d', 'TechScore_20d', 'ML_20d_Prob',
