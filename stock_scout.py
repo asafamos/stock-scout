@@ -2518,6 +2518,8 @@ st.markdown("### ⚡ מצב נתונים")
 # - If the user clicks the button, we force a single live run and ignore the snapshot for this run only.
 if st.button("🔄 הרץ לייב סריקה עכשיו", key="live_scan_button"):
     st.session_state["force_live_scan_once"] = True
+    st.session_state["skip_pipeline"] = False  # ensure live path
+    st.experimental_rerun()
 
 force_live_scan_once = st.session_state.get("force_live_scan_once", False)
 
