@@ -277,7 +277,7 @@ def run_scan_pipeline(
         results["Sector"] = "Unknown"
         results["Fundamental_S"] = 50.0
         
-    # 6. Risk Engine V2
+    # 6. Risk Engine V2 (with fallback to technical score)
     if status_callback: status_callback("Running Risk Engine V2...")
     v2_results = []
     for idx, row in results.iterrows():
@@ -288,7 +288,24 @@ def run_scan_pipeline(
         v2_df = pd.DataFrame(v2_results)
         v2_df["Ticker"] = results["Ticker"].values
         results = pd.merge(results, v2_df, on="Ticker", how="left", suffixes=("", "_v2"))
-        if "conviction_v2_final" in results.columns:
+        
+        # Use conviction_v2_final as score IF it's meaningful (>20), otherwise use TechScore_20d
+        if "conviction_v2_final" in results.columns and "TechScore_20d" in results.columns:
+            # Replace low conviction scores with tech score (fallback when insufficient fund data)
+            for idx, row in results.iterrows():
+                conviction = row.get("conviction_v2_final", 0)
+                tech_score = row.get("TechScore_20d", 0)
+                
+                # If conviction is at neutral default (7.5-10), use tech score instead
+                if conviction is not None and conviction < 20 and tech_score is not None and tech_score > 0:
+                    results.at[idx, "conviction_v2_final"] = max(conviction, tech_score)
+                elif "conviction_v2_final" in results.columns:
+                    # Ensure non-zero score
+                    if conviction is None or conviction <= 0:
+                        results.at[idx, "conviction_v2_final"] = max(0.1, tech_score if tech_score else 1.0)
+            
+            results["Score"] = results["conviction_v2_final"]
+        elif "conviction_v2_final" in results.columns:
             results["Score"] = results["conviction_v2_final"]
             
     # 7. Classification & Allocation

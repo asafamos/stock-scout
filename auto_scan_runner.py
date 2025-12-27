@@ -165,50 +165,43 @@ except Exception as e:
 # Prepare for saving
 print(f"\n💾 Preparing results for export...")
 
-# STRONG FILTERING: Apply quality gates BEFORE saving
+# FILTERING: Apply quality gates to select top stocks
 print(f"\n🔍 Applying quality filters...")
 original_count = len(results_df)
 
-# Filter 1: Status check (only allow passed or reduced, not blocked)
-if 'risk_gate_status_v2' in results_df.columns:
-    before_gate = len(results_df)
-    results_df = results_df[results_df['risk_gate_status_v2'] != 'blocked'].copy()
-    filtered_gate = before_gate - len(results_df)
-    if filtered_gate > 0:
-        print(f"   ❌ Removed {filtered_gate} blocked by risk gate")
+# DEBUG: Print available columns
+print(f"   Available columns: {len(results_df.columns)}")
+filter_cols = ['Score', 'conviction_v2_final', 'TechScore_20d', 'ML_20d_Prob']
+for col in filter_cols:
+    status = "✅" if col in results_df.columns else "❌"
+    print(f"     {status} {col}")
 
-# Filter 2: Minimum buy amount (only stocks with actual allocation)
-if 'buy_amount_v2' in results_df.columns:
-    before_buy = len(results_df)
-    results_df = results_df[results_df['buy_amount_v2'] > 0].copy()
-    filtered_buy = before_buy - len(results_df)
-    if filtered_buy > 0:
-        print(f"   ❌ Removed {filtered_buy} with zero allocation")
+# IMPORTANT: Risk Engine V2 blocks stocks when NO fundamentals are available
+# This is overly aggressive. Instead, use technical scores when fundamentals missing.
 
-# Filter 3: Data quality (high or medium only)
-if 'Data_Quality' in results_df.columns:
-    before_quality = len(results_df)
-    results_df = results_df[results_df['Data_Quality'].isin(['high', 'medium'])].copy()
-    filtered_quality = before_quality - len(results_df)
-    if filtered_quality > 0:
-        print(f"   ❌ Removed {filtered_quality} with low data quality")
-
-# Filter 4: Minimum score (conviction must be >= 50 on normalized scale)
+# Strategy: Sort by best available score
+# Priority: conviction_v2_final > Score > TechScore_20d (fallback)
 score_col = 'conviction_v2_final' if 'conviction_v2_final' in results_df.columns else 'Score'
+if score_col not in results_df.columns:
+    score_col = 'TechScore_20d' if 'TechScore_20d' in results_df.columns else 'Score'
+
+# Filter 1: Minimum score threshold (only if score is not too low)
 if score_col in results_df.columns:
     before_score = len(results_df)
-    # Normalize to 0-100 if needed
-    score_values = results_df[score_col]
-    if (score_values > 2).any():  # Likely already normalized
-        min_score = 50.0
-    else:  # Likely 0-1 range
-        min_score = 0.5
+    score_values = pd.to_numeric(results_df[score_col], errors='coerce')
+    
+    # Determine appropriate minimum based on scale
+    if (score_values.dropna() > 10).any():  # Appears to be 0-100 scale
+        min_score = 20.0  # Reduced from 50 to accommodate tech-only filtering
+    else:  # 0-10 scale or similar
+        min_score = 3.0
+    
     results_df = results_df[score_values >= min_score].copy()
     filtered_score = before_score - len(results_df)
     if filtered_score > 0:
-        print(f"   ❌ Removed {filtered_score} below minimum score threshold")
+        print(f"   ❌ Removed {filtered_score} below minimum score ({min_score})")
 
-# Filter 5: Take only top N by conviction score
+# Filter 2: Take only top N by score (regardless of data source)
 top_n = 15
 if len(results_df) > top_n:
     results_df = results_df.nlargest(top_n, score_col).copy()

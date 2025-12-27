@@ -2604,16 +2604,38 @@ if skip_pipeline:
     elif "FinalScore_20d" in results.columns and "Score" not in results.columns:
         results["Score"] = results["FinalScore_20d"]
     
-    # Apply MINIMAL display filters (pipeline already did heavy lifting)
+    # Align precomputed snapshot with auto/batch filtering (score floor + top 15)
     original_count = len(results)
-    
-    # Filter 1: Display top N only (already sorted by pipeline)
-    top_n = int(CONFIG.get("TOPN_RESULTS", 20))
-    if len(results) > top_n:
-        results = results.head(top_n).copy()
-        logger.info(f"[DISPLAY] Showing top {top_n} of {original_count} stocks")
-    
-    logger.info(f"[PRECOMPUTED] Final display: {len(results)} stocks")
+    score_candidates = ["conviction_v2_final", "Score", "FinalScore_20d", "overall_score_20d", "TechScore_20d"]
+    score_col = next((c for c in score_candidates if c in results.columns), None)
+    top_n = 15
+    removed_below = 0
+
+    if score_col:
+        score_values = pd.to_numeric(results[score_col], errors="coerce")
+        min_score = 20.0 if (score_values.dropna() > 10).any() else 3.0
+        results = results.loc[score_values >= min_score].copy()
+        removed_below = original_count - len(results)
+
+        # Keep only the strongest ideas by score (numeric nlargest guards against unsorted snapshots)
+        if len(results) > top_n:
+            results = (
+                results.assign(_score_numeric=pd.to_numeric(results[score_col], errors="coerce"))
+                .nlargest(top_n, "_score_numeric")
+                .drop(columns="_score_numeric")
+            )
+    else:
+        logger.warning("[PRECOMPUTED] No score column found; skipping score-based filter")
+
+    filtered_count = len(results)
+    display_cap = min(int(CONFIG.get("TOPN_RESULTS", 20)), top_n)
+    if len(results) > display_cap:
+        results = results.head(display_cap).copy()
+        logger.info(f"[DISPLAY] Showing top {display_cap} of {filtered_count} filtered stocks")
+
+    logger.info(
+        f"[PRECOMPUTED] Final display: {len(results)} stocks (original {original_count}, removed_below_min={removed_below})"
+    )
     
     try:
         status_manager.update_detail(f"Precomputed scan: {len(results)} top stocks")
@@ -2660,26 +2682,28 @@ if not skip_pipeline:
     # Mark Yahoo prices used for this run
     mark_provider_usage("Yahoo", "price")
     
-    # Apply same strong filters as auto_scan_runner to ensure consistency
+    # Apply same filters as auto_scan_runner to ensure consistency
     logger.info(f"[LIVE] Filtering live scan results: {len(results)} initial")
     
-    # Filter: Only allow passed or reduced (not blocked)
-    if 'risk_gate_status_v2' in results.columns:
-        before = len(results)
-        results = results[results['risk_gate_status_v2'] != 'blocked'].copy()
-        logger.info(f"[LIVE] Risk gate filter: {len(results)} remain (removed {before - len(results)})")
+    # Use score-based filtering (same as auto_scan_runner)
+    score_col = 'conviction_v2_final' if 'conviction_v2_final' in results.columns else 'Score'
     
-    # Filter: Must have allocation
-    if 'buy_amount_v2' in results.columns:
+    if score_col in results.columns:
         before = len(results)
-        results = results[results['buy_amount_v2'] > 0].copy()
-        logger.info(f"[LIVE] Allocation filter: {len(results)} remain (removed {before - len(results)})")
-    
-    # Filter: Data quality
-    if 'Data_Quality' in results.columns:
-        before = len(results)
-        results = results[results['Data_Quality'].isin(['high', 'medium'])].copy()
-        logger.info(f"[LIVE] Quality filter: {len(results)} remain (removed {before - len(results)})")
+        
+        # Determine score scale (0-100 vs 0-10)
+        score_values = pd.to_numeric(results[score_col], errors='coerce')
+        min_score = 20.0 if (score_values.dropna() > 10).any() else 3.0
+        
+        # Apply minimum score filter
+        results = results[score_values >= min_score].copy()
+        logger.info(f"[LIVE] Min score filter (threshold={min_score}): {len(results)} remain (removed {before - len(results)})")
+        
+        # Apply top-N filter
+        top_n = 15
+        if len(results) > top_n:
+            results = results.nlargest(top_n, score_col)
+            logger.info(f"[LIVE] Top-{top_n} filter: {len(results)} remain")
     
     logger.info(f"[LIVE] Final live results: {len(results)} stocks")
 
