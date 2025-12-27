@@ -67,7 +67,6 @@ from core.classifier import apply_classification, filter_core_recommendations
 # LEGACY IMPORTS - For backward compatibility (deprecated, will be removed)
 # ============================================================================
 from core.unified_logic import (
-    score_with_ml_model,
     compute_technical_score,
     compute_final_score,
     compute_overall_score_20d,
