@@ -21,7 +21,12 @@ from core.data import (
 )
 from core.allocation import allocate_budget
 from core.classifier import apply_classification
-from core.unified_logic import compute_recommendation_scores
+from core.unified_logic import (
+    compute_recommendation_scores,
+    compute_final_score_with_patterns,
+    compute_big_winner_signal_20d,
+)
+from core.pattern_matcher import PatternMatcher
 
 # For backward compatibility with code that checks ML availability
 from core.ml_20d_inference import ML_20D_AVAILABLE
@@ -145,6 +150,30 @@ def _step_compute_scores_with_unified_logic(
             enable_ml=ML_20D_AVAILABLE,
             use_multi_source=config.get("fundamental_enabled", True),
         )
+
+        # Enhance with Big Winner signal + historical pattern matching
+        try:
+            bw_signal = compute_big_winner_signal_20d(row_indicators)
+            patt_eval = PatternMatcher.evaluate_stock(row_indicators)
+
+            final_score, breakdown = compute_final_score_with_patterns(
+                tech_score=float(rec_series.get("TechScore_20d", 0.0)),
+                fundamental_score=float(rec_series.get("Fundamental_Score", 0.0)),
+                ml_prob=float(rec_series.get("ML_20d_Prob", 0.5)),
+                big_winner_score=float(bw_signal or 0.0),
+                pattern_score=float(patt_eval.get("pattern_score", 0.0)),
+                bw_weight=0.10,
+                pattern_weight=0.10,
+            )
+
+            # Update series with blended score and diagnostics
+            rec_series["FinalScore_20d"] = float(final_score)
+            rec_series["Pattern_Score"] = float(patt_eval.get("pattern_score", 0.0))
+            rec_series["Pattern_Count"] = int(patt_eval.get("pattern_count", 0))
+            rec_series["Big_Winner_Signal"] = float(bw_signal or 0.0)
+            rec_series["Score_Breakdown_Patterns"] = breakdown
+        except Exception as exc:
+            logger.debug(f"Pattern/BW enhancement failed for {tkr}: {exc}")
 
         rows.append(rec_series)
 
