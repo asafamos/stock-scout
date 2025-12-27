@@ -130,7 +130,7 @@ def run_scan_pipeline(
             row_indicators = tech_df.iloc[-1]
         except: continue
         
-        if not apply_technical_filters(row_indicators, strict=True):
+        if not apply_technical_filters(row_indicators, strict=False):  # Less strict for broader coverage
             continue
             
         tech_score = compute_technical_score(row_indicators, weights=config.get("WEIGHTS"))
