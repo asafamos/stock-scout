@@ -2306,9 +2306,9 @@ with st.container():
         )
         st.session_state["total_budget"] = float(total_budget)
     
-    with col4:
+    with col3:
         st.markdown("<br>", unsafe_allow_html=True)  # Vertical spacing
-        run_scan = st.button("🚀 הרץ סריקה", width='stretch', type="primary")
+        run_scan = st.button("🚀 הרץ סריקה", use_container_width=True, type="primary")
 
 # Advanced options in collapsible expander
 with st.expander("🎛️ אפשרויות מתקדמות", expanded=False):
