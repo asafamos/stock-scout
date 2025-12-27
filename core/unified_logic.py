@@ -220,8 +220,12 @@ def compute_recommendation_scores(
     elif ms_data is None:
         ms_data = MultiSourceData()
 
-    # --- Technical component ---
-    tech_score = compute_technical_score(row)
+    # --- Technical component (prefer v2 raw 0-1 scaled to 0-100) ---
+    try:
+        tech_raw = compute_tech_score_20d_v2(row)
+        tech_score = float(np.clip(tech_raw * 100.0, 0.0, 100.0))
+    except Exception:
+        tech_score = compute_technical_score(row)
 
     # --- Fundamental component ---
     from core.scoring import compute_fundamental_score_with_breakdown
@@ -1250,6 +1254,81 @@ def compute_final_score(
     )
 
     return float(np.clip(final, 0.0, 100.0))
+
+
+def compute_final_score_with_patterns(
+    tech_score: float,
+    fundamental_score: Optional[float] = None,
+    ml_prob: Optional[float] = None,
+    big_winner_score: Optional[float] = None,
+    pattern_score: Optional[float] = None,
+    bw_weight: float = 0.10,
+    pattern_weight: float = 0.10,
+) -> Tuple[float, Dict[str, float]]:
+    """
+    Enhanced final score incorporating Big Winner signal and pattern matching.
+    
+    UPDATED (Dec 2025): Incorporates learnings from historical backtests.
+    
+    Weights:
+    - Technical: 45% (down from 55%)
+    - Fundamental: 20% (down from 25%)
+    - ML: 15% (down from 20%)
+    - Big Winner Signal: 10% (new - highly predictive 20d pattern)
+    - Pattern Matching: 10% (new - reward historical winners)
+    
+    Args:
+        tech_score: Technical score 0-100
+        fundamental_score: Fundamental score 0-100
+        ml_prob: ML probability 0-1
+        big_winner_score: Big Winner signal 0-100 (optional)
+        pattern_score: Pattern match score 0-100 (optional)
+        bw_weight: Weight for Big Winner signal (default 0.10)
+        pattern_weight: Weight for pattern matching (default 0.10)
+    
+    Returns:
+        Tuple of (final_score 0-100, breakdown dict)
+    """
+    tech = float(tech_score) if tech_score is not None else 50.0
+    fund = float(fundamental_score) if fundamental_score is not None and pd.notna(fundamental_score) else 50.0
+    ml_score = float(ml_prob) if ml_prob is not None and pd.notna(ml_prob) else 0.5
+    bw = float(big_winner_score) if big_winner_score is not None and pd.notna(big_winner_score) else 50.0
+    patt = float(pattern_score) if pattern_score is not None and pd.notna(pattern_score) else 50.0
+    
+    # Base weights (must sum to 1.0)
+    base_weights = {
+        "technical": 0.45,
+        "fundamental": 0.20,
+        "ml": 0.15,
+        "big_winner": bw_weight,
+        "pattern": pattern_weight,
+    }
+    
+    # Normalize to ensure sum = 1.0
+    total_weight = sum(base_weights.values())
+    normalized_weights = {k: v / total_weight for k, v in base_weights.items()}
+    
+    final = (
+        normalized_weights["technical"] * tech
+        + normalized_weights["fundamental"] * fund
+        + normalized_weights["ml"] * (ml_score * 100.0)
+        + normalized_weights["big_winner"] * bw
+        + normalized_weights["pattern"] * patt
+    )
+    
+    final = float(np.clip(final, 0.0, 100.0))
+    
+    breakdown = {
+        "tech_component": normalized_weights["technical"] * tech,
+        "fund_component": normalized_weights["fundamental"] * fund,
+        "ml_component": normalized_weights["ml"] * (ml_score * 100.0),
+        "bw_component": normalized_weights["big_winner"] * bw,
+        "pattern_component": normalized_weights["pattern"] * patt,
+        "final_score": final,
+        "weights_used": normalized_weights,
+    }
+    
+    return final, breakdown
 
 
 def fetch_stock_data(ticker: str, start_date: str, end_date: str) -> Optional[pd.DataFrame]:

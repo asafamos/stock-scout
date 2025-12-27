@@ -210,8 +210,10 @@ def run_scan_pipeline(
     if status_callback:
         status_callback(f"Starting pipeline for {len(universe)} tickers...")
 
+    start_universe = len(universe)
     data_map, benchmark_df = _step_fetch_and_prepare_base_data(universe, config, status_callback, data_map)
     results = _step_compute_scores_with_unified_logic(data_map, config, status_callback)
+    logger.info(f"[PIPELINE] Stage counts: universe={start_universe}, tech_pass={len(results)}")
 
     if results.empty:
         return results, data_map
@@ -231,6 +233,7 @@ def run_scan_pipeline(
             b = fetch_beta_vs_benchmark(tkr, config.get("beta_benchmark", "SPY"))
             results.at[idx, "Beta"] = b
         results = results[~( (results["Beta"].notna()) & (results["Beta"] > beta_max) )]
+        logger.info(f"[PIPELINE] After beta filter: {len(results)} remain")
     
     # 4. Advanced Filters (Penalties)
     if status_callback: status_callback("Applying advanced filters...")
@@ -281,26 +284,33 @@ def run_scan_pipeline(
         
         if catastrophic:
             # Apply penalty by reducing FinalScore_20d, not by overwriting Score
-            results.at[idx, "FinalScore_20d"] = 0.1
+            # Set to minimum score (0.01 in normalized [0, 1] range, will be scaled to 1.0 later)
+            results.at[idx, "FinalScore_20d"] = 0.01
             results.at[idx, "RejectionReason"] = reason
         else:
-            # Reduce penalties to be less harsh
+            # Penalties are in [0, 4.5] scale (0-100 range), normalize to [0, 0.045]
             penalty = 0.0
             if sig.get("rs_63d", 0) < rs_thresh: penalty += 1.0  # Reduced from 2.0
             if sig.get("momentum_consistency", 0) < mom_thresh: penalty += 1.0  # Reduced from 2.0
             if sig.get("risk_reward_ratio", 0) < rr_thresh: penalty += 1.5  # Reduced from 3.0
             
+            normalized_penalty = penalty / 100.0  # Convert from [0, 4.5] to [0, 0.045]
             results.at[idx, "AdvPenalty"] = penalty
             # Apply penalty to FinalScore_20d, not Score
-            results.at[idx, "FinalScore_20d"] = max(0.1, enhanced - penalty)
+            # enhanced is in [0, 1] range, so penalty must be too
+            results.at[idx, "FinalScore_20d"] = max(0.01, enhanced - normalized_penalty)
 
     # Ensure Score always matches FinalScore_20d after advanced filters
     if "FinalScore_20d" in results.columns:
         results["Score"] = results["FinalScore_20d"]
     
-    # Keep stocks with positive scores (but allow FinalScore_20d >= 0.1 to be more lenient)
-    results = results[results["FinalScore_20d"] >= 0.1].copy()
-    logger.info(f"[PIPELINE] After advanced filters: {len(results)} stocks with FinalScore_20d >= 0.1")
+    # Scale FinalScore_20d back to 0-100 for consistency with rest of system
+    # (all other scoring is in 0-100 range, FinalScore_20d is canonical for display/filtering)
+    results["FinalScore_20d"] = results["FinalScore_20d"] * 100.0
+    
+    # Keep stocks with positive scores (allow FinalScore_20d >= 1.0 which is 0.01 in normalized)
+    results = results[results["FinalScore_20d"] >= 1.0].copy()
+    logger.info(f"[PIPELINE] After advanced filters: {len(results)} stocks with FinalScore_20d >= 1.0")
     
     # 5. Fundamentals & Sector Enrichment
     if config.get("FUNDAMENTAL_ENABLED", True):
@@ -330,8 +340,10 @@ def run_scan_pipeline(
         else:
             logger.warning("Fundamental data has no Ticker column, skipping merge")
         
-        # Compute fundamental scores for each ticker
+        # Compute fundamental scores only if missing to avoid double-calculation
         for idx, row in results.iterrows():
+            if pd.notna(row.get("Fundamental_S")):
+                continue
             try:
                 fund_data = row.to_dict()
                 fund_score_obj = compute_fundamental_score_with_breakdown(fund_data)

@@ -5,6 +5,7 @@ Uses FULL pipeline with all scoring logic, ML models, and filters.
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
+import os
 
 import warnings
 warnings.filterwarnings('ignore')
@@ -30,6 +31,7 @@ print("=" * 80)
 # Import core modules
 from core.pipeline_runner import run_scan_pipeline
 from core.config import get_config
+from stock_scout import build_universe
 from core.scoring import (
     build_technical_indicators,
     compute_tech_score_20d_v2,
@@ -50,72 +52,10 @@ from core.data import (
 from core.allocation import allocate_budget
 from core.classifier import apply_classification
 
-# Comprehensive list of top 500 US stocks
-UNIVERSE = [
-    # Mega caps (50)
-    "AAPL", "MSFT", "GOOGL", "GOOG", "AMZN", "META", "NVDA", "TSLA", "BRK-B", "V",
-    "JPM", "WMT", "UNH", "XOM", "JNJ", "MA", "LLY", "PG", "ORCL", "HD",
-    "CVX", "COST", "ABBV", "MRK", "KO", "PEP", "BAC", "ADBE", "CRM", "TMO",
-    "CSCO", "MCD", "ACN", "ABT", "NFLX", "AMD", "DHR", "NKE", "WFC", "LIN",
-    "DIS", "PM", "QCOM", "TXN", "INTC", "IBM", "UNP", "INTU", "VZ", "NEE",
-    
-    # Large caps (100)
-    "AMGN", "HON", "BA", "T", "RTX", "LOW", "SPGI", "SBUX", "ELV", "CAT",
-    "PFE", "BMY", "AXP", "GILD", "BKNG", "DE", "MDLZ", "GS", "BLK", "ISRG",
-    "ADP", "SYK", "ADI", "VRTX", "CI", "MMC", "TJX", "PLD", "REGN", "AMT",
-    "C", "CB", "SO", "FI", "LRCX", "MO", "ZTS", "DUK", "SCHW", "MS",
-    "BSX", "BDX", "EOG", "PGR", "EQIX", "CME", "SLB", "ETN", "ITW", "APD",
-    "CL", "NOW", "CVS", "USB", "AMAT", "MU", "HCA", "PANW", "MCO", "SHW",
-    "NOC", "PYPL", "TGT", "BX", "KLAC", "ICE", "WM", "ECL", "AON", "CSX",
-    "GE", "NSC", "PNC", "FCX", "MAR", "AIG", "CCI", "PSA", "MCK", "EMR",
-    "FDX", "PH", "ROP", "MSI", "CARR", "AFL", "AJG", "PCAR", "NEM", "GM",
-    "TRV", "COF", "AZO", "F", "ROST", "AEP", "ADSK", "KMB", "WELL", "D",
-    "NXPI", "SRE", "PSX", "PAYX", "FTNT", "ORLY", "DHI", "SLB", "KHC", "DLR",
-    "RSG", "YUM", "ODFL", "CTAS", "MNST", "CMG", "LHX", "TEL", "HSY", "SPG",
-    "CTVA", "KDP", "STZ", "IT", "EXC", "XEL", "EW", "IDXX", "MCHP", "HLT",
-    "IQV", "O", "GIS", "VRSK", "CMI", "DD", "GWW", "OTIS", "PPG", "CHTR",
-    
-    # Mid caps (150)
-    "CPRT", "VMC", "ED", "KR", "TT", "RMD", "HES", "ROK", "APH", "ON",
-    "FAST", "DXCM", "AVB", "BK", "TROW", "ANSS", "MTD", "KEYS", "CDW", "FTV",
-    "WEC", "HIG", "EXR", "BIIB", "DOV", "GEHC", "MLM", "GLW", "DFS", "ES",
-    "MPWR", "EQR", "WBD", "ALB", "WTW", "VICI", "CHD", "IFF", "EFX", "ADM",
-    "LYB", "A", "LEN", "TRGP", "HUBB", "MTB", "FE", "IR", "SBAC", "ARE",
-    "ZBH", "INVH", "TDY", "BR", "AWK", "RF", "WST", "STT", "WAT", "TSCO",
-    "WY", "HBAN", "VTR", "DTE", "PPL", "CLX", "ESS", "TYL", "APTV", "CINF",
-    "CBRE", "FITB", "CAH", "TFX", "FANG", "PKG", "FDS", "STE", "CFG", "TTWO",
-    "NVR", "BALL", "AEE", "EBAY", "EXPD", "LH", "IEX", "TER", "CMS", "MAA",
-    "ALGN", "HOLX", "NTRS", "SYY", "BLDR", "DRI", "ENPH", "CNP", "OMC", "SWK",
-    "GDDY", "WDC", "PHM", "MKC", "NTAP", "EVRG", "ULTA", "GRMN", "STLD", "ATO",
-    "ZBRA", "IP", "J", "CTLT", "LVS", "WAB", "UAL", "DLTR", "K", "POOL",
-    "AKAM", "CBOE", "EIX", "MOH", "JBHT", "HST", "FMC", "AMP", "CTRA", "TDG",
-    "NDAQ", "PODD", "BBY", "ETR", "LDOS", "EMN", "L", "JKHY", "LUV", "CE",
-    "VTRS", "TSN", "WYNN", "KIM", "SWKS", "DOC", "GEN", "LNT", "REG", "GNRC",
-    
-    # Smaller caps & growth (200)
-    "DECK", "TPR", "PAYC", "RJF", "EXPE", "MOS", "NI", "TRMB", "BXP", "PFG",
-    "TECH", "HII", "AIZ", "CRL", "MKTX", "CHRW", "CPT", "COO", "RHI", "INCY",
-    "FFIV", "SNA", "BF-B", "HSIC", "WHR", "TXT", "ALLE", "PKI", "AES", "SJM",
-    "IPG", "UDR", "NRG", "BEN", "GL", "FRT", "MGM", "DAY", "CCL", "BMRN",
-    "IRM", "NDSN", "UHS", "HWM", "BIO", "NCLH", "PNR", "CPB", "LKQ", "TAP",
-    "AAL", "RL", "LW", "BWA", "VFC", "PARA", "FOXA", "FOX", "DISH", "NWS",
-    "MHK", "ALK", "FNF", "PNW", "JNPR", "HAS", "SEE", "NVT", "AIR", "OGN",
-    "XRAY", "AOS", "BKR", "HAL", "DVN", "OXY", "MRO", "FANG", "APA", "HES",
-    "COP", "PSX", "VLO", "MPC", "TSO", "WMB", "KMI", "OKE", "EPD", "ET",
-    "TRGP", "LNG", "CHRD", "CTRA", "OVV", "PR", "CNQ", "IMO", "SU", "TRP",
-    "ENB", "PAA", "MPLX", "WES", "DCP", "AM", "USAC", "AROC", "SM", "MGY",
-    "NEE", "DUK", "SO", "D", "AEP", "SRE", "EXC", "XEL", "ED", "ES",
-    "PEG", "WEC", "EIX", "DTE", "PPL", "FE", "AEE", "CMS", "CNP", "ETR",
-    "EVRG", "NI", "LNT", "ATO", "NWE", "SWX", "OGE", "PNW", "AVA", "NJR",
-    "PLD", "AMT", "CCI", "EQIX", "PSA", "SPG", "WELL", "AVB", "EQR", "DLR",
-    "O", "VTR", "INVH", "MAA", "ESS", "ARE", "KIM", "UDR", "HST", "REG",
-    "NFLX", "DIS", "CMCSA", "T", "VZ", "TMUS", "CHTR", "EA", "TTWO", "ATVI",
-    "GOOGL", "META", "CRM", "INTU", "ADBE", "NOW", "WDAY", "PANW", "FTNT", "ZS",
-    "UBER", "LYFT", "ABNB", "DASH", "SQ", "COIN", "PLTR", "CRWD", "SNOW", "MDB",
-    "NET", "DDOG", "OKTA", "DOCU", "ZM", "TWLO", "ROKU", "SPOT", "PINS", "SNAP"
-]
+UNIVERSE_LIMIT = int(os.getenv("AUTO_SCAN_UNIVERSE_LIMIT", "1500"))
+UNIVERSE = build_universe(limit=UNIVERSE_LIMIT)
 
-print(f"🎯 Universe size: {len(UNIVERSE)} stocks")
+print(f"🎯 Universe size: {len(UNIVERSE)} stocks (limit {UNIVERSE_LIMIT})")
 print(f"⚙️  Loading configuration and initializing pipeline...")
 
 # Load configuration

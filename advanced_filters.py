@@ -313,14 +313,17 @@ def compute_advanced_score(
         elif rr_val > 1.5:
             rr_boost = 3.0
     
-    # Calculate total boost (max 50 points)
+    # Calculate total boost (max 50 points in 0-100 scale)
     total_boost = min(50.0, 
         rs_boost + vol_boost + consolidation_boost + 
         ma_boost + sr_boost + mom_boost + rr_boost
     )
     
     # Enhanced score
-    enhanced_score = min(100.0, base_score + total_boost)
+    # NOTE: base_score is normalized to [0, 1] by caller (base_score / 100.0)
+    # total_boost is in [0, 50] scale (0-100 range), so normalize to [0, 0.5]
+    normalized_boost = total_boost / 100.0
+    enhanced_score = base_score + normalized_boost  # Keep in [0, 1] range
     
     # Add quality flags
     signals["quality_score"] = total_boost

@@ -784,49 +784,78 @@ def alpha_throttle(min_gap_seconds: float = 12.0) -> None:
 
 # --- Build Universe (restored) ---
 def build_universe(limit: int) -> List[str]:
-    """Fetch S&P 500 tickers (wikipedia) then fallback to common mega-cap list.
-    Limit result length to `limit`.
+    """Build a wide US universe (NASDAQ + NYSE + AMEX) with sane filters.
 
-    CRITICAL FIX: Deduplicates by company name to prevent GOOG/GOOGL duplicates.
+    Priority: cached file data/universe_full.csv (Symbol column). If missing, fetch
+    nasdaqlisted + otherlisted symbol directories, drop ETFs/test/warrants, dedupe,
+    and fall back to S&P500 if everything fails.
     """
+
+    def _clean_symbols(df: pd.DataFrame, sym_col: str = "Symbol") -> List[str]:
+        if sym_col not in df.columns:
+            return []
+        syms = (
+            df[sym_col]
+            .astype(str)
+            .str.strip()
+            .str.replace(".", "-", regex=False)
+            .tolist()
+        )
+        # Basic sanity: drop empty and very long symbols
+        syms = [s for s in syms if s and len(s) <= 6]
+        return syms
+
+    # 1) Cached file if exists
+    cache_path = Path("data/universe_full.csv")
+    if cache_path.exists():
+        try:
+            df_cache = pd.read_csv(cache_path)
+            cached = _clean_symbols(df_cache, sym_col="Symbol") or _clean_symbols(df_cache, sym_col="symbol")
+            uniq = list(pd.unique(cached))
+            logger.info(f"✓ Loaded cached universe_full.csv with {len(uniq)} symbols")
+            return uniq[:limit]
+        except Exception as e:
+            logger.warning(f"Cached universe_full.csv load failed: {e}")
+
+    # 2) NASDAQ + OTHERLISTED (full US common stock list)
     try:
-        # Wikipedia requires a User-Agent header
+        nasdaq_url = "https://ftp.nasdaqtrader.com/dynamic/SYMBOLDirectory/nasdaqlisted.txt"
+        other_url = "https://ftp.nasdaqtrader.com/dynamic/SYMBOLDirectory/otherlisted.txt"
+        nasdaq_df = pd.read_csv(nasdaq_url, sep="|")
+        other_df = pd.read_csv(other_url, sep="|")
+
+        # Filter out ETFs, test issues, rights/warrants
+        if "ETF" in nasdaq_df.columns:
+            nasdaq_df = nasdaq_df[nasdaq_df["ETF"] != "Y"]
+        if "Test Issue" in nasdaq_df.columns:
+            nasdaq_df = nasdaq_df[nasdaq_df["Test Issue"] != "Y"]
+        if "Exchange" in other_df.columns:
+            other_df = other_df[other_df["Exchange"].isin(["A", "N", "Q"])]
+        for col in ("Test Issue", "ETF"):
+            if col in other_df.columns:
+                other_df = other_df[other_df[col] != "Y"]
+
+        syms = _clean_symbols(nasdaq_df, sym_col="Symbol") + _clean_symbols(other_df, sym_col="ACT Symbol")
+        uniq = list(pd.unique(syms))
+        logger.info(f"✓ Loaded {len(uniq)} symbols from NASDAQ/NYSE/AMEX lists")
+        return uniq[:limit]
+    except Exception as e:
+        logger.warning(f"NASDAQ/OTHERLISTED fetch failed ({e}), falling back to S&P500")
+
+    # 3) Fallback to S&P500 (previous behavior)
+    try:
         tables = pd.read_html(
             "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies",
             storage_options={"User-Agent": "Mozilla/5.0"},
         )
-        # S&P500 table is typically the second table (index 1)
         df_sp = tables[1]
-
-        # CRITICAL FIX: Deduplicate by company name (keep first ticker, usually Class A)
-        # Prevents duplicate recommendations for GOOG/GOOGL, BRK.A/BRK.B, etc.
-        original_count = len(df_sp)
         df_sp = df_sp.drop_duplicates(subset="Security", keep="first")
-        logger.info(
-            f"✓ Deduplicated {original_count} -> {len(df_sp)} unique companies (removed {original_count - len(df_sp)} multi-class tickers)"
-        )
-
-        tickers = (
-            df_sp["Symbol"].astype(str).str.replace(".", "-", regex=False).tolist()
-        )
-        logger.info(f"✓ Loaded {len(tickers)} unique S&P500 companies from Wikipedia")
+        tickers = df_sp["Symbol"].astype(str).str.replace(".", "-", regex=False).tolist()
+        logger.info(f"✓ Loaded {len(tickers)} S&P500 symbols (fallback)")
         return tickers[:limit]
     except Exception as e:
-        logger.warning(f"Wikipedia S&P500 fetch failed ({e}), using fallback list")
-        fallback = [
-            "AAPL",
-            "MSFT",
-            "NVDA",
-            "AMZN",
-            "GOOGL",
-            "META",
-            "TSLA",
-            "JPM",
-            "V",
-            "WMT",
-            "UNH",
-            "AVGO",
-        ]
+        logger.warning(f"Fallback S&P500 fetch failed ({e}), using tiny fallback list")
+        fallback = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "JPM", "V", "WMT", "UNH", "AVGO"]
         return fallback[:limit]
 
 
@@ -2716,11 +2745,17 @@ if skip_pipeline:
 
     if score_col:
         score_values = pd.to_numeric(results[score_col], errors="coerce")
-        # Use lower threshold to avoid filtering out everything
-        min_score = 10.0 if (score_values.dropna() > 10).any() else 2.0
+        valid_scores = score_values.dropna()
+        if len(valid_scores) >= 10:
+            min_score = float(valid_scores.quantile(0.25))
+        elif len(valid_scores) >= 3:
+            min_score = float(valid_scores.quantile(0.10))
+        else:
+            min_score = 0.0
+        min_score = max(2.0, min_score)
         results = results.loc[score_values >= min_score].copy()
         removed_below = original_count - len(results)
-        logger.info(f"[PRECOMPUTED] Min score filter (threshold={min_score}): {len(results)} remain (removed {removed_below})")
+        logger.info(f"[PRECOMPUTED] Min score filter (p25 adaptive, threshold={min_score:.2f}): {len(results)} remain (removed {removed_below})")
 
         # Keep only the strongest ideas by score (numeric nlargest guards against unsorted snapshots)
         if len(results) > top_n:
@@ -2822,11 +2857,17 @@ if not skip_pipeline:
     
     if score_col:
         score_values = pd.to_numeric(results[score_col], errors="coerce")
-        # Use lower threshold to avoid filtering out everything
-        min_score = 10.0 if (score_values.dropna() > 10).any() else 2.0
+        valid_scores = score_values.dropna()
+        if len(valid_scores) >= 10:
+            min_score = float(valid_scores.quantile(0.25))
+        elif len(valid_scores) >= 3:
+            min_score = float(valid_scores.quantile(0.10))
+        else:
+            min_score = 0.0
+        min_score = max(2.0, min_score)
         results = results.loc[score_values >= min_score].copy()
         removed_below = len(results_before_display_filter) - len(results)
-        logger.info(f"[LIVE] Min score filter (threshold={min_score}): {len(results)} remain (removed {removed_below})")
+        logger.info(f"[LIVE] Min score filter (p25 adaptive, threshold={min_score:.2f}): {len(results)} remain (removed {removed_below})")
         
         # Keep only the strongest ideas by score (numeric nlargest guards against unsorted data)
         if len(results) > top_n:
