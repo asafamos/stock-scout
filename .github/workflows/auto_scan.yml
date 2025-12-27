@@ -44,7 +44,10 @@ jobs:
           git diff --quiet && git diff --staged --quiet || git commit -m "Auto scan: $(date '+%Y-%m-%d %H:%M UTC')"
           
       - name: Push changes
+        if: env.PUSH_TOKEN != ''
         uses: ad-m/github-push-action@master
+        env:
+          PUSH_TOKEN: ${{ secrets.GH_PAT }}
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          github_token: ${{ env.PUSH_TOKEN }}
           branch: ${{ github.ref }}
