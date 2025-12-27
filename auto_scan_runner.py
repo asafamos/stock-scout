@@ -30,6 +30,25 @@ print("=" * 80)
 # Import core modules
 from core.pipeline_runner import run_scan_pipeline
 from core.config import get_config
+from core.scoring import (
+    build_technical_indicators,
+    compute_tech_score_20d_v2,
+    compute_final_scores_20d,
+    score_ticker_v2_enhanced,
+)
+from core.filters import (
+    apply_technical_filters,
+    compute_advanced_score,
+    should_reject_ticker,
+    fetch_benchmark_data,
+)
+from core.data import (
+    fetch_price_multi_source,
+    aggregate_fundamentals,
+    fetch_fundamentals_batch,
+)
+from core.allocation import allocate_budget
+from core.classifier import apply_classification
 
 # Comprehensive list of top 500 US stocks
 UNIVERSE = [

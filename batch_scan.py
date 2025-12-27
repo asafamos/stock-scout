@@ -34,15 +34,18 @@ from core.config import get_config
 from core.scan_io import save_scan, get_scan_summary
 from core.row_builder import build_rows_from_universe
 from core.pipeline_runner import run_scan_pipeline
-from core.unified_logic import (
+from core.scoring import (
     build_technical_indicators,
-    apply_technical_filters,
-    compute_technical_score,
+    compute_tech_score_20d_v2,
+    compute_fundamental_score_with_breakdown,
+    calculate_reliability_v2,
 )
-from core.scoring.fundamental import compute_fundamental_score_with_breakdown
-from core.v2_risk_engine import calculate_reliability_v2
-from core.data_sources_v2 import aggregate_fundamentals, fetch_price_multi_source
-from core.classification import apply_classification
+from core.filters import apply_technical_filters
+from core.data import (
+    aggregate_fundamentals,
+    fetch_price_multi_source,
+)
+from core.classifier import apply_classification
 
 
 def build_universe(limit: int = 100) -> List[str]:

@@ -97,7 +97,7 @@ print("-" * 100)
 
 from stock_scout import build_universe, fetch_history_bulk, CONFIG
 from advanced_filters import compute_advanced_score, should_reject_ticker, fetch_benchmark_data
-from core.classification import apply_classification
+from core.classifier import apply_classification
 
 # Build small sample
 universe = build_universe(CONFIG)[:30]  # Smaller for speed

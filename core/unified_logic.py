@@ -1,9 +1,89 @@
 
 from __future__ import annotations
-import pandas as pd
+
+from dataclasses import asdict, dataclass
+from datetime import datetime
+from typing import Any, Dict, Optional
+
+import logging
 import numpy as np
-from core.classification import apply_classification
-from core.scoring_engine import compute_overall_score
+import pandas as pd
+
+from core.classifier import apply_classification
+from core.scoring_engine import (
+    calculate_reliability_score,
+    calculate_risk_meter,
+    compute_overall_score,
+)
+from core.scoring_config import (
+    ADVANCED_FILTER_DEFAULTS,
+    ATR_RULES,
+    FINAL_SCORE_WEIGHTS,
+    TECH_WEIGHTS,
+    REQUIRED_TECH_COLS,
+    MultiSourceData,
+)
+
+logger = logging.getLogger(__name__)
+
+
+def apply_technical_filters(row: pd.Series, strict: bool = True, relaxed: bool = False) -> bool:
+    """Apply basic technical filters to determine if a stock passes initial screening.
+    
+    Args:
+        row: Series with technical indicators
+        strict: If True, apply strict volume/liquidity rules
+        relaxed: If True, apply very lenient rules
+        
+    Returns:
+        bool: True if stock passes filters, False otherwise
+    """
+    # Minimal volume check
+    volume = row.get("Volume", 0)
+    if volume < 100000 and not relaxed:  # Min 100k volume
+        return False
+    
+    # Basic price sanity
+    close = row.get("Close", 0)
+    if close < 1.0 or close > 10000:  # Filter penny stocks and extreme prices
+        return False
+        
+    return True
+
+
+@dataclass
+class RecommendationResult:
+    """Structured representation of a single ticker recommendation."""
+
+    ticker: str
+    tech_score: float
+    fundamental_score: float
+    ml_prob: float
+    final_score: float
+    conviction_score: float
+    reliability_score: float
+    risk_label: str
+    risk_meter: float
+    should_display: bool
+    extras: Dict[str, Any]
+
+    def to_series(self) -> pd.Series:
+        base = {
+            "Ticker": self.ticker,
+            "TechScore_20d": self.tech_score,
+            "Fundamental_Score": self.fundamental_score,
+            "ML_20d_Prob": self.ml_prob,
+            "FinalScore_20d": self.final_score,
+            "ConvictionScore": self.conviction_score,
+            "Reliability_Score": self.reliability_score,
+            "Risk_Label": self.risk_label,
+            "Risk_Meter": self.risk_meter,
+            "Should_Display": self.should_display,
+            # Legacy alias
+            "Score": self.final_score,
+        }
+        base.update(self.extras)
+        return pd.Series(base, dtype="object")
 
 def compute_big_winner_signal_20d(row: pd.Series) -> dict:
     """
@@ -86,41 +166,145 @@ def compute_recommendation_scores(
     as_of_date: datetime | None = None,
     enable_ml: bool = True,
     use_multi_source: bool = True,
+    ml_prob_override: Optional[float] = None,
+    multi_source_override: Optional[MultiSourceData] = None,
 ) -> pd.Series:
     """Compute all recommendation scores and labels for a single stock row.
 
-    This MUST be the single source of truth used by:
-    - the live Streamlit app
-    - experiments/offline_recommendation_audit.py
+    **Single source of truth** for all scoring throughout Stock Scout.
+    Called by pipeline_runner, UI, CSV export, and backtests.
 
-    It should:
-    1) Call score_ticker_v2 to get the full v2 scoring + breakdown
-    2) Merge all original row fields (technical indicators) into the result
-    3) Add As_Of_Date if provided
-    4) Run apply_classification(...) to compute Risk_Level, Data_Quality, Confidence_Level, Should_Display, Classification_Warnings
-    5) Call compute_overall_score(rec_row) to populate:
-       - rec_row["Score"]
-       - rec_row["Score_Breakdown"]
-    and return rec_row as a pandas Series.
+    Args:
+        row: Technical indicators from build_technical_indicators (last row)
+        ticker: Stock symbol (optional if row contains "Ticker" or "ticker")
+        as_of_date: Optional timestamp for the recommendation
+        enable_ml: Whether to compute ML_20d_Prob (requires ML model)
+        use_multi_source: Whether to fetch multi-provider fundamentals
+        ml_prob_override: Force a specific ML probability (testing/offline)
+        multi_source_override: Force specific fundamental data (testing/offline)
+
+    Returns:
+        pd.Series with canonical columns:
+            - Ticker: str
+            - TechScore_20d: float (0-100) - Technical score for 20d horizon
+            - Fundamental_Score: float (0-100) - Fundamental quality score
+            - ML_20d_Prob: float (0-1) - ML model probability for 20d gain
+            - FinalScore_20d: float (0-100) - Combined score (tech + fund + ML)
+            - ConvictionScore: float (0-100) - Conviction metric
+            - Reliability_Score: float (0-100) - Data quality/multi-source reliability
+            - Risk_Label: str - Human-readable risk category
+            - Risk_Meter: float (0-100) - Numeric risk level (higher = riskier)
+            - Should_Display: bool - Whether to show in UI
+            - Score: float (0-100) - Legacy alias for FinalScore_20d
+            - Plus all input row columns preserved
+            - Plus classification columns from apply_classification
+
+    Raises:
+        ValueError: If ticker cannot be determined from inputs
     """
-    base_ticker = ticker or row.get("Ticker")
-    v2_result = score_ticker_v2(
-        ticker=base_ticker,
-        row=row,
-        historical_df=None,
-        enable_ml=enable_ml,
-        use_multi_source=use_multi_source,
+    base_ticker = ticker or row.get("Ticker") or row.get("ticker")
+    if base_ticker is None:
+        raise ValueError("compute_recommendation_scores requires a ticker")
+
+    # --- Multi-source fundamentals (optional) ---
+    ms_data = multi_source_override
+    if ms_data is None and use_multi_source:
+        try:
+            from core import data_sources_v2
+
+            raw = data_sources_v2.fetch_multi_source_data(base_ticker)
+            ms_data = MultiSourceData.from_dict(raw)
+        except Exception as exc:  # pragma: no cover - defensive
+            logging.warning("multi-source fetch failed for %s: %s", base_ticker, exc)
+            ms_data = MultiSourceData()
+    elif ms_data is None:
+        ms_data = MultiSourceData()
+
+    # --- Technical component ---
+    tech_score = compute_technical_score(row)
+
+    # --- Fundamental component ---
+    from core.scoring import compute_fundamental_score_with_breakdown
+    
+    fund_input = asdict(ms_data)
+    fundamental = compute_fundamental_score_with_breakdown(fund_input)
+    fundamental_score = float(fundamental.total) if fundamental else 0.0
+
+    # --- ML component ---
+    ml_prob = ml_prob_override
+    if ml_prob is None and enable_ml:
+        ml_prob = row.get("ML_20d_Prob_raw") or row.get("ML_20d_Prob")
+        if ml_prob is None:
+            try:
+                from core.ml_20d_inference import ML_20D_AVAILABLE, predict_20d_prob_from_row
+
+                if ML_20D_AVAILABLE:
+                    ml_prob = predict_20d_prob_from_row(row)
+            except Exception:
+                ml_prob = None
+    if ml_prob is None:
+        ml_prob = 0.5
+
+    # --- Final & conviction ---
+    final_score = compute_final_score(tech_score, fundamental_score, ml_prob)
+    conviction_score = final_score
+
+    # --- Reliability & risk ---
+    tech_fields = [
+        "RSI",
+        "ATR",
+        "MA_Aligned",
+        "Overext",
+        "VolSurge",
+        "Near52w",
+        "RR",
+    ]
+    valid_count = sum(1 for f in tech_fields if pd.notna(row.get(f, np.nan)))
+    data_completeness = (valid_count / len(tech_fields)) * 100.0
+    fundamental_confidence = data_completeness  # proxy when coverage not provided
+
+    reliability_score = calculate_reliability_score(
+        price_sources=ms_data.price_sources or 0,
+        fund_sources=len(ms_data.sources_used),
+        price_std=ms_data.price_std,
+        price_mean=ms_data.price_mean,
+        fundamental_confidence=fundamental_confidence,
+        data_completeness=data_completeness,
     )
 
-    # Start from v2_result
-    rec_row = pd.Series(v2_result, dtype="object")
+    risk_meter, risk_label = calculate_risk_meter(
+        rr_ratio=row.get("RR"),
+        beta=ms_data.beta,
+        atr_pct=row.get("ATR_Pct"),
+        leverage=ms_data.debt_to_equity,
+    )
+
+    rec = RecommendationResult(
+        ticker=base_ticker,
+        tech_score=tech_score,
+        fundamental_score=fundamental_score,
+        ml_prob=float(ml_prob),
+        final_score=final_score,
+        conviction_score=conviction_score,
+        reliability_score=reliability_score,
+        risk_label=risk_label,
+        risk_meter=risk_meter,
+        should_display=True,
+        extras={
+            "Fundamental_Breakdown": getattr(fundamental, "breakdown", None),
+            "Sources_Used": ms_data.sources_used,
+            "Price_STD": ms_data.price_std,
+            "Price_Mean": ms_data.price_mean,
+        },
+    )
+
+    rec_row = rec.to_series()
 
     # Preserve original indicators from the input row
     for k, v in row.items():
         if k not in rec_row:
             rec_row[k] = v
 
-    # Store As_Of_Date for traceability
     if as_of_date is not None:
         rec_row["As_Of_Date"] = pd.to_datetime(as_of_date)
 
@@ -135,10 +319,12 @@ def compute_recommendation_scores(
     ]:
         rec_row[col] = classified.get(col)
 
-    # Unified overall score (for backwards compatibility with old UI)
+    # Legacy overall score/breakdown for backward compatibility
     score, breakdown = compute_overall_score(rec_row)
-    rec_row["Score"] = score
     rec_row["Score_Breakdown"] = breakdown
+    
+    # STRICT RULE: Score must always equal FinalScore_20d (set in to_series above)
+    # Never override Score here - it's already set correctly
 
     return rec_row
 
@@ -392,8 +578,7 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 from core.config import get_config
-from core.scoring.fundamental import compute_fundamental_score_with_breakdown
-from core.classification import apply_classification
+from core.classifier import apply_classification
 
 
 def compute_rsi(series: pd.Series, period: int = 14) -> pd.Series:
@@ -665,217 +850,109 @@ def build_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
-def apply_technical_filters(row: pd.Series, strict: bool = True, relaxed: bool = False) -> bool:
-    """
-    Apply technical filters to determine if a stock qualifies for trading.
-    
-    This is the SINGLE SOURCE OF TRUTH for filter logic.
-    All entry points must call this function with the same parameters
-    to ensure consistent pass/fail decisions.
-    
-    Three filter tiers (mutually exclusive):
-    1. **strict=True, relaxed=False** (Core): Conservative filters for stable picks
-         - RSI: 25-75
-         - Overextension: <=20% above MA50
-         - ATR: <=12% of price
-         - RR: >=-0.5
-         - Momentum Consistency: >=40% up days
+def compute_technical_score(row: pd.Series, weights: Optional[Dict[str, float]] = None) -> float:
+    """Compute a deterministic technical score (0–100) using shared weights.
 
-     2. **strict=False, relaxed=False** (Speculative): Relaxed tier for aggressive picks
-         - RSI: 20-85
-         - Overextension: <=30%
-         - ATR: <=22%
-         - RR: >=-1.0
-         - Momentum Consistency: >=20% up days
-
-     3. **relaxed=True** (Momentum-First): Ultra-aggressive, momentum-driven
-         - RSI: 15-90
-         - Overextension: <=40%
-         - ATR: <=28%
-         - RR: >=-1.5
-         - Momentum Consistency: >=10% up days
+    Combines 10 technical factors using weights from scoring_config.TECH_WEIGHTS:
+    - MA alignment, momentum consistency, RSI, volume surge, overextension
+    - Near 52w high (pullback), risk/reward ratio, MACD position, ADX strength
+    
+    ATR% is used to scale RR and apply volatility adjustments.
     
     Args:
-        row: Series containing technical indicator columns (RSI, Overext, ATR_Pct, RR, MomCons).
-             Typically a single row from the output of build_technical_indicators().
-        strict: If True, apply Core filters (conservative); if False, apply Speculative filters.
-        relaxed: If True, override strict and apply Momentum-First filters (ultra-relaxed).
-        
+        row: Series with technical indicators (from build_technical_indicators)
+        weights: Optional weight overrides (uses TECH_WEIGHTS by default)
+    
     Returns:
-        True if the stock passes all filter thresholds, False otherwise.
-        Returns True if a filter value is missing (NaN) to avoid false rejections.
+        float: Technical score 0-100
+        
+    Required columns (from REQUIRED_TECH_COLS):
+        MA_Aligned, Momentum_Consistency, RSI, VolSurge, Overext, Near52w,
+        RR, ATR_Pct, MACD_Pos, ADX14
     
-    Raises:
-        No exceptions. Missing values are treated as passing the filter.
-    
-    Examples:
-        >>> row = pd.Series({'RSI': 45, 'Overext': 0.10, 'ATR_Pct': 0.08, 'RR': 0.5, 'MomCons': 0.50})
-        >>> apply_technical_filters(row, strict=True)  # Core filters
-        True
-        >>> apply_technical_filters(row, strict=False)  # Speculative filters
-        True
-        >>> apply_technical_filters(row, relaxed=True)  # Momentum-First filters
-        True
+    Note: Missing columns emit warnings and use neutral defaults.
     """
-    if relaxed:
-        # Ultra-relaxed (Momentum-first) mode
-        rsi_min, rsi_max = 15, 90
-        max_overext = 0.40
-        max_atr_pct = 0.28
-        min_rr = -1.5
-        min_mom_cons = 0.10
-    elif strict:
-        # Core filters (loosened)
-        rsi_min, rsi_max = 25, 75
-        max_overext = 0.20
-        max_atr_pct = 0.12
-        min_rr = -0.5
-        min_mom_cons = 0.40
+
+    missing = [c for c in REQUIRED_TECH_COLS if c not in row]
+    if missing:
+        logging.warning("compute_technical_score: missing columns %s", missing)
+
+    # Merge user weights with defaults and normalize
+    raw_weights = {**TECH_WEIGHTS, **(weights or {})}
+    sanitized = {k: max(float(v), 0.0) if np.isfinite(v) else 0.0 for k, v in raw_weights.items()}
+    total_w = sum(sanitized.values()) or 1.0
+    norm_w = {k: v / total_w for k, v in sanitized.items()}
+
+    def _get_float(col: str, default: float = np.nan) -> float:
+        val = row.get(col, default)
+        return float(val) if pd.notna(val) else float(default)
+
+    ma_score = 1.0 if bool(row.get("MA_Aligned", False)) else 0.0
+    mom_score = float(np.clip(_get_float("Momentum_Consistency", 0.0), 0.0, 1.0))
+
+    rsi_val = _get_float("RSI", np.nan)
+    if pd.isna(rsi_val):
+        rsi_score = 0.5
+    elif 25 <= rsi_val <= 75:
+        rsi_score = 1.0
     else:
-        # Speculative filters (relaxed tier)
-        rsi_min, rsi_max = 20, 85
-        max_overext = 0.30
-        max_atr_pct = 0.22
-        min_rr = -1.0
-        min_mom_cons = 0.20
-    
-    # RSI check
-    rsi = row.get('RSI', np.nan)
-    if pd.notna(rsi) and (rsi < rsi_min or rsi > rsi_max):
-        return False
-    
-    # Overextension check
-    overext = row.get('Overext', np.nan)
-    if pd.notna(overext) and abs(overext) > max_overext:
-        return False
-    
-    # ATR/Price check
-    atr_pct = row.get('ATR_Pct', np.nan)
-    if pd.notna(atr_pct) and atr_pct > max_atr_pct:
-        return False
-    
-    # Reward/Risk check
-    rr = row.get('RR', np.nan)
-    if pd.notna(rr) and rr < min_rr:
-        return False
-    
-    # Momentum consistency check
-    mom_cons = row.get('MomCons', np.nan)
-    if pd.notna(mom_cons) and mom_cons < min_mom_cons:
-        return False
-    
-    return True
+        rsi_score = max(0.0, 1.0 - (abs(rsi_val - 50) - 25) / 50.0)
 
+    vol_surge = _get_float("VolSurge", 1.0)
+    vol_score = float(np.clip(vol_surge / 2.0, 0.0, 1.0))
 
-def score_with_ml_model(row: pd.Series, model_data: Optional[Dict] = None) -> float:
-    """
-    Score stock with ML model - probability of positive 20-day return.
-    
-    Uses retrained XGBoost model with 14 engineered features.
-    Model performance: AUC 0.555 (slight alpha vs 0.50 baseline).
-    
-    Features Used:
-        Base (6): RSI, ATR_Pct, Overext, RR, MomCons, VolSurge
-        Derived (8): RR_MomCons, RSI_Neutral, RSI_Squared, Risk_Score,
-                     Vol_Mom, Overext_Mom_Div, RR_Risk_Adj, ATR_Regime
-    
-    Args:
-        row: Series with technical indicator columns from build_technical_indicators()
-        model_data: Dict with keys:
-                   - 'model': Fitted XGBoost model object
-                   - 'feature_names': List of 14 feature names in model order
-                   If None or empty, returns neutral 0.5
-    
-    Returns:
-        Float in range [0.0, 1.0] representing probability of positive 20d return.
-        0.5 = neutral (no prediction)
-        > 0.5 = bullish prediction
-        < 0.5 = bearish prediction
-    
-    Raises:
-        No exceptions. On any error, returns neutral 0.5.
-    
-    Note:
-        Model is optional for scoring. Live app can function without ML model.
-        Missing features are filled with sensible defaults (0.5 or 1.0).
-    """
-    if model_data is None or model_data.get('model') is None:
-        return 0.5  # Neutral if no model
-    
-    try:
-        model = model_data['model']
-        feature_names = model_data['feature_names']
-        
-        # Extract base features from row
-        base_features = ['RSI', 'ATR_Pct', 'Overext', 'RR', 'MomCons', 'VolSurge']
-        features = {}
-        for fname in base_features:
-            if fname in row.index:
-                features[fname] = row[fname]
-            else:
-                # Provide sensible defaults
-                features[fname] = 0.5 if fname == 'MomCons' else 1.0
-        
-        # Engineer derived features (must match train_recommender.py)
-        X = pd.DataFrame([features])
-        
-        # RR_MomCons
-        if 'RR' in X.columns and 'MomCons' in X.columns:
-            X['RR_MomCons'] = X['RR'] * X['MomCons']
-        
-        # RSI_Neutral, RSI_Squared
-        if 'RSI' in X.columns:
-            X['RSI_Neutral'] = (X['RSI'] - 50).abs()
-            X['RSI_Squared'] = X['RSI'] ** 2
-        
-        # Risk_Score
-        if 'Overext' in X.columns and 'ATR_Pct' in X.columns:
-            X['Risk_Score'] = X['Overext'].abs() + X['ATR_Pct']
-        
-        # Vol_Mom
-        if 'VolSurge' in X.columns and 'MomCons' in X.columns:
-            X['Vol_Mom'] = X['VolSurge'] * X['MomCons']
-        
-        # Overext_Mom_Div
-        if 'Overext' in X.columns and 'MomCons' in X.columns:
-            X['Overext_Mom_Div'] = X['Overext'] * X['MomCons']
-        
-        # RR_Risk_Adj
-        if 'RR' in X.columns and 'Overext' in X.columns:
-            X['RR_Risk_Adj'] = X['RR'] / (1 + X['Overext'].abs())
-        
-        # ATR_Regime
-        if 'ATR_Pct' in X.columns:
-            # Simple regime: low (<0.02), med (0.02-0.04), high (>0.04)
-            atr_val = X['ATR_Pct'].iloc[0]
-            if atr_val < 0.02:
-                X['ATR_Regime'] = 1.0
-            elif atr_val < 0.04:
-                X['ATR_Regime'] = 2.0
-            else:
-                X['ATR_Regime'] = 3.0
-        
-        # Ensure all model features exist
-        for fname in feature_names:
-            if fname not in X.columns:
-                X[fname] = 0.5  # fallback
-        
-        # Select features in correct order
-        X_model = X[feature_names].fillna(0.5)
-        
-        # Predict probability
-        if hasattr(model, 'predict_proba'):
-            prob = float(model.predict_proba(X_model.values)[0][1])
-        else:
-            # XGBoost API
-            prob = float(model.predict_proba(X_model)[0][1])
-        
-        # Clip to valid range
-        return max(0.0, min(1.0, prob))
-        
-    except Exception as e:
-        # Fallback to neutral on any error
-        return 0.5
+    overext = _get_float("Overext", 0.0)
+    overext_score = float(np.clip(1.0 - (overext / 0.2), 0.0, 1.0))
+
+    near_high = _get_float("Near52w", np.nan)
+    pullback_score = 0.5 if pd.isna(near_high) else float(np.clip(1.0 - (near_high / 100.0), 0.0, 1.0))
+
+    rr_raw = _get_float("RR", 1.0)
+    atr_pct = _get_float("ATR_Pct", np.nan)
+
+    # ATR scaling for RR and later overall adjustment
+    atr_factor = 1.0
+    if pd.notna(atr_pct):
+        if atr_pct >= ATR_RULES["extreme_high"]["min"]:
+            atr_factor = ATR_RULES["extreme_high"].get("factor", 1.0)
+        elif ATR_RULES["high"]["min"] <= atr_pct < ATR_RULES["high"]["max"]:
+            atr_factor = ATR_RULES["high"].get("factor", 1.0)
+        elif ATR_RULES["sweet_spot"]["min"] <= atr_pct <= ATR_RULES["sweet_spot"]["max"]:
+            atr_factor = ATR_RULES["sweet_spot"].get("factor", 1.0)
+        elif atr_pct < ATR_RULES["low"]["max"]:
+            atr_factor = ATR_RULES["low"].get("factor", 1.0)
+
+    rr_score = float(np.clip((max(rr_raw, 0.0) * atr_factor) / 3.0, 0.0, 1.5))
+
+    macd_pos = _get_float("MACD_Pos", 0.0)
+    macd_score = 1.0 if macd_pos > 0 else 0.0
+
+    adx_val = _get_float("ADX14", 0.0)
+    adx_score = float(np.clip(adx_val / 50.0, 0.0, 1.0))
+
+    base = (
+        norm_w["ma"] * ma_score
+        + norm_w["mom"] * mom_score
+        + norm_w["rsi"] * rsi_score
+        + norm_w["near_high_bell"] * pullback_score
+        + norm_w["vol"] * vol_score
+        + norm_w["overext"] * overext_score
+        + norm_w["pullback"] * pullback_score
+        + norm_w["risk_reward"] * rr_score
+        + norm_w["macd"] * macd_score
+        + norm_w["adx"] * adx_score
+    )
+
+    vol_adjust = 1.0
+    if pd.notna(atr_pct):
+        if atr_pct >= ATR_RULES["extreme_high"]["min"]:
+            vol_adjust = 1.0 - ATR_RULES["extreme_high"].get("penalty", 0.0)
+        elif ATR_RULES["sweet_spot"]["min"] <= atr_pct <= ATR_RULES["sweet_spot"].get("max", atr_pct):
+            vol_adjust = ATR_RULES["sweet_spot"].get("factor", 1.0)
+        elif atr_pct < ATR_RULES["low"]["max"]:
+            vol_adjust = ATR_RULES["low"].get("factor", 1.0)
+
+    return float(np.clip(base * vol_adjust * 100.0, 0.0, 100.0))
 
 
 def compute_forward_returns(
@@ -1141,64 +1218,37 @@ def compute_technical_score(row: pd.Series, weights: Optional[Dict[str, float]] 
 
 
 def compute_final_score(
-    tech_score: float, 
-    fundamental_score: Optional[float] = None, 
-    ml_prob: Optional[float] = None
+    tech_score: float,
+    fundamental_score: Optional[float] = None,
+    ml_prob: Optional[float] = None,
 ) -> float:
-    """
-    Compute unified final score combining technical, fundamental, and ML components.
+    """Combine technical, fundamental, and ML components into a 0–100 score.
     
-    This is the SINGLE SOURCE OF TRUTH for final score calculation.
-    All entry points must call this function to ensure consistency.
-    
-    Formula:
-        final_score = 0.55 * tech_score + 0.25 * fund_score + 0.20 * (ml_prob * 100)
-    
-    Where:
-    - **tech_score** (0-100): Technical analysis score from compute_technical_score()
-    - **fund_score** (0-100): Fundamental valuation score from compute_fundamental_score_with_breakdown()
-      If None or NaN, defaults to 0 (no fundamental penalty)
-    - **ml_prob** (0-1): ML model prediction probability
-      If None or NaN, defaults to 0.5 (neutral)
-    - **final score** (0-100): Weighted combination, clipped to [0, 100]
-    
-    Weight Rationale:
-    - Technical (55%): Primary signal; most actionable and immediate
-    - Fundamental (25%): Secondary confirmation; reduces false positives
-    - ML (20%): Tertiary enhancement; model confidence boost
+    Uses weights from scoring_config.FINAL_SCORE_WEIGHTS:
+    - Technical: 55%
+    - Fundamental: 25%
+    - ML: 20%
     
     Args:
-        tech_score: Technical score from build_technical_indicators() + compute_technical_score().
-                    Must be in range [0, 100].
-        fundamental_score: Optional fundamental valuation score [0, 100].
-                          Defaults to 0 if None or NaN.
-        ml_prob: Optional ML model probability [0, 1].
-                 Defaults to 0.5 (neutral) if None or NaN.
+        tech_score: Technical score 0-100
+        fundamental_score: Fundamental score 0-100 (optional, defaults to 0)
+        ml_prob: ML probability 0-1 (optional, defaults to 0.5 neutral)
     
     Returns:
-        Float between 0.0 and 100.0 representing final conviction score.
-        Clipped to valid range regardless of input values.
-    
-    Raises:
-        No exceptions. Invalid inputs handled gracefully with defaults.
-    
-    Examples:
-        >>> compute_final_score(tech_score=75.0, fundamental_score=65.0, ml_prob=0.65)
-        72.0  # = 0.55*75 + 0.25*65 + 0.20*65
-        
-        >>> compute_final_score(tech_score=80.0)  # No fundamentals or ML
-        44.0  # = 0.55*80 + 0.25*0 + 0.20*50 (uses defaults)
-        
-        >>> compute_final_score(tech_score=60.0, fundamental_score=np.nan, ml_prob=1.0)
-        65.0  # NaN fund score treated as 0
-    
-    Note:
-        Always returns a valid numeric value suitable for sorting/ranking stocks.
-        No exception is raised for invalid inputs; defaults are applied instead.
+        float: Combined final score 0-100
     """
+
+    weights = FINAL_SCORE_WEIGHTS
+
     fund = 0.0 if fundamental_score is None or pd.isna(fundamental_score) else float(fundamental_score)
     ml_score = 0.5 if ml_prob is None or pd.isna(ml_prob) else float(ml_prob)
-    final = 0.55 * tech_score + 0.25 * fund + 0.20 * (ml_score * 100.0)
+
+    final = (
+        weights["technical"] * float(tech_score)
+        + weights["fundamental"] * fund
+        + weights["ml"] * (ml_score * 100.0)
+    )
+
     return float(np.clip(final, 0.0, 100.0))
 
 
@@ -1246,256 +1296,37 @@ def score_ticker_v2(
     use_multi_source: bool = True
 ) -> Dict:
     """
-    V2 scoring pipeline using multi-source data and unified scoring engine.
-    
-    This is a NON-BREAKING addition. V1 scoring remains unchanged.
-    
-    Args:
-        ticker: Stock symbol
-        row: Row from technical indicators DataFrame (contains RSI, ATR, etc.)
-        historical_df: Full OHLCV DataFrame (optional, for additional calculations)
-        enable_ml: Whether to use ML boost
-        use_multi_source: Whether to fetch multi-source fundamentals
-    
-    Returns:
-        Dict with all v2 scores and metadata:
-        {
-            "ticker": str,
-            "fundamental_score_v2": float (0-100),
-            "fundamental_confidence_v2": float (0-100),
-            "technical_score_v2": float (0-100),
-            "technical_confidence_v2": float (0-100),
-            "rr_score_v2": float (0-100),
-            "rr_confidence_v2": float (0-100),
-            "reliability_score_v2": float (0-100),
-            "conviction_v2_base": float (0-100),  # Before ML
-            "conviction_v2_final": float (0-100),  # After ML
-            "ml_probability": Optional[float],
-            "ml_boost": float,
-            "ml_status": str,
-            "risk_meter_v2": float (0-100),
-            "risk_label_v2": str,
-            "warnings_v2": List[str],
-            "sources_used": List[str],
-            "disagreement_score": float,
-            "breakdown": Dict  # Detailed component scores
-        }
+    Legacy wrapper kept for backward compatibility. Delegates to
+    compute_recommendation_scores for the unified scoring flow.
     """
-    from core import scoring_engine
-    from core import data_sources_v2
-    from core import ml_integration
-    
-    result = {
+    rec_series = compute_recommendation_scores(
+        row=row,
+        ticker=ticker,
+        enable_ml=enable_ml,
+        use_multi_source=use_multi_source,
+    )
+
+    return {
         "ticker": ticker,
-        "fundamental_score_v2": 50.0,
-        "fundamental_confidence_v2": 0.0,
-        "technical_score_v2": 50.0,
-        "technical_confidence_v2": 0.0,
-        "rr_score_v2": 50.0,
-        "rr_confidence_v2": 0.0,
-        "reliability_score_v2": 50.0,
-        "conviction_v2_base": 50.0,
-        "conviction_v2_final": 50.0,
-        "ml_probability": None,
+        "fundamental_score_v2": float(rec_series.get("Fundamental_Score", 0.0)),
+        "fundamental_confidence_v2": float(rec_series.get("Fundamental_Coverage", 50.0)),
+        "technical_score_v2": float(rec_series.get("TechScore_20d", 0.0)),
+        "technical_confidence_v2": 100.0,
+        "rr_score_v2": float(rec_series.get("RR", 0.0)) * 20.0 if pd.notna(rec_series.get("RR", np.nan)) else 50.0,
+        "rr_confidence_v2": 50.0,
+        "reliability_score_v2": float(rec_series.get("Reliability_Score", 50.0)),
+        "conviction_v2_base": float(rec_series.get("FinalScore_20d", 0.0)),
+        "conviction_v2_final": float(rec_series.get("ConvictionScore", rec_series.get("FinalScore_20d", 0.0))),
+        "ml_probability": rec_series.get("ML_20d_Prob"),
         "ml_boost": 0.0,
-        "ml_status": "Not computed",
-        "risk_meter_v2": 50.0,
-        "risk_label_v2": "MODERATE",
-        "warnings_v2": [],
-        "sources_used": [],
-        "disagreement_score": 0.0,
-        "breakdown": {}
+        "ml_status": "delegated",
+        "risk_meter_v2": float(rec_series.get("Risk_Meter", 50.0)),
+        "risk_label_v2": rec_series.get("Risk_Label", "UNKNOWN"),
+        "warnings_v2": rec_series.get("Classification_Warnings", []) or [],
+        "sources_used": rec_series.get("Sources_Used", []) or [],
+        "disagreement_score": rec_series.get("Price_STD", 0.0) or 0.0,
+        "breakdown": {},
     }
-    
-    try:
-        # ===== STEP 1: Fetch Multi-Source Fundamentals =====
-        if use_multi_source:
-            try:
-                multi_source_data = data_sources_v2.fetch_multi_source_data(ticker)
-                result["sources_used"] = multi_source_data.get("sources_used", [])
-                result["disagreement_score"] = multi_source_data.get("disagreement_score", 0.0)
-            except Exception as e:
-                import logging
-                logging.warning(f"Multi-source fetch failed for {ticker}: {e}")
-                multi_source_data = {}
-        else:
-            multi_source_data = {}
-        
-        # ===== STEP 2: Calculate Fundamental Score =====
-        fund_score, fund_confidence = scoring_engine.calculate_fundamental_score(
-            pe=multi_source_data.get("pe"),
-            ps=multi_source_data.get("ps"),
-            pb=multi_source_data.get("pb"),
-            roe=multi_source_data.get("roe"),
-            margin=multi_source_data.get("margin"),
-            rev_yoy=multi_source_data.get("rev_yoy"),
-            eps_yoy=multi_source_data.get("eps_yoy"),
-            debt_equity=multi_source_data.get("debt_equity")
-        )
-        
-        result["fundamental_score_v2"] = fund_score
-        result["fundamental_confidence_v2"] = fund_confidence
-        
-        # ===== STEP 3: Calculate Technical/Momentum Score =====
-        # Extract technical indicators from row
-        rsi = row.get("RSI", np.nan)
-        atr = row.get("ATR", np.nan)
-        close = row.get("Close", np.nan) if historical_df is None else historical_df['Close'].iloc[-1]
-        atr_pct = (atr / close) if (np.isfinite(atr) and np.isfinite(close) and close > 0) else np.nan
-        
-        ma_aligned = row.get("MA_Aligned", False)
-        overextension = row.get("OverextRatio", np.nan)
-        volume_surge = row.get("Volume_Surge", np.nan)
-        near_high = row.get("Near52w", np.nan)
-        
-        # Momentum periods (if available)
-        mom_1m = row.get("Mom_1M", np.nan)
-        mom_3m = row.get("Mom_3M", np.nan)
-        mom_6m = row.get("Mom_6M", np.nan)
-        
-        tech_score, tech_confidence = scoring_engine.calculate_momentum_score(
-            rsi=rsi,
-            atr_pct=atr_pct,
-            ma_aligned=ma_aligned,
-            mom_1m=mom_1m,
-            mom_3m=mom_3m,
-            mom_6m=mom_6m,
-            near_high=near_high,
-            overextension=overextension,
-            volume_surge=volume_surge
-        )
-        
-        result["technical_score_v2"] = tech_score
-        result["technical_confidence_v2"] = tech_confidence
-        
-        # ===== STEP 4: Calculate Risk/Reward Score =====
-        rr_ratio = row.get("RewardRisk", np.nan)
-        support = row.get("Support_20d", np.nan)
-        resistance = row.get("Resistance_20d", np.nan)
-        current_price = close
-        
-        rr_score, rr_confidence = scoring_engine.calculate_rr_score(
-            rr_ratio=rr_ratio,
-            atr=atr,
-            support=support,
-            resistance=resistance,
-            current_price=current_price
-        )
-        
-        result["rr_score_v2"] = rr_score
-        result["rr_confidence_v2"] = rr_confidence
-        
-        # ===== STEP 5: Calculate Reliability Score =====
-        price_sources = multi_source_data.get("price_sources", 1)
-        fund_sources = len(result["sources_used"])
-        price_std = multi_source_data.get("price_std", np.nan)
-        price_mean = multi_source_data.get("price_mean", np.nan)
-        
-        # Data completeness: how many technical indicators are valid?
-        tech_fields = ["RSI", "ATR", "MA_Aligned", "OverextRatio", "Volume_Surge", "Near52w", "RewardRisk"]
-        valid_count = sum(1 for f in tech_fields if np.isfinite(row.get(f, np.nan)))
-        data_completeness = (valid_count / len(tech_fields)) * 100.0
-        
-        reliability_score = scoring_engine.calculate_reliability_score(
-            price_sources=price_sources,
-            fund_sources=fund_sources,
-            price_std=price_std,
-            price_mean=price_mean,
-            fundamental_confidence=fund_confidence,
-            data_completeness=data_completeness
-        )
-        
-        result["reliability_score_v2"] = reliability_score
-        
-        # ===== STEP 6: Calculate Base Conviction =====
-        base_conviction, breakdown = scoring_engine.calculate_conviction_score(
-            fundamental_score=fund_score,
-            fundamental_confidence=fund_confidence,
-            momentum_score=tech_score,
-            momentum_confidence=tech_confidence,
-            rr_score=rr_score,
-            rr_confidence=rr_confidence,
-            reliability_score=reliability_score,
-            ml_probability=None  # Add ML separately
-        )
-        
-        result["conviction_v2_base"] = base_conviction
-        result["breakdown"] = breakdown
-        
-        # ===== STEP 7: Apply ML Boost (if enabled) =====
-        if enable_ml:
-            # Prepare data for ML
-            ticker_data = {
-                "near_high": near_high,
-                "market_trend": row.get("Market_Trend", 0.0),
-                "market_volatility": row.get("Market_Volatility", 0.02),
-                "spy_rsi": row.get("SPY_RSI", 50.0),
-                "relative_strength_20d": row.get("Relative_Strength_20d", 0.0),
-                "dist_from_52w_high": row.get("Dist_From_52w_High", 0.1),
-                "mom_acceleration": row.get("Mom_Acceleration", 0.0)
-            }
-            
-            technical_indicators = {
-                "rsi": rsi,
-                "atr_pct": atr_pct,
-                "overextension": overextension,
-                "rr_ratio": rr_ratio,
-                "momentum_consistency": row.get("Momentum_Consistency", 0.5),
-                "volume_surge": volume_surge
-            }
-            
-            fundamental_scores_dict = {
-                "fund_score": fund_score,
-                "fund_confidence": fund_confidence
-            }
-            
-            final_conviction, ml_info = ml_integration.integrate_ml_with_conviction(
-                base_conviction=base_conviction,
-                ticker_data=ticker_data,
-                technical_indicators=technical_indicators,
-                fundamental_scores=fundamental_scores_dict,
-                enable_ml=True
-            )
-            
-            result["conviction_v2_final"] = final_conviction
-            result["ml_probability"] = ml_info.get("ml_probability")
-            result["ml_boost"] = ml_info.get("ml_boost", 0.0)
-            result["ml_status"] = ml_info.get("ml_status", "Unknown")
-        else:
-            result["conviction_v2_final"] = base_conviction
-            result["ml_status"] = "ML disabled"
-        
-        # ===== STEP 8: Calculate Risk Meter =====
-        beta = multi_source_data.get("beta", np.nan)
-        leverage = multi_source_data.get("debt_equity", np.nan)
-        
-        risk_meter, risk_label = scoring_engine.calculate_risk_meter(
-            rr_ratio=rr_ratio,
-            beta=beta,
-            atr_pct=atr_pct,
-            leverage=leverage
-        )
-        
-        result["risk_meter_v2"] = risk_meter
-        result["risk_label_v2"] = risk_label
-        
-        # ===== STEP 9: Generate Warnings =====
-        warnings = scoring_engine.generate_warnings(
-            rr_ratio=rr_ratio,
-            fundamental_confidence=fund_confidence,
-            beta=beta,
-            atr_pct=atr_pct,
-            reliability_score=reliability_score
-        )
-        
-        result["warnings_v2"] = warnings
-        
-    except Exception as e:
-        import logging
-        logging.error(f"V2 scoring failed for {ticker}: {e}")
-        result["warnings_v2"].append(f"⚠️ V2 scoring error: {str(e)[:100]}")
-    
-    return result
 
 
 def batch_score_v2(

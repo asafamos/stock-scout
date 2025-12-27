@@ -1,0 +1,22 @@
+"""
+Unified Classification Module
+
+This module provides stock classification (Core vs Speculative, Risk levels, Quality).
+"""
+
+# ============================================================================
+# CLASSIFICATION (from core.classification)
+# ============================================================================
+from core.classification import (
+    apply_classification,
+    filter_core_recommendations,
+)
+
+# ============================================================================
+# PUBLIC API
+# ============================================================================
+
+__all__ = [
+    "apply_classification",
+    "filter_core_recommendations",
+]

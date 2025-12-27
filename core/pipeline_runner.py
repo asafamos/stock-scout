@@ -7,30 +7,24 @@ from typing import List, Dict, Optional, Callable, Any, Tuple
 import yfinance as yf
 
 from core.config import get_config
-from core.unified_logic import (
-    build_technical_indicators,
+from core.scoring import build_technical_indicators, compute_fundamental_score_with_breakdown
+from core.filters import (
     apply_technical_filters,
-    compute_technical_score,
-    compute_tech_score_20d_v2,
-)
-from core.ml_20d_inference import (
-    predict_20d_prob_from_row,
-    apply_live_v3_adjustments,
-    ML_20D_AVAILABLE,
-)
-from core.scoring_pipeline_20d import compute_final_scores_20d
-from core.data_sources_v2 import (
-    fetch_fundamentals_batch,
-)
-from core.scoring.fundamental import compute_fundamental_score_with_breakdown
-from core.v2_risk_engine import score_ticker_v2_enhanced
-from core.classification import apply_classification
-from core.portfolio import allocate_budget
-from advanced_filters import (
     compute_advanced_score,
     should_reject_ticker,
     fetch_benchmark_data,
 )
+from core.data import (
+    fetch_fundamentals_batch,
+    aggregate_fundamentals,
+    fetch_price_multi_source,
+)
+from core.allocation import allocate_budget
+from core.classifier import apply_classification
+from core.unified_logic import compute_recommendation_scores
+
+# For backward compatibility with code that checks ML availability
+from core.ml_20d_inference import ML_20D_AVAILABLE
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +34,8 @@ def fetch_history_bulk(tickers: List[str], period_days: int, ma_long: int) -> Di
     end = datetime.utcnow()
     start = end - timedelta(days=period_days + 50)
     data_map = {}
-    min_rows = ma_long + 40
+    # More lenient: just need enough for MA calculation, not ma_long + 40
+    min_rows = max(50, ma_long // 2)  # At least 50 rows or half of ma_long
     
     try:
         # Use threads=True for faster download
@@ -50,14 +45,20 @@ def fetch_history_bulk(tickers: List[str], period_days: int, ma_long: int) -> Di
             tkr = tickers[0]
             if not df_all.empty and len(df_all) >= min_rows:
                 data_map[tkr] = df_all
+                logger.info(f"Fetched {len(df_all)} rows for {tkr}")
+            else:
+                logger.warning(f"Insufficient data for {tkr}: {len(df_all)} rows < {min_rows} required")
         else:
             for tkr in tickers:
                 try:
                     df = df_all[tkr].dropna(how='all')
                     if len(df) >= min_rows:
                         data_map[tkr] = df
+                        logger.info(f"Fetched {len(df)} rows for {tkr}")
+                    else:
+                        logger.warning(f"Insufficient data for {tkr}: {len(df)} rows < {min_rows} required")
                 except KeyError:
-                    pass
+                    logger.warning(f"No data for {tkr} in bulk download")
     except Exception as e:
         logger.warning(f"Bulk fetch failed: {e}")
         
@@ -97,6 +98,65 @@ def calculate_rr(entry_price: float, target_price: float, atr_value: float, hist
         return float(np.clip(reward / max(risk, 1e-9), 0.0, 5.0))
     except: return 0.0
 
+
+# --- Pipeline Steps ---
+
+def _step_fetch_and_prepare_base_data(
+    universe: List[str],
+    config: Dict[str, Any],
+    status_callback: Optional[Callable[[str], None]],
+    data_map: Optional[Dict[str, pd.DataFrame]],
+) -> Tuple[Dict[str, pd.DataFrame], pd.DataFrame]:
+    if data_map is None:
+        if status_callback:
+            status_callback("Fetching historical data...")
+        data_map = fetch_history_bulk(universe, config.get("lookback_days", 200), config.get("ma_long", 200))
+
+    benchmark_df = fetch_benchmark_data(config.get("beta_benchmark", "SPY"), config.get("lookback_days", 252))
+    return data_map, benchmark_df
+
+
+def _step_compute_scores_with_unified_logic(
+    data_map: Dict[str, pd.DataFrame],
+    config: Dict[str, Any],
+    status_callback: Optional[Callable[[str], None]],
+) -> pd.DataFrame:
+    if status_callback:
+        status_callback("Computing technical indicators...")
+
+    rows = []
+    for tkr, df in data_map.items():
+        if df.empty:
+            continue
+
+        try:
+            tech_df = build_technical_indicators(df)
+            row_indicators = tech_df.iloc[-1]
+        except Exception as exc:
+            logger.warning("indicator build failed for %s: %s", tkr, exc)
+            continue
+
+        if not apply_technical_filters(row_indicators, strict=False):
+            continue
+
+        rec_series = compute_recommendation_scores(
+            row=row_indicators,
+            ticker=tkr,
+            enable_ml=ML_20D_AVAILABLE,
+            use_multi_source=config.get("fundamental_enabled", True),
+        )
+
+        rows.append(rec_series)
+
+    if not rows:
+        return pd.DataFrame()
+
+    results = pd.DataFrame(rows)
+    # Ensure canonical columns exist
+    if "Score" not in results.columns and "FinalScore_20d" in results.columns:
+        results["Score"] = results["FinalScore_20d"]
+    return results
+
 # --- Main Pipeline Runner ---
 
 def run_scan_pipeline(
@@ -107,75 +167,68 @@ def run_scan_pipeline(
 ) -> Tuple[pd.DataFrame, Dict[str, pd.DataFrame]]:
     """
     Unified pipeline runner for Stock Scout.
+    
+    **Pipeline flow:**
+    1. Fetch historical data (yfinance bulk download)
+    2. Compute technical indicators for each ticker
+    3. Apply basic technical filters (volume, liquidity)
+    4. **Call compute_recommendation_scores (unified scoring) for each ticker**
+       - Technical score (0-100)
+       - Fundamental score with multi-source data (0-100)
+       - ML 20d probability (0-1)
+       - Final combined score (0-100)
+       - Risk meter & reliability metrics
+       - Classification flags
+    5. Apply beta filter (optional, top-K only)
+    6. Apply advanced filters (RS, momentum, RR penalties)
+    7. Enrich with fundamentals & sector data
+    8. Run classification & allocation
+    9. Check earnings blackout (optional, top-K only)
+    
+    Args:
+        universe: List of ticker symbols to scan
+        config: Configuration dict from get_config()
+        status_callback: Optional progress callback function
+        data_map: Optional pre-fetched historical data
+    
+    Returns:
+        Tuple of (results_df, data_map) where:
+        - results_df: DataFrame with all scores, metrics, and allocations
+        - data_map: Dict of ticker -> historical DataFrame
+    
+    Key output columns:
+        - FinalScore_20d: Main ranking score (0-100)
+        - TechScore_20d: Technical component (0-100)
+        - Fundamental_Score: Fundamental component (0-100)
+        - ML_20d_Prob: ML probability (0-1)
+        - ConvictionScore: Conviction metric (0-100)
+        - Risk_Meter: Risk level (0-100, higher = riskier)
+        - Reliability_Score: Data quality (0-100)
+        - buy_amount_v2: Allocated dollar amount
+        - Score: Legacy alias for FinalScore_20d
     """
-    if status_callback: status_callback(f"Starting pipeline for {len(universe)} tickers...")
+    if status_callback:
+        status_callback(f"Starting pipeline for {len(universe)} tickers...")
+
+    data_map, benchmark_df = _step_fetch_and_prepare_base_data(universe, config, status_callback, data_map)
+    results = _step_compute_scores_with_unified_logic(data_map, config, status_callback)
+
+    if results.empty:
+        return results, data_map
     
-    # 1. Fetch History
-    if data_map is None:
-        if status_callback: status_callback("Fetching historical data...")
-        data_map = fetch_history_bulk(universe, config.get("LOOKBACK_DAYS", 200), config.get("MA_LONG", 200))
-    
-    # 2. Technical Analysis
-    if status_callback: status_callback("Computing technical indicators...")
-    rows = []
-    
-    # Pre-fetch benchmark for advanced filters
-    benchmark_df = fetch_benchmark_data(config.get("BETA_BENCHMARK", "SPY"), config.get("LOOKBACK_DAYS", 252))
-    
-    for tkr, df in data_map.items():
-        if df.empty: continue
-        
-        try:
-            tech_df = build_technical_indicators(df)
-            row_indicators = tech_df.iloc[-1]
-        except: continue
-        
-        if not apply_technical_filters(row_indicators, strict=False):  # Less strict for broader coverage
-            continue
-            
-        tech_score = compute_technical_score(row_indicators, weights=config.get("WEIGHTS"))
-        tech_v2 = compute_tech_score_20d_v2(row_indicators) * 100.0
-        ml_prob = predict_20d_prob_from_row(row_indicators) if ML_20D_AVAILABLE else 0.5
-        
-        row = row_indicators.to_dict()
-        row["Ticker"] = tkr
-        row["Score_Tech"] = tech_score
-        row["TechScore_20d_v2_raw"] = tech_v2
-        row["ML_20d_Prob_raw"] = ml_prob
-        
-        # Initial RR
-        price = row.get("Close")
-        atr = row.get("ATR")
-        if price and atr:
-            target = price + (2 * atr)
-            row["RewardRisk"] = calculate_rr(price, target, atr)
-            
-        rows.append(row)
-        
-    if not rows:
-        return pd.DataFrame(), data_map
-        
-    results = pd.DataFrame(rows)
-    
-    # 3. Final Scores (ML + Tech Blend)
-    if status_callback: status_callback("Computing final scores...")
-    if "ATR_Pct" in results.columns:
-        results["ATR_Pct_percentile"] = results["ATR_Pct"].rank(pct=True)
-    results["ML_20d_Prob_live_v3"] = apply_live_v3_adjustments(results, prob_col="ML_20d_Prob_raw")
-    results["ML_20d_Prob"] = results["ML_20d_Prob_live_v3"]
-    results = compute_final_scores_20d(results, include_ml=True)
-    results["Score"] = results["FinalScore"] # Base score for next steps
+    if "Score" not in results.columns and "FinalScore_20d" in results.columns:
+        results["Score"] = results["FinalScore_20d"]
     
     # 3b. Beta Filter
-    if config.get("BETA_FILTER_ENABLED"):
+    if config.get("beta_filter_enabled"):
         if status_callback: status_callback("Applying Beta filter...")
-        beta_max = float(config.get("BETA_MAX_ALLOWED", 1.5))
-        top_k = int(config.get("BETA_TOP_K", 50))
+        beta_max = float(config.get("beta_max_allowed", 1.5))
+        top_k = int(config.get("beta_top_k", 50))
         results = results.sort_values("Score", ascending=False)
         to_check = results.head(top_k).index
         for idx in to_check:
             tkr = results.at[idx, "Ticker"]
-            b = fetch_beta_vs_benchmark(tkr, config.get("BETA_BENCHMARK", "SPY"))
+            b = fetch_beta_vs_benchmark(tkr, config.get("beta_benchmark", "SPY"))
             results.at[idx, "Beta"] = b
         results = results[~( (results["Beta"].notna()) & (results["Beta"] > beta_max) )]
     
@@ -196,12 +249,25 @@ def run_scan_pipeline(
     
     def _q(vals, q, default):
         return float(np.quantile(vals, q)) if vals else default
-        
-    rs_thresh = _q(rs_vals, 0.05, -0.30)
-    mom_thresh = _q(mom_vals, 0.10, 0.15)
-    rr_thresh = _q(rr_vals, 0.10, 0.50)
+    
+    # Use more lenient percentiles to avoid over-filtering
+    # If we have fewer stocks, use even more lenient thresholds
+    num_stocks = len(signals_store)
+    if num_stocks < 20:
+        # Very small sample - use fixed defaults only
+        rs_thresh = -0.40  # More lenient
+        mom_thresh = 0.10
+        rr_thresh = 0.30   # More lenient
+        logger.info(f"[PIPELINE] Using fixed lenient thresholds for {num_stocks} stocks")
+    else:
+        # Use dynamic thresholds but more lenient percentiles
+        rs_thresh = min(_q(rs_vals, 0.02, -0.40), -0.30)  # Cap at -0.30
+        mom_thresh = min(_q(mom_vals, 0.05, 0.10), 0.12)  # Cap at 0.12
+        rr_thresh = min(_q(rr_vals, 0.05, 0.30), 0.40)    # Cap at 0.40
+        logger.info(f"[PIPELINE] Using dynamic thresholds for {num_stocks} stocks")
     
     dyn_thresh = {"rs_63d": rs_thresh, "momentum_consistency": mom_thresh, "risk_reward_ratio": rr_thresh}
+    logger.info(f"[PIPELINE] Thresholds: RS={rs_thresh:.3f}, Mom={mom_thresh:.3f}, RR={rr_thresh:.3f}")
     
     for idx, sig, enhanced in signals_store:
         catastrophic, reason = should_reject_ticker(sig, dynamic=dyn_thresh)
@@ -214,18 +280,27 @@ def run_scan_pipeline(
         results.at[idx, "Momentum_Consistency"] = sig.get("momentum_consistency")
         
         if catastrophic:
-            results.at[idx, "Score"] = 0.0
+            # Apply penalty by reducing FinalScore_20d, not by overwriting Score
+            results.at[idx, "FinalScore_20d"] = 0.1
             results.at[idx, "RejectionReason"] = reason
         else:
+            # Reduce penalties to be less harsh
             penalty = 0.0
-            if sig.get("rs_63d", 0) < rs_thresh: penalty += 2.0
-            if sig.get("momentum_consistency", 0) < mom_thresh: penalty += 2.0
-            if sig.get("risk_reward_ratio", 0) < rr_thresh: penalty += 3.0
+            if sig.get("rs_63d", 0) < rs_thresh: penalty += 1.0  # Reduced from 2.0
+            if sig.get("momentum_consistency", 0) < mom_thresh: penalty += 1.0  # Reduced from 2.0
+            if sig.get("risk_reward_ratio", 0) < rr_thresh: penalty += 1.5  # Reduced from 3.0
             
             results.at[idx, "AdvPenalty"] = penalty
-            results.at[idx, "Score"] = max(0.0, enhanced - penalty)
+            # Apply penalty to FinalScore_20d, not Score
+            results.at[idx, "FinalScore_20d"] = max(0.1, enhanced - penalty)
 
-    results = results[results["Score"] > 0].copy()
+    # Ensure Score always matches FinalScore_20d after advanced filters
+    if "FinalScore_20d" in results.columns:
+        results["Score"] = results["FinalScore_20d"]
+    
+    # Keep stocks with positive scores (but allow FinalScore_20d >= 0.1 to be more lenient)
+    results = results[results["FinalScore_20d"] >= 0.1].copy()
+    logger.info(f"[PIPELINE] After advanced filters: {len(results)} stocks with FinalScore_20d >= 0.1")
     
     # 5. Fundamentals & Sector Enrichment
     if config.get("FUNDAMENTAL_ENABLED", True):
@@ -277,37 +352,6 @@ def run_scan_pipeline(
         results["Sector"] = "Unknown"
         results["Fundamental_S"] = 50.0
         
-    # 6. Risk Engine V2 (with fallback to technical score)
-    if status_callback: status_callback("Running Risk Engine V2...")
-    v2_results = []
-    for idx, row in results.iterrows():
-        res = score_ticker_v2_enhanced(row["Ticker"], row, budget_total=config.get("BUDGET_TOTAL", 5000), min_position=config.get("MIN_POSITION", 500), enable_ml=True)
-        v2_results.append(res)
-        
-    if v2_results:
-        v2_df = pd.DataFrame(v2_results)
-        v2_df["Ticker"] = results["Ticker"].values
-        results = pd.merge(results, v2_df, on="Ticker", how="left", suffixes=("", "_v2"))
-        
-        # Use conviction_v2_final as score IF it's meaningful (>20), otherwise use TechScore_20d
-        if "conviction_v2_final" in results.columns and "TechScore_20d" in results.columns:
-            # Replace low conviction scores with tech score (fallback when insufficient fund data)
-            for idx, row in results.iterrows():
-                conviction = row.get("conviction_v2_final", 0)
-                tech_score = row.get("TechScore_20d", 0)
-                
-                # If conviction is at neutral default (7.5-10), use tech score instead
-                if conviction is not None and conviction < 20 and tech_score is not None and tech_score > 0:
-                    results.at[idx, "conviction_v2_final"] = max(conviction, tech_score)
-                elif "conviction_v2_final" in results.columns:
-                    # Ensure non-zero score
-                    if conviction is None or conviction <= 0:
-                        results.at[idx, "conviction_v2_final"] = max(0.1, tech_score if tech_score else 1.0)
-            
-            results["Score"] = results["conviction_v2_final"]
-        elif "conviction_v2_final" in results.columns:
-            results["Score"] = results["conviction_v2_final"]
-            
     # 7. Classification & Allocation
     if status_callback: status_callback("Classifying & Allocating...")
     results = apply_classification(results)
@@ -350,5 +394,11 @@ def run_scan_pipeline(
     
     if "buy_amount_v2" not in results.columns:
         results = allocate_budget(results, config.get("BUDGET_TOTAL", 5000), config.get("MIN_POSITION", 500), config.get("MAX_POSITION_PCT", 0.2))
+    
+    # STRICT ENFORCEMENT: Score must always equal FinalScore_20d
+    # This is the final safety check before returning results
+    if "FinalScore_20d" in results.columns:
+        results["Score"] = results["FinalScore_20d"]
+        logger.info(f"[PIPELINE] Final check: Score column set to FinalScore_20d for all {len(results)} results")
         
     return results, data_map

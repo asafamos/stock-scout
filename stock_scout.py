@@ -33,13 +33,51 @@ from dotenv import load_dotenv, find_dotenv
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import html as html_escape
 
-from core.data_sources_v2 import (
-    aggregate_fundamentals as agg_fund_v2,
-    fetch_price_multi_source as fetch_price_multi_v2,
-    aggregate_price as aggregate_price_v2,
+# ============================================================================
+# NEW UNIFIED API - Use wrapper modules
+# ============================================================================
+from core.data import (
+    fetch_price_multi_source,
+    aggregate_price,
+    aggregate_fundamentals,
+    fetch_fundamentals_batch,
+    build_technical_indicators,
 )
+from core.scoring import (
+    compute_tech_score_20d_v2,
+    predict_20d_prob_from_row,
+    apply_live_v3_adjustments,
+    compute_final_scores_20d,
+    apply_20d_sorting,
+    score_ticker_v2_enhanced,
+    calculate_reliability_v2,
+    compute_fundamental_score_with_breakdown,
+    evaluate_rr_unified,
+)
+from core.filters import (
+    apply_technical_filters,
+    compute_advanced_score,
+    should_reject_ticker,
+    fetch_benchmark_data,
+)
+from core.allocation import allocate_budget, _normalize_weights
+from core.classifier import apply_classification, filter_core_recommendations
+
+# ============================================================================
+# LEGACY IMPORTS - For backward compatibility (deprecated, will be removed)
+# ============================================================================
+from core.unified_logic import (
+    score_with_ml_model,
+    compute_technical_score,
+    compute_final_score,
+    compute_overall_score_20d,
+)
+from indicators import rsi, atr, macd_line, adx, _sigmoid
+
+# ============================================================================
+# UI & CONFIG
+# ============================================================================
 from card_styles import get_card_css
-from core.portfolio import _normalize_weights, allocate_budget
 from ui_redesign import (
     render_simplified_sidebar,
     render_native_recommendation_row,
@@ -56,24 +94,6 @@ from hebrew_ui import (
     force_ml_and_sorting,
 )
 from core.config import get_config
-from advanced_filters import (
-    compute_advanced_score,
-    should_reject_ticker,
-    fetch_benchmark_data,
-)
-from core.unified_logic import (
-    build_technical_indicators,
-    apply_technical_filters,
-    score_with_ml_model,
-    compute_technical_score,
-    compute_final_score,
-    compute_overall_score_20d,
-)
-from core.classification import apply_classification, filter_core_recommendations
-from core.scoring.fundamental import compute_fundamental_score_with_breakdown
-from core.v2_risk_engine import score_ticker_v2_enhanced
-from indicators import rsi, atr, macd_line, adx, _sigmoid
-from core.scoring_engine import evaluate_rr_unified
 from core.market_regime import detect_market_regime, adjust_target_for_regime
 from core.ui_helpers import (
     StatusManager,
@@ -2308,7 +2328,7 @@ with st.container():
     
     with col3:
         st.markdown("<br>", unsafe_allow_html=True)  # Vertical spacing
-        run_scan = st.button("🚀 הרץ סריקה", use_container_width=True, type="primary")
+        run_scan = st.button("🚀 הרץ סריקה", width='stretch', type="primary")
 
 # Advanced options in collapsible expander
 with st.expander("🎛️ אפשרויות מתקדמות", expanded=False):
@@ -2486,6 +2506,34 @@ force_live_scan_once = st.session_state.get("force_live_scan_once", False)
 from core.scan_io import load_latest_scan, save_scan as save_scan_helper
 import time
 
+def save_latest_scan_from_results(results_df: pd.DataFrame, metadata: Optional[Dict] = None) -> None:
+    """Helper to save scan results using scan_io.save_scan with proper paths."""
+    if results_df is None or results_df.empty:
+        logger.warning("Cannot save empty results")
+        return
+    
+    output_dir = Path(__file__).parent / "data" / "scans"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    path_latest = output_dir / "latest_scan.parquet"
+    
+    # Prepare metadata
+    meta = metadata.copy() if metadata else {}
+    meta["total_tickers"] = len(results_df)
+    meta["scan_type"] = "live_streamlit"
+    
+    try:
+        save_scan_helper(
+            results_df=results_df,
+            config=CONFIG,
+            path_latest=path_latest,
+            path_timestamped=None,  # Don't create timestamped backup for live scans
+            metadata=meta
+        )
+        logger.info(f"✅ Saved live scan results: {len(results_df)} tickers to {path_latest}")
+    except Exception as e:
+        logger.error(f"❌ Failed to save scan: {e}")
+        raise
+
 # Attempt to load precomputed scan (internal, no user dropdown)
 precomputed_df = None
 precomputed_meta = None
@@ -2613,9 +2661,11 @@ if skip_pipeline:
 
     if score_col:
         score_values = pd.to_numeric(results[score_col], errors="coerce")
-        min_score = 20.0 if (score_values.dropna() > 10).any() else 3.0
+        # Use lower threshold to avoid filtering out everything
+        min_score = 10.0 if (score_values.dropna() > 10).any() else 2.0
         results = results.loc[score_values >= min_score].copy()
         removed_below = original_count - len(results)
+        logger.info(f"[PRECOMPUTED] Min score filter (threshold={min_score}): {len(results)} remain (removed {removed_below})")
 
         # Keep only the strongest ideas by score (numeric nlargest guards against unsorted snapshots)
         if len(results) > top_n:
@@ -2624,18 +2674,25 @@ if skip_pipeline:
                 .nlargest(top_n, "_score_numeric")
                 .drop(columns="_score_numeric")
             )
+            logger.info(f"[PRECOMPUTED] Top-{top_n} filter: {len(results)} remain")
     else:
-        logger.warning("[PRECOMPUTED] No score column found; skipping score-based filter")
+        logger.warning("[PRECOMPUTED] No score column found; applying top-N filter anyway")
+        # Even without score column, limit to top N to prevent showing too many stocks
+        if len(results) > top_n:
+            results = results.head(top_n).copy()
 
     filtered_count = len(results)
-    display_cap = min(int(CONFIG.get("TOPN_RESULTS", 20)), top_n)
+    display_cap = min(int(CONFIG.get("TOPN_RESULTS", 15)), top_n)
     if len(results) > display_cap:
         results = results.head(display_cap).copy()
-        logger.info(f"[DISPLAY] Showing top {display_cap} of {filtered_count} filtered stocks")
+        logger.info(f"[PRECOMPUTED] Display cap ({display_cap}): showing top {len(results)} of {filtered_count} filtered stocks")
 
     logger.info(
         f"[PRECOMPUTED] Final display: {len(results)} stocks (original {original_count}, removed_below_min={removed_below})"
     )
+    
+    # IMPORTANT: Update session state with filtered results so they persist
+    st.session_state["precomputed_results"] = results.copy()
     
     try:
         status_manager.update_detail(f"Precomputed scan: {len(results)} top stocks")
@@ -2678,34 +2735,65 @@ if not skip_pipeline:
         status_callback=status_manager.update_detail
     )
     
+    logger.info(f"[LIVE] Pipeline returned {len(results)} stocks")
+    
     # Mark yfinance as used for price history (always runs in pipeline)
     # Mark Yahoo prices used for this run
     mark_provider_usage("Yahoo", "price")
     
-    # Apply same filters as auto_scan_runner to ensure consistency
+    # Save full pipeline results immediately (before any filtering) for next precomputed load
+    try:
+        if not results.empty:
+            save_latest_scan_from_results(
+                results, 
+                metadata={"timestamp": datetime.utcnow().isoformat(), "scan_type": "live_streamlit"}
+            )
+            logger.info(f"✅ Auto-saved full live scan: {len(results)} tickers (before filtering)")
+    except Exception as e:
+        logger.warning(f"Failed to auto-save full live scan: {e}")
+    
+    # Apply same filters as precomputed to ensure consistency
     logger.info(f"[LIVE] Filtering live scan results: {len(results)} initial")
     
-    # Use score-based filtering (same as auto_scan_runner)
-    score_col = 'conviction_v2_final' if 'conviction_v2_final' in results.columns else 'Score'
+    # Keep copy for comparison logging
+    results_before_display_filter = results.copy()
     
-    if score_col in results.columns:
-        before = len(results)
+    # Use same score column candidates as precomputed
+    score_candidates = ["conviction_v2_final", "Score", "FinalScore_20d", "overall_score_20d", "TechScore_20d"]
+    score_col = next((c for c in score_candidates if c in results.columns), None)
+    top_n = 15
+    removed_below = 0
+    
+    if score_col:
+        score_values = pd.to_numeric(results[score_col], errors="coerce")
+        # Use lower threshold to avoid filtering out everything
+        min_score = 10.0 if (score_values.dropna() > 10).any() else 2.0
+        results = results.loc[score_values >= min_score].copy()
+        removed_below = len(results_before_display_filter) - len(results)
+        logger.info(f"[LIVE] Min score filter (threshold={min_score}): {len(results)} remain (removed {removed_below})")
         
-        # Determine score scale (0-100 vs 0-10)
-        score_values = pd.to_numeric(results[score_col], errors='coerce')
-        min_score = 20.0 if (score_values.dropna() > 10).any() else 3.0
-        
-        # Apply minimum score filter
-        results = results[score_values >= min_score].copy()
-        logger.info(f"[LIVE] Min score filter (threshold={min_score}): {len(results)} remain (removed {before - len(results)})")
-        
-        # Apply top-N filter
-        top_n = 15
+        # Keep only the strongest ideas by score (numeric nlargest guards against unsorted data)
         if len(results) > top_n:
-            results = results.nlargest(top_n, score_col)
+            results = (
+                results.assign(_score_numeric=pd.to_numeric(results[score_col], errors="coerce"))
+                .nlargest(top_n, "_score_numeric")
+                .drop(columns="_score_numeric")
+            )
             logger.info(f"[LIVE] Top-{top_n} filter: {len(results)} remain")
+    else:
+        logger.warning("[LIVE] No score column found; applying top-N filter anyway")
+        if len(results) > top_n:
+            results = results.head(top_n).copy()
     
-    logger.info(f"[LIVE] Final live results: {len(results)} stocks")
+    filtered_count = len(results)
+    display_cap = min(int(CONFIG.get("TOPN_RESULTS", 15)), top_n)
+    if len(results) > display_cap:
+        results = results.head(display_cap).copy()
+        logger.info(f"[LIVE] Display cap ({display_cap}): showing top {len(results)} of {filtered_count} filtered stocks")
+    
+    logger.info(
+        f"[LIVE] Final display: {len(results)} stocks (original {len(results_before_display_filter)}, removed_below_min={removed_below})"
+    )
 
 # External price verification (Top-K)
 t0 = t_start()
@@ -3180,9 +3268,13 @@ if total_alloc > total_budget_value and total_alloc > 0:
     
 # Live-mode-only: offer saving this run as latest precomputed scan
 # If a precomputed scan was loaded earlier, prefer it for rendering instead of re-running the pipeline.
+# NOTE: Use the already-filtered results from session state (updated in skip_pipeline block above)
 if st.session_state.get("precomputed_results") is not None and st.session_state.get("skip_pipeline", False):
     try:
+        # Use the filtered results from session state (already limited to top 15 by skip_pipeline block)
+        # The skip_pipeline block above already filtered and updated session state at line 2644
         results = st.session_state.get("precomputed_results").copy()
+        
         # Rename columns to match live pipeline naming
         column_renames = {
             'Close': 'Price_Yahoo',
@@ -3194,10 +3286,11 @@ if st.session_state.get("precomputed_results") is not None and st.session_state.
         }
         results = results.rename(columns=column_renames)
     except Exception:
+        # Fallback to session state if rename fails
         results = st.session_state.get("precomputed_results")
     data_map = {}
     phase_times = phase_times if 'phase_times' in locals() else {}
-    logger.info(f"Rendering using precomputed scan with {len(results)} tickers")
+    logger.info(f"Rendering using precomputed scan with {len(results)} tickers (already filtered to top 15)")
     try:
         status_manager.update_detail("Precomputed scan loaded — using cached results")
         status_manager.set_progress(1.0)
@@ -3205,34 +3298,8 @@ if st.session_state.get("precomputed_results") is not None and st.session_state.
         pass
     st.info("⚡ Rendering using precomputed scan (no live pipeline run)")
 
-if not use_precomputed:
-    st.markdown("---")
-    if st.button(
-        "💾 Save this run as latest precomputed scan",
-        key="save_precomputed",
-        help="Persist these results to load instantly next time via Precomputed mode."
-    ):
-        try:
-            ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-            save_latest_scan_from_results(results, metadata={"timestamp": ts})
-            st.success(f"Saved this run as latest_scan ({len(results)} tickers, timestamp {ts})")
-            if CONFIG.get("DEBUG_MODE"):
-                from pathlib import Path
-                output_dir = Path(__file__).parent / "data" / "scans"
-                path_latest = output_dir / "latest_scan.parquet"
-                path_timestamped = output_dir / f"scan_{ts}.parquet"
-                with st.expander("Developer details: saved paths"):
-                    st.json({"latest": str(path_latest), "timestamped": str(path_timestamped)})
-        except Exception as e:
-            st.error(f"Failed to save scan: {e}")
-    
-    # Auto-save latest scan at end of live pipeline
-    try:
-        ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        save_latest_scan_from_results(results, metadata={"timestamp": ts})
-    except Exception as e:
-        logger.warning(f"Failed to auto-save latest scan: {e}")
-    # (Save option moved outside scaling branch)
+# Note: Auto-save is now handled in the live pipeline section above
+# No need for manual save button - results are saved automatically
 
 # Mark pipeline completion at UI level
 try:
@@ -3292,19 +3359,32 @@ score_range = st.session_state.get("score_range", (0.0, 100.0))
 
 # Apply filters
 rec_df = results.copy()
+initial_rec_count = len(rec_df)
+logger.info(f"[FILTER] Starting recommendation filtering with {initial_rec_count} stocks")
+
 # Filter: only tickers with 20d score >= 2 (already applied above, but keep for safety)
 if "overall_score_20d" in rec_df.columns:
+    before = len(rec_df)
     rec_df = rec_df[rec_df["overall_score_20d"] >= 2].copy()
+    logger.info(f"[FILTER] Overall score >= 2: {len(rec_df)} remain (removed {before - len(rec_df)})")
 else:
-    print("[WARN] 'overall_score_20d' missing from rec_df columns, skipping score filter!")
+    logger.warning("[FILTER] 'overall_score_20d' missing from rec_df columns, skipping score filter!")
+
 # Prefer V2 strict buy amounts for recommendations; fallback to legacy Hebrew buy column
 if "buy_amount_v2" in rec_df.columns:
+    before = len(rec_df)
     rec_df = rec_df[rec_df["buy_amount_v2"].fillna(0) > 0].copy()
+    logger.info(f"[FILTER] Buy amount > 0: {len(rec_df)} remain (removed {before - len(rec_df)})")
 elif "סכום קנייה ($)" in rec_df.columns:
+    before = len(rec_df)
     rec_df = rec_df[rec_df["סכום קנייה ($)"].fillna(0) > 0].copy()
+    logger.info(f"[FILTER] Hebrew buy amount > 0: {len(rec_df)} remain (removed {before - len(rec_df)})")
+
 # Explicitly exclude tickers blocked by the strict V2 gate
 if "risk_gate_status_v2" in rec_df.columns:
+    before = len(rec_df)
     rec_df = rec_df[rec_df["risk_gate_status_v2"] != "blocked"].copy()
+    logger.info(f"[FILTER] Risk gate not blocked: {len(rec_df)} remain (removed {before - len(rec_df)})")
 
 if not rec_df.empty:
     # Apply risk filter
@@ -3329,7 +3409,12 @@ if not rec_df.empty:
     if "RSI" in rec_df.columns:
         rec_df = rec_df[(rec_df["RSI"].isna()) | (rec_df["RSI"] <= rsi_max)]
 
-st.info(f"📊 Showing {len(rec_df)} stocks after filters")
+logger.info(f"[FILTER] Final recommendations after all filters: {len(rec_df)} stocks (started with {initial_rec_count})")
+st.info(f"📊 **{len(rec_df)} מניות** עברו את כל המסננים (מתוך {initial_rec_count} שנבדקו)")
+
+if initial_rec_count > 0 and len(rec_df) < initial_rec_count:
+    removed = initial_rec_count - len(rec_df)
+    st.caption(f"🔍 {removed} מניות סוננו על ידי: Risk management, Buy amount allocation, Quality filters")
 
 # --- DEBUG: Show top 5 with canonical 20d ML columns ---
 if not rec_df.empty and "FinalScore_20d" in rec_df.columns:
@@ -3724,9 +3809,25 @@ def calculate_targets(row):
 if not (st.session_state.get("skip_pipeline", False) and 
         all(col in rec_df.columns for col in ["Entry_Price", "Target_Price", "Target_Date", "Target_Source"])):
     with st.spinner(f"🎯 Calculating targets for {len(rec_df)} stocks..."):
-        rec_df[["Entry_Price", "Target_Price", "Target_Date", "Target_Source"]] = (
-            rec_df.apply(lambda row: pd.Series(calculate_targets(row)), axis=1)
-        )
+        # Calculate targets for each row and assign directly to avoid index mismatch
+        if not rec_df.empty:
+            entry_prices = []
+            target_prices = []
+            target_dates = []
+            target_sources = []
+            
+            for idx, row in rec_df.iterrows():
+                entry, target, date, source = calculate_targets(row)
+                entry_prices.append(entry)
+                target_prices.append(target)
+                target_dates.append(date)
+                target_sources.append(source)
+            
+            # Assign directly to avoid index issues
+            rec_df["Entry_Price"] = entry_prices
+            rec_df["Target_Price"] = target_prices
+            rec_df["Target_Date"] = target_dates
+            rec_df["Target_Source"] = target_sources
     logger.info(f"Calculated targets for {len(rec_df)} stocks")
 else:
     logger.info(f"Using precomputed targets for {len(rec_df)} stocks")

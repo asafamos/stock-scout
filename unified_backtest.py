@@ -17,7 +17,7 @@ import numpy as np
 import yfinance as yf
 
 from core.config import get_config
-from core.classification import apply_classification
+from core.classifier import apply_classification
 from core.scoring.fundamental import compute_fundamental_score_with_breakdown
 from core.unified_logic import (
     build_technical_indicators,
