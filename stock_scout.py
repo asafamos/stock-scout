@@ -2282,22 +2282,12 @@ st.title("📈 סקאוט מניות — 2025 אסף")
 st.caption("🇮🇱 סקאן מניות אישי בעברית | כלי למחקר בלבד. לא ייעוץ השקעות.")
 
 # === TOP CONTROL BAR (REPLACING SIDEBAR) ===
-st.markdown("### ⚙️ הגדרות סריקה")
+st.markdown("### ⚙️ הגדרות השקעה")
 
 with st.container():
-    col1, col2, col3, col4 = st.columns([2, 2, 2, 1])
+    col1, col2, col3 = st.columns([2, 2, 1])
     
     with col1:
-        universe_size = st.selectbox(
-            "יקום מניות",
-            options=[20, 50, 100, 200, 500],
-            index=2,  # default 100
-            key="universe_size_top",
-            help="מספר המניות לבדיקה"
-        )
-        st.session_state["universe_size"] = int(universe_size)
-    
-    with col2:
         alloc_style = st.selectbox(
             "סגנון השקעה",
             ["Balanced (core tilt)", "Conservative", "Aggressive"],
@@ -2306,7 +2296,7 @@ with st.container():
         )
         st.session_state["alloc_style_idx"] = ["Balanced (core tilt)", "Conservative", "Aggressive"].index(alloc_style)
     
-    with col3:
+    with col2:
         total_budget = st.number_input(
             "תקציב ($)",
             min_value=0.0,
@@ -2516,34 +2506,54 @@ except Exception as exc:
 
 timestamp_str = "unknown"
 universe_size = 0
+scan_age_hours = None
+scan_too_old = False
+
 if precomputed_meta is not None:
     timestamp_str = precomputed_meta.get("timestamp", "unknown")
-    universe_size = precomputed_meta.get("universe_size", 0)
+    universe_size = precomputed_meta.get("total_tickers", precomputed_meta.get("universe_size", 0))
+    
+    # Check scan age (12 hour limit)
+    try:
+        scan_time = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+        scan_age_hours = (datetime.now() - scan_time).total_seconds() / 3600
+        scan_too_old = scan_age_hours > 12
+    except Exception:
+        scan_too_old = True
 
-if precomputed_df is not None and precomputed_meta is not None and not force_live_scan_once:
-    # Successfully loaded and NOT forcing live scan -> use precomputed snapshot
+if precomputed_df is not None and precomputed_meta is not None and not force_live_scan_once and not scan_too_old:
+    # Successfully loaded and NOT forcing live scan and NOT too old -> use precomputed snapshot
     status_manager.advance(
         f"Precomputed scan loaded: {universe_size} tickers (last updated: {timestamp_str})"
     )
-    st.success(f"✅ Using precomputed scan from {timestamp_str}")
-    st.caption(f"📊 {universe_size} tickers analyzed | 🔄 Run batch scanner to update")
+    st.success(f"✅ נתונים עדכניים מסריקה אוטומטית ({scan_age_hours:.1f} שעות)")
+    st.caption(f"📊 {universe_size} מניות נותחו | ⏰ סריקה אוטומטית פעמיים ביום (8:00 + 20:00 UTC)")
 
     st.session_state["skip_pipeline"] = True
     st.session_state["precomputed_results"] = precomputed_df
     logger.info(f"[PERF] Precomputed scan: DataFrame shape {precomputed_df.shape}")
     use_precomputed = True
 else:
-    # Either no snapshot exists, or user forced a live scan
-    if precomputed_df is not None and precomputed_meta is not None and force_live_scan_once:
-        st.info("🔄 Live scan forced — ignoring precomputed snapshot for this run.")
-        st.caption(f"📊 Snapshot from {timestamp_str} ignored for this run.")
+    # Either no snapshot exists, or user forced a live scan, or scan is too old
+    if scan_too_old and precomputed_df is not None:
+        st.warning(f"⚠️ הסריקה הקיימת ישנה מדי ({scan_age_hours:.1f} שעות) - מחכה לסריקה אוטומטית הבאה")
+        st.info("💡 סריקה אוטומטית חדשה תתבצע תוך מספר שעות (פעמיים ביום: 8:00 + 20:00 UTC)")
+        # Use old scan anyway but warn user
+        st.session_state["skip_pipeline"] = True
+        st.session_state["precomputed_results"] = precomputed_df
+        use_precomputed = True
+    elif precomputed_df is not None and precomputed_meta is not None and force_live_scan_once:
+        st.info("🔄 סריקה חיה נכפית - מתעלם מסריקה אוטומטית.")
+        st.caption(f"📊 סריקה אוטומטית מ-{timestamp_str} מתעלמת עבור הרצה זו.")
+        use_precomputed = False
+        st.session_state["skip_pipeline"] = False
     else:
-        st.info("📊 Running live scan mode (no precomputed data available).")
-        st.caption("💡 Run `python batch_scan.py` to generate precomputed results for faster loading.")
-
-    use_precomputed = False
-    st.session_state["skip_pipeline"] = False
-    # Reset the one-shot flag so the next run can go back to precomputed mode by default
+        st.info("📊 אין סריקה זמינה - מחכה לסריקה אוטומטית הבאה.")
+        st.caption("💡 סריקות אוטומטיות רצות פעמיים ביום דרך GitHub Actions.")
+        use_precomputed = False
+        st.session_state["skip_pipeline"] = False
+    
+    # Reset the one-shot flag
     st.session_state["force_live_scan_once"] = False
 
 # ==================== MAIN PIPELINE ====================
@@ -2614,9 +2624,10 @@ create_debug_expander({
 sources_overview = SourcesOverview()
 
 if not skip_pipeline:
-    # Use the unified pipeline runner
-    selected_universe_size = int(st.session_state.get("universe_size", CONFIG["UNIVERSE_LIMIT"]))
-    universe = build_universe(limit=selected_universe_size)
+    # Use the unified pipeline runner with maximum universe
+    # Note: Manual scans are discouraged - use automated scans from GitHub Actions
+    st.warning("⚠️ סריקה ידנית פועלת - זה יכול לקחת זמן. מומלץ להשתמש בסריקות אוטומטיות.")
+    universe = build_universe(limit=500)  # Fixed to 500 for consistency
     
     results, data_map = run_scan_pipeline(
         universe=universe,

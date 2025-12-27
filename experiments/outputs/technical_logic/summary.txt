@@ -1,0 +1,54 @@
+⚠️ matplotlib not available; skipping plots.
+
+======================================================================
+  TECHNICAL LOGIC ANALYSIS — 20D
+======================================================================
+✓ Dataset loaded: 20329 rows, 22 columns
+
+======================================================================
+  FEATURE DECILE ANALYSIS
+======================================================================
+
+======================================================================
+  RULE-BASED FILTER EVALUATION
+======================================================================
+
+======================================================================
+  TECHSCORE VARIANTS EVALUATION
+======================================================================
+
+======================================================================
+  REGIME / TIME-SLICE ANALYSIS
+======================================================================
+
+======================================================================
+  FINAL TEXTUAL SUMMARY
+======================================================================
+Baseline: pos_rate=8.9%, avg_return=-0.014724
+Most predictive features by top-bottom return spread:
+  - ATR_Pct: spread=0.036049
+  - ATR_Pct_rank: spread=0.036049
+  - RR: spread=0.010600
+  - RR_rank: spread=0.006921
+  - RSI: spread=-0.008704
+  - RSI_rank: spread=-0.008704
+  - MomCons: spread=-0.022502
+  - MomCons_rank: spread=-0.022502
+Best-performing rule sets (sorted by avg return, then pos rate):
+  - Vol_SweetSpot: count=10164, avg_ret=-0.019438, pos_rate=8.5%, p5_drawdown=-0.129706
+TechScore variants decile summary (top decile):
+  - Momentum: top_decile avg_ret=0.018133, pos_rate=16.2%
+  - Trend: top_decile avg_ret=0.018133, pos_rate=16.2%
+  - Conservative: top_decile avg_ret=-0.015260, pos_rate=7.1%
+
+Recommended TechScore_20d formula (weights by component):
+  - Trend: 40% (Price/MA50, MA50/MA200, optional MA50 slope)
+  - Momentum: 35% (1m/3m/6m scaled, de-emphasize extremes)
+  - Volatility: 15% (ATR% sweet-spot centered in mid-quantiles)
+  - Location: 10% (penalize chasing near highs and extreme RSI)
+Note: Use per-date percent-rank to normalize to 0–100 within universe.
+
+======================================================================
+✅ Technical logic analysis complete. Outputs in experiments/outputs/technical_logic/
+======================================================================
+

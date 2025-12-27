@@ -99,6 +99,7 @@ def run_batch_scan(
     universe_size: int = 100,
     lookback_days: int = 60,
     output_dir: Path = None,
+    custom_universe: List[str] = None,
 ) -> pd.DataFrame:
     """
     Run full batch scan pipeline.
@@ -107,6 +108,7 @@ def run_batch_scan(
         universe_size: Number of tickers to scan
         lookback_days: Days of historical data
         output_dir: Output directory for scan files
+        custom_universe: Optional list of tickers to use instead of auto-building
     
     Returns:
         Results DataFrame
@@ -131,7 +133,12 @@ def run_batch_scan(
     logger.info(f"Config: universe_size={universe_size}, lookback_days={lookback_days}")
     
     # Use unified pipeline
-    universe = build_universe(limit=universe_size)
+    if custom_universe:
+        logger.info(f"Using custom universe of {len(custom_universe)} tickers")
+        universe = custom_universe[:universe_size]
+    else:
+        universe = build_universe(limit=universe_size)
+    
     results, _ = run_scan_pipeline(universe, config, status_callback=logger.info)
     
     # Save results
