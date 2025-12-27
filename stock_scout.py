@@ -2593,54 +2593,37 @@ st.markdown(
 st.session_state['market_regime'] = market_regime_data
 
 if skip_pipeline:
-    # Use precomputed results
+    # Use precomputed results from full pipeline
     t0_stage3 = time.perf_counter()
     results = st.session_state.get("precomputed_results")
-    logger.info(f"[PRECOMPUTED] Loaded {len(results)} tickers from scan")
+    logger.info(f"[PRECOMPUTED] Loaded {len(results)} tickers from full pipeline scan")
     
     # Add 'Score' alias for overall_score_20d to maintain compatibility
     if "overall_score_20d" in results.columns and "Score" not in results.columns:
         results["Score"] = results["overall_score_20d"]
+    elif "FinalScore_20d" in results.columns and "Score" not in results.columns:
+        results["Score"] = results["FinalScore_20d"]
     
-    # Apply quality filters to precomputed scan
+    # Apply MINIMAL display filters (pipeline already did heavy lifting)
     original_count = len(results)
     
-    # Filter 1: Minimum score threshold (60)
-    if "Score" in results.columns:
-        min_score_threshold = 60.0
-        results = results[results["Score"] >= min_score_threshold].copy()
-        logger.info(f"[FILTER] Score >= {min_score_threshold}: {len(results)} remain (removed {original_count - len(results)})")
-    
-    # Filter 2: Data quality filter
-    if "Data_Quality" in results.columns:
-        results = results[results["Data_Quality"].isin(["high", "medium"])].copy()
-        logger.info(f"[FILTER] Data quality: {len(results)} remain")
-    
-    # Filter 3: Sort by score and take top N
-    top_n = int(CONFIG.get("TOPN_RESULTS", 15))
+    # Filter 1: Display top N only (already sorted by pipeline)
+    top_n = int(CONFIG.get("TOPN_RESULTS", 20))
     if len(results) > top_n:
-        results = results.sort_values("Score", ascending=False).head(top_n).copy()
-        logger.info(f"[FILTER] Top {top_n} by score: {len(results)} selected")
+        results = results.head(top_n).copy()
+        logger.info(f"[DISPLAY] Showing top {top_n} of {original_count} stocks")
     
-    # Filter 4: Apply sector cap if enabled
-    if CONFIG.get("SECTOR_CAP_ENABLED", True) and "Sector" in results.columns:
-        sector_cap = int(CONFIG.get("SECTOR_CAP_MAX", 3))
-        results["_rank"] = results.groupby("Sector", sort=False).cumcount() + 1
-        before_cap = len(results)
-        results = results[results["_rank"] <= sector_cap].drop("_rank", axis=1).copy()
-        if before_cap > len(results):
-            logger.info(f"[FILTER] Sector cap ({sector_cap} per sector): {len(results)} remain (removed {before_cap - len(results)})")
-    
-    logger.info(f"[PRECOMPUTED] Final results: {len(results)} high-quality stocks")
+    logger.info(f"[PRECOMPUTED] Final display: {len(results)} stocks")
     
     try:
-        status_manager.update_detail(f"Precomputed scan filtered: {len(results)} top stocks selected")
+        status_manager.update_detail(f"Precomputed scan: {len(results)} top stocks")
         status_manager.set_progress(1.0)
     except Exception:
         pass
     
-    # Show filter summary to user
-    st.info(f"⚡ נתונים מראש: {original_count} → **{len(results)} מניות מובילות** (ציון ≥ 60, איכות גבוהה)")
+    # Show summary to user
+    st.info(f"⚡ **{len(results)} מניות מובילות** מתוך {original_count} שעברו סריקה מלאה")
+    st.caption("✅ כולל: ML model, Technical scoring, Fundamental data, Risk assessment, Classification")
     
     t1_stage3 = time.perf_counter()
     logger.info(f"[PERF] Precomputed stage 3/10 (post-load to recommendations) time: {t1_stage3-t0_stage3:.3f}s")

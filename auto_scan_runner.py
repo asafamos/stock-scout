@@ -1,6 +1,6 @@
 """
 Automated Stock Scanner - Runs twice daily via GitHub Actions.
-Downloads maximum stocks data and saves to latest_scan.parquet.
+Uses FULL pipeline with all scoring logic, ML models, and filters.
 """
 import sys
 from pathlib import Path
@@ -10,14 +10,26 @@ import warnings
 warnings.filterwarnings('ignore')
 
 import pandas as pd
-import yfinance as yf
-from datetime import datetime, timedelta
+from datetime import datetime
 import json
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%H:%M:%S'
+)
+logger = logging.getLogger(__name__)
 
 print("=" * 80)
-print("🤖 Stock Scout Auto Scan")
+print("🤖 Stock Scout Auto Scan - FULL PIPELINE")
 print(f"⏰ Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}")
 print("=" * 80)
+
+# Import core modules
+from core.pipeline_runner import run_scan_pipeline
+from core.config import get_config
 
 # Comprehensive list of top 500 US stocks
 UNIVERSE = [
@@ -85,123 +97,113 @@ UNIVERSE = [
 ]
 
 print(f"🎯 Universe size: {len(UNIVERSE)} stocks")
-print(f"📥 Downloading historical data (365 days lookback)...")
+print(f"⚙️  Loading configuration and initializing pipeline...")
 
-# Download data
-start_date = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+# Load configuration
+config_obj = get_config()
+config = {
+    "UNIVERSE_LIMIT": len(UNIVERSE),
+    "LOOKBACK_DAYS": 200,
+    "SMART_SCAN": False,
+    "EXTERNAL_PRICE_VERIFY": False,
+    "PERF_FAST_MODE": True,
+    "BETA_FILTER_ENABLED": True,
+    "BETA_MAX_ALLOWED": 2.0,
+    "BETA_TOP_K": 60,
+    "BETA_BENCHMARK": "SPY",
+    "SECTOR_CAP_ENABLED": True,
+    "SECTOR_CAP_MAX": 3,
+    "MA_SHORT": config_obj.ma_short,
+    "MA_LONG": config_obj.ma_long,
+    "WEIGHTS": config_obj.weights,
+}
+
+print(f"📥 Running full pipeline with:")
+print(f"   - Technical indicators (20+ metrics)")
+print(f"   - ML model (XGBoost 20d)")
+print(f"   - Fundamental scoring (Alpha/Finnhub/FMP)")
+print(f"   - Risk assessment (V2 engine)")
+print(f"   - Classification (Core/Speculative)")
+
+# Status callback for progress
+def status_update(msg: str):
+    print(f"   {msg}")
+
+# Run the FULL pipeline
+import time
+t_start = time.time()
+
 try:
-    data = yf.download(UNIVERSE, start=start_date, group_by='ticker', 
-                      progress=False, threads=True)
-    print(f"✅ Data download complete")
+    results_df, data_map = run_scan_pipeline(
+        universe=UNIVERSE,
+        config=config,
+        status_callback=status_update,
+        data_map=None
+    )
+    
+    t_elapsed = time.time() - t_start
+    
+    if results_df is None or results_df.empty:
+        print(f"\n❌ Pipeline returned no results!")
+        sys.exit(1)
+    
+    print(f"\n✅ Pipeline completed in {t_elapsed:.1f}s")
+    print(f"📊 Results: {len(results_df)} stocks passed all filters")
+    
 except Exception as e:
-    print(f"❌ Download failed: {e}")
+    print(f"\n❌ Pipeline failed: {e}")
+    import traceback
+    traceback.print_exc()
     sys.exit(1)
 
-# Process stocks
-print(f"⚙️  Processing indicators and scores...")
-results = []
-success_count = 0
-fail_count = 0
+# Prepare for saving
+print(f"\n💾 Preparing results for export...")
 
-for ticker in UNIVERSE:
-    try:
-        if ticker not in data.columns.get_level_values(0):
-            fail_count += 1
-            continue
-            
-        df = data[ticker]
-        if len(df) < 30:
-            fail_count += 1
-            continue
-        
-        close = df['Close'].dropna()
-        if len(close) < 30:
-            fail_count += 1
-            continue
-        
-        # Calculate metrics
-        ret_20d = close.pct_change(20).iloc[-1]
-        ret_60d = close.pct_change(60).iloc[-1] if len(close) >= 60 else None
-        
-        # RSI
-        delta = close.diff()
-        gain = delta.where(delta > 0, 0).rolling(14).mean()
-        loss = -delta.where(delta < 0, 0).rolling(14).mean()
-        rs = gain / loss
-        rsi = 100 - (100 / (1 + rs))
-        rsi_val = rsi.iloc[-1]
-        
-        # Volatility
-        returns = close.pct_change().dropna()
-        volatility = returns.std() * (252 ** 0.5)  # Annualized
-        
-        # Score calculation
-        score = 0
-        if not pd.isna(rsi_val):
-            if 30 < rsi_val < 70:
-                score += 5
-            elif rsi_val < 30:
-                score += 8  # Oversold bonus
-        
-        if not pd.isna(ret_20d) and ret_20d > 0:
-            score += ret_20d * 50
-        
-        if not pd.isna(ret_60d) and ret_60d > 0:
-            score += ret_60d * 30
-        
-        # Penalty for high volatility
-        if volatility > 0.5:
-            score *= 0.8
-        
-        results.append({
-            'Ticker': ticker,
-            'overall_score_20d': score,
-            'RSI': rsi_val,
-            'Return_20d': ret_20d,
-            'Return_60d': ret_60d,
-            'Volatility': volatility,
-            'Close': close.iloc[-1],
-            'Volume': df['Volume'].iloc[-1],
-            'Sector': 'Unknown',  # Will be enriched later
-            'Risk_Level': 'core' if score > 10 else 'speculative',
-            'Data_Quality': 'high',
-            'ML_20d_Prob': 0.5,
-        })
-        success_count += 1
-        
-        if success_count % 50 == 0:
-            print(f"   Processed: {success_count}/{len(UNIVERSE)} ({success_count/len(UNIVERSE)*100:.0f}%)")
-            
-    except Exception as e:
-        fail_count += 1
+# Ensure required columns exist
+required_cols = [
+    'Ticker', 'Score', 'FinalScore_20d', 'TechScore_20d', 'ML_20d_Prob',
+    'RSI', 'Close', 'Volume', 'Sector', 'Risk_Level', 'Data_Quality'
+]
 
-# Create DataFrame and sort
-df = pd.DataFrame(results)
-df = df.sort_values('overall_score_20d', ascending=False)
-df['Overall_Rank'] = range(1, len(df) + 1)
+# Add aliases for compatibility
+if 'Score' in results_df.columns and 'overall_score_20d' not in results_df.columns:
+    results_df['overall_score_20d'] = results_df['Score']
+elif 'FinalScore_20d' in results_df.columns and 'overall_score_20d' not in results_df.columns:
+    results_df['overall_score_20d'] = results_df['FinalScore_20d']
 
-print(f"\n✅ Processing complete:")
-print(f"   Success: {success_count} stocks")
-print(f"   Failed: {fail_count} stocks")
-print(f"   Total in dataset: {len(df)}")
+# Add rank
+if 'Overall_Rank' not in results_df.columns:
+    results_df = results_df.sort_values('overall_score_20d', ascending=False)
+    results_df['Overall_Rank'] = range(1, len(results_df) + 1)
+
+# Select columns to save (keep comprehensive set)
+save_cols = [
+    'Ticker', 'overall_score_20d', 'FinalScore_20d', 'TechScore_20d', 'ML_20d_Prob',
+    'RSI', 'Close', 'Volume', 'Sector', 'Risk_Level', 'Data_Quality',
+    'Overall_Rank', 'ATR_Pct', 'Beta', 'RewardRisk'
+]
+
+# Only keep columns that exist
+save_cols_actual = [c for c in save_cols if c in results_df.columns]
+df_to_save = results_df[save_cols_actual].copy()
 
 # Save results
 output_dir = Path('data/scans')
 output_dir.mkdir(parents=True, exist_ok=True)
 
-df.to_parquet(output_dir / 'latest_scan.parquet', index=False)
+df_to_save.to_parquet(output_dir / 'latest_scan.parquet', index=False)
 
 metadata = {
     "timestamp": datetime.now().isoformat(),
-    "scan_type": "automated_full",
-    "total_tickers": len(df),
+    "scan_type": "automated_full_pipeline",
+    "total_tickers": len(df_to_save),
     "universe_size": len(UNIVERSE),
-    "success_count": success_count,
-    "fail_count": fail_count,
-    "top_ticker": df.iloc[0]['Ticker'] if len(df) > 0 else None,
-    "top_score": float(df.iloc[0]['overall_score_20d']) if len(df) > 0 else 0,
-    "avg_score": float(df['overall_score_20d'].mean()),
-    "scan_duration_seconds": 0,  # Will be calculated by GitHub Actions
+    "pipeline_version": "v2_with_ml",
+    "top_ticker": df_to_save.iloc[0]['Ticker'] if len(df_to_save) > 0 else None,
+    "top_score": float(df_to_save.iloc[0]['overall_score_20d']) if len(df_to_save) > 0 else 0,
+    "avg_score": float(df_to_save['overall_score_20d'].mean()),
+    "scan_duration_seconds": t_elapsed,
+    "columns_saved": save_cols_actual,
 }
 
 with open(output_dir / 'latest_scan.json', 'w') as f:
@@ -209,14 +211,20 @@ with open(output_dir / 'latest_scan.json', 'w') as f:
 
 print(f"\n💾 Results saved:")
 print(f"   File: data/scans/latest_scan.parquet")
+print(f"   Columns: {len(save_cols_actual)}")
 print(f"   Top stock: {metadata['top_ticker']} (score: {metadata['top_score']:.1f})")
 print(f"   Average score: {metadata['avg_score']:.1f}")
 
 print("\n" + "=" * 80)
 print("🏆 Top 10 stocks:")
 print("=" * 80)
-for i, row in df.head(10).iterrows():
-    print(f"{row['Overall_Rank']:2d}. {row['Ticker']:6s} - Score: {row['overall_score_20d']:6.1f} | RSI: {row['RSI']:4.0f}")
+for i, row in df_to_save.head(10).iterrows():
+    ticker = row['Ticker']
+    score = row['overall_score_20d']
+    ml_prob = row.get('ML_20d_Prob', 0) * 100
+    rsi = row.get('RSI', 0)
+    risk = row.get('Risk_Level', 'N/A')[:4]
+    print(f"{row['Overall_Rank']:2d}. {ticker:6s} - Score: {score:6.1f} | ML: {ml_prob:4.0f}% | RSI: {rsi:4.0f} | {risk}")
 
 print("=" * 80)
 print(f"✅ Auto scan completed at {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}")
