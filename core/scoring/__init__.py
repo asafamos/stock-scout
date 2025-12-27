@@ -15,6 +15,8 @@ This module aggregates all scoring functions from across the codebase:
 from core.unified_logic import (
     build_technical_indicators,
     compute_technical_score,
+    compute_tech_score_20d_v2,
+    compute_tech_score_20d_v2_components,
 )
 # Note: apply_technical_filters is in core.filters, not unified_logic
 
