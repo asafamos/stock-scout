@@ -1,5 +1,8 @@
 name: Auto Stock Scan
 
+permissions:
+  contents: write  # allow the workflow's GITHUB_TOKEN to push scan artifacts
+
 on:
   schedule:
     # Run twice daily: 8:00 AM and 8:00 PM UTC

@@ -21,7 +21,7 @@ import warnings
 import pickle
 from pathlib import Path
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Set
 
 import numpy as np
 import pandas as pd
@@ -2476,6 +2476,26 @@ st.session_state["_fmp_ok"] = fmp_ok
 # Initialize centralized status manager
 status_manager = StatusManager(get_pipeline_stages())
 
+# Map pipeline detail messages to status stage advancements
+_stage_triggers = [
+    ("Fetching historical data", "Historical Data Fetch"),
+    ("Computing technical indicators", "Technical Indicators"),
+    ("Applying Beta filter", "Beta Filter"),
+    ("Applying advanced filters", "Advanced Filters"),
+    ("Fetching fundamentals", "Fundamentals Enrichment"),
+    ("Classifying & Allocating", "Risk Classification"),
+]
+_completed_stages: Set[str] = set()
+
+
+def status_with_progress(message: str) -> None:
+    """Update detail text and advance progress when key milestones fire."""
+    status_manager.update_detail(message)
+    for trigger, stage_name in _stage_triggers:
+        if trigger in message and stage_name not in _completed_stages:
+            status_manager.advance(stage_name)
+            _completed_stages.add(stage_name)
+
 # timers
 def t_start() -> float:
     return time.perf_counter()
@@ -2506,10 +2526,21 @@ from core.scan_io import load_latest_scan, save_scan as save_scan_helper
 import time
 
 def save_latest_scan_from_results(results_df: pd.DataFrame, metadata: Optional[Dict] = None) -> None:
-    """Helper to save scan results using scan_io.save_scan with proper paths."""
-    if results_df is None or results_df.empty:
-        logger.warning("Cannot save empty results")
+    """Helper to save scan results using scan_io.save_scan with proper paths.
+    Saves even empty DataFrames to avoid missing snapshot state."""
+    if results_df is None:
+        logger.warning("Cannot save results: DataFrame is None")
         return
+    
+    # Ensure parquet-safe types (convert complex objects to strings)
+    results_to_save = results_df.copy()
+    for col in results_to_save.columns:
+        if results_to_save[col].dtype == "object":
+            results_to_save[col] = results_to_save[col].apply(
+                lambda v: v
+                if isinstance(v, (str, int, float, bool, np.bool_, np.integer, np.floating)) or v is None
+                else str(v)
+            )
     
     output_dir = Path(__file__).parent / "data" / "scans"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -2522,7 +2553,7 @@ def save_latest_scan_from_results(results_df: pd.DataFrame, metadata: Optional[D
     
     try:
         save_scan_helper(
-            results_df=results_df,
+            results_df=results_to_save,
             config=CONFIG,
             path_latest=path_latest,
             path_timestamped=None,  # Don't create timestamped backup for live scans
@@ -2538,16 +2569,36 @@ precomputed_df = None
 precomputed_meta = None
 use_precomputed = False
 
-scan_path = Path(__file__).parent / "data" / "scans" / "latest_scan.parquet"
+
+def _load_precomputed_scan_with_fallback(scan_dir: Path):
+    """Load latest snapshot; fallback to newest timestamped scan_* if latest is missing."""
+    latest_path = scan_dir / "latest_scan.parquet"
+    df, meta = load_latest_scan(latest_path)
+    if df is not None and meta is not None:
+        return df, meta, latest_path
+    # Fallback: pick newest scan_*.parquet
+    candidates = sorted(scan_dir.glob("scan_*.parquet"), reverse=True)
+    for candidate in candidates:
+        df_cand, meta_cand = load_latest_scan(candidate)
+        if df_cand is not None and meta_cand is not None:
+            # Ensure minimal metadata
+            meta_cand.setdefault("timestamp", candidate.stem.replace("scan_", ""))
+            meta_cand.setdefault("total_tickers", len(df_cand))
+            return df_cand, meta_cand, candidate
+    return None, None, latest_path
+
+
+scan_dir = Path(__file__).parent / "data" / "scans"
 t0_precomputed = time.perf_counter()
 try:
     status_manager.update_detail("Loading precomputed scan from disk...")
-    precomputed_df, precomputed_meta = load_latest_scan(scan_path)
+    precomputed_df, precomputed_meta, scan_path = _load_precomputed_scan_with_fallback(scan_dir)
     t1_precomputed = time.perf_counter()
     load_time = t1_precomputed - t0_precomputed
-    logger.info(f"[PERF] Precomputed scan load time: {load_time:.3f}s")
+    logger.info(f"[PERF] Precomputed scan load time: {load_time:.3f}s (path={scan_path})")
 except Exception as exc:
     logger.warning(f"Precomputed scan load failed: {exc}")
+    scan_path = scan_dir / "latest_scan.parquet"
     t1_precomputed = time.perf_counter()
     load_time = t1_precomputed - t0_precomputed
 
@@ -2583,7 +2634,8 @@ if precomputed_df is not None and precomputed_meta is not None and not force_liv
 else:
     # Either no snapshot exists, or user forced a live scan, or scan is too old
     if scan_too_old and precomputed_df is not None:
-        st.warning(f"⚠️ הסריקה הקיימת ישנה מדי ({scan_age_hours:.1f} שעות) - מחכה לסריקה אוטומטית הבאה")
+        age_display = f"{scan_age_hours:.1f}" if isinstance(scan_age_hours, (int, float)) else "unknown"
+        st.warning(f"⚠️ הסריקה הקיימת ישנה מדי ({age_display} שעות) - מחכה לסריקה אוטומטית הבאה")
         st.info("💡 סריקה אוטומטית חדשה תתבצע תוך מספר שעות (פעמיים ביום: 8:00 + 20:00 UTC)")
         # Use old scan anyway but warn user
         st.session_state["skip_pipeline"] = True
@@ -2727,11 +2779,12 @@ if not skip_pipeline:
     # Note: Manual scans are discouraged - use automated scans from GitHub Actions
     st.warning("⚠️ סריקה ידנית פועלת - זה יכול לקחת זמן. מומלץ להשתמש בסריקות אוטומטיות.")
     universe = build_universe(limit=500)  # Fixed to 500 for consistency
+    status_manager.advance(f"Universe built: {len(universe)} tickers")
     
     results, data_map = run_scan_pipeline(
         universe=universe,
         config=CONFIG,
-        status_callback=status_manager.update_detail
+        status_callback=status_with_progress
     )
     
     logger.info(f"[LIVE] Pipeline returned {len(results)} stocks")
@@ -3096,7 +3149,8 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and any_price_provider and "Price_Yahoo" in r
     else:
         results["Reliability_Score"] = np.nan
 phase_times["price_verification"] = t_end(t0)
-status_manager.advance(f"Price verification: {len(results)} validated")
+status_manager.update_detail(f"Price verification: {len(results)} validated")
+status_manager.advance("Price Verification")
 
 
 # Horizon heuristic
@@ -3302,8 +3356,8 @@ if st.session_state.get("precomputed_results") is not None and st.session_state.
 
 # Mark pipeline completion at UI level
 try:
-    status_manager.update_detail("Pipeline complete — generating recommendations")
-    status_manager.set_progress(1.0)
+    status_manager.advance("Recommendations & Allocation")
+    status_manager.complete("✅ Pipeline complete")
 except Exception:
     pass
 
