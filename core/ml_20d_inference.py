@@ -83,8 +83,10 @@ def _load_bundle_impl() -> tuple[bool, Any, list[str], str]:
 
 # Conditional caching based on Streamlit availability
 if _STREAMLIT_AVAILABLE:
-    @st.cache_resource
-    def _load_bundle_cached():
+    # Add version key to bust cache when return signature changes
+    @st.cache_resource(hash_funcs={type: id})
+    def _load_bundle_cached(cache_version: int = 2):
+        """Cache version 2: returns (success, model, features, scoring_mode)."""
         return _load_bundle_impl()
     
     _success, BUNDLE_MODEL, FEATURE_COLS_20D, PREFERRED_SCORING_MODE_20D = _load_bundle_cached()

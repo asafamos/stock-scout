@@ -3270,9 +3270,13 @@ rec_df = rec_df.copy()
 # Deterministic ranking pre Core/Spec split
 if "Score" in rec_df.columns and "Ticker" in rec_df.columns:
     rec_df = apply_deterministic_ranking(rec_df)
-    # Maintain legacy Overall_Rank for compatibility
+    # Maintain legacy Overall_Rank for compatibility, guard if Rank missing
     if "Overall_Rank" not in rec_df.columns:
-        rec_df["Overall_Rank"] = rec_df["Rank"]
+        if "Rank" in rec_df.columns:
+            rec_df["Overall_Rank"] = rec_df["Rank"]
+        else:
+            # Fallback: sequential rank if helper failed to produce Rank
+            rec_df["Overall_Rank"] = np.arange(1, len(rec_df) + 1)
 
 # --- Fallback Logic: if no stocks have positive allocation, show top technical candidates ---
 if rec_df.empty:
