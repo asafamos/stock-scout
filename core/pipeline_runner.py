@@ -232,15 +232,28 @@ def run_scan_pipeline(
         if status_callback: status_callback("Fetching fundamentals & sector data...")
         fund_df = fetch_fundamentals_batch(results["Ticker"].tolist())
         
-        # Reset index and ensure Ticker column
-        if isinstance(fund_df.index, pd.Index) and fund_df.index.name == 'ticker':
+        # Properly handle index/column ambiguity
+        if isinstance(fund_df.index, pd.Index):
             fund_df = fund_df.reset_index()
-            fund_df = fund_df.rename(columns={'ticker': 'Ticker'})
-        elif "Ticker" not in fund_df.columns and len(fund_df) > 0:
-            fund_df["Ticker"] = fund_df.index
+            # Rename index column to Ticker if it exists
+            if 'ticker' in fund_df.columns:
+                fund_df = fund_df.rename(columns={'ticker': 'Ticker'})
+            elif 'index' in fund_df.columns and 'Ticker' not in fund_df.columns:
+                fund_df = fund_df.rename(columns={'index': 'Ticker'})
+        
+        # Ensure Ticker column exists
+        if "Ticker" not in fund_df.columns and len(fund_df) > 0:
+            # Last resort: use the first column as Ticker
+            if len(fund_df.columns) > 0:
+                first_col = fund_df.columns[0]
+                if fund_df[first_col].dtype == 'object':  # String column
+                    fund_df = fund_df.rename(columns={first_col: 'Ticker'})
             
-        # Merge fundamentals
-        results = pd.merge(results, fund_df, on="Ticker", how="left", suffixes=("", "_fund"))
+        # Merge fundamentals (only if we have valid Ticker column)
+        if "Ticker" in fund_df.columns and len(fund_df) > 0:
+            results = pd.merge(results, fund_df, on="Ticker", how="left", suffixes=("", "_fund"))
+        else:
+            logger.warning("Fundamental data has no Ticker column, skipping merge")
         
         # Compute fundamental scores for each ticker
         for idx, row in results.iterrows():
