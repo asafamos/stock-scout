@@ -2621,12 +2621,19 @@ if precomputed_meta is not None:
     except Exception:
         scan_too_old = True
 
-if precomputed_df is not None and precomputed_meta is not None and not force_live_scan_once and not scan_too_old:
-    # Successfully loaded and NOT forcing live scan and NOT too old -> use precomputed snapshot
+if force_live_scan_once:
+    # User explicitly forced a live run: ignore any snapshot age/status
+    st.info("🔄 סריקה חיה נכפית - מתעלם מסריקה אוטומטית.")
+    st.caption(f"📊 סריקה אוטומטית מ-{timestamp_str} מתעלמת עבור הרצה זו.")
+    use_precomputed = False
+    st.session_state["skip_pipeline"] = False
+elif precomputed_df is not None and precomputed_meta is not None and not scan_too_old:
+    # Successfully loaded and NOT too old -> use precomputed snapshot
     status_manager.advance(
         f"Precomputed scan loaded: {universe_size} tickers (last updated: {timestamp_str})"
     )
-    st.success(f"✅ נתונים עדכניים מסריקה אוטומטית ({scan_age_hours:.1f} שעות)")
+    age_display = f"{scan_age_hours:.1f}" if isinstance(scan_age_hours, (int, float)) else "unknown"
+    st.success(f"✅ נתונים עדכניים מסריקה אוטומטית ({age_display} שעות)")
     st.caption(f"📊 {universe_size} מניות נותחו | ⏰ סריקה אוטומטית פעמיים ביום (8:00 + 20:00 UTC)")
 
     st.session_state["skip_pipeline"] = True
@@ -2634,7 +2641,7 @@ if precomputed_df is not None and precomputed_meta is not None and not force_liv
     logger.info(f"[PERF] Precomputed scan: DataFrame shape {precomputed_df.shape}")
     use_precomputed = True
 else:
-    # Either no snapshot exists, or user forced a live scan, or scan is too old
+    # Either no snapshot exists, or scan is too old
     if scan_too_old and precomputed_df is not None:
         age_display = f"{scan_age_hours:.1f}" if isinstance(scan_age_hours, (int, float)) else "unknown"
         st.warning(f"⚠️ הסריקה הקיימת ישנה מדי ({age_display} שעות) - מחכה לסריקה אוטומטית הבאה")
@@ -2643,19 +2650,14 @@ else:
         st.session_state["skip_pipeline"] = True
         st.session_state["precomputed_results"] = precomputed_df
         use_precomputed = True
-    elif precomputed_df is not None and precomputed_meta is not None and force_live_scan_once:
-        st.info("🔄 סריקה חיה נכפית - מתעלם מסריקה אוטומטית.")
-        st.caption(f"📊 סריקה אוטומטית מ-{timestamp_str} מתעלמת עבור הרצה זו.")
-        use_precomputed = False
-        st.session_state["skip_pipeline"] = False
     else:
         st.info("📊 אין סריקה זמינה - מחכה לסריקה אוטומטית הבאה.")
         st.caption("💡 סריקות אוטומטיות רצות פעמיים ביום דרך GitHub Actions.")
         use_precomputed = False
         st.session_state["skip_pipeline"] = False
     
-    # Reset the one-shot flag
-    st.session_state["force_live_scan_once"] = False
+# Reset the one-shot flag (always)
+st.session_state["force_live_scan_once"] = False
 
 # ==================== MAIN PIPELINE ====================
 st.markdown("---")
