@@ -66,11 +66,13 @@ config = {
     "SMART_SCAN": False,
     "EXTERNAL_PRICE_VERIFY": False,
     "PERF_FAST_MODE": True,
-    "FUNDAMENTAL_ENABLED": True,  # ✅ Enable fundamentals
-    "BETA_FILTER_ENABLED": True,
-    "BETA_MAX_ALLOWED": 2.0,
-    "BETA_TOP_K": 60,
-    "BETA_BENCHMARK": "SPY",
+    # Canonical lowercase toggles (pipeline normalizes legacy keys too)
+    "fundamental_enabled": True,  # ✅ Enable fundamentals
+    "beta_filter_enabled": True,
+    "beta_max_allowed": 2.0,
+    "beta_top_k": 60,
+    "beta_benchmark": "SPY",
+    # Other settings retained as-is (uppercase used in pipeline)
     "SECTOR_CAP_ENABLED": True,
     "SECTOR_CAP_MAX": 3,
     "EARNINGS_BLACKOUT_DAYS": 7,  # ✅ Enable earnings check

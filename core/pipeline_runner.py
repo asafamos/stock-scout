@@ -35,6 +35,25 @@ logger = logging.getLogger(__name__)
 
 # --- Helper Functions ---
 
+def _normalize_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize legacy/uppercase config keys to canonical lowercase ones.
+    Does not remove original keys; just ensures lowercase toggles exist.
+    """
+    if not isinstance(config, dict):
+        return {}
+    normalized = dict(config)
+    key_map = {
+        "FUNDAMENTAL_ENABLED": "fundamental_enabled",
+        "BETA_FILTER_ENABLED": "beta_filter_enabled",
+        "BETA_MAX_ALLOWED": "beta_max_allowed",
+        "BETA_TOP_K": "beta_top_k",
+        "BETA_BENCHMARK": "beta_benchmark",
+    }
+    for old_key, new_key in key_map.items():
+        if old_key in normalized and new_key not in normalized:
+            normalized[new_key] = normalized[old_key]
+    return normalized
+
 def fetch_history_bulk(tickers: List[str], period_days: int, ma_long: int) -> Dict[str, pd.DataFrame]:
     end = datetime.utcnow()
     start = end - timedelta(days=period_days + 50)
@@ -236,6 +255,9 @@ def run_scan_pipeline(
         - buy_amount_v2: Allocated dollar amount
         - Score: Legacy alias for FinalScore_20d
     """
+    # Normalize config keys (support legacy uppercase keys)
+    config = _normalize_config(config)
+
     if status_callback:
         status_callback(f"Starting pipeline for {len(universe)} tickers...")
 
@@ -342,7 +364,7 @@ def run_scan_pipeline(
     logger.info(f"[PIPELINE] After advanced filters: {len(results)} stocks with FinalScore_20d >= 1.0")
     
     # 5. Fundamentals & Sector Enrichment
-    if config.get("FUNDAMENTAL_ENABLED", True):
+    if config.get("fundamental_enabled", True):
         if status_callback: status_callback("Fetching fundamentals & sector data...")
         fund_df = fetch_fundamentals_batch(results["Ticker"].tolist())
         
