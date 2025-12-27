@@ -227,13 +227,42 @@ def run_scan_pipeline(
 
     results = results[results["Score"] > 0].copy()
     
-    # 5. Fundamentals
-    if config.get("FUNDAMENTAL_ENABLED"):
-        if status_callback: status_callback("Fetching fundamentals...")
+    # 5. Fundamentals & Sector Enrichment
+    if config.get("FUNDAMENTAL_ENABLED", True):
+        if status_callback: status_callback("Fetching fundamentals & sector data...")
         fund_df = fetch_fundamentals_batch(results["Ticker"].tolist())
-        fund_df = fund_df.reset_index()
-        if "Ticker" not in fund_df.columns: fund_df["Ticker"] = fund_df.index
+        
+        # Reset index and ensure Ticker column
+        if isinstance(fund_df.index, pd.Index) and fund_df.index.name == 'ticker':
+            fund_df = fund_df.reset_index()
+            fund_df = fund_df.rename(columns={'ticker': 'Ticker'})
+        elif "Ticker" not in fund_df.columns and len(fund_df) > 0:
+            fund_df["Ticker"] = fund_df.index
+            
+        # Merge fundamentals
         results = pd.merge(results, fund_df, on="Ticker", how="left", suffixes=("", "_fund"))
+        
+        # Compute fundamental scores for each ticker
+        for idx, row in results.iterrows():
+            try:
+                fund_data = row.to_dict()
+                fund_score_obj = compute_fundamental_score_with_breakdown(fund_data)
+                results.at[idx, "Fundamental_S"] = fund_score_obj.total
+                results.at[idx, "Quality_Score_F"] = fund_score_obj.breakdown.quality_score
+                results.at[idx, "Growth_Score_F"] = fund_score_obj.breakdown.growth_score
+                results.at[idx, "Valuation_Score_F"] = fund_score_obj.breakdown.valuation_score
+            except Exception as e:
+                results.at[idx, "Fundamental_S"] = 50.0  # Neutral default
+                logger.debug(f"Fundamental scoring failed for {row.get('Ticker')}: {e}")
+        
+        # Extract Sector from fundamentals (if available)
+        if "sector" in results.columns:
+            results["Sector"] = results["sector"].fillna("Unknown")
+        elif "Sector" not in results.columns:
+            results["Sector"] = "Unknown"
+    else:
+        results["Sector"] = "Unknown"
+        results["Fundamental_S"] = 50.0
         
     # 6. Risk Engine V2
     if status_callback: status_callback("Running Risk Engine V2...")
@@ -252,6 +281,42 @@ def run_scan_pipeline(
     # 7. Classification & Allocation
     if status_callback: status_callback("Classifying & Allocating...")
     results = apply_classification(results)
+    
+    # 8. Earnings Blackout Check (optional, for top candidates)
+    if config.get("EARNINGS_BLACKOUT_DAYS", 0) > 0:
+        topk = int(config.get("EARNINGS_CHECK_TOPK", 30))
+        blackout_days = int(config.get("EARNINGS_BLACKOUT_DAYS", 7))
+        if status_callback: status_callback(f"Checking earnings blackout (top {topk})...")
+        
+        # Import earnings check function
+        try:
+            from datetime import datetime, timedelta
+            import yfinance as yf
+            
+            def check_earnings_blackout(ticker: str, days: int) -> bool:
+                """Check if earnings are within next N days"""
+                try:
+                    info = yf.Ticker(ticker).calendar
+                    if info is not None and 'Earnings Date' in info:
+                        earnings_dates = info['Earnings Date']
+                        if earnings_dates is not None and len(earnings_dates) > 0:
+                            next_date = pd.to_datetime(earnings_dates[0])
+                            days_until = (next_date - datetime.now()).days
+                            return 0 <= days_until <= days
+                except: pass
+                return False
+            
+            # Check top K stocks only (performance optimization)
+            top_indices = results.nlargest(topk, "Score").index
+            for idx in top_indices:
+                ticker = results.at[idx, "Ticker"]
+                if check_earnings_blackout(ticker, blackout_days):
+                    logger.info(f"[EARNINGS] {ticker} has earnings within {blackout_days} days - reducing allocation")
+                    # Reduce buy amount by 50% (conservative approach)
+                    if "buy_amount_v2" in results.columns:
+                        results.at[idx, "buy_amount_v2"] *= 0.5
+        except Exception as e:
+            logger.warning(f"Earnings blackout check failed: {e}")
     
     if "buy_amount_v2" not in results.columns:
         results = allocate_budget(results, config.get("BUDGET_TOTAL", 5000), config.get("MIN_POSITION", 500), config.get("MAX_POSITION_PCT", 0.2))

@@ -107,15 +107,21 @@ config = {
     "SMART_SCAN": False,
     "EXTERNAL_PRICE_VERIFY": False,
     "PERF_FAST_MODE": True,
+    "FUNDAMENTAL_ENABLED": True,  # ✅ Enable fundamentals
     "BETA_FILTER_ENABLED": True,
     "BETA_MAX_ALLOWED": 2.0,
     "BETA_TOP_K": 60,
     "BETA_BENCHMARK": "SPY",
     "SECTOR_CAP_ENABLED": True,
     "SECTOR_CAP_MAX": 3,
+    "EARNINGS_BLACKOUT_DAYS": 7,  # ✅ Enable earnings check
+    "EARNINGS_CHECK_TOPK": 30,
     "MA_SHORT": config_obj.ma_short,
     "MA_LONG": config_obj.ma_long,
     "WEIGHTS": config_obj.weights,
+    "BUDGET_TOTAL": 5000.0,
+    "MIN_POSITION": 500.0,
+    "MAX_POSITION_PCT": 0.15,
 }
 
 print(f"📥 Running full pipeline with:")
@@ -176,11 +182,28 @@ if 'Overall_Rank' not in results_df.columns:
     results_df = results_df.sort_values('overall_score_20d', ascending=False)
     results_df['Overall_Rank'] = range(1, len(results_df) + 1)
 
-# Select columns to save (keep comprehensive set)
+# Select columns to save (comprehensive set from full pipeline)
 save_cols = [
-    'Ticker', 'overall_score_20d', 'FinalScore_20d', 'TechScore_20d', 'ML_20d_Prob',
-    'RSI', 'Close', 'Volume', 'Sector', 'Risk_Level', 'Data_Quality',
-    'Overall_Rank', 'ATR_Pct', 'Beta', 'RewardRisk'
+    # Core identification
+    'Ticker', 'Sector',
+    # Scoring (multiple versions for compatibility)
+    'overall_score_20d', 'Score', 'FinalScore_20d', 'TechScore_20d', 'ML_20d_Prob',
+    'conviction_v2_final', 'conviction_v2_base',
+    # Technical indicators
+    'RSI', 'ATR_Pct', 'Close', 'Volume', 'RewardRisk', 'RR_Ratio',
+    'MA_Aligned', 'Momentum_Consistency', 'Volume_Surge',
+    # Classification & Quality
+    'Risk_Level', 'Data_Quality', 'Confidence_Level',
+    # Fundamental scores
+    'Fundamental_S', 'Quality_Score_F', 'Growth_Score_F', 'Valuation_Score_F',
+    # Risk & Reliability
+    'reliability_v2', 'risk_gate_status_v2',
+    # Position sizing
+    'buy_amount_v2', 'shares_to_buy_v2',
+    # Ranking
+    'Overall_Rank',
+    # Additional metrics
+    'Beta', 'RS_63d', 'AdvPenalty'
 ]
 
 # Only keep columns that exist
