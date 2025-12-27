@@ -2597,6 +2597,11 @@ if skip_pipeline:
     t0_stage3 = time.perf_counter()
     results = st.session_state.get("precomputed_results")
     logger.info(f"Using precomputed scan with {len(results)} tickers")
+    
+    # Add 'Score' alias for overall_score_20d to maintain compatibility
+    if "overall_score_20d" in results.columns and "Score" not in results.columns:
+        results["Score"] = results["overall_score_20d"]
+    
     try:
         status_manager.update_detail("Precomputed scan loaded — using cached results")
         status_manager.set_progress(1.0)
