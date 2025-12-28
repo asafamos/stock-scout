@@ -147,9 +147,17 @@ class SourcesOverview:
             return True
         
         for key in keys:
-            # Check env, st.secrets, and session state
-            if os.getenv(key) or st.secrets.get(key):
+            # Check env and safely check Streamlit secrets (bare mode friendly)
+            if os.getenv(key):
                 return True
+            try:
+                if hasattr(st, "secrets"):
+                    val = st.secrets.get(key, None)
+                    if val:
+                        return True
+            except Exception:
+                # In bare mode or when secrets.toml is missing, st.secrets may raise
+                pass
         return False
     
     def _check_connectivity(self, provider: str) -> Dict[str, bool]:

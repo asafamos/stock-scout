@@ -2414,7 +2414,7 @@ with st.expander("🎛️ אפשרויות מתקדמות", expanded=False):
         st.session_state["ml_threshold"] = int(ml_threshold)
 
 # OpenAI target price enhancement
-if OPENAI_AVAILABLE and (os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")):
+if OPENAI_AVAILABLE and _env("OPENAI_API_KEY"):
     with col_a1:
         enable_openai_targets = st.checkbox(
             "🤖 חיזוי מחירים AI",
@@ -3693,7 +3693,7 @@ def get_openai_target_prediction(
     if not OPENAI_AVAILABLE:
         return None
 
-    openai_key = os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")
+    openai_key = _env("OPENAI_API_KEY")
     if not openai_key:
         return None
 
