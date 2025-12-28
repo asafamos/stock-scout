@@ -1,13 +1,13 @@
 {
-  "timestamp": "2025-12-27T23:04:02.496177",
+  "timestamp": "2025-12-28T14:43:28.109825",
   "scan_type": "automated_full_pipeline",
   "total_tickers": 4,
   "universe_size": 12,
   "pipeline_version": "v2_with_ml",
   "top_ticker": "GOOGL",
-  "top_score": 69.82739125907074,
-  "avg_score": 59.006080935821174,
-  "scan_duration_seconds": 591.3387575149536,
+  "top_score": 67.66300533092603,
+  "avg_score": 57.06244992429974,
+  "scan_duration_seconds": 4.734426259994507,
   "columns_saved": [
     "Ticker",
     "Sector",
