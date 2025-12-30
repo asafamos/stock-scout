@@ -1,13 +1,13 @@
 {
-  "timestamp": "2025-12-29T20:17:15.466026",
+  "timestamp": "2025-12-30T08:38:41.076391",
   "scan_type": "automated_full_pipeline",
-  "total_tickers": 7,
+  "total_tickers": 5,
   "universe_size": 12,
   "pipeline_version": "v2_with_ml",
   "top_ticker": "WMT",
-  "top_score": 78.17838607514645,
-  "avg_score": 62.28232702470462,
-  "scan_duration_seconds": 5.1475138664245605,
+  "top_score": 78.23097122857531,
+  "avg_score": 63.27358665346456,
+  "scan_duration_seconds": 4.7262961864471436,
   "columns_saved": [
     "Ticker",
     "Sector",
