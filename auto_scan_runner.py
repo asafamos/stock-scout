@@ -235,6 +235,10 @@ if "Close" in df_to_save.columns and "Unit_Price" not in df_to_save.columns:
 if "ML_20d_Prob" in df_to_save.columns and "ML_Probability" not in df_to_save.columns:
     df_to_save["ML_Probability"] = df_to_save["ML_20d_Prob"]
 
+# Sector alias (some paths use lowercase)
+if "Sector" not in df_to_save.columns and "sector" in results_df.columns:
+    df_to_save["Sector"] = results_df["sector"]
+
 # Provide commonly-used card fields when missing
 # Entry_Price: prefer Unit_Price → Close → Price_Yahoo
 if "Entry_Price" not in df_to_save.columns:
@@ -245,9 +249,12 @@ if "Entry_Price" not in df_to_save.columns:
     elif "Price_Yahoo" in df_to_save.columns:
         df_to_save["Entry_Price"] = df_to_save["Price_Yahoo"]
 
-# Reliability aliases: expose a unified percent and band if present in v2
-if "reliability_pct" not in df_to_save.columns and "reliability_v2" in results_df.columns:
-    df_to_save["reliability_pct"] = results_df["reliability_v2"]
+# Reliability aliases: expose a unified percent and band if present
+if "reliability_pct" not in df_to_save.columns:
+    if "Reliability_v2" in results_df.columns:
+        df_to_save["reliability_pct"] = results_df["Reliability_v2"]
+    elif "reliability_v2" in results_df.columns:
+        df_to_save["reliability_pct"] = results_df["reliability_v2"]
 if "reliability_band" not in df_to_save.columns and "reliability_band" in results_df.columns:
     df_to_save["reliability_band"] = results_df["reliability_band"]
 if "risk_band" not in df_to_save.columns and "risk_band" in results_df.columns:

@@ -195,8 +195,8 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
 
     # Get display bands
     risk_meter = _num(row.get("risk_meter_v2", np.nan))
-    risk_band_label = _safe_str(row.get("risk_band", "N/A"))
-    reliability_pct = _num(row.get("reliability_pct", np.nan))
+    risk_band_label = _safe_str(row.get("risk_band", row.get("Risk_Level", "N/A")))
+    reliability_pct = _num(row.get("reliability_pct", row.get("Reliability_v2", np.nan)))
     reliability_band_label = _safe_str(row.get("reliability_band", "N/A"))
     # Prefer canonical ML probability from 20d pipeline
     ml_prob = _num(row.get("ML_20d_Prob", row.get("ML_Probability", np.nan)))
@@ -213,7 +213,7 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
 
     ml_conf_band_label = _safe_str(row.get("ml_conf_band", ml_conf_band(ml_prob)))
 
-    quality_level = _safe_str(row.get("Quality_Level", "N/A"))
+    quality_level = _safe_str(row.get("Quality_Level", row.get("quality_level", "N/A")))
     quality_score = _num(row.get("Quality_Score_Numeric", np.nan))
     conv_base = _num(row.get("conviction_v2_base", np.nan))
 
@@ -221,8 +221,8 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
     fund_score = _num(row.get("Fundamental_S", np.nan))
     tech_score = _num(row.get("Technical_S", np.nan))
     # Compressed data sources line (prices + fundamentals providers if available)
-    price_sources = _safe_str(row.get("Price_Sources_Line", ""), "")  # expected precomputed concise string
-    fund_sources = _safe_str(row.get("Fund_Sources_Line", ""), "")
+    price_sources = _safe_str(row.get("Price_Sources_Line", row.get("price_sources_line", "")), "")
+    fund_sources = _safe_str(row.get("Fund_Sources_Line", row.get("fund_sources_line", "")), "")
     sources_line = ""
     if price_sources or fund_sources:
         sources_line = f"Data sources: Prices - {price_sources or 'N/A'}; Fundamentals - {fund_sources or 'N/A'}"
@@ -3482,9 +3482,16 @@ if st.session_state.get("precomputed_results") is not None and st.session_state.
             'Fundamental_Score': 'Fundamental_S',
             'Overall_Score': 'Score',
             'Fund_Sources_Count': 'fund_sources_used_v2',
-            'Reliability_v2': 'reliability_v2',
         }
         results = results.rename(columns=column_renames)
+        # Ensure both reliability aliases exist for UI fallbacks
+        if 'Reliability_v2' not in results.columns and 'reliability_v2' in results.columns:
+            results['Reliability_v2'] = results['reliability_v2']
+        if 'reliability_pct' not in results.columns and 'Reliability_v2' in results.columns:
+            results['reliability_pct'] = results['Reliability_v2']
+        # Sector alias
+        if 'Sector' not in results.columns and 'sector' in results.columns:
+            results['Sector'] = results['sector']
     except Exception:
         # Fallback to session state if rename fails
         results = st.session_state.get("precomputed_results")
