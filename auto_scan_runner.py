@@ -280,7 +280,17 @@ metadata = {
     "avg_score": float(df_to_save['overall_score_20d'].mean()),
     "scan_duration_seconds": t_elapsed,
     "columns_saved": save_cols_actual,
+    # Include build info to help caches and age checks
+    "build_commit": None,
 }
+
+try:
+    import subprocess
+    metadata["build_commit"] = (
+        subprocess.check_output(["git", "rev-parse", "--short", "HEAD"]).decode().strip()
+    )
+except Exception:
+    pass
 
 with open(output_dir / 'latest_scan.json', 'w') as f:
     json.dump(metadata, f, indent=2)

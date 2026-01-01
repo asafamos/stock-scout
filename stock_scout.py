@@ -441,6 +441,10 @@ CONFIG = {
     "PERF_FUND_TIMEOUT_FAST": 6,  # Fast mode per-provider future timeout
     # --- Debug / Developer Flags ---
     "DEBUG_MODE": os.getenv("STOCK_SCOUT_DEBUG", "false").lower() in ("true", "1", "yes"),
+    # --- Remote autoscan artifacts (GitHub raw) ---
+    "USE_REMOTE_AUTOSCAN": True,
+    "REMOTE_AUTOSCAN_REPO": os.getenv("REMOTE_AUTOSCAN_REPO", "asafamos/stock-scout"),
+    "REMOTE_AUTOSCAN_BRANCH": os.getenv("REMOTE_AUTOSCAN_BRANCH", "main"),
 }
 
 # -----------------------------------------------------------------
@@ -2569,6 +2573,7 @@ force_live_scan_once = st.session_state.get("force_live_scan_once", False)
 # Import scan I/O helpers
 from core.scan_io import load_latest_scan, save_scan as save_scan_helper
 import time
+import io
 
 def save_latest_scan_from_results(results_df: pd.DataFrame, metadata: Optional[Dict] = None) -> None:
     """Helper to save scan results using scan_io.save_scan with proper paths.
@@ -2646,6 +2651,56 @@ except Exception as exc:
     scan_path = scan_dir / "latest_scan.parquet"
     t1_precomputed = time.perf_counter()
     load_time = t1_precomputed - t0_precomputed
+
+# Optionally prefer remote autoscan artifacts from GitHub if newer than local/live
+def _parse_iso(ts: str) -> Optional[datetime]:
+    try:
+        return datetime.fromisoformat(ts.replace('Z', '+00:00'))
+    except Exception:
+        return None
+
+if CONFIG.get("USE_REMOTE_AUTOSCAN", True):
+    try:
+        repo = CONFIG.get("REMOTE_AUTOSCAN_REPO", "asafamos/stock-scout")
+        branch = CONFIG.get("REMOTE_AUTOSCAN_BRANCH", "main")
+        base = f"https://raw.githubusercontent.com/{repo}/{branch}/data/scans"
+        # Fetch remote metadata first
+        r_meta = requests.get(f"{base}/latest_scan.json", timeout=8)
+        if r_meta.ok:
+            meta_remote = r_meta.json()
+            ts_remote = _parse_iso(meta_remote.get("timestamp", ""))
+            # Determine local timestamp if available
+            ts_local = None
+            if precomputed_meta and precomputed_meta.get("timestamp"):
+                ts_local = _parse_iso(precomputed_meta.get("timestamp"))
+            # If local timestamp missing, try file mtime
+            if not ts_local:
+                try:
+                    mtime_source = (scan_path.with_suffix('.json') if (scan_path and scan_path.with_suffix('.json').exists()) else scan_path)
+                    ts_local = datetime.fromtimestamp(mtime_source.stat().st_mtime)
+                except Exception:
+                    ts_local = None
+
+            use_remote = False
+            if ts_remote and ts_local:
+                # Prefer remote if it's newer by at least 10 minutes
+                use_remote = (ts_remote - ts_local).total_seconds() > 600
+            elif ts_remote and not ts_local:
+                use_remote = True
+
+            if use_remote:
+                r_pq = requests.get(f"{base}/latest_scan.parquet", timeout=20)
+                if r_pq.ok:
+                    try:
+                        df_remote = pd.read_parquet(io.BytesIO(r_pq.content), engine="pyarrow")
+                        meta_remote.setdefault("total_tickers", len(df_remote))
+                        precomputed_df, precomputed_meta = df_remote, meta_remote
+                        scan_path = Path("REMOTE:latest_scan.parquet")
+                        logger.info("Using remote autoscan artifacts from GitHub (newer than local)")
+                    except Exception as e:
+                        logger.warning(f"Failed to parse remote parquet: {e}")
+    except Exception as e:
+        logger.warning(f"Remote autoscan fetch skipped/failed: {e}")
 
 timestamp_str = "unknown"
 universe_size = 0
