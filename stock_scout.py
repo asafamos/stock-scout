@@ -4283,16 +4283,28 @@ else:
         st.markdown("### 🛡️ Core Stocks — Lower Relative Risk")
         st.caption(f"✅ {len(core_df)} stocks with high data quality and balanced risk profile")
         
+        @st.cache_data(ttl=3600)
+        def _fallback_sector_yf(ticker: str) -> str:
+            try:
+                import yfinance as yf
+                info = yf.Ticker(ticker).info
+                sec = info.get('sector') or info.get('industry')
+                return sec or 'Unknown'
+            except Exception:
+                return 'Unknown'
+
         for _, r in core_df.iterrows():
             ticker = r.get("Ticker", "N/A")
-            sector = r.get("Sector", "N/A")
+            sector = r.get("Sector", r.get("sector", "Unknown"))
+            if sector in (None, "", "Unknown") and isinstance(ticker, str) and ticker and ticker != "N/A":
+                sector = _fallback_sector_yf(ticker)
             overall_score = r.get("overall_score_20d", r.get("Score", "N/A"))
-            ml_prob = r.get("ML_Probability", np.nan)
+            ml_prob = r.get("ML_20d_Prob", r.get("ML_Probability", np.nan))
             entry_price = r.get("Entry_Price", np.nan)
             target_price = r.get("Target_Price", np.nan)
-            rr = r.get("RewardRisk", r.get("rr", np.nan))
-            risk_level = r.get("risk_band", "N/A")
-            reliability = r.get("Reliability_v2", r.get("reliability_pct", np.nan))
+            rr = r.get("RewardRisk", r.get("RR_Ratio", r.get("rr", np.nan)))
+            risk_level = r.get("risk_band", r.get("Risk_Label", r.get("Risk_Level", "N/A")))
+            reliability = r.get("Reliability_v2", r.get("reliability_pct", r.get("Reliability_Score", np.nan)))
             buy_amt = float(r.get("buy_amount_v2", r.get("סכום קנייה ($)", 0.0)) or 0.0)
             
             # Format values
@@ -4338,16 +4350,28 @@ else:
         st.caption(f"⚠️ {len(spec_df)} stocks with a higher risk profile")
         st.warning("🔔 Warning: These stocks are classified as speculative due to partial data or elevated risk factors. Suitable for experienced investors only.")
         
+        @st.cache_data(ttl=3600)
+        def _fallback_sector_yf_spec(ticker: str) -> str:
+            try:
+                import yfinance as yf
+                info = yf.Ticker(ticker).info
+                sec = info.get('sector') or info.get('industry')
+                return sec or 'Unknown'
+            except Exception:
+                return 'Unknown'
+
         for _, r in spec_df.iterrows():
             ticker = r.get("Ticker", "N/A")
-            sector = r.get("Sector", "N/A")
+            sector = r.get("Sector", r.get("sector", "Unknown"))
+            if sector in (None, "", "Unknown") and isinstance(ticker, str) and ticker and ticker != "N/A":
+                sector = _fallback_sector_yf_spec(ticker)
             overall_score = r.get("overall_score_20d", r.get("Score", "N/A"))
-            ml_prob = r.get("ML_Probability", np.nan)
+            ml_prob = r.get("ML_20d_Prob", r.get("ML_Probability", np.nan))
             entry_price = r.get("Entry_Price", np.nan)
             target_price = r.get("Target_Price", np.nan)
-            rr = r.get("RewardRisk", r.get("rr", np.nan))
-            risk_level = r.get("risk_band", "N/A")
-            reliability = r.get("Reliability_v2", r.get("reliability_pct", np.nan))
+            rr = r.get("RewardRisk", r.get("RR_Ratio", r.get("rr", np.nan)))
+            risk_level = r.get("risk_band", r.get("Risk_Label", r.get("Risk_Level", "N/A")))
+            reliability = r.get("Reliability_v2", r.get("reliability_pct", r.get("Reliability_Score", np.nan)))
             buy_amt = float(r.get("buy_amount_v2", r.get("סכום קנייה ($)", 0.0)) or 0.0)
             
             # Format values
