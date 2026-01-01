@@ -203,12 +203,19 @@ save_cols = [
     'Fundamental_S', 'Quality_Score_F', 'Growth_Score_F', 'Valuation_Score_F',
     # Risk & Reliability
     'reliability_v2', 'risk_gate_status_v2',
+    # UI cards expect these when available
+    'risk_meter_v2', 'risk_band', 'reliability_pct', 'reliability_band',
+    'Fundamental_Reliability_v2', 'Price_Reliability_v2',
+    # Quality display
+    'Quality_Level', 'Quality_Score_Numeric',
     # Position sizing
     'buy_amount_v2', 'shares_to_buy_v2',
     # Ranking
     'Overall_Rank',
     # Additional metrics
-    'Beta', 'RS_63d', 'AdvPenalty'
+    'Beta', 'RS_63d', 'AdvPenalty',
+    # Prices
+    'Price_Yahoo'
 ]
 
 # Only keep columns that exist
@@ -220,6 +227,41 @@ if "Close" in df_to_save.columns and "Unit_Price" not in df_to_save.columns:
     df_to_save["Unit_Price"] = df_to_save["Close"]
 if "ML_20d_Prob" in df_to_save.columns and "ML_Probability" not in df_to_save.columns:
     df_to_save["ML_Probability"] = df_to_save["ML_20d_Prob"]
+
+# Provide commonly-used card fields when missing
+# Entry_Price: prefer Unit_Price → Close → Price_Yahoo
+if "Entry_Price" not in df_to_save.columns:
+    if "Unit_Price" in df_to_save.columns:
+        df_to_save["Entry_Price"] = df_to_save["Unit_Price"]
+    elif "Close" in df_to_save.columns:
+        df_to_save["Entry_Price"] = df_to_save["Close"]
+    elif "Price_Yahoo" in df_to_save.columns:
+        df_to_save["Entry_Price"] = df_to_save["Price_Yahoo"]
+
+# Reliability aliases: expose a unified percent and band if present in v2
+if "reliability_pct" not in df_to_save.columns and "reliability_v2" in results_df.columns:
+    df_to_save["reliability_pct"] = results_df["reliability_v2"]
+if "reliability_band" not in df_to_save.columns and "reliability_band" in results_df.columns:
+    df_to_save["reliability_band"] = results_df["reliability_band"]
+if "risk_band" not in df_to_save.columns and "risk_band" in results_df.columns:
+    df_to_save["risk_band"] = results_df["risk_band"]
+if "risk_meter_v2" not in df_to_save.columns and "risk_meter_v2" in results_df.columns:
+    df_to_save["risk_meter_v2"] = results_df["risk_meter_v2"]
+
+# Default targets: provide conservative placeholders to avoid N/A in cards
+from datetime import timedelta
+if "Target_Price" not in df_to_save.columns:
+    base_price_col = "Entry_Price" if "Entry_Price" in df_to_save.columns else ("Unit_Price" if "Unit_Price" in df_to_save.columns else None)
+    if base_price_col:
+        try:
+            df_to_save["Target_Price"] = (pd.to_numeric(df_to_save[base_price_col], errors="coerce") * 1.10).round(4)
+            df_to_save["Target_Source"] = "Default"
+            df_to_save["Target_Date"] = (pd.Timestamp.now() + timedelta(days=30)).dt.strftime("%Y-%m-%d")
+        except Exception:
+            # If vectorized date formatting fails, fill with simple string
+            df_to_save["Target_Price"] = pd.to_numeric(df_to_save[base_price_col], errors="coerce") * 1.10
+            df_to_save["Target_Source"] = "Default"
+            df_to_save["Target_Date"] = (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d")
 
 # Save results
 output_dir = Path('data/scans')
