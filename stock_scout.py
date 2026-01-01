@@ -2658,7 +2658,19 @@ if precomputed_meta is not None:
     
     # Check scan age (12 hour limit)
     try:
-        scan_time = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+        # Parse metadata timestamp (may be naive or UTC)
+        scan_time_meta = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+        
+        # Also consider file modification time (parquet/json), use the freshest
+        try:
+            meta_path = scan_path.with_suffix('.json')
+            mtime_source = meta_path if meta_path.exists() else scan_path
+            scan_time_file = datetime.fromtimestamp(mtime_source.stat().st_mtime)
+        except Exception:
+            scan_time_file = scan_time_meta
+
+        # Prefer the most recent timestamp available
+        scan_time = max(scan_time_meta, scan_time_file)
         scan_age_hours = (datetime.now() - scan_time).total_seconds() / 3600
         scan_too_old = scan_age_hours > 12
     except Exception:
