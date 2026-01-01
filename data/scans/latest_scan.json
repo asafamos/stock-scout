@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-01-01T18:58:30.457674",
+  "timestamp": "2026-01-01T20:16:55.786226",
   "scan_type": "automated_full_pipeline",
   "total_tickers": 5,
   "universe_size": 12,
@@ -7,7 +7,7 @@
   "top_ticker": "GOOGL",
   "top_score": 67.69858230288904,
   "avg_score": 58.46449704335407,
-  "scan_duration_seconds": 8.087950944900513,
+  "scan_duration_seconds": 5.239636182785034,
   "columns_saved": [
     "Ticker",
     "Sector",
