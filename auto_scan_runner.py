@@ -52,37 +52,37 @@ from core.data import (
 from core.allocation import allocate_budget
 from core.classifier import apply_classification
 
-UNIVERSE_LIMIT = int(os.getenv("AUTO_SCAN_UNIVERSE_LIMIT", "1500"))
+UNIVERSE_LIMIT = int(os.getenv("AUTO_SCAN_UNIVERSE_LIMIT", "500"))
 UNIVERSE = build_universe(limit=UNIVERSE_LIMIT)
 
 print(f"🎯 Universe size: {len(UNIVERSE)} stocks (limit {UNIVERSE_LIMIT})")
 print(f"⚙️  Loading configuration and initializing pipeline...")
 
-# Load configuration
+# Load configuration (align with Streamlit live config for parity)
 config_obj = get_config()
 config = {
     "UNIVERSE_LIMIT": len(UNIVERSE),
-    "LOOKBACK_DAYS": 200,
-    "SMART_SCAN": False,
-    "EXTERNAL_PRICE_VERIFY": False,
-    "PERF_FAST_MODE": True,
-    # Canonical lowercase toggles (pipeline normalizes legacy keys too)
-    "fundamental_enabled": True,  # ✅ Enable fundamentals
-    "beta_filter_enabled": True,
-    "beta_max_allowed": 2.0,
-    "beta_top_k": 60,
-    "beta_benchmark": "SPY",
-    # Other settings retained as-is (uppercase used in pipeline)
-    "SECTOR_CAP_ENABLED": True,
-    "SECTOR_CAP_MAX": 3,
-    "EARNINGS_BLACKOUT_DAYS": 7,  # ✅ Enable earnings check
-    "EARNINGS_CHECK_TOPK": 30,
+    "LOOKBACK_DAYS": config_obj.lookback_days,
+    "SMART_SCAN": config_obj.smart_scan,
+    "EXTERNAL_PRICE_VERIFY": config_obj.external_price_verify,
+    "PERF_FAST_MODE": False,  # match live app default
+    # Canonical lowercase toggles
+    "fundamental_enabled": config_obj.fundamental_enabled,
+    "beta_filter_enabled": config_obj.beta_filter_enabled,
+    "beta_max_allowed": config_obj.beta_max_allowed,
+    "beta_top_k": config_obj.beta_top_k,
+    "beta_benchmark": config_obj.beta_benchmark,
+    # Uppercase keys used in some parts of the pipeline
+    "SECTOR_CAP_ENABLED": config_obj.sector_cap_enabled,
+    "SECTOR_CAP_MAX": config_obj.sector_cap_max,
+    "EARNINGS_BLACKOUT_DAYS": config_obj.earnings_blackout_days,
+    "EARNINGS_CHECK_TOPK": config_obj.earnings_check_topk,
     "MA_SHORT": config_obj.ma_short,
     "MA_LONG": config_obj.ma_long,
     "WEIGHTS": config_obj.weights,
-    "BUDGET_TOTAL": 5000.0,
-    "MIN_POSITION": 500.0,
-    "MAX_POSITION_PCT": 0.15,
+    "BUDGET_TOTAL": config_obj.budget_total,
+    "MIN_POSITION": config_obj.min_position,
+    "MAX_POSITION_PCT": config_obj.max_position_pct,
 }
 
 print(f"📥 Running full pipeline with:")
@@ -140,33 +140,40 @@ for col in filter_cols:
 # IMPORTANT: Risk Engine V2 blocks stocks when NO fundamentals are available
 # This is overly aggressive. Instead, use technical scores when fundamentals missing.
 
-# Strategy: Sort by best available score
-# Priority: conviction_v2_final > Score > TechScore_20d (fallback)
-score_col = 'conviction_v2_final' if 'conviction_v2_final' in results_df.columns else 'Score'
-if score_col not in results_df.columns:
-    score_col = 'TechScore_20d' if 'TechScore_20d' in results_df.columns else 'Score'
-
-# Filter 1: Minimum score threshold (only if score is not too low)
-if score_col in results_df.columns:
-    before_score = len(results_df)
-    score_values = pd.to_numeric(results_df[score_col], errors='coerce')
-    
-    # Determine appropriate minimum based on scale
-    if (score_values.dropna() > 10).any():  # Appears to be 0-100 scale
-        min_score = 20.0  # Reduced from 50 to accommodate tech-only filtering
-    else:  # 0-10 scale or similar
-        min_score = 3.0
-    
-    results_df = results_df[score_values >= min_score].copy()
-    filtered_score = before_score - len(results_df)
-    if filtered_score > 0:
-        print(f"   ❌ Removed {filtered_score} below minimum score ({min_score})")
-
-# Filter 2: Take only top N by score (regardless of data source)
+# Strategy: match live app filtering logic
+score_candidates = [
+    'conviction_v2_final', 'Score', 'FinalScore_20d', 'overall_score_20d', 'TechScore_20d'
+]
+score_col = next((c for c in score_candidates if c in results_df.columns), None)
 top_n = 15
-if len(results_df) > top_n:
-    results_df = results_df.nlargest(top_n, score_col).copy()
-    print(f"   ✂️ Kept top {top_n} by score")
+removed_below = 0
+
+if score_col:
+    score_values = pd.to_numeric(results_df[score_col], errors='coerce')
+    valid_scores = score_values.dropna()
+    if len(valid_scores) >= 10:
+        min_score = float(valid_scores.quantile(0.25))
+    elif len(valid_scores) >= 3:
+        min_score = float(valid_scores.quantile(0.10))
+    else:
+        min_score = 0.0
+    min_score = max(2.0, min_score)
+    before = len(results_df)
+    results_df = results_df.loc[score_values >= min_score].copy()
+    removed_below = before - len(results_df)
+    if removed_below > 0:
+        print(f"   ❌ Removed {removed_below} below min score ({min_score:.2f})")
+    if len(results_df) > top_n:
+        results_df = (
+            results_df.assign(_score_numeric=pd.to_numeric(results_df[score_col], errors="coerce"))
+            .nlargest(top_n, "_score_numeric")
+            .drop(columns="_score_numeric")
+        )
+        print(f"   ✂️ Kept top {top_n} by score")
+else:
+    print("   ⚠️ No score column found; applying head/top-N")
+    if len(results_df) > top_n:
+        results_df = results_df.head(top_n).copy()
 
 print(f"\n   ✅ Final results: {len(results_df)} stocks (from {original_count})")
 
