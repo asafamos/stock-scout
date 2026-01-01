@@ -2594,7 +2594,8 @@ def save_latest_scan_from_results(results_df: pd.DataFrame, metadata: Optional[D
     
     output_dir = Path(__file__).parent / "data" / "scans"
     output_dir.mkdir(parents=True, exist_ok=True)
-    path_latest = output_dir / "latest_scan.parquet"
+    # Save live runs under a separate filename to avoid shadowing autoscan snapshots
+    path_latest = output_dir / "latest_scan_live.parquet"
     
     # Prepare metadata
     meta = metadata.copy() if metadata else {}
@@ -2629,7 +2630,9 @@ use_precomputed = False
 
 
 def _load_precomputed_scan_with_fallback(scan_dir: Path):
-    """Load latest snapshot; fallback to newest timestamped scan_* if latest is missing."""
+    """Load latest autoscan snapshot; fallback to newest timestamped scan_* if latest is missing.
+    Live manual saves are stored separately (latest_scan_live.parquet) and are ignored by default.
+    """
     latest_path = scan_dir / "latest_scan.parquet"
     df, meta = load_latest_scan(latest_path)
     if df is not None and meta is not None:
@@ -2689,12 +2692,8 @@ if CONFIG.get("USE_REMOTE_AUTOSCAN", True):
                 except Exception:
                     ts_local = None
 
-            use_remote = False
-            if ts_remote and ts_local:
-                # Prefer remote if it's newer by at least 10 minutes
-                use_remote = (ts_remote - ts_local).total_seconds() > 600
-            elif ts_remote and not ts_local:
-                use_remote = True
+            # Prefer remote whenever available unless explicitly forcing live run
+            use_remote = bool(ts_remote)
 
             if use_remote:
                 r_pq = requests.get(f"{base}/latest_scan.parquet", timeout=20)
