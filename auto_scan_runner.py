@@ -215,6 +215,12 @@ save_cols = [
 save_cols_actual = [c for c in save_cols if c in results_df.columns]
 df_to_save = results_df[save_cols_actual].copy()
 
+# Aliases for UI compatibility (cards expect Unit_Price and sometimes ML_Probability)
+if "Close" in df_to_save.columns and "Unit_Price" not in df_to_save.columns:
+    df_to_save["Unit_Price"] = df_to_save["Close"]
+if "ML_20d_Prob" in df_to_save.columns and "ML_Probability" not in df_to_save.columns:
+    df_to_save["ML_Probability"] = df_to_save["ML_20d_Prob"]
+
 # Save results
 output_dir = Path('data/scans')
 output_dir.mkdir(parents=True, exist_ok=True)

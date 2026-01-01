@@ -173,10 +173,23 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
     )
     score_20d = row.get("overall_score_20d", None)
     target_price = _num(row.get("Target_Price", np.nan))
-    entry_price = _num(row.get("Entry_Price", np.nan))
+    # Use broader fallback chain for precomputed scans (no UI-only columns)
+    entry_price = _num(
+        row.get(
+            "Entry_Price",
+            row.get(
+                "Price_Yahoo",
+                row.get(
+                    "Unit_Price",
+                    row.get("Close", np.nan)
+                )
+            )
+        )
+    )
     target_date = _safe_str(row.get("Target_Date", "N/A"))
     target_source = _safe_str(row.get("Target_Source", "N/A"))
-    rr_ratio = _num(row.get("rr", np.nan))
+    # Prefer v2/alias RR_Ratio if present
+    rr_ratio = _num(row.get("RR_Ratio", row.get("rr", np.nan)))
     rr_score = _num(row.get("rr_score_v2", np.nan))
     rr_band = _safe_str(row.get("rr_band", ""), "")
 
@@ -185,7 +198,8 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
     risk_band_label = _safe_str(row.get("risk_band", "N/A"))
     reliability_pct = _num(row.get("reliability_pct", np.nan))
     reliability_band_label = _safe_str(row.get("reliability_band", "N/A"))
-    ml_prob = _num(row.get("ML_Probability", np.nan))
+    # Prefer canonical ML probability from 20d pipeline
+    ml_prob = _num(row.get("ML_20d_Prob", row.get("ML_Probability", np.nan)))
 
     # Derive confidence band with explicit Low/Medium/High thresholds; fallback message if missing
     def ml_conf_band(p: float) -> str:
