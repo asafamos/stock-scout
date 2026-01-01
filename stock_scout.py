@@ -2600,6 +2600,14 @@ def save_latest_scan_from_results(results_df: pd.DataFrame, metadata: Optional[D
     meta = metadata.copy() if metadata else {}
     meta["total_tickers"] = len(results_df)
     meta["scan_type"] = "live_streamlit"
+    # Add build commit for parity with autoscan artifacts
+    try:
+        import subprocess
+        meta["build_commit"] = (
+            subprocess.check_output(["git", "rev-parse", "--short", "HEAD"]).decode().strip()
+        )
+    except Exception:
+        pass
     
     try:
         save_scan_helper(
@@ -2731,6 +2739,17 @@ if precomputed_meta is not None:
     except Exception:
         scan_too_old = True
 
+# Helper: show snapshot provenance banner
+def _render_snapshot_banner(meta: Dict[str, Any], path_obj: Path, age_hours: Optional[float]) -> None:
+    src = "Remote autoscan (GitHub)" if str(path_obj).startswith("REMOTE:") else (
+        "Local latest" if path_obj.name == "latest_scan.parquet" else "Local backup"
+    )
+    ts = meta.get("timestamp", "unknown")
+    commit = meta.get("build_commit", "unknown")
+    size = meta.get("total_tickers", meta.get("universe_size", ""))
+    age_txt = f"{age_hours:.1f} שעות" if isinstance(age_hours, (int, float)) else "unknown"
+    st.caption(f"🧾 מקור: {src} • קומיט: {commit} • זמן: {ts} • גיל: {age_txt} • מניות: {size}")
+
 if force_live_scan_once:
     # User explicitly forced a live run: ignore any snapshot age/status
     st.info("🔄 סריקה חיה נכפית - מתעלם מסריקה אוטומטית.")
@@ -2744,6 +2763,7 @@ elif precomputed_df is not None and precomputed_meta is not None and not scan_to
     )
     age_display = f"{scan_age_hours:.1f}" if isinstance(scan_age_hours, (int, float)) else "unknown"
     st.success(f"✅ נתונים עדכניים מסריקה אוטומטית ({age_display} שעות)")
+    _render_snapshot_banner(precomputed_meta, scan_path, scan_age_hours)
     st.caption(f"📊 {universe_size} מניות נותחו | ⏰ סריקה אוטומטית פעמיים ביום (8:00 + 20:00 UTC)")
 
     st.session_state["skip_pipeline"] = True
@@ -2755,6 +2775,7 @@ else:
     if scan_too_old and precomputed_df is not None:
         age_display = f"{scan_age_hours:.1f}" if isinstance(scan_age_hours, (int, float)) else "unknown"
         st.warning(f"⚠️ הסריקה הקיימת ישנה מדי ({age_display} שעות) - מחכה לסריקה אוטומטית הבאה")
+        _render_snapshot_banner(precomputed_meta, scan_path, scan_age_hours)
         st.info("💡 סריקה אוטומטית חדשה תתבצע תוך מספר שעות (פעמיים ביום: 8:00 + 20:00 UTC)")
         # Use old scan anyway but warn user
         st.session_state["skip_pipeline"] = True
