@@ -2745,9 +2745,14 @@ def _render_snapshot_banner(meta: Dict[str, Any], path_obj: Path, age_hours: Opt
     )
     ts = meta.get("timestamp", "unknown")
     commit = meta.get("build_commit", "unknown")
-    size = meta.get("total_tickers", meta.get("universe_size", ""))
+    saved = meta.get("total_tickers")
+    uni = meta.get("universe_size")
     age_txt = f"{age_hours:.1f} שעות" if isinstance(age_hours, (int, float)) else "unknown"
-    st.caption(f"🧾 מקור: {src} • קומיט: {commit} • זמן: {ts} • גיל: {age_txt} • מניות: {size}")
+    if saved is not None and uni is not None:
+        st.caption(f"🧾 מקור: {src} • קומיט: {commit} • זמן: {ts} • גיל: {age_txt} • מניות נשמרו: {saved} מתוך נסקרו: {uni}")
+    else:
+        size = saved or uni or "unknown"
+        st.caption(f"🧾 מקור: {src} • קומיט: {commit} • זמן: {ts} • גיל: {age_txt} • מניות: {size}")
 
 if force_live_scan_once:
     # User explicitly forced a live run: ignore any snapshot age/status
