@@ -1,13 +1,13 @@
 {
-  "timestamp": "2026-01-02T08:38:31.473340",
+  "timestamp": "2026-01-02T20:16:12.705290",
   "scan_type": "automated_full_pipeline",
-  "total_tickers": 5,
+  "total_tickers": 3,
   "universe_size": 12,
   "pipeline_version": "v2_with_ml",
-  "top_ticker": "GOOGL",
-  "top_score": 67.69858230288904,
-  "avg_score": 58.46449704335407,
-  "scan_duration_seconds": 4.8382086753845215,
+  "top_ticker": "WMT",
+  "top_score": 65.84604557951694,
+  "avg_score": 60.97002328039769,
+  "scan_duration_seconds": 9.00242829322815,
   "columns_saved": [
     "Ticker",
     "Sector",
@@ -33,5 +33,5 @@
     "RS_63d",
     "AdvPenalty"
   ],
-  "build_commit": "3a96268"
+  "build_commit": "8fbf8ba"
 }
