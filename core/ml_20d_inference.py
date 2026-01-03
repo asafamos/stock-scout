@@ -26,13 +26,26 @@ def _load_bundle_impl() -> tuple[bool, Any, list[str], str]:
         # Use absolute path relative to this file's location
         module_dir = Path(__file__).resolve().parent.parent  # stock-scout-2 root
         # Prefer v3 model; fallback to v2, then v1
-        # Prefer newest timestamped v3 bundle if present
+        # Prefer newest timestamped v3 bundle if present; allow drift-based fallback to previous
         models_dir = module_dir / "models"
         model_path_v3 = models_dir / "model_20d_v3.pkl"
+        candidates = []
         try:
             candidates = sorted(models_dir.glob("model_20d_v3_*.pkl"), key=lambda p: p.stat().st_mtime, reverse=True)
             if candidates:
                 model_path_v3 = candidates[0]
+        except Exception:
+            candidates = []
+        # Drift alert fallback: if severe drift flagged, prefer previous timestamped model when available
+        try:
+            alert_path = models_dir / "drift_alert.json"
+            if alert_path.exists() and candidates and len(candidates) >= 2:
+                import json
+                with open(alert_path, "r", encoding="utf-8") as f:
+                    alert = json.load(f)
+                if alert.get("drift_alert") and alert.get("recommend_fallback"):
+                    model_path_v3 = candidates[1]
+                    logger.warning(f"Drift alert detected — falling back to previous model: {model_path_v3}")
         except Exception:
             pass
         model_path_v2 = module_dir / "models" / "model_20d_v2.pkl"

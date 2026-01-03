@@ -1,0 +1,87 @@
+{
+  "model": "models/model_20d_v3.pkl",
+  "live_csv": "data/training_dataset_20d_v3_with_live_v3.csv",
+  "training_csv": null,
+  "results": {
+    "TechScore_20d": {
+      "PSI": null,
+      "KS": null
+    },
+    "RSI": {
+      "PSI": null,
+      "KS": null
+    },
+    "ATR_Pct": {
+      "PSI": null,
+      "KS": null
+    },
+    "RR": {
+      "PSI": null,
+      "KS": null
+    },
+    "MomCons": {
+      "PSI": null,
+      "KS": null
+    },
+    "VolSurge": {
+      "PSI": null,
+      "KS": null
+    },
+    "Return_5d": {
+      "PSI": null,
+      "KS": null
+    },
+    "Return_10d": {
+      "PSI": null,
+      "KS": null
+    },
+    "UpStreak_Days": {
+      "PSI": null,
+      "KS": null
+    },
+    "DownStreak_Days": {
+      "PSI": null,
+      "KS": null
+    },
+    "PullbackFromHigh_20d": {
+      "PSI": null,
+      "KS": null
+    },
+    "DistanceFromLow_20d": {
+      "PSI": null,
+      "KS": null
+    },
+    "Range_Pct": {
+      "PSI": null,
+      "KS": null
+    },
+    "ATR_Pct_percentile": {
+      "PSI": null,
+      "KS": null
+    },
+    "Vol_Class": {
+      "PSI": null,
+      "KS": null
+    },
+    "Vol_SweetSpot_Flag": {
+      "PSI": null,
+      "KS": null
+    },
+    "Vol_Extreme_Flag": {
+      "PSI": null,
+      "KS": null
+    },
+    "BigWinnerScore_20d": {
+      "PSI": null,
+      "KS": null
+    },
+    "BigWinnerFlag_20d": {
+      "PSI": null,
+      "KS": null
+    }
+  },
+  "flags": {
+    "moderate": false,
+    "severe": false
+  }
+}

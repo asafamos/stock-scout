@@ -187,12 +187,40 @@ def train_and_save_bundle() -> Tuple[str, dict]:
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     ts = datetime.utcnow().strftime("%Y%m%d_%H%M")
     out_path = MODELS_DIR / f"model_20d_v3_{ts}.pkl"
+    # Compute training feature bin metadata for drift monitoring
+    feature_bins = {}
+    training_bin_pct = {}
+    quantiles = np.linspace(0.0, 1.0, 11)
+    for feat in feature_cols:
+        try:
+            s = pd.to_numeric(df_recent[feat], errors="coerce").replace([np.inf, -np.inf], np.nan).dropna()
+            if s.empty:
+                continue
+            edges = np.nanquantile(s.values, quantiles).tolist()
+            # Ensure unique and sorted edges; expand slightly if degenerate
+            edges = sorted(set(edges))
+            if len(edges) < 3:
+                mn, mx = float(np.nanmin(s.values)), float(np.nanmax(s.values))
+                if mn == mx:
+                    mx = mn + 1e-6
+                edges = [mn, (mn+mx)/2.0, mx]
+            # Build bin counts
+            cats = pd.cut(s, bins=edges, include_lowest=True, duplicates='drop')
+            cnt = cats.value_counts(sort=False)
+            pct = (cnt / cnt.sum()).astype(float).tolist()
+            feature_bins[feat] = edges
+            training_bin_pct[feat] = pct
+        except Exception:
+            continue
+
     bundle = {
         "model": final_model,
         "feature_names": feature_cols,
         "preferred_scoring_mode_20d": "hybrid",
         "trained_at": ts,
-        "metrics": {"auc": float(auc), "logloss": float(ll), "precision_at_k": float(p_at_k), "k": K_TOP}
+        "metrics": {"auc": float(auc), "logloss": float(ll), "precision_at_k": float(p_at_k), "k": K_TOP},
+        "feature_bins": feature_bins,
+        "training_bin_pct": training_bin_pct,
     }
     joblib.dump(bundle, out_path)
 

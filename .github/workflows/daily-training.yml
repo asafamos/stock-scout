@@ -35,6 +35,10 @@ jobs:
         run: |
           python -m scripts.backtest_precision_at_k || true
 
+      - name: Monitor Drift (PSI/KS)
+        run: |
+          python -m scripts.monitor_drift || true
+
       - name: Upload reports
         uses: actions/upload-artifact@v4
         with:
