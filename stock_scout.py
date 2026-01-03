@@ -198,6 +198,15 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
     risk_band_label = _safe_str(row.get("risk_band", row.get("Risk_Level", "N/A")))
     reliability_pct = _num(row.get("reliability_pct", row.get("Reliability_v2", np.nan)))
     reliability_band_label = _safe_str(row.get("reliability_band", "N/A"))
+    # Fallback: derive reliability band from percentage if missing
+    if (not reliability_band_label) or reliability_band_label == "N/A":
+        if np.isfinite(reliability_pct):
+            if reliability_pct >= 75:
+                reliability_band_label = "High"
+            elif reliability_pct >= 40:
+                reliability_band_label = "Medium"
+            else:
+                reliability_band_label = "Low"
     # Prefer canonical ML probability from 20d pipeline
     ml_prob = _num(row.get("ML_20d_Prob", row.get("ML_Probability", np.nan)))
 
@@ -409,6 +418,8 @@ CONFIG = {
     "MIN_DOLLAR_VOLUME": _config_obj.min_dollar_volume,
     "MIN_MARKET_CAP": _config_obj.min_market_cap,
     "FUNDAMENTAL_ENABLED": _config_obj.fundamental_enabled,
+    # Canonical lowercase key used by pipeline_runner
+    "fundamental_enabled": _config_obj.fundamental_enabled,
     "FUNDAMENTAL_WEIGHT": _config_obj.fundamental_weight,
     # Earnings / risk filters
     "EARNINGS_BLACKOUT_DAYS": _config_obj.earnings_blackout_days,
@@ -2630,23 +2641,56 @@ use_precomputed = False
 
 
 def _load_precomputed_scan_with_fallback(scan_dir: Path):
-    """Load latest autoscan snapshot; fallback to newest timestamped scan_* if latest is missing.
-    Live manual saves are stored separately (latest_scan_live.parquet) and are ignored by default.
+    """Load the freshest available snapshot.
+    Considers:
+      - Automated: latest_scan.parquet
+      - Live manual: latest_scan_live.parquet
+      - Timestamped backups: scan_*.parquet (newest)
+    Chooses the newest by metadata timestamp or file mtime.
     """
-    latest_path = scan_dir / "latest_scan.parquet"
-    df, meta = load_latest_scan(latest_path)
-    if df is not None and meta is not None:
-        return df, meta, latest_path
-    # Fallback: pick newest scan_*.parquet
+    auto_path = scan_dir / "latest_scan.parquet"
+    live_path = scan_dir / "latest_scan_live.parquet"
+
+    def _load(path: Path):
+        df, meta = load_latest_scan(path)
+        if df is None or meta is None:
+            return None, None, None
+        # Try to parse ISO timestamp, else use file mtime
+        ts_meta = meta.get("timestamp")
+        try:
+            ts_parsed = datetime.fromisoformat((ts_meta or "").replace("Z", "+00:00")) if ts_meta else None
+        except Exception:
+            ts_parsed = None
+        try:
+            ts_file = datetime.fromtimestamp(path.stat().st_mtime)
+        except Exception:
+            ts_file = None
+        ts_effective = max([t for t in [ts_parsed, ts_file] if t is not None], default=None)
+        return df, meta, ts_effective
+
+    best_df, best_meta, best_ts, best_path = None, None, None, auto_path
+
+    # Load auto and live snapshots if present
+    for candidate_path in [auto_path, live_path]:
+        if candidate_path.exists():
+            df_c, meta_c, ts_c = _load(candidate_path)
+            if df_c is not None and meta_c is not None:
+                if best_ts is None or (ts_c and ts_c > best_ts):
+                    best_df, best_meta, best_ts, best_path = df_c, meta_c, ts_c, candidate_path
+
+    if best_df is not None and best_meta is not None:
+        return best_df, best_meta, best_path
+
+    # Fallback: pick newest timestamped backup
     candidates = sorted(scan_dir.glob("scan_*.parquet"), reverse=True)
     for candidate in candidates:
         df_cand, meta_cand = load_latest_scan(candidate)
         if df_cand is not None and meta_cand is not None:
-            # Ensure minimal metadata
             meta_cand.setdefault("timestamp", candidate.stem.replace("scan_", ""))
             meta_cand.setdefault("total_tickers", len(df_cand))
             return df_cand, meta_cand, candidate
-    return None, None, latest_path
+
+    return None, None, auto_path
 
 
 scan_dir = Path(__file__).parent / "data" / "scans"
@@ -2680,22 +2724,20 @@ if CONFIG.get("USE_REMOTE_AUTOSCAN", True):
         if r_meta.ok:
             meta_remote = r_meta.json()
             ts_remote = _parse_iso(meta_remote.get("timestamp", ""))
-            # Determine local timestamp if available
-            ts_local = None
+
+            # Determine current local timestamp (auto/live whichever was chosen)
+            ts_current = None
             if precomputed_meta and precomputed_meta.get("timestamp"):
-                ts_local = _parse_iso(precomputed_meta.get("timestamp"))
-            # If local timestamp missing, try file mtime
-            if not ts_local:
+                ts_current = _parse_iso(precomputed_meta.get("timestamp"))
+            if not ts_current:
                 try:
                     mtime_source = (scan_path.with_suffix('.json') if (scan_path and scan_path.with_suffix('.json').exists()) else scan_path)
-                    ts_local = datetime.fromtimestamp(mtime_source.stat().st_mtime)
+                    ts_current = datetime.fromtimestamp(mtime_source.stat().st_mtime)
                 except Exception:
-                    ts_local = None
+                    ts_current = None
 
-            # Prefer remote whenever available unless explicitly forcing live run
-            use_remote = bool(ts_remote)
-
-            if use_remote:
+            # Only prefer remote if it's newer than current
+            if ts_remote and (ts_current is None or ts_remote > ts_current) and not force_live_scan_once:
                 r_pq = requests.get(f"{base}/latest_scan.parquet", timeout=20)
                 if r_pq.ok:
                     try:
@@ -2703,7 +2745,7 @@ if CONFIG.get("USE_REMOTE_AUTOSCAN", True):
                         meta_remote.setdefault("total_tickers", len(df_remote))
                         precomputed_df, precomputed_meta = df_remote, meta_remote
                         scan_path = Path("REMOTE:latest_scan.parquet")
-                        logger.info("Using remote autoscan artifacts from GitHub (newer than local)")
+                        logger.info("Using remote autoscan artifacts from GitHub (remote is newer)")
                     except Exception as e:
                         logger.warning(f"Failed to parse remote parquet: {e}")
     except Exception as e:
@@ -2926,6 +2968,13 @@ if not skip_pipeline:
     universe = build_universe(limit=500)  # Fixed to 500 for consistency
     status_manager.advance(f"Universe built: {len(universe)} tickers")
     
+    # Respect UI toggle for multi-source fundamentals
+    try:
+        CONFIG["fundamental_enabled"] = bool(st.session_state.get("enable_multi_source", CONFIG.get("fundamental_enabled", True)))
+        CONFIG["FUNDAMENTAL_ENABLED"] = CONFIG["fundamental_enabled"]
+    except Exception:
+        pass
+
     results, data_map = run_scan_pipeline(
         universe=universe,
         config=CONFIG,
@@ -3391,14 +3440,19 @@ results["Unit_Price"] = pd.to_numeric(results["Unit_Price"], errors="coerce")
 # Show ALL stocks that passed filters (no limit)
 TOPN = len(results)
 
-# Apply ML confidence threshold
+# Apply ML confidence threshold (support multiple column aliases)
 ml_threshold_value = float(st.session_state.get("ml_threshold", 0)) / 100.0
-if ml_threshold_value > 0 and "ML_Prob" in results.columns:
+ml_col = None
+for cand in ("ML_Prob", "ML_20d_Prob", "ML_Probability"):
+    if cand in results.columns:
+        ml_col = cand
+        break
+if ml_threshold_value > 0 and ml_col is not None:
     before_ml = len(results)
-    results = results[results["ML_Prob"] >= ml_threshold_value].copy()
+    results = results[pd.to_numeric(results[ml_col], errors="coerce") >= ml_threshold_value].copy()
     after_ml = len(results)
     logger.info(
-        f"ML confidence filter: {before_ml} -> {after_ml} stocks (threshold={ml_threshold_value:.0%})"
+        f"ML confidence filter: {before_ml} -> {after_ml} stocks (threshold={ml_threshold_value:.0%}, col={ml_col})"
     )
     TOPN = len(results)  # Update TOPN after filtering
 
