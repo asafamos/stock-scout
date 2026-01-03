@@ -10,6 +10,8 @@ This module provides stock classification (Core vs Speculative, Risk levels, Qua
 from core.classification import (
     apply_classification,
     filter_core_recommendations,
+    apply_safety_filters,
+    assign_risk_class,
 )
 
 # ============================================================================
@@ -19,4 +21,6 @@ from core.classification import (
 __all__ = [
     "apply_classification",
     "filter_core_recommendations",
+    "apply_safety_filters",
+    "assign_risk_class",
 ]

@@ -35,6 +35,10 @@ streamlit*.log
 !requirements.txt
 !runtime.txt
 
+# Fundamentals SQLite store
+data/fundamentals_store.sqlite
+data/*.sqlite
+
 # Model artifacts (keep only production model)
 model_5d.pkl
 model_5d_full.pkl

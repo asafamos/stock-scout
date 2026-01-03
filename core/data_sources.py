@@ -1,5 +1,14 @@
 """
-Data sources module - Centralized API clients with error handling and fallback logic.
+Legacy Data Sources (v1)
+========================
+
+Note: core/data_sources_v2.py is now the canonical multi-provider data layer
+used by the pipeline. New code should prefer importing from:
+    - core.data (which re-exports v2 functions), or
+    - core.data_sources_v2
+
+This module remains for backward compatibility in select utilities/scripts
+(e.g., FinnhubClient universe helper). Avoid adding new logic here.
 """
 from __future__ import annotations
 import time

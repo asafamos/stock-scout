@@ -221,7 +221,7 @@ def main():
     
     parser = argparse.ArgumentParser(description="Unified Time-Travel Validation")
     parser.add_argument("--cases", type=str, required=True, help="CSV file with test cases")
-    parser.add_argument("--model", type=str, default="model_xgboost_5d_calibrated.pkl", help="ML model file")
+    parser.add_argument("--model", type=str, default="models/model_20d_v3.pkl", help="ML model file (sklearn bundle)")
     parser.add_argument("--horizons", type=str, default="5,10,20", help="Forward horizons")
     parser.add_argument("--output", type=str, default=None, help="Output CSV path")
     

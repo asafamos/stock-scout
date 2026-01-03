@@ -7,34 +7,93 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
+import functools
+from typing import Optional
+
+from core.data_sources_v2 import get_index_series
+
+
+@functools.lru_cache(maxsize=8)
+def get_benchmark_series(symbol: str = "SPY", period: str = "6mo") -> pd.DataFrame:
+    """
+    Canonical benchmark fetcher with caching.
+    - Tries multi-source provider via core.data_sources_v2.get_index_series
+      using a derived start/end from `period`.
+    - Falls back to yfinance if providers unavailable.
+    - Returns DataFrame with columns: ['date','open','high','low','close','volume'].
+    Caches results to avoid redundant calls and rate limits.
+    """
+    def _period_to_days(p: str) -> int:
+        try:
+            if p.endswith("d"):
+                return int(p[:-1])
+            if p.endswith("mo"):
+                return int(p[:-2]) * 30
+            if p.endswith("y"):
+                return int(p[:-1]) * 365
+        except Exception:
+            pass
+        return 180
+
+    # Attempt multi-source first
+    try:
+        days = _period_to_days(period)
+        now = datetime.utcnow()
+        start = (now - timedelta(days=days + 5)).strftime("%Y-%m-%d")
+        end = now.strftime("%Y-%m-%d")
+        df = get_index_series(symbol, start, end)
+        if df is not None and len(df) > 0:
+            return df
+    except Exception:
+        pass
+
+    # Fallback: yfinance
+    try:
+        df = yf.Ticker(symbol).history(period=period)
+        if not df.empty:
+            out = (
+                df.reset_index()
+                  .rename(columns={
+                      "Date": "date",
+                      "Open": "open",
+                      "High": "high",
+                      "Low": "low",
+                      "Close": "close",
+                      "Volume": "volume",
+                  })[["date", "open", "high", "low", "close", "volume"]]
+            )
+            return out
+    except Exception:
+        pass
+
+    # Empty safe default
+    return pd.DataFrame(columns=["date", "open", "high", "low", "close", "volume"])
 
 
 def fetch_spy_context(lookback_days: int = 90) -> dict:
-    """Fetch SPY market context features."""
+    """Fetch SPY market context features using cached benchmark series."""
     try:
-        spy = yf.Ticker('SPY')
-        end = datetime.now()
-        start = end - timedelta(days=lookback_days + 30)
-        df = spy.history(start=start, end=end)
-        
+        period = f"{lookback_days + 60}d"
+        df = get_benchmark_series("SPY", period=period)
         if len(df) < 20:
             return {}
-        
+
+        close = df["close"] if "close" in df.columns else df["Close"]
         # Market trend
-        sma20 = df['Close'].rolling(20).mean().iloc[-1]
-        sma50 = df['Close'].rolling(50).mean().iloc[-1] if len(df) >= 50 else sma20
-        current = df['Close'].iloc[-1]
-        
+        sma20 = close.rolling(20).mean().iloc[-1]
+        sma50 = close.rolling(50).mean().iloc[-1] if len(close) >= 50 else sma20
+        current = close.iloc[-1]
+
         # Volatility regime
-        returns = df['Close'].pct_change()
+        returns = close.pct_change()
         vol_20d = returns.tail(20).std() * np.sqrt(252)
-        
+
         return {
             'market_trend': 1.0 if current > sma20 > sma50 else 0.0,
-            'market_volatility': min(vol_20d, 0.5),  # Cap at 50%
-            'spy_rsi': compute_simple_rsi(df['Close'], 14),
+            'market_volatility': float(min(vol_20d, 0.5)),  # Cap at 50%
+            'spy_rsi': compute_simple_rsi(close, 14),
         }
-    except:
+    except Exception:
         return {}
 
 
@@ -121,13 +180,21 @@ def engineer_context_features(ticker: str, ticker_df: pd.DataFrame) -> dict:
     These add information ML model doesn't have from technicals alone.
     """
     spy_context = fetch_spy_context()
-    
-    # Fetch SPY data for relative strength
+
+    # Fetch SPY data for relative strength via cached benchmark
     try:
-        spy = yf.Ticker('SPY')
-        spy_df = spy.history(period='3mo')
-        rel_strength = compute_relative_strength_vs_spy(ticker_df, spy_df)
-    except:
+        spy_df = get_benchmark_series("SPY", period='3mo')
+        # Map columns to expected yfinance-like capitalization for compatibility
+        spy_df_cap = spy_df.rename(columns={
+            "date": "Date",
+            "open": "Open",
+            "high": "High",
+            "low": "Low",
+            "close": "Close",
+            "volume": "Volume",
+        })
+        rel_strength = compute_relative_strength_vs_spy(ticker_df, spy_df_cap)
+    except Exception:
         rel_strength = 0.0
     
     features = {

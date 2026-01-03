@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-01-03T21:15:00.078349",
+  "timestamp": "2026-01-03T23:17:26.311928",
   "universe_size": 11,
   "universe_name": "default",
   "config_version": "unknown",
@@ -96,10 +96,14 @@
     "Fundamental_Coverage_Pct",
     "Fundamental_Sources_Count",
     "Fundamental_S",
+    "Fundamental_Backtest_Unsafe",
     "Sector",
+    "RiskClass",
+    "SafetyBlocked",
+    "SafetyReasons",
     "\u05e1\u05db\u05d5\u05dd \u05e7\u05e0\u05d9\u05d9\u05d4 ($)"
   ],
   "scan_type": "live_streamlit",
   "total_tickers": 11,
-  "build_commit": "5e7251b"
+  "build_commit": "0b94843"
 }

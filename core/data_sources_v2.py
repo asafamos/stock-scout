@@ -1,15 +1,31 @@
 """
-Multi-Source Data Aggregation Module (v2).
+Multi-Source Data Aggregation Module (v2) — Canonical Layer
+===========================================================
 
-This module implements robust multi-source data fetching with:
+This is the canonical multi-provider data layer used by the pipeline.
+It fetches from multiple providers, cross-checks, and exposes structured
+metadata required downstream for reliability and risk-aware scoring.
+
+Guarantees / exposed reliability-related fields (when available):
+- Fundamental_Coverage_Pct: float [0,100]
+- Fundamental_Sources_Count: int
+- sources_used: List[str] for fundamentals
+- coverage: Dict[field -> List[sources]]
+- disagreement_score: float [0,1] summary across fundamentals
+- Price_Mean / price_mean: float
+- Price_STD / price_std: float
+- Price_Sources_Count / price_sources: int
+- prices_by_source: Dict[source -> price]
+
+Do NOT implement scoring here. This layer only fetches/aggregates and surfaces
+the raw and derived reliability inputs so scoring and classification can consume
+canonical fields consistently.
+
+Implementation highlights:
 - Priority chain: FMP → Finnhub → Tiingo → Alpha Vantage
 - Multi-source fusion: aggregate data from ALL available sources
-- Per-source caching with TTL
-- Retry logic with exponential backoff
-- Timeout protection
+- Per-source caching with TTL; retry and timeout protection
 - NaN-safe aggregation
-
-Design principle: Use MORE data, not less. Cross-check and enrich.
 """
 from __future__ import annotations
 import os
@@ -22,8 +38,19 @@ from datetime import datetime, timedelta
 from functools import lru_cache
 import logging
 from core.api_monitor import record_api_call
+import threading
+from core.fundamental import DataMode
+from core.fundamental_store import init_fundamentals_store, save_fundamentals_snapshot, load_fundamentals_as_of
+from datetime import date
 
 logger = logging.getLogger(__name__)
+
+# Initialize fundamentals store at import time so DB/table exist for live snapshots
+try:
+    init_fundamentals_store()
+except Exception:
+    # Non-fatal; live snapshot persistence will simply be skipped if init fails
+    logger.warning("Failed to initialize fundamentals store (SQLite)")
 
 # API Keys from environment
 FMP_API_KEY = os.getenv("FMP_API_KEY", "")
@@ -32,12 +59,14 @@ TIINGO_API_KEY = os.getenv("TIINGO_API_KEY", "")
 ALPHA_VANTAGE_API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY", "")
 POLYGON_API_KEY = os.getenv("POLYGON_API_KEY", "")
 
-# Cache configuration
+# Cache configuration (shared across threads)
 _CACHE: Dict[str, Dict[str, Any]] = {}
+_CACHE_LOCK = threading.Lock()
 CACHE_TTL_SECONDS = 3600  # 1 hour default
 
-# Rate limiting
+# Rate limiting (shared across threads)
 _LAST_CALL_TIME: Dict[str, float] = {}
+_RATE_LOCK = threading.Lock()
 MIN_INTERVAL_SECONDS = {
     "fmp": 0.1,        # 10 calls/sec
     "finnhub": 0.2,    # 5 calls/sec
@@ -48,17 +77,23 @@ MIN_INTERVAL_SECONDS = {
 
 
 def _rate_limit(source: str) -> None:
-    """Apply rate limiting for a given source."""
-    if source not in _LAST_CALL_TIME:
-        _LAST_CALL_TIME[source] = 0
-    
-    elapsed = time.time() - _LAST_CALL_TIME[source]
+    """Apply rate limiting for a given source.
+
+    Thread-safe: compute wait time without holding the lock during sleep,
+    then update last-call timestamp after waiting.
+    """
     min_interval = MIN_INTERVAL_SECONDS.get(source, 0.1)
-    
-    if elapsed < min_interval:
-        time.sleep(min_interval - elapsed)
-    
-    _LAST_CALL_TIME[source] = time.time()
+    now = time.time()
+    with _RATE_LOCK:
+        last = _LAST_CALL_TIME.get(source, 0.0)
+        elapsed = now - last
+        wait = max(0.0, min_interval - elapsed)
+        if wait == 0:
+            _LAST_CALL_TIME[source] = now
+    if wait > 0:
+        time.sleep(wait)
+        with _RATE_LOCK:
+            _LAST_CALL_TIME[source] = time.time()
 
 
 def _http_get_with_retry(
@@ -99,29 +134,32 @@ def _http_get_with_retry(
             if attempt < max_retries - 1:
                 time.sleep(2 ** attempt)
         except Exception as e:
-            logger.error(f"Error fetching {url}: {e}")
+            logger.error(f"Error fetching {url}: {e}", exc_info=True)
             return None
     
     return None
 
 
 def _get_from_cache(cache_key: str, ttl: int = CACHE_TTL_SECONDS) -> Optional[Dict]:
-    """Retrieve from cache if not expired."""
-    if cache_key in _CACHE:
-        entry = _CACHE[cache_key]
+    """Retrieve from cache if not expired (thread-safe)."""
+    with _CACHE_LOCK:
+        entry = _CACHE.get(cache_key)
+        if not entry:
+            return None
         if time.time() - entry["timestamp"] < ttl:
             return entry["data"]
-        else:
-            del _CACHE[cache_key]
-    return None
+        # Expired entry: remove
+        _CACHE.pop(cache_key, None)
+        return None
 
 
 def _put_in_cache(cache_key: str, data: Dict) -> None:
-    """Store in cache with timestamp."""
-    _CACHE[cache_key] = {
-        "data": data,
-        "timestamp": time.time()
-    }
+    """Store in cache with timestamp (thread-safe)."""
+    with _CACHE_LOCK:
+        _CACHE[cache_key] = {
+            "data": data,
+            "timestamp": time.time()
+        }
 
 
 # ============================================================================
@@ -470,7 +508,13 @@ def fetch_fundamentals_alpha(ticker: str, provider_status: Dict | None = None) -
 # MULTI-SOURCE AGGREGATION
 # ============================================================================
 
-def aggregate_fundamentals(ticker: str, prefer_source: str = "fmp", provider_status: Dict | None = None) -> Dict:
+def aggregate_fundamentals(
+    ticker: str,
+    prefer_source: str = "fmp",
+    provider_status: Dict | None = None,
+    mode: DataMode = DataMode.LIVE,
+    as_of_date: Optional[date] = None,
+) -> Dict:
     """
     Fetch and aggregate fundamentals from ALL available sources.
     
@@ -490,6 +534,25 @@ def aggregate_fundamentals(ticker: str, prefer_source: str = "fmp", provider_sta
         - coverage: Dict[str, List[str]] - which sources provided each field
         - disagreement_score: float (0-1) - how much sources disagree
     """
+    # BACKTEST: Prefer local point-in-time store to avoid lookahead bias
+    if mode == DataMode.BACKTEST and as_of_date is not None:
+        try:
+            snapshot = load_fundamentals_as_of(ticker, as_of_date)
+        except Exception:
+            snapshot = None
+        if snapshot:
+            # Ensure flags and minimal fields
+            snapshot = dict(snapshot)
+            snapshot["ticker"] = ticker
+            snapshot["Fundamental_Backtest_Unsafe"] = False
+            snapshot["Fundamental_From_Store"] = True
+            snapshot.setdefault("sources_used", [])
+            snapshot.setdefault("Fundamental_Sources_Count", len(snapshot.get("sources_used", [])))
+            snapshot.setdefault("Fundamental_Coverage_Pct", 0.0)
+            snapshot.setdefault("timestamp", time.time())
+            logger.info(f"Using stored fundamentals snapshot for {ticker} as of {as_of_date}")
+            return snapshot
+
     # Fetch from all sources (in parallel conceptually, but sequentially for rate limits)
     sources_data = {}
     
@@ -545,7 +608,7 @@ def aggregate_fundamentals(ticker: str, prefer_source: str = "fmp", provider_sta
     if not sources_data:
         logger.warning(f"No fundamental data available for {ticker}")
         # Return a neutral, non-crashing structure with explicit metadata
-        return {
+        result = {
             "ticker": ticker,
             "sources_used": [],
             "coverage": {},
@@ -553,8 +616,9 @@ def aggregate_fundamentals(ticker: str, prefer_source: str = "fmp", provider_sta
             # Explicit fundamental coverage and counts
             "Fundamental_Coverage_Pct": 0.0,
             "Fundamental_Sources_Count": 0,
-            # Neutral default score used by downstream when fundamentals missing
+            # Maintain neutral default for compatibility, plus explicit flag
             "Fundamental_S": 50.0,
+            "Fundamental_Missing": True,
             # Per-source flags for downstream logic
             "Fund_from_FMP": False,
             "Fund_from_Finnhub": False,
@@ -562,6 +626,18 @@ def aggregate_fundamentals(ticker: str, prefer_source: str = "fmp", provider_sta
             "Fund_from_Alpha": False,
             "timestamp": time.time(),
         }
+        # Backtest awareness
+        if mode == DataMode.BACKTEST:
+            logger.warning(
+                "Using snapshot fundamentals for BACKTEST mode on %s – results may suffer from lookahead bias",
+                ticker,
+            )
+            result["Fundamental_Backtest_Unsafe"] = True
+            result["Fundamental_From_Store"] = False
+        else:
+            result["Fundamental_Backtest_Unsafe"] = False
+            result["Fundamental_From_Store"] = False
+        return result
     
     # Aggregate fields
     fields = ["pe", "ps", "pb", "roe", "margin", "rev_yoy", "eps_yoy", "debt_equity", "market_cap", "beta"]
@@ -619,13 +695,40 @@ def aggregate_fundamentals(ticker: str, prefer_source: str = "fmp", provider_sta
     aggregated["Fundamental_Coverage_Pct"] = float(coverage_pct)
     aggregated["Fundamental_Sources_Count"] = int(len(aggregated["sources_used"]))
 
-    # Provide neutral Fundamental_S if not computed elsewhere
+    # Maintain neutral default for compatibility if not set upstream
     if "Fundamental_S" not in aggregated:
         aggregated["Fundamental_S"] = 50.0
+
+    # Backtest awareness flag
+    if mode == DataMode.BACKTEST:
+        logger.warning(
+            "Using snapshot fundamentals for BACKTEST mode on %s – results may suffer from lookahead bias",
+            ticker,
+        )
+        aggregated["Fundamental_Backtest_Unsafe"] = True
+        aggregated["Fundamental_From_Store"] = False
+    else:
+        aggregated["Fundamental_Backtest_Unsafe"] = False
+        aggregated["Fundamental_From_Store"] = False
     
     # Cache the merged result
     cache_key = f"merged_fund_{ticker}"
     _put_in_cache(cache_key, aggregated)
+
+    # Persist a point-in-time fundamentals snapshot in LIVE mode only, when we have data
+    if mode == DataMode.LIVE and len(aggregated.get("sources_used", [])) > 0 and not aggregated.get("Fundamental_Missing", False):
+        try:
+            # Use the threaded signal date if provided; fallback to wall-clock
+            as_of = as_of_date or date.today()
+            save_fundamentals_snapshot(
+                ticker=ticker,
+                payload=aggregated,
+                as_of_date=as_of,
+                provider="multi_source",
+            )
+            logger.debug(f"Saved fundamentals snapshot for {ticker} as of {as_of}")
+        except Exception as e:
+            logger.warning(f"Failed to save fundamentals snapshot for {ticker}: {e}")
     
     logger.info(f"Aggregated fundamentals for {ticker} from {len(sources_data)} sources")
     return aggregated
@@ -672,7 +775,7 @@ def fetch_price_multi_source(ticker: str, provider_status: Dict | None = None) -
             if data and isinstance(data, list) and len(data) > 0:
                 prices["fmp"] = data[0].get("price")
         except Exception as e:
-            logger.debug(f"FMP price fetch failed: {e}")
+            logger.warning(f"FMP price fetch failed: {e}", exc_info=True)
             prices["fmp"] = None
     
     # Finnhub price
@@ -700,7 +803,7 @@ def fetch_price_multi_source(ticker: str, provider_status: Dict | None = None) -
             if data:
                 prices["finnhub"] = data.get("c")  # Current price
         except Exception as e:
-            logger.debug(f"Finnhub price fetch failed: {e}")
+            logger.warning(f"Finnhub price fetch failed: {e}", exc_info=True)
             prices["finnhub"] = None
     
     # Tiingo price (existing)
@@ -728,7 +831,7 @@ def fetch_price_multi_source(ticker: str, provider_status: Dict | None = None) -
             if data and isinstance(data, list) and len(data) > 0:
                 prices["tiingo"] = data[0].get("close")
         except Exception as e:
-            logger.debug(f"Tiingo price fetch failed: {e}")
+            logger.warning(f"Tiingo price fetch failed: {e}", exc_info=True)
             prices["tiingo"] = None
     
     # Alpha Vantage price (existing)
@@ -761,7 +864,7 @@ def fetch_price_multi_source(ticker: str, provider_status: Dict | None = None) -
                 price_str = data["Global Quote"].get("05. price")
                 prices["alpha"] = float(price_str) if price_str else None
         except Exception as e:
-            logger.debug(f"Alpha price fetch failed: {e}")
+            logger.warning(f"Alpha price fetch failed: {e}", exc_info=True)
             prices["alpha"] = None
     
     # Polygon price (existing)
@@ -789,7 +892,7 @@ def fetch_price_multi_source(ticker: str, provider_status: Dict | None = None) -
             if data and "results" in data and len(data["results"]) > 0:
                 prices["polygon"] = data["results"][0].get("c")
         except Exception as e:
-            logger.debug(f"Polygon price fetch failed: {e}")
+            logger.warning(f"Polygon price fetch failed: {e}", exc_info=True)
             prices["polygon"] = None
     
     return prices
@@ -817,7 +920,7 @@ def aggregate_price(prices: Dict[str, Optional[float]]) -> Tuple[float, float, i
 # PUBLIC API
 # ============================================================================
 
-def fetch_multi_source_data(ticker: str, provider_status: Dict | None = None) -> Dict:
+def fetch_multi_source_data(ticker: str, provider_status: Dict | None = None, mode: DataMode = DataMode.LIVE, as_of_date: Optional[date] = None) -> Dict:
     """
     Main entry point: fetch fundamentals and price from all sources.
     
@@ -828,7 +931,7 @@ def fetch_multi_source_data(ticker: str, provider_status: Dict | None = None) ->
     - Individual source prices for verification
     """
     # Get fundamentals
-    fundamentals = aggregate_fundamentals(ticker, provider_status=provider_status)
+    fundamentals = aggregate_fundamentals(ticker, provider_status=provider_status, mode=mode, as_of_date=as_of_date)
     
     # Get prices
     prices = fetch_price_multi_source(ticker, provider_status=provider_status)
@@ -836,28 +939,36 @@ def fetch_multi_source_data(ticker: str, provider_status: Dict | None = None) ->
     
     # Merge everything
     result = {**fundamentals}
+    # Lowercase canonical
     result["price_mean"] = price_mean
     result["price_std"] = price_std
     result["price_sources"] = price_count
     result["prices_by_source"] = prices
+    # Uppercase aliases for downstream that expect these names
+    result["Price_Mean"] = price_mean
+    result["Price_STD"] = price_std
+    result["Price_Sources_Count"] = price_count
     
     return result
 
 
 def clear_cache() -> None:
-    """Clear all cached data."""
+    """Clear all cached data (thread-safe)."""
     global _CACHE
-    _CACHE = {}
+    with _CACHE_LOCK:
+        _CACHE = {}
     logger.info("Cache cleared")
 
 
 def get_cache_stats() -> Dict:
-    """Get cache statistics."""
+    """Get cache statistics (thread-safe snapshot)."""
+    with _CACHE_LOCK:
+        keys = list(_CACHE.keys())
     return {
-        "total_entries": len(_CACHE),
+        "total_entries": len(keys),
         "sources": {
-            source: sum(1 for k in _CACHE if k.startswith(source))
-            for source in ["fmp", "finnhub", "tiingo", "alpha", "merged"]
+            source: sum(1 for k in keys if k.startswith(source))
+            for source in ["fmp", "finnhub", "tiingo", "alpha", "merged", "index_series"]
         }
     }
 
@@ -887,13 +998,12 @@ def get_index_series(
     # Normalize VIX symbol for different providers
     fmp_symbol = symbol.replace('^', '')  # FMP uses 'VIX' not '^VIX'
     
-    # Check cache
+    # Check cache (thread-safe)
     cache_key = f"index_series_{symbol}_{start_date}_{end_date}"
-    if cache_key in _CACHE:
-        cached = _CACHE[cache_key]
-        if time.time() - cached["timestamp"] < CACHE_TTL_SECONDS:
-            logger.debug(f"✓ Cache hit for index series {symbol}")
-            return cached["data"]
+    _cached = _get_from_cache(cache_key)
+    if _cached is not None:
+        logger.debug(f"✓ Cache hit for index series {symbol}")
+        return _cached
     
     provider_status = provider_status or {}
     df_result = None
@@ -1004,17 +1114,14 @@ def get_index_series(
     
     # Cache result
     if df_result is not None:
-        _CACHE[cache_key] = {
-            "data": df_result,
-            "timestamp": time.time()
-        }
+        _put_in_cache(cache_key, df_result)
     else:
         logger.error(f"❌ All sources failed for index series {symbol}")
     
     return df_result
 
 
-def fetch_fundamentals_batch(tickers: List[str], provider_status: Dict | None = None) -> pd.DataFrame:
+def fetch_fundamentals_batch(tickers: List[str], provider_status: Dict | None = None, mode: DataMode = DataMode.LIVE, as_of_date: Optional[date] = None) -> pd.DataFrame:
     """
     Batch fetch fundamentals for multiple tickers using aggregate_fundamentals.
     Returns a DataFrame indexed by Ticker.
@@ -1028,7 +1135,7 @@ def fetch_fundamentals_batch(tickers: List[str], provider_status: Dict | None = 
     # Limit workers to avoid hitting rate limits too hard
     with ThreadPoolExecutor(max_workers=min(len(tickers), 10)) as executor:
         future_to_ticker = {
-            executor.submit(aggregate_fundamentals, t, "fmp", provider_status): t
+            executor.submit(aggregate_fundamentals, t, "fmp", provider_status, mode, as_of_date): t
             for t in tickers
         }
         for future in as_completed(future_to_ticker):

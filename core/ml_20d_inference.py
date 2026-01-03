@@ -98,7 +98,7 @@ def _load_bundle_impl() -> tuple[bool, Any, list[str], str]:
         logger.info(f"✓ Preferred scoring mode: {preferred_scoring_mode}")
         return True, model, feature_names, preferred_scoring_mode
     except Exception as e:
-        logger.error(f"Failed to load ML bundle: {e}")
+        logger.error(f"Failed to load ML bundle: {e}", exc_info=True)
         return False, None, [], "hybrid"
 
 
@@ -183,7 +183,7 @@ def compute_ml_20d_probabilities_raw(row: pd.Series) -> float:
         prob = float(np.clip(prob, 0.0, 1.0))
         return prob
     except Exception as e:
-        logger.debug(f"ML 20d prediction failed: {e}")
+        logger.warning(f"ML 20d prediction failed: {e}", exc_info=True)
         return np.nan
 
 
@@ -300,6 +300,68 @@ def apply_live_v3_adjustments(
     adjusted = np.clip(adjusted, 0.01, 0.99)
     
     return pd.Series(adjusted, index=df.index)
+
+
+def calibrate_ml_20d_prob(
+    prob_raw: float,
+    *,
+    atr_pct_percentile: float | None = None,
+    price_as_of: float | None = None,
+    reliability_factor: float | None = None,
+) -> float:
+    """
+    Calibrate a single raw ML 20d probability using the same semantics as live_v3.
+
+    Inputs:
+      - prob_raw: Raw model probability in [0,1]
+      - atr_pct_percentile: Optional volatility percentile [0,1]
+      - price_as_of: Optional last price to bucket by price levels
+      - reliability_factor: Optional multiplicative reliability factor
+
+    Returns:
+      - float in [0.01, 0.99]: calibrated probability
+
+    Notes:
+      - Mirrors apply_live_v3_adjustments logic for scalar usage in code paths
+        that don't have a full DataFrame (e.g., single-row computations).
+    """
+    try:
+        if prob_raw is None or not np.isfinite(prob_raw):
+            # Explicit missing-value semantics; caller should handle fallback
+            return np.nan
+        adjusted = float(prob_raw)
+
+        # Volatility bucket adjustments
+        if atr_pct_percentile is not None and np.isfinite(atr_pct_percentile):
+            v = float(atr_pct_percentile)
+            if 0.0 <= v < 0.25:
+                adjusted -= 0.01
+            elif 0.50 <= v < 0.75:
+                adjusted += 0.015
+            elif v >= 0.75:
+                adjusted -= 0.005
+
+        # Price bucket adjustments
+        if price_as_of is not None and np.isfinite(price_as_of):
+            p = float(price_as_of)
+            if 0 < p < 20 and adjusted > 0.55:
+                adjusted += 0.01
+            elif 20 <= p < 50:
+                adjusted += 0.01
+            elif p >= 150:
+                adjusted -= 0.01
+
+        # Reliability multiplier
+        if reliability_factor is not None and np.isfinite(reliability_factor):
+            adjusted *= float(reliability_factor)
+
+        # Clip
+        adjusted = float(np.clip(adjusted, 0.01, 0.99))
+        return adjusted
+    except Exception:
+        # Explicit missing-value semantics; caller should handle fallback
+        logger.warning("calibrate_ml_20d_prob failed", exc_info=True)
+        return np.nan
 
 
 def choose_rank_col_20d(df: pd.DataFrame) -> str:

@@ -2,8 +2,20 @@
 V2 Risk Engine - Risk-Aware and Reliability-Aware Position Sizing
 ==================================================================
 
-This module implements strict risk gates and reliability scoring
-to prevent allocating capital to low-quality opportunities.
+Narrow responsibility:
+- Translate existing score + risk info into a position risk factor.
+- Avoid re-implementing numeric scoring or complex rule-based combos.
+
+Canonical inputs expected from the pipeline/classification:
+- FinalScore_20d (0-100)
+- RiskClass ('CORE'|'SPEC'|'REJECT') and SafetyBlocked (bool)
+- RR (risk/reward ratio, canonicalized)
+- ReliabilityScore (0-100)
+- Optional nuance: ATR/Price (volatility), Beta, RiskMeter.
+
+Legacy helpers (calculate_reliability_v2, calculate_risk_gate_v2, etc.)
+are retained for backward compatibility but new flows should prefer
+compute_position_risk_factor(row) for sizing.
 """
 
 from typing import Dict, Tuple, Optional, Any
@@ -12,6 +24,113 @@ import pandas as pd
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+# -------------------------------------------------------------
+# New, canonical position risk factor
+# -------------------------------------------------------------
+def _get_canonical_rr(row: pd.Series) -> float:
+    rr = row.get("RR", None)
+    if rr is None:
+        rr = row.get("RR_Ratio", row.get("RewardRisk", None))
+    try:
+        return float(rr) if rr is not None and np.isfinite(rr) else np.nan
+    except Exception:
+        return np.nan
+
+
+def _get_canonical_reliability(row: pd.Series) -> float:
+    rel = row.get("ReliabilityScore", None)
+    if rel is None:
+        rel = row.get("reliability_v2", row.get("Reliability_v2", row.get("Reliability_Score", None)))
+    try:
+        val = float(rel) if rel is not None and np.isfinite(rel) else np.nan
+        # Legacy 0-1 scaling
+        if np.isfinite(val) and val <= 1.0:
+            val *= 100.0
+        return val
+    except Exception:
+        return np.nan
+
+
+def compute_position_risk_factor(row: pd.Series) -> float:
+    """
+    Returns a factor in [0.0, 1.0] to scale nominal position size.
+
+    Policy:
+    - Hard blocks: if RiskClass == 'REJECT' or SafetyBlocked → 0.0
+    - Base factor by RiskClass:
+        CORE → 1.00
+        SPEC → 0.65
+      (fallback to legacy Risk_Level if RiskClass missing)
+    - Reliability adjustment (ReliabilityScore 0-100):
+        <10 → 0.0 (force block)
+        <30 → x0.5
+        <50 → x0.7
+        else → x1.0
+    - RR adjustment (RR):
+        <1.2 → x0.80
+        1.2–1.5 → x0.90
+        1.5–2.5 → x1.00
+        ≥2.5 → x1.05
+    - Volatility/Beta nuance (mild, monotonic):
+        ATR/Price > 8% → x0.85; >5% → x0.93
+        Beta > 1.8 → x0.90
+
+    The result is clamped to [0, 1].
+    """
+    # Safety gates
+    risk_class = row.get("RiskClass", None)
+    if risk_class is None:
+        # Map legacy
+        rl = str(row.get("Risk_Level", "speculative")).lower()
+        risk_class = "CORE" if rl == "core" else "SPEC"
+    safety_blocked = bool(row.get("SafetyBlocked", False))
+    if str(risk_class).upper() == "REJECT" or safety_blocked:
+        return 0.0
+
+    # Base factor by class
+    base = 1.0 if str(risk_class).upper() == "CORE" else 0.65
+
+    # Reliability adjustment
+    rel = _get_canonical_reliability(row)
+    if np.isfinite(rel):
+        if rel < 10.0:
+            return 0.0
+        elif rel < 30.0:
+            base *= 0.50
+        elif rel < 50.0:
+            base *= 0.70
+        else:
+            base *= 1.00
+
+    # RR adjustment
+    rr = _get_canonical_rr(row)
+    if np.isfinite(rr):
+        if rr < 1.2:
+            base *= 0.80
+        elif rr < 1.5:
+            base *= 0.90
+        elif rr < 2.5:
+            base *= 1.00
+        else:
+            base *= 1.05
+
+    # Volatility/Beta nuance
+    vol = row.get("ATR_Price", row.get("ATR_Pct", None))
+    if isinstance(vol, (int, float)) and np.isfinite(vol):
+        if vol > 0.08:
+            base *= 0.85
+        elif vol > 0.05:
+            base *= 0.93
+
+    beta = row.get("Beta", None)
+    if isinstance(beta, (int, float)) and np.isfinite(beta) and beta > 1.8:
+        base *= 0.90
+
+    # Clamp
+    base = float(np.clip(base, 0.0, 1.0))
+    return base
 
 
 def calculate_reliability_v2(
@@ -340,7 +459,7 @@ def calculate_position_size_v2(
         "final_amount": 0.0
     }
     
-    # If blocked, return minimal or zero
+    # If blocked by gate or safety, return zero
     if risk_gate_status == "blocked":
         details["final_amount"] = 0.0
         return 0.0, details
@@ -455,7 +574,7 @@ def score_ticker_v2_enhanced(
     
     Returns comprehensive dict with all V2 metrics.
     """
-    from core.ml_integration import get_ml_prediction, load_ml_model
+    # Unified ML handled via core.ml_20d_inference; legacy ml_integration not used
     
     result = {
         "ticker": ticker,
@@ -536,18 +655,16 @@ def score_ticker_v2_enhanced(
         )
         result["conviction_v2_base"] = float(np.clip(base_conviction, 0.0, 100.0))
         
-        # 4) Get ML Prediction
+        # 4) Get ML Prediction (unified 20d inference)
         ml_prob = None
         if enable_ml:
             try:
-                model = load_ml_model()
-                if model is not None:
-                    # Prepare features (simplified - would need full feature prep)
-                    ml_prob = row.get("ML_Probability", None)
-                    if ml_prob is None and "ML_Confidence" in row.index:
-                        ml_prob = row.get("ML_Confidence", 0.5)
+                from core.ml_20d_inference import compute_ml_20d_probabilities_raw
+                ml_prob = compute_ml_20d_probabilities_raw(row)
+                if not (isinstance(ml_prob, (int, float)) and np.isfinite(ml_prob)):
+                    ml_prob = row.get("ML_20d_Prob", None)
             except Exception as e:
-                logger.debug(f"ML prediction failed for {ticker}: {e}")
+                logger.debug(f"ML 20d prediction failed for {ticker}: {e}")
         
         result["ml_probability_v2"] = ml_prob
         

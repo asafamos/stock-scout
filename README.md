@@ -137,7 +137,7 @@ Open browser at: http://localhost:8501
 ```
 stock-scout-2/
 ├── stock_scout.py              # Main Streamlit app
-├── model_xgboost_5d.pkl        # Pre-trained ML model
+├── models/model_20d_v3.pkl     # Latest ML model bundle (sklearn)
 ├── backtest_recommendations.py # Historical signal generator
 ├── train_recommender.py        # Model training script
 ├── time_test_validation.py     # Time-travel validation
@@ -195,7 +195,7 @@ python train_recommender.py \
 
 # Validate on known movers
 python time_test_validation.py \
-    --model model_xgboost_5d.pkl \
+    --model models/model_20d_v3.pkl \
     --cases cases_example.csv
 ```
 

@@ -34,6 +34,9 @@ from core.market_context import (
     get_market_cap_decile,
     compute_price_distance_from_52w_high,
 )
+from core.fundamental import DataMode
+from core.data_sources_v2 import fetch_fundamentals_batch
+from datetime import datetime as dt
 
 
 def build_universe(limit: int = 100) -> List[str]:
@@ -261,6 +264,24 @@ def print_summary(signals_df: pd.DataFrame, horizons: List[int]):
     print(f"ML Probability: mean={signals_df['ML_Prob'].mean():.3f}, "
           f"median={signals_df['ML_Prob'].median():.3f}")
     print()
+
+    # Backtest note: estimate snapshot fundamental usage across tickers
+    try:
+        unique_tickers = signals_df['Ticker'].dropna().unique().tolist()
+        # Use latest backtest date to query store snapshots
+        as_of_str = signals_df['Date'].max() if 'Date' in signals_df.columns and len(signals_df) else None
+        as_of_dt = pd.to_datetime(as_of_str) if as_of_str is not None else None
+        as_of_date = as_of_dt.date() if as_of_dt is not None else None
+        if unique_tickers:
+            fund_df = fetch_fundamentals_batch(unique_tickers, mode=DataMode.BACKTEST, as_of_date=as_of_date)
+            unsafe_count = int(pd.to_numeric(fund_df.get('Fundamental_Backtest_Unsafe', False)).sum()) if not fund_df.empty else 0
+            print(f"Backtest note: {unsafe_count} rows used snapshot fundamentals (Fundamental_Backtest_Unsafe=True). Results may be optimistic.")
+            if 'Fundamental_From_Store' in fund_df.columns and not fund_df.empty:
+                from_store_count = int(pd.to_numeric(fund_df['Fundamental_From_Store']).sum())
+                pct = (from_store_count / len(fund_df)) * 100 if len(fund_df) else 0.0
+                print(f"Fundamentals from store: {from_store_count} rows ({pct:.1f}%)")
+    except Exception as e:
+        print(f"Backtest note: could not assess snapshot fundamentals usage ({e}).")
     
     # Forward returns analysis
     for h in horizons:
@@ -319,7 +340,7 @@ def main():
     parser.add_argument("--start", type=str, required=True, help="Start date YYYY-MM-DD")
     parser.add_argument("--end", type=str, required=True, help="End date YYYY-MM-DD")
     parser.add_argument("--horizons", type=str, default="5,10,20", help="Forward horizons (comma-separated)")
-    parser.add_argument("--model", type=str, default="model_xgboost_5d_calibrated.pkl", help="ML model file")
+    parser.add_argument("--model", type=str, default="models/model_20d_v3.pkl", help="ML model file (sklearn bundle)")
     parser.add_argument("--output", type=str, default=None, help="Output CSV path")
     
     args = parser.parse_args()

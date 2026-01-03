@@ -35,28 +35,32 @@ def allocate_budget(
     if total <= 0 or df.empty:
         return df
     
-    # Calculate confidence multipliers if dynamic sizing enabled
-    if dynamic_sizing and "RSI" in df.columns:
-        df["_confidence_mult"] = 1.0  # Default medium confidence
-        
-        # High confidence: RSI<30 + RR>3 + MomCons>0.7
-        rsi_cond = df.get("RSI", pd.Series(50)).fillna(50) < 30
-        rr_cond = df.get("RR_Ratio", df.get("RewardRisk", pd.Series(0))).fillna(0) > 3.0
-        mom_cond = df.get("Momentum_Consistency", pd.Series(0)).fillna(0) > 0.7
-        high_conf = rsi_cond & rr_cond & mom_cond
-        df.loc[high_conf, "_confidence_mult"] = 2.0
-        
-        # Low confidence: RSI>50 or RR<1.5 or MomCons<0.4
-        rsi_low = df.get("RSI", pd.Series(50)).fillna(50) > 50
-        rr_low = df.get("RR_Ratio", df.get("RewardRisk", pd.Series(2))).fillna(2) < 1.5
-        mom_low = df.get("Momentum_Consistency", pd.Series(0.5)).fillna(0.5) < 0.4
-        low_conf = rsi_low | rr_low | mom_low
-        df.loc[low_conf & ~high_conf, "_confidence_mult"] = 0.5
-        
-        # Apply confidence multiplier to scores
-        adjusted_scores = df[score_col] * df["_confidence_mult"]
-    else:
-        adjusted_scores = df[score_col]
+    # Calculate risk multipliers if dynamic sizing enabled
+    adjusted_scores = df[score_col]
+    if dynamic_sizing:
+        try:
+            from core.v2_risk_engine import compute_position_risk_factor
+            # Prefer canonical risk factor when classification/pipeline fields exist
+            if ("RiskClass" in df.columns) or ("Risk_Level" in df.columns) or ("SafetyBlocked" in df.columns):
+                df["_risk_factor"] = df.apply(compute_position_risk_factor, axis=1)
+                adjusted_scores = df[score_col] * df["_risk_factor"].astype(float)
+            elif "RSI" in df.columns:
+                # Fallback legacy heuristic (kept for compatibility when canonical fields missing)
+                df["_confidence_mult"] = 1.0
+                rsi_cond = df.get("RSI", pd.Series(50)).fillna(50) < 30
+                rr_cond = df.get("RR_Ratio", df.get("RewardRisk", pd.Series(0))).fillna(0) > 3.0
+                mom_cond = df.get("Momentum_Consistency", pd.Series(0)).fillna(0) > 0.7
+                high_conf = rsi_cond & rr_cond & mom_cond
+                df.loc[high_conf, "_confidence_mult"] = 2.0
+                rsi_low = df.get("RSI", pd.Series(50)).fillna(50) > 50
+                rr_low = df.get("RR_Ratio", df.get("RewardRisk", pd.Series(2))).fillna(2) < 1.5
+                mom_low = df.get("Momentum_Consistency", pd.Series(0.5)).fillna(0.5) < 0.4
+                low_conf = rsi_low | rr_low | mom_low
+                df.loc[low_conf & ~high_conf, "_confidence_mult"] = 0.5
+                adjusted_scores = df[score_col] * df["_confidence_mult"]
+        except Exception:
+            # On any import/apply failure, fall back to raw scores
+            adjusted_scores = df[score_col]
     
     df = df.sort_values([score_col, "Ticker"], ascending=[False, True]).reset_index(drop=True)
     remaining = float(total)
@@ -87,8 +91,9 @@ def allocate_budget(
     df["סכום קנייה ($)"] = df["סכום קנייה ($)"].round(2)
     
     # Clean up temporary column
-    if "_confidence_mult" in df.columns:
-        df.drop(columns=["_confidence_mult"], inplace=True)
+    for tmp in ("_confidence_mult", "_risk_factor"):
+        if tmp in df.columns:
+            df.drop(columns=[tmp], inplace=True)
     
     return df
 

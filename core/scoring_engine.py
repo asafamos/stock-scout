@@ -18,6 +18,68 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+def ml_boost_component(prob: float) -> float:
+    """Return a bounded adjustment (±10) based on ML_20d_Prob in [0,1].
+
+    Concept: ML contributes as a mild confidence tilt to the final score,
+    not as a standalone component. Neutral (0.5) adds 0, high confidence
+    nudges up to +10, low confidence down to -10. Calibration (if any)
+    happens upstream; this function expects a probabilistic input.
+
+    - prob = 0.5 → 0
+    - prob = 1.0 → +10
+    - prob = 0.0 → -10
+    """
+    try:
+        if prob is None or not np.isfinite(prob):
+            return 0.0
+        p = float(np.clip(prob, 0.0, 1.0))
+        delta = (p - 0.5) * 2.0 * 10.0
+        return float(np.clip(delta, -10.0, 10.0))
+    except Exception:
+        return 0.0
+
+
+def compute_final_score_20d(row: pd.Series) -> float:
+    """Compute the 20d final score from canonical components (0-100 scale).
+
+    Expects canonical fields when available (neutrals used otherwise):
+    - FundamentalScore (0-100)
+    - MomentumScore (0-100) or fallback to TechScore_20d (0-100)
+    - RR (ratio, converts to 0-100 via evaluate_rr_unified)
+    - ReliabilityScore (0-100)
+    - ML_20d_Prob (0-1) optional adjustment via ml_boost_component
+
+    Weights (explicit):
+    - Fundamentals: 35%
+    - Momentum: 35%
+    - Risk/Reward: 15%
+    - Reliability: 15%
+    """
+    try:
+        fund = float(row.get("FundamentalScore", 50.0))
+        mom = float(row.get("MomentumScore", row.get("TechScore_20d", 50.0)))
+        rel = float(row.get("ReliabilityScore", 50.0))
+
+        # RR ratio → score (0-100)
+        rr_ratio = row.get("RR", None)
+        rr_score, _, _ = evaluate_rr_unified(rr_ratio) if rr_ratio is not None else (50.0, 0.0, "N/A")
+
+        base = (
+            0.35 * fund +
+            0.35 * mom +
+            0.15 * rr_score +
+            0.15 * rel
+        )
+
+        # Optional ML adjustment
+        ml_prob = row.get("ML_20d_Prob", None)
+        delta = ml_boost_component(ml_prob)
+        final_score = float(np.clip(base + delta, 0.0, 100.0))
+        return final_score
+    except Exception:
+        # Safe fallback to a neutral score
+        return 50.0
 
 def normalize_score(value: float, min_val: float = 0.0, max_val: float = 100.0, 
                    default: float = 50.0) -> float:

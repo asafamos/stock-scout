@@ -147,6 +147,10 @@ def build_row_from_multi_source(
     
     # Aggregation metadata
     row["Fund_Disagreement_Score"] = float(multi_source_payload.get("disagreement_score", 0.0))
+    # Backtest awareness flag
+    row["Fundamental_Backtest_Unsafe"] = bool(multi_source_payload.get("Fundamental_Backtest_Unsafe", False))
+    # Provenance: from local store?
+    row["Fundamental_From_Store"] = bool(multi_source_payload.get("Fundamental_From_Store", False))
     
     # === COMPUTE FUNDAMENTAL BREAKDOWN SCORES ===
     # Use the robust fundamental scoring with multi-source metadata

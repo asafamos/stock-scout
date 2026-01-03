@@ -212,7 +212,15 @@ def compute_recommendation_scores(
         try:
             from core import data_sources_v2
 
-            raw = data_sources_v2.fetch_multi_source_data(base_ticker)
+            # Thread the signal date down to fundamentals aggregation for snapshotting
+            as_of_for_fund = None
+            if as_of_date is not None:
+                try:
+                    as_of_for_fund = pd.to_datetime(as_of_date).date()
+                except Exception:
+                    as_of_for_fund = None
+
+            raw = data_sources_v2.fetch_multi_source_data(base_ticker, as_of_date=as_of_for_fund)
             ms_data = MultiSourceData.from_dict(raw)
         except Exception as exc:  # pragma: no cover - defensive
             logging.warning("multi-source fetch failed for %s: %s", base_ticker, exc)
@@ -235,18 +243,41 @@ def compute_recommendation_scores(
     fundamental_score = float(fundamental.total) if fundamental else 0.0
 
     # --- ML component ---
+    # Canonical rule: prefer already-set ML_20d_Prob if present; otherwise
+    # compute raw via model and calibrate to obtain the final probability.
     ml_prob = ml_prob_override
-    if ml_prob is None and enable_ml:
-        ml_prob = row.get("ML_20d_Prob_raw") or row.get("ML_20d_Prob")
-        if ml_prob is None:
+    if ml_prob is None:
+        # If upstream has already set the canonical field, use it directly
+        if "ML_20d_Prob" in row.index and pd.notna(row.get("ML_20d_Prob")):
             try:
-                from core.ml_20d_inference import ML_20D_AVAILABLE, predict_20d_prob_from_row
-
-                if ML_20D_AVAILABLE:
-                    ml_prob = predict_20d_prob_from_row(row)
+                ml_prob = float(row.get("ML_20d_Prob"))
             except Exception:
                 ml_prob = None
-    if ml_prob is None:
+        elif enable_ml:
+            try:
+                from core.ml_20d_inference import (
+                    ML_20D_AVAILABLE,
+                    compute_ml_20d_probabilities_raw,
+                    calibrate_ml_20d_prob,
+                )
+                if ML_20D_AVAILABLE:
+                    prob_raw = compute_ml_20d_probabilities_raw(row)
+                    atr_pct_pct = row.get("ATR_Pct_percentile", np.nan)
+                    price_as_of = row.get("Price_As_Of_Date", np.nan)
+                    reliability_factor = row.get("ReliabilityFactor", np.nan)
+                    ml_prob = calibrate_ml_20d_prob(
+                        prob_raw,
+                        atr_pct_percentile=float(atr_pct_pct) if pd.notna(atr_pct_pct) else None,
+                        price_as_of=float(price_as_of) if pd.notna(price_as_of) else None,
+                        reliability_factor=float(reliability_factor) if pd.notna(reliability_factor) else None,
+                    )
+            except Exception:
+                ml_prob = None
+    # Coerce missing/invalid ML probability to neutral 0.5
+    try:
+        if ml_prob is None or not np.isfinite(float(ml_prob)):
+            ml_prob = 0.5
+    except Exception:
         ml_prob = 0.5
 
     # --- Final & conviction ---

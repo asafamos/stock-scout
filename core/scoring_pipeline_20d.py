@@ -2,12 +2,60 @@ import pandas as pd
 import numpy as np
 from typing import Optional, Dict, Any, Iterable
 from core.unified_logic import build_technical_indicators, compute_tech_score_20d_v2
+from core.scoring_engine import compute_final_score_20d
 from core.ml_20d_inference import (
     ML_20D_AVAILABLE,
     compute_ml_20d_probabilities_raw,
     apply_live_v3_adjustments,
     PREFERRED_SCORING_MODE_20D,
 )
+
+
+def normalize_schema(df: pd.DataFrame) -> pd.DataFrame:
+    """Return a copy of df with canonical columns mapped when available.
+
+    Canonical columns produced (when data exists):
+    - RR
+    - FundamentalScore
+    - ReliabilityScore
+    - ML_20d_Prob (final calibrated probability; raw/live fields are diagnostics)
+
+    Normal usage: the pipeline sets ML_20d_Prob directly after inference +
+    calibration. Fallback to legacy aliases happens only when callers supply
+    older field names. This function does not create new values; it only maps
+    existing ones following a priority order per category.
+    """
+    out = df.copy()
+
+    # Risk/Reward → RR
+    if "RR" not in out.columns:
+        if "RR_Ratio" in out.columns:
+            out["RR"] = out["RR_Ratio"]
+        elif "RewardRisk" in out.columns:
+            out["RR"] = out["RewardRisk"]
+
+    # Fundamentals → FundamentalScore
+    if "FundamentalScore" not in out.columns:
+        if "fundamental_score_v2" in out.columns:
+            out["FundamentalScore"] = out["fundamental_score_v2"]
+        elif "Fundamental_S" in out.columns:
+            out["FundamentalScore"] = out["Fundamental_S"]
+
+    # Reliability → ReliabilityScore
+    if "ReliabilityScore" not in out.columns:
+        if "reliability_v2" in out.columns:
+            out["ReliabilityScore"] = out["reliability_v2"]
+        elif "Reliability_Score" in out.columns:
+            out["ReliabilityScore"] = out["Reliability_Score"]
+
+    # ML probability → ML_20d_Prob (only map if canonical missing)
+    if "ML_20d_Prob" not in out.columns:
+        if "ML_20d_Prob_live_v3" in out.columns:
+            out["ML_20d_Prob"] = out["ML_20d_Prob_live_v3"]
+        elif "ML_20d_Prob_raw" in out.columns:
+            out["ML_20d_Prob"] = out["ML_20d_Prob_raw"]
+
+    return out
 
 
 def _canonical_ml_prob(df: pd.DataFrame) -> pd.Series:
@@ -46,20 +94,34 @@ def compute_final_scores_20d(df: pd.DataFrame, include_ml: bool = True) -> pd.Da
     """
     out = df.copy()
 
+    # Ensure backtest fundamentals flag present for downstream visibility
+    if "Fundamental_Backtest_Unsafe" not in out.columns:
+        out["Fundamental_Backtest_Unsafe"] = False
+    # Ensure provenance flag present (optional default False)
+    if "Fundamental_From_Store" not in out.columns:
+        out["Fundamental_From_Store"] = False
+
     # Canonical ML probability
     ml_prob = _canonical_ml_prob(out) if include_ml else pd.Series(0.5, index=out.index, dtype=float)
     out["ML_20d_Prob"] = ml_prob
 
-    # Technical base and rank
+    # Technical base and rank → keep TechScore_20d available for Momentum fallback
     tech_base = _canonical_tech(out)
     tech_rank = tech_base.rank(pct=True, method="average")
     out["TechScore_20d"] = tech_rank * 100.0
 
-    # ML rank (handle NaNs)
-    ml_rank = ml_prob.fillna(0.5).rank(pct=True, method="average") if include_ml else pd.Series(0.5, index=out.index, dtype=float)
-
-    # Final score 50/50 blend
-    out["FinalScore_20d"] = (0.5 * tech_rank + 0.5 * ml_rank) * 100.0
+    # Prefer centralized final score using canonical components when available;
+    # fall back to previous rank-blend when insufficient inputs.
+    have_any_canon = (
+        ("FundamentalScore" in out.columns) or
+        ("ReliabilityScore" in out.columns) or
+        ("RR" in out.columns)
+    )
+    if have_any_canon:
+        out["FinalScore_20d"] = out.apply(compute_final_score_20d, axis=1)
+    else:
+        ml_rank = ml_prob.fillna(0.5).rank(pct=True, method="average") if include_ml else pd.Series(0.5, index=out.index, dtype=float)
+        out["FinalScore_20d"] = (0.5 * tech_rank + 0.5 * ml_rank) * 100.0
     
     # Create alias for backward compatibility with UI
     out["FinalScore"] = out["FinalScore_20d"]
@@ -233,7 +295,10 @@ def score_universe_20d(
     else:
         out["ATR_Pct_percentile"] = 0.5
 
-    # Apply live_v3 adjustments if ML present
+    # ML inference + calibration
+    # - Raw model output: ML_20d_Prob_raw in [0,1]
+    # - Calibration (live_v3): ML_20d_Prob_live_v3 in [0.01,0.99]
+    # - Canonical final: ML_20d_Prob = ML_20d_Prob_live_v3 (or raw neutral/fallback)
     if include_ml and ML_20D_AVAILABLE and "ML_20d_Prob_raw" in out.columns:
         out["ML_20d_Prob_live_v3"] = apply_live_v3_adjustments(out, prob_col="ML_20d_Prob_raw")
         out["ML_20d_Prob"] = out["ML_20d_Prob_live_v3"]
@@ -242,5 +307,8 @@ def score_universe_20d(
 
     # Compute FinalScore_20d (rank blend)
     out = compute_final_scores_20d(out, include_ml=include_ml and ML_20D_AVAILABLE)
+
+    # Normalize schema to canonical columns before returning
+    out = normalize_schema(out)
 
     return out

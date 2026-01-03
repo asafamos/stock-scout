@@ -163,9 +163,16 @@ def _step_compute_scores_with_unified_logic(
         if not apply_technical_filters(row_indicators, strict=False):
             continue
 
+        # Use the last bar's date as the signal date
+        try:
+            as_of_dt = pd.to_datetime(df.index[-1])
+        except Exception:
+            as_of_dt = None
+
         rec_series = compute_recommendation_scores(
             row=row_indicators,
             ticker=tkr,
+            as_of_date=as_of_dt,
             enable_ml=ML_20D_AVAILABLE,
             use_multi_source=config.get("fundamental_enabled", True),
         )
@@ -366,7 +373,26 @@ def run_scan_pipeline(
     # 5. Fundamentals & Sector Enrichment
     if config.get("fundamental_enabled", True):
         if status_callback: status_callback("Fetching fundamentals & sector data...")
-        fund_df = fetch_fundamentals_batch(results["Ticker"].tolist())
+        # Choose scan date as the signal date (not wall-clock)
+        fund_as_of = None
+        try:
+            if "As_Of_Date" in results.columns and len(results) > 0:
+                fund_as_of = pd.to_datetime(results["As_Of_Date"].iloc[0]).date()
+            else:
+                # Fallback: derive from latest history across universe
+                dates = []
+                for df in (data_map or {}).values():
+                    if df is not None and not df.empty:
+                        try:
+                            dates.append(pd.to_datetime(df.index[-1]).date())
+                        except Exception:
+                            pass
+                if dates:
+                    fund_as_of = max(dates)
+        except Exception:
+            fund_as_of = None
+
+        fund_df = fetch_fundamentals_batch(results["Ticker"].tolist(), as_of_date=fund_as_of)
         
         # Properly handle index/column ambiguity
         if isinstance(fund_df.index, pd.Index):

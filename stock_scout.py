@@ -616,69 +616,19 @@ logger = logging.getLogger(__name__)
 
 # Original load (kept for backwards compatibility); `_force_load_env` above already tried explicit paths.
 load_dotenv(find_dotenv(usecwd=True))
-MODEL_DATA = None
+
+# Display ML 20d readiness using unified inference loader
 try:
-    _base = Path(__file__).parent
-    _cand_cal = _base / "model_xgboost_5d_calibrated.pkl"
-    _cand_fb = _base / "model_xgboost_5d.pkl"
-    _model_path = (
-        _cand_cal if _cand_cal.exists() else (_cand_fb if _cand_fb.exists() else None)
-    )
-    if _model_path is not None:
-        with open(_model_path, "rb") as _f:
-            MODEL_DATA = pickle.load(_f)
-            try:
-                st.info(
-                    f"✓ Loaded ML model: {_model_path.name} (features: {len(MODEL_DATA.get('feature_names', []))})"
-                )
-            except Exception:
-                pass
+    from core.ml_20d_inference import ML_20D_AVAILABLE, FEATURE_COLS_20D, PREFERRED_SCORING_MODE_20D
+    if ML_20D_AVAILABLE:
+        try:
+            st.info(f"✓ ML 20d ready (features: {len(FEATURE_COLS_20D)}; mode: {PREFERRED_SCORING_MODE_20D})")
+        except Exception:
+            pass
     else:
-        st.info("ML model not found; ML scoring will be neutral.")
+        st.info("ML 20d model not found; ML scoring will be neutral.")
 except Exception as _e:
-    st.warning(f"Could not load ML model: {_e}")
-
-# Backwards-compatible ML objects and helpers for existing scoring flow
-XGBOOST_MODEL = None
-XGBOOST_FEATURES = []
-if MODEL_DATA is not None:
-    try:
-        XGBOOST_MODEL = MODEL_DATA.get("model")
-        XGBOOST_FEATURES = MODEL_DATA.get("feature_names", [])
-    except Exception:
-        XGBOOST_MODEL = None
-
-
-def score_with_xgboost(row: pd.Series) -> float:
-    """Compatibility wrapper used in older code paths. Returns 0.5 when model unavailable."""
-    if XGBOOST_MODEL is None:
-        return 0.5
-    # Build features mapping consistent with training
-    features = {}
-    for fname in XGBOOST_FEATURES:
-        # Use available columns or fallbacks
-        if fname in row:
-            features[fname] = row.get(fname)
-        else:
-            # sensible defaults
-            if "RSI" in fname:
-                features[fname] = row.get("RSI", 50)
-            elif "ATR" in fname or "ATR_Pct" in fname:
-                features[fname] = row.get("ATR_Pct", 0.05)
-            elif "Vol" in fname:
-                features[fname] = row.get("Volx20d", 1.0)
-            else:
-                features[fname] = row.get(fname, 0.0)
-
-    X = pd.DataFrame([features])[XGBOOST_FEATURES]
-    X = X.fillna(X.median())
-    try:
-        if hasattr(XGBOOST_MODEL, "predict_proba"):
-            return float(XGBOOST_MODEL.predict_proba(X.values)[0][1])
-        else:
-            return float(XGBOOST_MODEL.predict_proba(X)[0][1])
-    except Exception:
-        return 0.5
+    st.warning(f"ML 20d loader issue: {_e}")
 
 
 def assign_confidence_tier(prob: float) -> str:
@@ -3650,7 +3600,11 @@ if "overall_score_20d" in rec_df.columns:
     rec_df = rec_df[rec_df["overall_score_20d"] >= 2].copy()
     logger.info(f"[FILTER] Overall score >= 2: {len(rec_df)} remain (removed {before - len(rec_df)})")
 else:
-    logger.warning("[FILTER] 'overall_score_20d' missing from rec_df columns, skipping score filter!")
+    # In precomputed mode this may be expected; reduce noise
+    if st.session_state.get("skip_pipeline", False):
+        logger.info("[FILTER] 'overall_score_20d' missing (precomputed), skipping score filter")
+    else:
+        logger.warning("[FILTER] 'overall_score_20d' missing from rec_df columns, skipping score filter!")
 
 # Prefer V2 strict buy amounts for recommendations; fallback to legacy Hebrew buy column
 if "buy_amount_v2" in rec_df.columns:
@@ -3952,7 +3906,8 @@ def calculate_targets(row):
     rsi = row.get("RSI", np.nan)
     momentum = row.get("Momentum_63d", np.nan)
     sector = row.get("Sector", "")
-    ml_prob = row.get("ml_probability", 0.5)
+    # Use canonical ML probability when available
+    ml_prob = row.get("ML_20d_Prob", row.get("ml_probability", 0.5))
 
     if np.isfinite(current_price) and current_price > 0:
         # Entry price: current - 0.5*ATR (wait for slight pullback)
@@ -4353,6 +4308,96 @@ else:
             f"📊 Showing {total_candidates} stocks after filters ({len(core_df)} Core, {len(spec_df)} Speculative)"
         )
 
+    # Legend for ML badge thresholds
+    st.caption("ML badge legend: 🟢 >60% · 🟡 40–60% · 🔴 <40%")
+
+    # Determine score label based on schema
+    score_label = "FinalScore_20d" if "FinalScore_20d" in rec_df.columns else "Score"
+
+    # Small helpers for compact card rendering (headline vs details)
+    def _to_float(val) -> float:
+        try:
+            # Coerce common non-numeric placeholders safely
+            if val in (None, "", "N/A", "nan"):
+                return np.nan
+            return float(val)
+        except Exception:
+            return np.nan
+
+    def _ml_badge(p: float) -> str:
+        try:
+            pv = _to_float(p)
+            if not (isinstance(pv, float) and np.isfinite(pv)):
+                return "⚪ N/A"
+            if pv > 0.60:
+                return f"🟢 {pv*100:.0f}%"
+            if pv >= 0.40:
+                return f"🟡 {pv*100:.0f}%"
+            return f"🔴 {pv*100:.0f}%"
+        except Exception:
+            return "⚪ N/A"
+
+    def _risk_class(row: pd.Series) -> str:
+        rc = row.get("RiskClass")
+        if isinstance(rc, str) and rc:
+            return rc
+        # Fallback to legacy Risk_Level
+        rl = str(row.get("Risk_Level", "speculative")).lower()
+        return "CORE" if rl == "core" else ("SPEC" if rl else "SPEC")
+
+    def _headline_story(row: pd.Series) -> str:
+        # Headline fields: FinalScore_20d, ML_20d_Prob, RiskClass, RR, ReliabilityScore
+        fund = _to_float(row.get("FundamentalScore", row.get("Fundamental_S", np.nan)))
+        mom = _to_float(row.get("MomentumScore", row.get("TechScore_20d", np.nan)))
+        rr = _to_float(row.get("RR", row.get("RR_Ratio", row.get("RewardRisk", np.nan))))
+        rel = _to_float(row.get("ReliabilityScore", row.get("Reliability_Score", row.get("Reliability_v2", np.nan))))
+
+        parts = []
+        # Quality / fundamentals
+        if isinstance(fund, float) and np.isfinite(fund):
+            if fund >= 70:
+                parts.append("Quality business")
+            elif fund >= 50:
+                parts.append("Decent fundamentals")
+            else:
+                parts.append("Weak fundamentals")
+        # Momentum
+        if isinstance(mom, float) and np.isfinite(mom):
+            if mom >= 70:
+                parts.append("strong momentum")
+            elif mom >= 50:
+                parts.append("moderate momentum")
+            else:
+                parts.append("weak momentum")
+        # RR
+        if isinstance(rr, float) and np.isfinite(rr):
+            if rr >= 2.5:
+                parts.append("excellent RR")
+            elif rr >= 1.5:
+                parts.append("good RR")
+            else:
+                parts.append("poor RR")
+        # Reliability
+        if isinstance(rel, float) and np.isfinite(rel):
+            # Normalize legacy 0-1
+            rel_val = rel
+            if rel_val <= 1.0:
+                rel_val *= 100.0
+            if rel_val >= 75:
+                parts.append("high data reliability")
+            elif rel_val >= 40:
+                parts.append("medium reliability")
+            else:
+                parts.append("low reliability")
+        return ", ".join(parts[:4])
+
+    def _fmt_num(val, fmt, na="N/A"):
+        try:
+            v = _to_float(val)
+            return format(v, fmt) if isinstance(v, float) and np.isfinite(v) else na
+        except Exception:
+            return na
+
     # Core recommendations
     if not core_df.empty:
         st.markdown("### 🛡️ Core Stocks — Lower Relative Risk")
@@ -4371,56 +4416,88 @@ else:
         for _, r in core_df.iterrows():
             ticker = r.get("Ticker", "N/A")
             sector = r.get("Sector", r.get("sector", "Unknown"))
+            company = r.get("shortName", r.get("Company", r.get("Name", "")))
             if sector in (None, "", "Unknown") and isinstance(ticker, str) and ticker and ticker != "N/A":
                 sector = _fallback_sector_yf(ticker)
-            overall_score = r.get("overall_score_20d", r.get("Score", "N/A"))
+
+            final_score = r.get("FinalScore_20d", r.get("Score", np.nan))
             ml_prob = r.get("ML_20d_Prob", r.get("ML_Probability", np.nan))
-            entry_price = r.get("Entry_Price", np.nan)
-            target_price = r.get("Target_Price", np.nan)
-            rr = r.get("RewardRisk", r.get("RR_Ratio", r.get("rr", np.nan)))
-            risk_level = r.get("risk_band", r.get("Risk_Label", r.get("Risk_Level", "N/A")))
-            reliability = r.get("Reliability_v2", r.get("reliability_pct", r.get("Reliability_Score", np.nan)))
-            buy_amt = float(r.get("buy_amount_v2", r.get("סכום קנייה ($)", 0.0)) or 0.0)
-            
-            # Format values
-            score_fmt = f"{overall_score:.0f}" if pd.notna(overall_score) else "N/A"
-            ml_fmt = f"{ml_prob*100:.0f}%" if pd.notna(ml_prob) else "N/A"
-            entry_fmt = f"${entry_price:.2f}" if pd.notna(entry_price) else "N/A"
-            target_fmt = f"${target_price:.2f}" if pd.notna(target_price) else "N/A"
-            rr_fmt = f"{rr:.2f}R" if pd.notna(rr) else "N/A"
-            rel_fmt = f"{reliability:.0f}%" if pd.notna(reliability) else "N/A"
-            
-            # Create a container for each stock
+            rr = r.get("RR", r.get("RR_Ratio", r.get("RewardRisk", np.nan)))
+            rel = r.get("ReliabilityScore", r.get("Reliability_Score", r.get("Reliability_v2", np.nan)))
+            risk_c = _risk_class(r)
+
+            # Headline compact view
             with st.container(border=True):
-                # Header row
-                col1, col2, col3 = st.columns([1, 2, 2])
-                with col1:
-                    st.subheader(ticker)
-                with col2:
-                    st.metric("Score", score_fmt)
-                with col3:
-                    st.metric("ML Confidence", ml_fmt)
-                
-                # Details row
-                col4, col5, col6, col7 = st.columns(4)
-                with col4:
-                    st.metric("Entry", entry_fmt)
-                with col5:
-                    st.metric("Target", target_fmt)
-                with col6:
-                    st.metric("R/R", rr_fmt)
-                with col7:
-                    st.metric("Reliability", rel_fmt)
-                
-                # Additional info
-                col8, col9 = st.columns(2)
-                with col8:
+                c1, c2, c3, c4, c5 = st.columns([2, 1, 1, 1, 2])
+                with c1:
+                    title = ticker if not company else f"{ticker} · {company}"
+                    st.subheader(title)
                     st.caption(f"Sector: {sector}")
-                with col9:
-                    buy_caption = (
-                        f"קנייה: ${buy_amt:.2f}" if np.isfinite(buy_amt) and buy_amt > 0 else "קנייה: לא זמין"
-                    )
-                    st.caption(f"Risk: {risk_level} | {buy_caption}")
+                with c2:
+                    st.metric(score_label, _fmt_num(final_score, '.0f'))
+                with c3:
+                    st.metric("Risk", risk_c)
+                with c4:
+                    st.metric("ML", _ml_badge(ml_prob))
+                with c5:
+                    rr_val = _to_float(rr)
+                    rr_fmt = f"{rr_val:.2f}x" if isinstance(rr_val, float) and np.isfinite(rr_val) else "N/A"
+                    st.metric("R/R", rr_fmt)
+
+                # Short storyline
+                storyline = _headline_story(r)
+                if storyline:
+                    st.caption(storyline)
+
+                # Details expander: deep-dive fields
+                with st.expander("Details", expanded=False):
+                    # Technical indicators
+                    t1, t2, t3, t4 = st.columns(4)
+                    with t1:
+                        st.text("RSI")
+                        st.code(_fmt_num(r.get('RSI', np.nan), '.1f'))
+                    with t2:
+                        atrv = r.get('ATR_Price', r.get('ATR_Pct', np.nan))
+                        st.text("ATR/Price")
+                        st.code(_fmt_num(atrv, '.3f'))
+                    with t3:
+                        st.text("Momentum (Tech)")
+                        momv = r.get('MomentumScore', r.get('TechScore_20d', np.nan))
+                        st.code(_fmt_num(momv, '.0f'))
+                    with t4:
+                        st.text("ML Prob")
+                        st.code(_fmt_num(ml_prob, '.3f'))
+
+                    # Fundamentals breakdown
+                    f1, f2, f3, f4 = st.columns(4)
+                    with f1:
+                        st.text("Fundamental")
+                        fsv = r.get('FundamentalScore', r.get('Fundamental_S', np.nan))
+                        st.code(_fmt_num(fsv, '.0f'))
+                    with f2:
+                        st.text("Quality/Growth")
+                        st.code(f"{r.get('Quality_Score_F', np.nan)} / {r.get('Growth_Score_F', np.nan)}")
+                    with f3:
+                        st.text("Valuation")
+                        st.code(f"{r.get('Valuation_Score_F', np.nan)}")
+                    with f4:
+                        st.text("Leverage (D/E)")
+                        st.code(f"{r.get('DE_f', r.get('debt_to_equity', np.nan))}")
+
+                    # Reliability breakdown
+                    rel1, rel2, rel3, rel4 = st.columns(4)
+                    with rel1:
+                        st.text("Reliability")
+                        st.code(_fmt_num(rel, '.0f'))
+                    with rel2:
+                        st.text("Fund sources")
+                        st.code(f"{r.get('Fundamental_Sources_Count', r.get('fund_sources_used_v2', np.nan))}")
+                    with rel3:
+                        st.text("Price sources")
+                        st.code(f"{r.get('Price_Sources_Count', r.get('price_sources_used_v2', np.nan))}")
+                    with rel4:
+                        st.text("Price STD")
+                        st.code(f"{r.get('Price_STD', r.get('price_std', np.nan))}")
 
     # Speculative recommendations
     if not spec_df.empty:
@@ -4441,56 +4518,82 @@ else:
         for _, r in spec_df.iterrows():
             ticker = r.get("Ticker", "N/A")
             sector = r.get("Sector", r.get("sector", "Unknown"))
+            company = r.get("shortName", r.get("Company", r.get("Name", "")))
             if sector in (None, "", "Unknown") and isinstance(ticker, str) and ticker and ticker != "N/A":
                 sector = _fallback_sector_yf_spec(ticker)
-            overall_score = r.get("overall_score_20d", r.get("Score", "N/A"))
+
+            final_score = r.get("FinalScore_20d", r.get("Score", np.nan))
             ml_prob = r.get("ML_20d_Prob", r.get("ML_Probability", np.nan))
-            entry_price = r.get("Entry_Price", np.nan)
-            target_price = r.get("Target_Price", np.nan)
-            rr = r.get("RewardRisk", r.get("RR_Ratio", r.get("rr", np.nan)))
-            risk_level = r.get("risk_band", r.get("Risk_Label", r.get("Risk_Level", "N/A")))
-            reliability = r.get("Reliability_v2", r.get("reliability_pct", r.get("Reliability_Score", np.nan)))
-            buy_amt = float(r.get("buy_amount_v2", r.get("סכום קנייה ($)", 0.0)) or 0.0)
-            
-            # Format values
-            score_fmt = f"{overall_score:.0f}" if pd.notna(overall_score) else "N/A"
-            ml_fmt = f"{ml_prob*100:.0f}%" if pd.notna(ml_prob) else "N/A"
-            entry_fmt = f"${entry_price:.2f}" if pd.notna(entry_price) else "N/A"
-            target_fmt = f"${target_price:.2f}" if pd.notna(target_price) else "N/A"
-            rr_fmt = f"{rr:.2f}R" if pd.notna(rr) else "N/A"
-            rel_fmt = f"{reliability:.0f}%" if pd.notna(reliability) else "N/A"
-            
-            # Create a container for each stock
+            rr = r.get("RR", r.get("RR_Ratio", r.get("RewardRisk", np.nan)))
+            rel = r.get("ReliabilityScore", r.get("Reliability_Score", r.get("Reliability_v2", np.nan)))
+            risk_c = _risk_class(r)
+
             with st.container(border=True):
-                # Header row
-                col1, col2, col3 = st.columns([1, 2, 2])
-                with col1:
-                    st.subheader(ticker)
-                with col2:
-                    st.metric("Score", score_fmt)
-                with col3:
-                    st.metric("ML Confidence", ml_fmt)
-                
-                # Details row
-                col4, col5, col6, col7 = st.columns(4)
-                with col4:
-                    st.metric("Entry", entry_fmt)
-                with col5:
-                    st.metric("Target", target_fmt)
-                with col6:
-                    st.metric("R/R", rr_fmt)
-                with col7:
-                    st.metric("Reliability", rel_fmt)
-                
-                # Additional info
-                col8, col9 = st.columns(2)
-                with col8:
+                c1, c2, c3, c4, c5 = st.columns([2, 1, 1, 1, 2])
+                with c1:
+                    title = ticker if not company else f"{ticker} · {company}"
+                    st.subheader(title)
                     st.caption(f"Sector: {sector}")
-                with col9:
-                    buy_caption = (
-                        f"קנייה: ${buy_amt:.2f}" if np.isfinite(buy_amt) and buy_amt > 0 else "קנייה: לא זמין"
-                    )
-                    st.caption(f"Risk: {risk_level} | {buy_caption}")
+                with c2:
+                    st.metric(score_label, _fmt_num(final_score, '.0f'))
+                with c3:
+                    st.metric("Risk", risk_c)
+                with c4:
+                    st.metric("ML", _ml_badge(ml_prob))
+                with c5:
+                    rr_val = _to_float(rr)
+                    rr_fmt = f"{rr_val:.2f}x" if isinstance(rr_val, float) and np.isfinite(rr_val) else "N/A"
+                    st.metric("R/R", rr_fmt)
+
+                storyline = _headline_story(r)
+                if storyline:
+                    st.caption(storyline)
+
+                with st.expander("Details", expanded=False):
+                    t1, t2, t3, t4 = st.columns(4)
+                    with t1:
+                        st.text("RSI")
+                        st.code(_fmt_num(r.get('RSI', np.nan), '.1f'))
+                    with t2:
+                        atrv = r.get('ATR_Price', r.get('ATR_Pct', np.nan))
+                        st.text("ATR/Price")
+                        st.code(_fmt_num(atrv, '.3f'))
+                    with t3:
+                        st.text("Momentum (Tech)")
+                        momv = r.get('MomentumScore', r.get('TechScore_20d', np.nan))
+                        st.code(_fmt_num(momv, '.0f'))
+                    with t4:
+                        st.text("ML Prob")
+                        st.code(_fmt_num(ml_prob, '.3f'))
+
+                    f1, f2, f3, f4 = st.columns(4)
+                    with f1:
+                        st.text("Fundamental")
+                        fsv = r.get('FundamentalScore', r.get('Fundamental_S', np.nan))
+                        st.code(_fmt_num(fsv, '.0f'))
+                    with f2:
+                        st.text("Quality/Growth")
+                        st.code(f"{r.get('Quality_Score_F', np.nan)} / {r.get('Growth_Score_F', np.nan)}")
+                    with f3:
+                        st.text("Valuation")
+                        st.code(f"{r.get('Valuation_Score_F', np.nan)}")
+                    with f4:
+                        st.text("Leverage (D/E)")
+                        st.code(f"{r.get('DE_f', r.get('debt_to_equity', np.nan))}")
+
+                    rel1, rel2, rel3, rel4 = st.columns(4)
+                    with rel1:
+                        st.text("Reliability")
+                        st.code(_fmt_num(rel, '.0f'))
+                    with rel2:
+                        st.text("Fund sources")
+                        st.code(f"{r.get('Fundamental_Sources_Count', r.get('fund_sources_used_v2', np.nan))}")
+                    with rel3:
+                        st.text("Price sources")
+                        st.code(f"{r.get('Price_Sources_Count', r.get('price_sources_used_v2', np.nan))}")
+                    with rel4:
+                        st.text("Price STD")
+                        st.code(f"{r.get('Price_STD', r.get('price_std', np.nan))}")
 
     # Export section (single, unified)
             mean = r.get("מחיר ממוצע", np.nan)
