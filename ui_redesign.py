@@ -255,10 +255,17 @@ def render_native_recommendation_row(row: pd.Series, rank: int) -> None:
             sources = row.get("Price_Sources", "Yahoo")
             st.caption(f"📡 Data: {sources}")
             
-            # Allocation
-            buy_amount = row.get("סכום קנייה ($)", row.get("buy_amount_v2", 0))
-            shares = row.get("מניות לקנייה", 0)
-            st.caption(f"💰 Allocation: {buy_amount:.0f}$ ({int(shares)} shares)")
+            # Allocation (prefer v2 fields; show 'Not available' when missing/non-positive)
+            buy_amount = row.get("buy_amount_v2", row.get("סכום קנייה ($)", None))
+            shares = row.get("shares_to_buy_v2", row.get("מניות לקנייה", 0))
+            try:
+                buy_val = float(buy_amount) if buy_amount is not None else float('nan')
+            except Exception:
+                buy_val = float('nan')
+            if np.isfinite(buy_val) and buy_val > 0:
+                st.caption(f"💰 Allocation: {buy_val:.0f}$ ({int(shares) if shares else 0} shares)")
+            else:
+                st.caption("💰 Allocation: Not available")
 
 
 def render_overview_tab(market_regime: dict, results: pd.DataFrame, core_count: int, spec_count: int) -> None:

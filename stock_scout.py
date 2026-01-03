@@ -3473,15 +3473,27 @@ alloc_df = results.reset_index(drop=True).copy()
 
 # Defensive: ensure allocation column exists even if upstream function changed
 if "סכום קנייה ($)" not in results.columns:
-    results["סכום קנייה ($)"] = 0.0
+    if "buy_amount_v2" in results.columns:
+        results["סכום קנייה ($)"] = pd.to_numeric(results["buy_amount_v2"], errors="coerce")
+    elif "Buy Amount ($)" in results.columns:
+        results["סכום קנייה ($)"] = pd.to_numeric(results["Buy Amount ($)"], errors="coerce")
+    else:
+        results["סכום קנייה ($)"] = np.nan
 
 results["מניות לקנייה"] = np.floor(
     np.where(
-        results["Unit_Price"] > 0, results["סכום קנייה ($)"] / results["Unit_Price"], 0
+        (results["Unit_Price"] > 0) & (results["סכום קנייה ($)"].fillna(0) > 0),
+        results["סכום קנייה ($)"].fillna(0) / results["Unit_Price"],
+        0,
     )
 ).astype(int)
 results["עודף ($)"] = np.round(
-    results["סכום קנייה ($)"] - results["מניות לקנייה"] * results["Unit_Price"], 2
+    np.where(
+        pd.notna(results["סכום קנייה ($)"]) & (results["מניות לקנייה"] > 0),
+        results["סכום קנייה ($)"] - results["מניות לקנייה"] * results["Unit_Price"],
+        0.0,
+    ),
+    2,
 )
 
 # === Global budget cap enforcement (scaling if needed) ===
@@ -4400,7 +4412,10 @@ else:
                 with col8:
                     st.caption(f"Sector: {sector}")
                 with col9:
-                    st.caption(f"Risk: {risk_level} | Buy: ${buy_amt:.2f}")
+                    buy_caption = (
+                        f"קנייה: ${buy_amt:.2f}" if np.isfinite(buy_amt) and buy_amt > 0 else "קנייה: לא זמין"
+                    )
+                    st.caption(f"Risk: {risk_level} | {buy_caption}")
 
     # Speculative recommendations
     if not spec_df.empty:
@@ -4467,7 +4482,10 @@ else:
                 with col8:
                     st.caption(f"Sector: {sector}")
                 with col9:
-                    st.caption(f"Risk: {risk_level} | Buy: ${buy_amt:.2f}")
+                    buy_caption = (
+                        f"קנייה: ${buy_amt:.2f}" if np.isfinite(buy_amt) and buy_amt > 0 else "קנייה: לא זמין"
+                    )
+                    st.caption(f"Risk: {risk_level} | {buy_caption}")
 
     # Export section (single, unified)
             mean = r.get("מחיר ממוצע", np.nan)

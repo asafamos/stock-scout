@@ -350,11 +350,17 @@ def render_recommendation_row_hebrew(row: pd.Series, rank: int) -> None:
             sources = row.get("Price_Sources", row.get("Source_List", "Yahoo"))
             st.caption(f"📡 מקורות נתונים: {sources}")
             
-            # Allocation
-            buy_amt = row.get("סכום קנייה ($)", row.get("buy_amount_v2", 0))
-            shares = row.get("מניות לקנייה", row.get("shares_to_buy_v2", 0))
-            if buy_amt and buy_amt > 0:
-                st.caption(f"💰 הקצאה: ${buy_amt:.0f} ({int(shares)} מניות)")
+            # Allocation (prefer v2 fields; show 'לא זמין' when missing/non-positive)
+            buy_amt = row.get("buy_amount_v2", row.get("סכום קנייה ($)", None))
+            shares = row.get("shares_to_buy_v2", row.get("מניות לקנייה", 0))
+            try:
+                buy_amt_val = float(buy_amt) if buy_amt is not None else float('nan')
+            except Exception:
+                buy_amt_val = float('nan')
+            if np.isfinite(buy_amt_val) and buy_amt_val > 0:
+                st.caption(f"💰 הקצאה: ${buy_amt_val:.0f} ({int(shares) if shares else 0} מניות)")
+            else:
+                st.caption("💰 הקצאה: לא זמין")
 
 
 def render_core_section_hebrew(core_df: pd.DataFrame) -> None:
