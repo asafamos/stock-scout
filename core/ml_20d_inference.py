@@ -26,7 +26,15 @@ def _load_bundle_impl() -> tuple[bool, Any, list[str], str]:
         # Use absolute path relative to this file's location
         module_dir = Path(__file__).resolve().parent.parent  # stock-scout-2 root
         # Prefer v3 model; fallback to v2, then v1
-        model_path_v3 = module_dir / "models" / "model_20d_v3.pkl"
+        # Prefer newest timestamped v3 bundle if present
+        models_dir = module_dir / "models"
+        model_path_v3 = models_dir / "model_20d_v3.pkl"
+        try:
+            candidates = sorted(models_dir.glob("model_20d_v3_*.pkl"), key=lambda p: p.stat().st_mtime, reverse=True)
+            if candidates:
+                model_path_v3 = candidates[0]
+        except Exception:
+            pass
         model_path_v2 = module_dir / "models" / "model_20d_v2.pkl"
         model_path_v1 = module_dir / "models" / "model_20d_v1.pkl"
         
