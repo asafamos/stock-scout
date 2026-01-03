@@ -2962,10 +2962,15 @@ create_debug_expander({
 sources_overview = SourcesOverview()
 
 if not skip_pipeline:
-    # Use the unified pipeline runner with maximum universe
+    # Use the unified pipeline runner with configured universe size
     # Note: Manual scans are discouraged - use automated scans from GitHub Actions
     st.warning("⚠️ סריקה ידנית פועלת - זה יכול לקחת זמן. מומלץ להשתמש בסריקות אוטומטיות.")
-    universe = build_universe(limit=500)  # Fixed to 500 for consistency
+    try:
+        cfg = get_config()
+        uni_limit = int(getattr(cfg, 'universe_limit', 1500))
+    except Exception:
+        uni_limit = 1500
+    universe = build_universe(limit=uni_limit)
     status_manager.advance(f"Universe built: {len(universe)} tickers")
     
     # Respect UI toggle for multi-source fundamentals

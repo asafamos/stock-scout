@@ -52,7 +52,7 @@ from core.data import (
 from core.allocation import allocate_budget
 from core.classifier import apply_classification
 
-UNIVERSE_LIMIT = int(os.getenv("AUTO_SCAN_UNIVERSE_LIMIT", "500"))
+UNIVERSE_LIMIT = int(os.getenv("AUTO_SCAN_UNIVERSE_LIMIT", "1500"))
 UNIVERSE = build_universe(limit=UNIVERSE_LIMIT)
 
 print(f"🎯 Universe size: {len(UNIVERSE)} stocks (limit {UNIVERSE_LIMIT})")
