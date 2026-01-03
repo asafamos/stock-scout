@@ -1,0 +1,22 @@
+name: Keepalive Streamlit App
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Streamlit app URL
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Optional jitter to avoid exact timing collisions
+          sleep $((RANDOM % 60))
+          url="https://stock-scout-fm4iuuknxjwjbcg95inbcj.streamlit.app"
+          echo "Pinging $url"
+          # Use GET to keep session warm; tolerate auth redirects
+          curl -fsS -A "stock-scout-keepalive" "$url" -L --max-time 30 | head -c 500 || true
+          echo "Done"
