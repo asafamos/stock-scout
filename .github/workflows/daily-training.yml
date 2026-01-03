@@ -29,11 +29,11 @@ jobs:
           TS_SPLITS: '5'
           PRECISION_AT_K: '20'
         run: |
-          python scripts/run_daily_training.py
+          python -m scripts.run_daily_training
 
       - name: Backtest Precision@K
         run: |
-          python scripts/backtest_precision_at_k.py || true
+          python -m scripts.backtest_precision_at_k || true
 
       - name: Upload reports
         uses: actions/upload-artifact@v4

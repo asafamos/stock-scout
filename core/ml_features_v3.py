@@ -356,6 +356,41 @@ def compute_anchored_vwap_features(df: pd.DataFrame, anchor_days: int = 60) -> p
     result['Near52wHigh_Pct'] = (close / result['High_252d'] - 1.0).replace([np.inf, -np.inf], np.nan)
     return result
 
+def compute_pivot_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Compute recent pivot highs/lows and proximity/breakout flags.
+    Adds:
+    - PivotHigh_20d, PivotLow_20d: local extreme values (rolling window)
+    - Dist_to_PivotHigh_Pct, Dist_to_PivotLow_Pct: proximity metrics
+    - BreakoutAbovePivot_Flag: 1 if Close > PivotHigh_20d
+    - ReboundFromPivotLow_Flag: 1 if Close > PivotLow_20d and UpStreak_Days >= 2
+    """
+    result = df.copy()
+    close = result.get('Close')
+    high = result.get('High', close)
+    low = result.get('Low', close)
+
+    # Rolling pivots using 10-day window inside 20d scope
+    win = 10
+    pivot_high = high.rolling(win, min_periods=5).max()
+    pivot_low = low.rolling(win, min_periods=5).min()
+    result['PivotHigh_20d'] = pivot_high
+    result['PivotLow_20d'] = pivot_low
+
+    # Distances to pivots
+    result['Dist_to_PivotHigh_Pct'] = (close / pivot_high - 1.0).replace([np.inf, -np.inf], np.nan)
+    result['Dist_to_PivotLow_Pct'] = (close / pivot_low - 1.0).replace([np.inf, -np.inf], np.nan)
+
+    # Breakout/rebound flags
+    result['BreakoutAbovePivot_Flag'] = (close > pivot_high).astype(int)
+    # Use existing sequential streak computation if present; fallback to 0
+    if 'UpStreak_Days' not in result.columns:
+        tmp = compute_sequential_pattern_features(result)
+        result['UpStreak_Days'] = tmp['UpStreak_Days']
+    result['ReboundFromPivotLow_Flag'] = ((close > pivot_low) & (result['UpStreak_Days'] >= 2)).astype(int)
+
+    return result
+
 
 def compute_earnings_proximity_features(
     ticker: str,

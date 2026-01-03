@@ -122,10 +122,12 @@ def score_universe_20d(
                 compute_multi_period_returns,
                 compute_breakout_features,
                 compute_anchored_vwap_features,
+                compute_pivot_features,
             )
             enriched = compute_multi_period_returns(df_hist)
             enriched2 = compute_breakout_features(df_hist)
             enriched3 = compute_anchored_vwap_features(df_hist)
+            enriched4 = compute_pivot_features(df_hist)
             # Attach latest returns into the indicator row so ML can consume
             row = indicators.iloc[-1].copy()
             for c in ["Return_5d","Return_10d","Return_20d","Return_60d","Return_120d"]:
@@ -145,6 +147,14 @@ def score_universe_20d(
             ]:
                 if c in enriched3.columns:
                     val = enriched3[c].iloc[-1]
+                    row[c] = float(val) if pd.notna(val) else np.nan
+            for c in [
+                "PivotHigh_20d","PivotLow_20d",
+                "Dist_to_PivotHigh_Pct","Dist_to_PivotLow_Pct",
+                "BreakoutAbovePivot_Flag","ReboundFromPivotLow_Flag",
+            ]:
+                if c in enriched4.columns:
+                    val = enriched4[c].iloc[-1]
                     row[c] = float(val) if pd.notna(val) else np.nan
         except Exception:
             row = indicators.iloc[-1]
