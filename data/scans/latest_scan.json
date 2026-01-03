@@ -1,13 +1,13 @@
 {
-  "timestamp": "2026-01-02T20:16:12.705290",
+  "timestamp": "2026-01-03T08:36:09.903866",
   "scan_type": "automated_full_pipeline",
   "total_tickers": 3,
   "universe_size": 12,
   "pipeline_version": "v2_with_ml",
   "top_ticker": "WMT",
-  "top_score": 65.84604557951694,
-  "avg_score": 60.97002328039769,
-  "scan_duration_seconds": 9.00242829322815,
+  "top_score": 65.89734531643818,
+  "avg_score": 61.0025077277895,
+  "scan_duration_seconds": 5.263425350189209,
   "columns_saved": [
     "Ticker",
     "Sector",
@@ -33,5 +33,5 @@
     "RS_63d",
     "AdvPenalty"
   ],
-  "build_commit": "8fbf8ba"
+  "build_commit": "cd7cb59"
 }
