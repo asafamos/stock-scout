@@ -104,15 +104,37 @@ def _precision_at_k(y_true: np.ndarray, y_prob: np.ndarray, k: int) -> float:
     return float(np.mean(y_true[topk]))
 
 
+def _regime_adjusted_tau(base_tau: float) -> float:
+    """Adjust label threshold by detected market regime (bullish/neutral/bearish)."""
+    try:
+        from core.market_regime import detect_market_regime
+        regime = detect_market_regime()
+        r = regime.get("regime", "neutral")
+        conf = regime.get("confidence", 50)
+        tau = base_tau
+        if r == "bullish":
+            tau = max(0.015, base_tau - 0.01)
+            if conf > 70:
+                tau = max(0.010, tau - 0.005)
+        elif r == "bearish":
+            tau = min(0.06, base_tau + 0.02)
+            if conf > 70:
+                tau = min(0.08, tau + 0.01)
+        return float(tau)
+    except Exception:
+        return float(base_tau)
+
+
 def train_and_save_bundle() -> Tuple[str, dict]:
     csv_path = _find_latest_training_csv()
     df = pd.read_csv(csv_path)
     df_recent = _filter_recent_window(df)
-    y = _build_label(df_recent, DEFAULT_RELATIVE_THRESHOLD)
+    tau = _regime_adjusted_tau(DEFAULT_RELATIVE_THRESHOLD)
+    y = _build_label(df_recent, tau)
     if len(np.unique(y)) < 2:
         # Fallback: use full dataset without window
         df_recent = df
-        y = _build_label(df_recent, DEFAULT_RELATIVE_THRESHOLD)
+        y = _build_label(df_recent, tau)
         if len(np.unique(y)) < 2:
             raise RuntimeError("Insufficient class diversity in labels; adjust threshold or dataset.")
     feature_cols = _select_feature_cols(df)

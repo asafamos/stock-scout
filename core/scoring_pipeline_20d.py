@@ -116,7 +116,26 @@ def score_universe_20d(
             continue
 
         indicators = build_technical_indicators(df_hist)
-        row = indicators.iloc[-1]
+        # Enrich with multi-period returns for ML feature alignment
+        try:
+            from core.ml_features_v3 import compute_multi_period_returns, compute_breakout_features
+            enriched = compute_multi_period_returns(df_hist)
+            enriched2 = compute_breakout_features(df_hist)
+            # Attach latest returns into the indicator row so ML can consume
+            row = indicators.iloc[-1].copy()
+            for c in ["Return_5d","Return_10d","Return_20d","Return_60d","Return_120d"]:
+                if c in enriched.columns:
+                    row[c] = float(enriched[c].iloc[-1])
+            for c in [
+                "BB_Width","KC_Width","Squeeze_On_Flag",
+                "Vol_Contraction_Ratio","Volume_Relative_20d",
+                "MA_Slope_S","MA_Slope_L"
+            ]:
+                if c in enriched2.columns:
+                    val = enriched2[c].iloc[-1]
+                    row[c] = float(val) if pd.notna(val) else np.nan
+        except Exception:
+            row = indicators.iloc[-1]
 
         # Base row
         rec = {
@@ -165,6 +184,20 @@ def score_universe_20d(
                 rec[f"Return_{horizon_days}d"] = np.nan
         except Exception:
             rec[f"Return_{horizon_days}d"] = np.nan
+
+        # Relative strength vs benchmark (SPY) if provided
+        if benchmark_df is not None and "date" in benchmark_df.columns:
+            try:
+                as_of = pd.to_datetime(rec["As_Of_Date"]) if "As_Of_Date" in rec else None
+                if as_of is not None:
+                    spy_row = benchmark_df[benchmark_df["date"] == as_of]
+                    if not spy_row.empty:
+                        rec["SPY_20d_ret"] = float(spy_row.iloc[0].get("SPY_20d_ret", np.nan))
+                        # If model expects relative features, ensure they exist
+                        if pd.notna(rec.get("Return_20d", np.nan)) and pd.notna(rec.get("SPY_20d_ret", np.nan)):
+                            rec["RS_SPY_20d"] = float(rec.get("Return_20d") - rec.get("SPY_20d_ret"))
+            except Exception:
+                pass
 
         rows.append(rec)
 

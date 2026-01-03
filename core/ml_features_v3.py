@@ -259,6 +259,75 @@ def compute_sequential_pattern_features(df: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
+def compute_breakout_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Compute breakout-oriented features commonly used to anticipate upward moves:
+    - Bollinger/Keltner squeeze: BB inside KC -> potential energy buildup
+    - Volatility contraction: 20d std vs 60d std ratio
+    - Relative volume: today's volume vs 20d average
+    - MA slopes: short vs long moving averages slopes over recent days
+
+    Returns a DataFrame with added columns:
+    - BB_Width, KC_Width, Squeeze_On_Flag
+    - Vol_Contraction_Ratio
+    - Volume_Relative_20d
+    - MA_Slope_S, MA_Slope_L
+    """
+    result = df.copy()
+    close = result.get('Close')
+    high = result.get('High', close)
+    low = result.get('Low', close)
+    vol = result.get('Volume', pd.Series(np.nan, index=result.index))
+
+    # Bollinger Bands (20, 2)
+    ma20 = close.rolling(20, min_periods=10).mean()
+    std20 = close.rolling(20, min_periods=10).std(ddof=0)
+    bb_up = ma20 + 2.0 * std20
+    bb_lo = ma20 - 2.0 * std20
+    bb_width = (bb_up - bb_lo) / close.replace(0, np.nan)
+    result['BB_Width'] = bb_width.replace([np.inf, -np.inf], np.nan)
+
+    # ATR(14)
+    prev_close = close.shift(1)
+    tr1 = (high - low).abs()
+    tr2 = (high - prev_close).abs()
+    tr3 = (low - prev_close).abs()
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    atr14 = tr.rolling(14, min_periods=7).mean()
+
+    # Keltner Channels (EMA20 ± 2*ATR14)
+    ema20 = close.ewm(span=20, adjust=False).mean()
+    kc_up = ema20 + 2.0 * atr14
+    kc_lo = ema20 - 2.0 * atr14
+    kc_width = (kc_up - kc_lo) / close.replace(0, np.nan)
+    result['KC_Width'] = kc_width.replace([np.inf, -np.inf], np.nan)
+
+    # Squeeze: BB inside KC
+    result['Squeeze_On_Flag'] = ((bb_up <= kc_up) & (bb_lo >= kc_lo)).astype(int)
+
+    # Volatility contraction ratio (lower implies contraction)
+    ret = close.pct_change(fill_method=None)
+    std20r = ret.rolling(20, min_periods=10).std(ddof=0)
+    std60r = ret.rolling(60, min_periods=20).std(ddof=0)
+    vol_ratio = std20r / std60r.replace(0, np.nan)
+    result['Vol_Contraction_Ratio'] = vol_ratio.replace([np.inf, -np.inf], np.nan).clip(0.0, 2.0)
+
+    # Relative volume (20d)
+    vol_ma20 = vol.rolling(20, min_periods=10).mean()
+    result['Volume_Relative_20d'] = (vol / vol_ma20.replace(0, np.nan)).replace([np.inf, -np.inf], np.nan)
+
+    # MA slopes (short/long)
+    ma_short = close.rolling(10, min_periods=5).mean()
+    ma_long = close.rolling(50, min_periods=25).mean()
+    # 5-day slope normalized by price
+    slope_s = (ma_short - ma_short.shift(5)) / 5.0
+    slope_l = (ma_long - ma_long.shift(5)) / 5.0
+    result['MA_Slope_S'] = (slope_s / close.replace(0, np.nan)).replace([np.inf, -np.inf], np.nan)
+    result['MA_Slope_L'] = (slope_l / close.replace(0, np.nan)).replace([np.inf, -np.inf], np.nan)
+
+    return result
+
+
 def compute_earnings_proximity_features(
     ticker: str,
     as_of_date: pd.Timestamp,
