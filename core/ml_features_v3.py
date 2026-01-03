@@ -327,6 +327,35 @@ def compute_breakout_features(df: pd.DataFrame) -> pd.DataFrame:
 
     return result
 
+def compute_anchored_vwap_features(df: pd.DataFrame, anchor_days: int = 60) -> pd.DataFrame:
+    """
+    Compute anchored VWAP since an anchor point (e.g., last 60 trading days) and proximity to 52w high.
+    Adds:
+    - AnchoredVWAP_60d: VWAP from t-anchor to t
+    - Price_vs_AnchoredVWAP_Pct: (Close / AnchoredVWAP - 1)
+    - High_252d: rolling 252d high
+    - Near52wHigh_Pct: (Close / High_252d - 1)
+    """
+    result = df.copy()
+    close = result.get('Close')
+    vol = result.get('Volume', pd.Series(np.nan, index=result.index))
+    n = len(result)
+    anchor_idx = max(0, n - anchor_days)
+    # Cumulative sums for VWAP from anchor
+    price_vol = (close * vol).astype(float)
+    cum_pv = price_vol.cumsum()
+    cum_v = vol.astype(float).cumsum()
+    pv_anchor = cum_pv.shift(anchor_idx)
+    v_anchor = cum_v.shift(anchor_idx)
+    vwap = (cum_pv - (pv_anchor.fillna(0))) / (cum_v - (v_anchor.fillna(0)))
+    result['AnchoredVWAP_60d'] = vwap.replace([np.inf, -np.inf], np.nan)
+    result['Price_vs_AnchoredVWAP_Pct'] = (close / result['AnchoredVWAP_60d'] - 1.0).replace([np.inf, -np.inf], np.nan)
+    # 52-week high proximity (≈252 trading days)
+    high = result.get('High', close)
+    result['High_252d'] = high.rolling(252, min_periods=60).max()
+    result['Near52wHigh_Pct'] = (close / result['High_252d'] - 1.0).replace([np.inf, -np.inf], np.nan)
+    return result
+
 
 def compute_earnings_proximity_features(
     ticker: str,

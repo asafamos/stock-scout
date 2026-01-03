@@ -1,0 +1,42 @@
+name: Daily Rolling Training (20d)
+
+on:
+  schedule:
+    - cron: '15 3 * * *' # daily at 03:15 UTC
+  workflow_dispatch: {}
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run rolling training
+        env:
+          RELATIVE_LABEL_TAU: '0.03'
+          ROLLING_MONTHS: '18'
+          TS_SPLITS: '5'
+          PRECISION_AT_K: '20'
+        run: |
+          python scripts/run_daily_training.py
+
+      - name: Backtest Precision@K
+        run: |
+          python scripts/backtest_precision_at_k.py || true
+
+      - name: Upload reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: rolling-training-reports
+          path: reports/

@@ -118,9 +118,14 @@ def score_universe_20d(
         indicators = build_technical_indicators(df_hist)
         # Enrich with multi-period returns for ML feature alignment
         try:
-            from core.ml_features_v3 import compute_multi_period_returns, compute_breakout_features
+            from core.ml_features_v3 import (
+                compute_multi_period_returns,
+                compute_breakout_features,
+                compute_anchored_vwap_features,
+            )
             enriched = compute_multi_period_returns(df_hist)
             enriched2 = compute_breakout_features(df_hist)
+            enriched3 = compute_anchored_vwap_features(df_hist)
             # Attach latest returns into the indicator row so ML can consume
             row = indicators.iloc[-1].copy()
             for c in ["Return_5d","Return_10d","Return_20d","Return_60d","Return_120d"]:
@@ -133,6 +138,13 @@ def score_universe_20d(
             ]:
                 if c in enriched2.columns:
                     val = enriched2[c].iloc[-1]
+                    row[c] = float(val) if pd.notna(val) else np.nan
+            for c in [
+                "AnchoredVWAP_60d","Price_vs_AnchoredVWAP_Pct",
+                "High_252d","Near52wHigh_Pct",
+            ]:
+                if c in enriched3.columns:
+                    val = enriched3[c].iloc[-1]
                     row[c] = float(val) if pd.notna(val) else np.nan
         except Exception:
             row = indicators.iloc[-1]
