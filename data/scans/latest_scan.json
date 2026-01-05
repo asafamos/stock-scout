@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-01-04T20:16:33.720132",
+  "timestamp": "2026-01-05T08:43:22.994835",
   "scan_type": "automated_full_pipeline",
   "total_tickers": 3,
   "universe_size": 12,
@@ -7,7 +7,7 @@
   "top_ticker": "WMT",
   "top_score": 65.89734531643818,
   "avg_score": 61.0025077277895,
-  "scan_duration_seconds": 4.348313331604004,
+  "scan_duration_seconds": 6.330499172210693,
   "columns_saved": [
     "Ticker",
     "Sector",
@@ -33,5 +33,5 @@
     "RS_63d",
     "AdvPenalty"
   ],
-  "build_commit": "d54398f"
+  "build_commit": "a154edf"
 }
