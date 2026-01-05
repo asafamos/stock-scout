@@ -393,6 +393,12 @@ def compute_recommendation_scores(
     
     # STRICT RULE: Score must always equal FinalScore_20d (set in to_series above)
     # Never override Score here - it's already set correctly
+    # Transparency: mark ML features fallback if the bundle is missing Meteor features
+    try:
+        from core.ml_20d_inference import BUNDLE_HAS_MISSING_METEOR_FEATURES
+        rec_row["ML_Features_Fallback"] = 1 if bool(BUNDLE_HAS_MISSING_METEOR_FEATURES) else 0
+    except Exception:
+        rec_row["ML_Features_Fallback"] = 0
 
     return rec_row
 
@@ -834,6 +840,8 @@ def build_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     result['RSI'] = compute_rsi(close, period=14)
     result['ATR'] = compute_atr(df, period=14)
     result['ATR_Pct'] = result['ATR'] / close
+    # ADR_Pct alias for ML features (using ATR_Pct)
+    result['ADR_Pct'] = result['ATR_Pct']
 
     # Volatility Contraction Pattern (VCP) score
     # Compare short-term ATR (10d) vs long-term ATR (30d) to detect contraction
@@ -852,10 +860,23 @@ def build_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     # Price-based features
     result['Overext'] = (close / result['MA50']) - 1
     result['Near52w'] = (close / close.rolling(window=252).max()) * 100
+    # Distance from 52w high (float in [-1, +inf), typically near 0 to -0.1)
+    try:
+        hi_52w = close.rolling(window=min(len(close), 252)).max()
+        result['Dist_52w_High'] = (close / hi_52w) - 1.0
+    except Exception:
+        result['Dist_52w_High'] = np.nan
     
     # Momentum and volume
     result['MomCons'] = compute_momentum_consistency(close, lookback=14)
     result['VolSurge'] = compute_volume_surge(volume, lookback=20)
+    # Volume surge ratio (recent 5 vs 20d avg) for ML vector
+    try:
+        recent_vol = volume.rolling(5).mean()
+        avg_vol20 = volume.rolling(20).mean()
+        result['Volume_Surge_Ratio'] = recent_vol / avg_vol20
+    except Exception:
+        result['Volume_Surge_Ratio'] = np.nan
     result['RR'] = compute_reward_risk(close, lookback=20)
     
     # Derived features for ML
@@ -973,12 +994,34 @@ def compute_technical_score(row: pd.Series, weights: Optional[Dict[str, float]] 
     mom_score = float(np.clip(_get_float("Momentum_Consistency", 0.0), 0.0, 1.0))
 
     rsi_val = _get_float("RSI", np.nan)
+    # Meteor mode rewards momentum instead of penalizing overbought
+    meteor_mode = False
+    try:
+        import os
+        meteor_mode = bool(os.getenv("METEOR_MODE", "0") == "1")
+    except Exception:
+        meteor_mode = False
     if pd.isna(rsi_val):
         rsi_score = 0.5
-    elif 25 <= rsi_val <= 75:
-        rsi_score = 1.0
     else:
-        rsi_score = max(0.0, 1.0 - (abs(rsi_val - 50) - 25) / 50.0)
+        if meteor_mode:
+            # Momentum bonus tiers: emphasize RSI strength
+            if rsi_val >= 80:
+                rsi_score = 1.0
+            elif rsi_val >= 65:
+                rsi_score = 1.0
+            elif rsi_val >= 55:
+                rsi_score = 0.8
+            elif rsi_val >= 45:
+                rsi_score = 0.6
+            else:
+                rsi_score = 0.4
+        else:
+            # Balanced mapping favoring 25–75 band
+            if 25 <= rsi_val <= 75:
+                rsi_score = 1.0
+            else:
+                rsi_score = max(0.0, 1.0 - (abs(rsi_val - 50) - 25) / 50.0)
 
     vol_surge = _get_float("VolSurge", 1.0)
     vol_score = float(np.clip(vol_surge / 2.0, 0.0, 1.0))

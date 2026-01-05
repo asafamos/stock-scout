@@ -41,6 +41,7 @@ from core.api_monitor import record_api_call
 import threading
 from core.fundamental import DataMode
 from core.fundamental_store import init_fundamentals_store, save_fundamentals_snapshot, load_fundamentals_as_of
+from core.config import get_secret
 from datetime import date
 
 logger = logging.getLogger(__name__)
@@ -52,17 +53,17 @@ except Exception:
     # Non-fatal; live snapshot persistence will simply be skipped if init fails
     logger.warning("Failed to initialize fundamentals store (SQLite)")
 
-# API Keys from environment
-FMP_API_KEY = os.getenv("FMP_API_KEY", "")
-FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY", "")
-TIINGO_API_KEY = os.getenv("TIINGO_API_KEY", "")
-ALPHA_VANTAGE_API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY", "")
-POLYGON_API_KEY = os.getenv("POLYGON_API_KEY", "")
+# API Keys via unified secret loader
+FMP_API_KEY = get_secret("FMP_API_KEY", "")
+FINNHUB_API_KEY = get_secret("FINNHUB_API_KEY", "")
+TIINGO_API_KEY = get_secret("TIINGO_API_KEY", "")
+ALPHA_VANTAGE_API_KEY = get_secret("ALPHA_VANTAGE_API_KEY", "")
+POLYGON_API_KEY = get_secret("POLYGON_API_KEY", "")
 # Additional providers (registry expansion)
-EODHD_API_KEY = os.getenv("EODHD_API_KEY", "")
-SIMFIN_API_KEY = os.getenv("SIMFIN_API_KEY", "")
-MARKETSTACK_API_KEY = os.getenv("MARKETSTACK_API_KEY", "")
-NASDAQ_API_KEY = os.getenv("NASDAQ_API_KEY", "")
+EODHD_API_KEY = get_secret("EODHD_API_KEY", "")
+SIMFIN_API_KEY = get_secret("SIMFIN_API_KEY", "")
+MARKETSTACK_API_KEY = get_secret("MARKETSTACK_API_KEY", "")
+NASDAQ_API_KEY = get_secret("NASDAQ_API_KEY", "")
 
 # Track last-used primary source for index/ETF symbols
 _LAST_INDEX_SOURCE: Dict[str, str] = {}
@@ -122,6 +123,128 @@ def disable_provider_category(provider: str, category: str) -> None:
             logger.warning(f"Provider endpoint disabled for session: {key}")
     except Exception:
         pass
+
+
+def fetch_bulk_quotes_fmp(tickers: List[str], timeout: int = 6) -> Dict[str, Optional[float]]:
+    """Fetch bulk quotes from FMP using comma-separated symbols.
+
+    Example endpoint: /api/v3/quote/AAPL,MSFT,NVDA
+    Returns dict {symbol: price or None}.
+    """
+    prices: Dict[str, Optional[float]] = {}
+    if not FMP_API_KEY or not tickers:
+        return prices
+    # Chunk to avoid URL length and rate limits
+    def _fetch_batch(batch: List[str], size: int) -> bool:
+        try:
+            if not batch:
+                return True
+            sym_csv = ",".join(batch)
+            url = f"https://financialmodelingprep.com/api/v3/quote/{sym_csv}"
+            params = {"apikey": FMP_API_KEY}
+            _rate_limit("fmp")
+            resp = requests.get(url, params=params, timeout=timeout)
+            if resp.status_code == 403:
+                disable_provider_category("fmp", "price")
+                return False
+            if resp.status_code != 200:
+                return False
+            data = resp.json() or []
+            for it in data:
+                sym = str(it.get("symbol") or it.get("ticker") or "").upper()
+                prices[sym] = it.get("price")
+            # Mark any missing symbols explicitly as None
+            provided = {str(it.get("symbol") or it.get("ticker") or "").upper() for it in data}
+            for s in batch:
+                if s.upper() not in provided:
+                    prices[s.upper()] = prices.get(s.upper(), None)
+            return True
+        except Exception:
+            return False
+
+    CHUNK = 100
+    i = 0
+    while i < len(tickers):
+        batch = tickers[i:i+CHUNK]
+        ok = _fetch_batch(batch, CHUNK)
+        if not ok and CHUNK > 50:
+            # Fallback to smaller chunk size (50)
+            subchunk = 50
+            j = 0
+            while j < len(batch):
+                sub = batch[j:j+subchunk]
+                if not _fetch_batch(sub, subchunk):
+                    # Final fallback: per-symbol
+                    for s in sub:
+                        _fetch_batch([s], 1)
+                j += subchunk
+        elif not ok and CHUNK <= 50:
+            # Final fallback already attempted
+            for s in batch:
+                _fetch_batch([s], 1)
+        i += CHUNK
+    return prices
+
+
+def fetch_bulk_fundamentals_fmp(tickers: List[str], timeout: int = 8) -> Dict[str, Dict[str, Optional[float]]]:
+    """Fetch selective fundamentals in bulk via FMP endpoints.
+
+    Focus on hyper-growth signals:
+    - YoY revenue growth (>25%) and acceleration hints
+    - Recent EPS surprises (positive)
+
+    Returns per-symbol dict with keys: rev_yoy, eps_surprise.
+    """
+    out: Dict[str, Dict[str, Optional[float]]] = {t.upper(): {} for t in tickers}
+    if not FMP_API_KEY or not tickers:
+        return out
+
+    # Revenue YoY via income statement quarterly series (per symbol)
+    CHUNK = 50
+    for i in range(0, len(tickers), CHUNK):
+        batch = tickers[i:i+CHUNK]
+        for t in batch:
+            sym = t.upper()
+            try:
+                _rate_limit("fmp")
+                url = f"https://financialmodelingprep.com/api/v3/income-statement/{sym}"
+                params = {"period": "quarter", "limit": 8, "apikey": FMP_API_KEY}
+                resp = requests.get(url, params=params, timeout=timeout)
+                if resp.status_code != 200:
+                    continue
+                rows = resp.json() or []
+                rev_yoy = None
+                if len(rows) >= 5:
+                    last = rows[0].get("revenue")
+                    last_y = rows[4].get("revenue")
+                    if last and last_y and float(last_y) > 0:
+                        rev_yoy = float(last) / float(last_y) - 1.0
+                out[sym]["rev_yoy"] = rev_yoy
+            except Exception:
+                continue
+
+    # Earnings surprises (recent)
+    for i in range(0, len(tickers), CHUNK):
+        batch = tickers[i:i+CHUNK]
+        for t in batch:
+            sym = t.upper()
+            try:
+                _rate_limit("fmp")
+                url = f"https://financialmodelingprep.com/api/v3/earnings-surprises/{sym}"
+                params = {"limit": 4, "apikey": FMP_API_KEY}
+                r = requests.get(url, params=params, timeout=timeout)
+                if r.status_code != 200:
+                    continue
+                items = r.json() or []
+                surprise = None
+                if items:
+                    s = items[0].get("surprisePercent")
+                    surprise = float(s) if s is not None else None
+                out[sym]["eps_surprise"] = surprise
+            except Exception:
+                continue
+
+    return out
 
 
 def _rate_limit(source: str) -> None:

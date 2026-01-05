@@ -52,7 +52,7 @@ from core.data import (
 from core.allocation import allocate_budget
 from core.classifier import apply_classification
 
-UNIVERSE_LIMIT = int(os.getenv("AUTO_SCAN_UNIVERSE_LIMIT", "1500"))
+UNIVERSE_LIMIT = int(os.getenv("UNIVERSE_SIZE", os.getenv("AUTO_SCAN_UNIVERSE_LIMIT", "1500")))
 UNIVERSE = build_universe(limit=UNIVERSE_LIMIT)
 
 print(f"🎯 Universe size: {len(UNIVERSE)} stocks (limit {UNIVERSE_LIMIT})")
@@ -83,6 +83,8 @@ config = {
     "BUDGET_TOTAL": config_obj.budget_total,
     "MIN_POSITION": config_obj.min_position,
     "MAX_POSITION_PCT": config_obj.max_position_pct,
+    # Meteor mode toggle via env for parity with CI/manual
+    "meteor_mode": bool(os.getenv("METEOR_MODE", "0") == "1"),
 }
 
 print(f"📥 Running full pipeline with:")

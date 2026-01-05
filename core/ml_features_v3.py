@@ -1,4 +1,59 @@
 """
+Meteor-oriented feature engineering helpers for ML training/inference.
+
+Adds:
+- dist_from_52w_high
+- rs_rank_vs_spy (percentile rank expected to be supplied externally)
+- volume_surge_ratio (current vs 20d avg)
+- adr_pct (Average Daily Range percentage)
+"""
+from __future__ import annotations
+from typing import Dict
+import numpy as np
+import pandas as pd
+
+
+def compute_dist_from_52w_high(df: pd.DataFrame) -> float:
+    df = df.rename(columns={
+        'date': 'Date', 'open': 'Open', 'high': 'High', 'low': 'Low', 'close': 'Close', 'volume': 'Volume'
+    })
+    look = min(len(df), 252)
+    if look < 20:
+        return np.nan
+    high_52w = float(df['High'].tail(look).max())
+    close = float(df['Close'].iloc[-1])
+    if high_52w <= 0:
+        return np.nan
+    return float((close / high_52w) - 1.0)
+
+
+def compute_volume_surge_ratio(df: pd.DataFrame, lookback: int = 20) -> float:
+    df = df.rename(columns={
+        'date': 'Date', 'open': 'Open', 'high': 'High', 'low': 'Low', 'close': 'Close', 'volume': 'Volume'
+    })
+    if len(df) < lookback + 5:
+        return np.nan
+    recent = float(df['Volume'].tail(5).mean())
+    avg = float(df['Volume'].tail(lookback).mean())
+    return float(recent / avg) if avg > 0 else np.nan
+
+
+def compute_adr_pct(df: pd.DataFrame, period: int = 14) -> float:
+    df = df.rename(columns={
+        'date': 'Date', 'open': 'Open', 'high': 'High', 'low': 'Low', 'close': 'Close', 'volume': 'Volume'
+    })
+    tr = pd.concat([
+        df['High'] - df['Low'],
+        (df['High'] - df['Close'].shift()).abs(),
+        (df['Low'] - df['Close'].shift()).abs(),
+    ], axis=1).max(axis=1)
+    atr = tr.rolling(period).mean()
+    close = df['Close']
+    if len(close) == 0 or pd.isna(atr.iloc[-1]) or close.iloc[-1] <= 0:
+        return np.nan
+    return float(atr.iloc[-1] / close.iloc[-1])
+
+"""
 ML Features V3 - Enhanced Feature Engineering for 20d Model
 
 This module contains advanced feature engineering for the 20d ML model:
@@ -9,7 +64,6 @@ This module contains advanced feature engineering for the 20d ML model:
 
 All functions are NaN-safe and avoid future peeking.
 """
-from __future__ import annotations
 import pandas as pd
 import numpy as np
 from typing import Optional, Dict, Tuple

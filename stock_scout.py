@@ -4869,6 +4869,7 @@ show_order = [
     "Ticker",
     "TechScore_20d",
     "ML_20d_Prob",
+    "ML_Features_Fallback",
     "FinalScore_20d",
     "FinalScore",
     "overall_score_20d",  # 20-day conviction score
@@ -4984,6 +4985,7 @@ hebrew_cols = {
     "Data Quality": "איכות נתונים",
     "ML Probability": "הסתברות ML",
     "ML Confidence": "רמת ביטחון ML",
+    "ML_Features_Fallback": "מאפייני ML חלופיים",
     "Confidence Level": "רמת ביטחון",
     "Reliability Score": "ציון אמינות",
     "Score": "ציון כולל",

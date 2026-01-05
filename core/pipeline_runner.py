@@ -73,11 +73,22 @@ def fetch_top_us_tickers_by_market_cap(limit: int = 2000) -> List[str]:
     """
     # --- Primary: FMP stock screener (more permissive) ---
     try:
-        api_key = os.getenv("FMP_API_KEY", "")
+        from core.config import get_secret
+        api_key = get_secret("FMP_API_KEY", "")
         if api_key:
             url = "https://financialmodelingprep.com/api/v3/stock-screener"
+            # Market cap range configurable via env: $300M-$15B default
+            try:
+                min_cap = int(os.getenv("MIN_MCAP", "300000000"))
+            except Exception:
+                min_cap = 300_000_000
+            try:
+                max_cap = int(os.getenv("MAX_MCAP", "15000000000"))
+            except Exception:
+                max_cap = 15_000_000_000
             params = {
-                "marketCapMoreThan": 1_000_000_000,  # > $1B
+                "marketCapMoreThan": max(min_cap, 0),
+                "marketCapLowerThan": max_cap,
                 "limit": limit,
                 "apikey": api_key,
             }
@@ -199,7 +210,8 @@ def fetch_latest_company_news(symbol: str, count: int = 5) -> List[Dict[str, Any
         symbol: Ticker symbol
         count: Number of headlines to return
     """
-    token = os.getenv("FINNHUB_API_KEY", "")
+    from core.config import get_secret
+    token = get_secret("FINNHUB_API_KEY", "")
     if not token:
         return []
     # Use last 7 days window
@@ -224,8 +236,9 @@ def analyze_sentiment_openai(headlines: List[str]) -> Dict[str, Any]:
     Returns a dict with overall sentiment and per-headline scores.
     If OPENAI_API_KEY missing, returns a neutral placeholder.
     """
-    api_key = os.getenv("OPENAI_API_KEY", "")
-    model = os.getenv("OPENAI_API_MODEL", "gpt-4o-mini")
+    from core.config import get_secret
+    api_key = get_secret("OPENAI_API_KEY", "")
+    model = get_secret("OPENAI_API_MODEL", "gpt-4o-mini")
     if not api_key or not headlines:
         return {"overall": "NEUTRAL", "confidence": 0.0, "details": []}
     try:
@@ -531,6 +544,43 @@ def run_scan_pipeline(
     start_universe = len(universe)
     data_map, benchmark_df = _step_fetch_and_prepare_base_data(universe, config, status_callback, data_map)
 
+    # Early RS percentile ranking on full universe (Weighted RS = 0.7*RS_63d + 0.3*RS_21d)
+    # Controlled by env RS_RANKING/RS_RANKING_ENABLED and sample size (>100)
+    rs_enabled_env = os.getenv("RS_RANKING", os.getenv("RS_RANKING_ENABLED", "1"))
+    rs_enabled = bool(rs_enabled_env == "1")
+    if rs_enabled and start_universe > 100:
+        if status_callback:
+            status_callback("Ranking universe by blended RS (21/63d)...")
+        try:
+            from advanced_filters import compute_relative_strength, fetch_benchmark_data
+            bench_df = fetch_benchmark_data("SPY", days=200)
+            rs_records = []
+            for tkr, df in (data_map or {}).items():
+                try:
+                    if df is None or df.empty:
+                        rs_records.append({"Ticker": tkr, "RS_blend": np.nan})
+                        continue
+                    rs = compute_relative_strength(df.rename(columns=str.title), bench_df.rename(columns=str.title), periods=[21, 63])
+                    # Support both lower-case and upper-case keys
+                    rs63 = rs.get("rs_63d", rs.get("RS_63d", np.nan))
+                    rs21 = rs.get("rs_21d", rs.get("RS_21d", np.nan))
+                    if pd.notna(rs63) and pd.notna(rs21):
+                        rs_blend = 0.7 * float(rs63) + 0.3 * float(rs21)
+                    else:
+                        rs_blend = rs63 if pd.notna(rs63) else rs21
+                    rs_records.append({"Ticker": tkr, "RS_blend": rs_blend})
+                except Exception:
+                    rs_records.append({"Ticker": tkr, "RS_blend": np.nan})
+            if rs_records:
+                rs_df = pd.DataFrame(rs_records)
+                rs_df["RS_blend_Pctl"] = rs_df["RS_blend"].rank(pct=True, ascending=True)
+                keep = rs_df[rs_df["RS_blend_Pctl"] >= 0.80]["Ticker"].tolist()
+                # Filter data_map to top 20% by RS
+                data_map = {t: data_map[t] for t in keep if t in data_map}
+                logger.info(f"[PIPELINE] RS blend top-20% kept {len(data_map)} tickers out of {len(rs_records)}")
+        except Exception as e:
+            logger.warning(f"RS blended ranking failed (continuing without): {e}")
+
     # --- Tier 1: Fast Scan (OHLCV-only, relaxed=False) ---
     if status_callback:
         status_callback("Tier 1: applying OHLCV filters...")
@@ -673,6 +723,34 @@ def run_scan_pipeline(
     results = results[results["FinalScore_20d"] >= 1.0].copy()
     logger.info(f"[PIPELINE] After advanced filters: {len(results)} stocks with FinalScore_20d >= 1.0")
     
+    # Optional: Meteor Mode filter (VCP + RS + Pocket Pivots)
+    meteor_mode = bool(config.get("meteor_mode", bool(os.getenv("METEOR_MODE", "1") == "1")))
+    if meteor_mode and not results.empty:
+        if status_callback: status_callback("Applying Meteor filters (VCP + RS + Pocket Pivots)...")
+        try:
+            from advanced_filters import compute_advanced_score, fetch_benchmark_data
+            bench_df = fetch_benchmark_data("SPY", days=200)
+            kept_rows = []
+            for _, row in results.iterrows():
+                tkr = str(row.get("Ticker"))
+                df = tier2_map.get(tkr) or data_map.get(tkr)
+                if df is None or df.empty:
+                    continue
+                base_score = float(row.get("FinalScore_20d", row.get("Score", 0.0)))
+                new_score, details = compute_advanced_score(tkr, df.rename(columns=str.title), bench_df.rename(columns=str.title), base_score)
+                # Only keep Meteor passes
+                if details.get("passed"):
+                    row = row.copy()
+                    row["FinalScore_20d"] = float(new_score)
+                    row["Score"] = float(new_score)
+                    row["Meteor_Passed"] = True
+                    row["Meteor_Reason"] = details.get("reason")
+                    kept_rows.append(row)
+            results = pd.DataFrame(kept_rows)
+            logger.info(f"[PIPELINE] Meteor Mode: {len(results)} candidates after filters")
+        except Exception as e:
+            logger.warning(f"Meteor filter application failed: {e}")
+
     # 5. Fundamentals & Sector Enrichment (only for Tier 1 passed stocks)
     if config.get("fundamental_enabled", True):
         if status_callback: status_callback("Fetching fundamentals & sector data...")

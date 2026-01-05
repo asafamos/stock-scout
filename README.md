@@ -169,6 +169,22 @@ stock-scout-2/
 
 ## 🔧 Advanced Usage
 
+### Meteor Mode (Aggressive Discovery)
+- Purpose: Emphasizes tight VCP contractions, strong RS, and pocket pivots for large-universe momentum scouting.
+- Env vars:
+    - `METEOR_MODE=1`: Enable momentum-friendly RSI mapping and Meteor filters.
+    - `MIN_MCAP`/`MAX_MCAP`: Universe market-cap bounds (e.g., `300000000` → `15000000000`).
+    - `EARNINGS_THRESHOLD`: Optional blackout window in days (default `7`).
+- Core signals: `VCP_Ratio` (ATR10/ATR30), `Dist_From_52w_High`, `RS_21d/RS_63d`, `Pocket_Pivot_Ratio`, `Volume_Surge_Ratio`.
+- RS ranking: Early blended pass across full universe: `0.7*RS_63d + 0.3*RS_21d`, filter top 20% before deep scans.
+- Runner example:
+
+```bash
+python run_2000_meteor_scan.py
+```
+
+Outputs CSV at `reports/meteor_results_YYYYMMDD.csv` including `Meteor_Confidence_Score`.
+
 ### Backtesting on Custom Date Range
 
 ```bash

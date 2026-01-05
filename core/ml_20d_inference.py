@@ -9,6 +9,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 ML_20D_AVAILABLE = True
+BUNDLE_HAS_MISSING_METEOR_FEATURES: bool = False
 BUNDLE_MODEL: Any = None
 FEATURE_COLS_20D: list[str] = []
 PREFERRED_SCORING_MODE_20D: str = "hybrid"  # Default fallback
@@ -87,6 +88,17 @@ def _load_bundle_impl() -> tuple[bool, Any, list[str], str]:
         
         logger.info(f"✓ Loaded ML 20d model with {len(feature_names)} features")
         logger.info(f"✓ Preferred scoring mode: {preferred_scoring_mode}")
+
+        # Verify expected Meteor features present in bundle
+        expected = {"ADR_Pct", "Dist_52w_High", "Volume_Surge_Ratio"}
+        missing_expected = [f for f in expected if f not in feature_names]
+        if missing_expected:
+            logger.warning(
+                "ML bundle missing expected Meteor features: %s", missing_expected
+            )
+            # Signal upstream to mark ML features fallback in outputs
+            global BUNDLE_HAS_MISSING_METEOR_FEATURES
+            BUNDLE_HAS_MISSING_METEOR_FEATURES = True
         return True, model, feature_names, preferred_scoring_mode
     except Exception as e:
         logger.error(f"Failed to load ML bundle: {e}", exc_info=True)
@@ -131,7 +143,11 @@ def compute_ml_20d_probabilities_raw(row: pd.Series) -> float:
         missing_features = []
         
         for col in FEATURE_COLS_20D:
-            val = row.get(col, np.nan)
+            # Apply aliases/fallbacks for known features
+            if col == "ADR_Pct":
+                val = row.get("ADR_Pct", row.get("ATR_Pct", np.nan))
+            else:
+                val = row.get(col, np.nan)
             if not isinstance(val, (int, float)) or np.isnan(val):
                 missing_features.append(col)
                 val = np.nan
@@ -139,7 +155,7 @@ def compute_ml_20d_probabilities_raw(row: pd.Series) -> float:
         
         # Log missing features for debugging
         if missing_features:
-            logger.debug(f"ML 20d: missing features {missing_features} (using fillna=0)")
+            logger.info(f"ML 20d: missing features {missing_features} (fillna=0.0)")
         
         # Build DataFrame in exact feature order
         X = pd.DataFrame([feature_dict])

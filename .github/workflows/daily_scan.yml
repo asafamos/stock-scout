@@ -1,0 +1,64 @@
+name: Daily Meteor Scan
+
+on:
+  schedule:
+    - cron: '0 13 * * 1-5'  # 13:00 UTC on weekdays
+  workflow_dispatch:
+
+jobs:
+  run-meteor-scan:
+    runs-on: ubuntu-latest
+    env:
+      METEOR_MODE: '1'
+      MIN_MCAP: '300000000'
+      MAX_MCAP: '15000000000'
+      UNIVERSE_SIZE: '2000'
+      RS_RANKING: '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Configure provider secrets
+        env:
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+          POLYGON_API_KEY: ${{ secrets.POLYGON_API_KEY }}
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+          ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
+          TIINGO_API_KEY: ${{ secrets.TIINGO_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          echo "Provider keys configured"
+
+      - name: Pre-check Meteor setup
+        run: |
+          python verify_meteor_setup.py AAPL
+
+      - name: Run 2000-ticker Meteor scan
+        env:
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+          POLYGON_API_KEY: ${{ secrets.POLYGON_API_KEY }}
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+          ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
+          TIINGO_API_KEY: ${{ secrets.TIINGO_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          python run_2000_meteor_scan.py --limit ${UNIVERSE_SIZE}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: meteor-results
+          path: |
+            reports/*.csv
+            data/scans/*.parquet
+            data/scans/*.json

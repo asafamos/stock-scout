@@ -3,7 +3,7 @@ Configuration and constants for Stock Scout.
 All configurable parameters in one place.
 """
 from dataclasses import dataclass, field
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 import os
 import streamlit as st
 
@@ -15,16 +15,41 @@ except ImportError:
     pass
 
 
-def _get_config_value(key: str, default: str) -> str:
-    """Get config value from Streamlit secrets (priority) or environment."""
-    # Try Streamlit secrets first (for cloud deployment)
+def get_secret(key: str, default: Optional[str] = None, nested_sections: Optional[list[str]] = None) -> Optional[str]:
+    """Unified secret loader with precedence: Streamlit secrets -> env -> .env.
+
+    - Checks Streamlit `st.secrets` top-level and common nested sections.
+    - Falls back to `os.getenv`, with `.env` already loaded at import time.
+    - Returns `default` if nothing is found.
+    """
+    # Streamlit secrets (top-level and nested)
     try:
-        if hasattr(st, 'secrets') and key in st.secrets:
-            return str(st.secrets[key])
+        if hasattr(st, 'secrets') and st.secrets:
+            sec: Any = st.secrets
+            # Direct top-level
+            if isinstance(sec, dict) and key in sec:
+                return str(sec[key])
+            # Common nested containers
+            sections = nested_sections or ["api_keys", "keys", "secrets", "tokens"]
+            for section in sections:
+                try:
+                    container = sec.get(section) if hasattr(sec, 'get') else sec[section]
+                    if isinstance(container, dict) and key in container:
+                        return str(container[key])
+                except Exception:
+                    continue
     except Exception:
         pass
-    # Fall back to environment variable
-    return os.getenv(key, default)
+    # Environment variable (includes .env loaded via load_dotenv())
+    val = os.getenv(key)
+    if val is not None:
+        return val
+    return default
+
+def _get_config_value(key: str, default: str) -> str:
+    """Get config value using unified loader for backward compatibility."""
+    val = get_secret(key, default)
+    return str(val) if val is not None else default
 
 
 @dataclass
@@ -132,38 +157,26 @@ class Config:
 class APIKeys:
     """API keys configuration."""
     
+    fmp: Optional[str] = None
     alpha_vantage: Optional[str] = None
     finnhub: Optional[str] = None
     polygon: Optional[str] = None
     tiingo: Optional[str] = None
+    openai: Optional[str] = None
     
     @classmethod
     def from_env(cls) -> "APIKeys":
-        """Load API keys from environment variables or Streamlit secrets."""
+        """Load API keys via unified secret precedence."""
         def _get_key(key: str) -> Optional[str]:
-            # Try Streamlit secrets first (supports nested sections)
-            try:
-                if "secrets" in dir(st):
-                    sec = st.secrets
-                    if isinstance(sec, dict) and key in sec:
-                        return sec[key]
-                    for section in ("api_keys", "keys", "secrets", "tokens"):
-                        try:
-                            container = sec.get(section) if hasattr(sec, 'get') else sec[section]
-                            if isinstance(container, dict) and key in container:
-                                return container[key]
-                        except Exception:
-                            continue
-            except Exception:
-                pass
-            # Fall back to environment variable
-            return os.getenv(key)
+            return get_secret(key, None)
         
         return cls(
+            fmp=_get_key("FMP_API_KEY"),
             alpha_vantage=_get_key("ALPHA_VANTAGE_API_KEY"),
             finnhub=_get_key("FINNHUB_API_KEY"),
             polygon=_get_key("POLYGON_API_KEY"),
             tiingo=_get_key("TIINGO_API_KEY"),
+            openai=_get_key("OPENAI_API_KEY"),
         )
     
     def has_alpha_vantage(self) -> bool:
@@ -181,6 +194,12 @@ class APIKeys:
     def has_tiingo(self) -> bool:
         """Check if Tiingo key is available."""
         return self.tiingo is not None and len(self.tiingo) > 0
+
+    def has_fmp(self) -> bool:
+        return self.fmp is not None and len(self.fmp) > 0
+
+    def has_openai(self) -> bool:
+        return self.openai is not None and len(self.openai) > 0
 
 
 # Global config instance
