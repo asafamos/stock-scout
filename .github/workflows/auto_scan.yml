@@ -5,9 +5,7 @@ permissions:
 
 on:
   schedule:
-    # Run twice daily: 8:00 AM and 8:00 PM UTC
-    - cron: '0 8 * * *'
-    - cron: '0 20 * * *'
+    - cron: '0 23 * * 1-5'  # 23:00 UTC (01:00 IST on weekdays)
   workflow_dispatch:  # Allow manual trigger
 
 jobs:
@@ -43,6 +41,10 @@ jobs:
           ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
           TIINGO_API_KEY: ${{ secrets.TIINGO_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          EODHD_API_KEY: ${{ secrets.EODHD_API_KEY }}
+          SIMFIN_API_KEY: ${{ secrets.SIMFIN_API_KEY }}
+          MARKETSTACK_API_KEY: ${{ secrets.MARKETSTACK_API_KEY }}
+          NASDAQ_API_KEY: ${{ secrets.NASDAQ_API_KEY }}
         run: |
           echo "Provider keys configured"
 
@@ -58,6 +60,10 @@ jobs:
           ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
           TIINGO_API_KEY: ${{ secrets.TIINGO_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          EODHD_API_KEY: ${{ secrets.EODHD_API_KEY }}
+          SIMFIN_API_KEY: ${{ secrets.SIMFIN_API_KEY }}
+          MARKETSTACK_API_KEY: ${{ secrets.MARKETSTACK_API_KEY }}
+          NASDAQ_API_KEY: ${{ secrets.NASDAQ_API_KEY }}
         run: |
           python run_2000_meteor_scan.py --limit ${UNIVERSE_SIZE}
 
