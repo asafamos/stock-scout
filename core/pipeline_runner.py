@@ -4,6 +4,8 @@ import logging
 import time
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Callable, Any, Tuple
+import os
+import requests
 import yfinance as yf
 
 from core.config import get_config
@@ -27,6 +29,8 @@ from core.unified_logic import (
     compute_big_winner_signal_20d,
 )
 from core.pattern_matcher import PatternMatcher
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from core.market_context import get_benchmark_series, compute_relative_strength_vs_spy
 
 # For backward compatibility with code that checks ML availability
 from core.ml_20d_inference import ML_20D_AVAILABLE
@@ -34,6 +38,222 @@ from core.ml_20d_inference import ML_20D_AVAILABLE
 logger = logging.getLogger(__name__)
 
 # --- Helper Functions ---
+
+def preflight_check() -> None:
+    """Assert that critical API keys are present for production scan.
+
+    Required:
+    - FMP_API_KEY: Financial Modeling Prep (indices/ETFs, stock list)
+    - POLYGON_API_KEY: Polygon (real-time price verification)
+    - FINNHUB_API_KEY: Finnhub (earnings, news)
+
+    Raises:
+        RuntimeError: When any required key is missing.
+    """
+    missing = []
+    for key in ["FMP_API_KEY", "POLYGON_API_KEY", "FINNHUB_API_KEY"]:
+        if not os.getenv(key):
+            missing.append(key)
+    if missing:
+        raise RuntimeError(f"Preflight failed: missing environment keys {missing}. Set them in .env or CI secrets.")
+
+def fetch_top_us_tickers_by_market_cap(limit: int = 2000) -> List[str]:
+    """Fetch US tickers ordered by market cap with robust fallbacks.
+
+    Priority:
+    1) FMP stock/list (fast, preferred)
+    2) Polygon v3/reference/tickers (paginate via cursor, filter US common stocks)
+    3) Local/Gist fallback: S&P 500 list from data/sp500_tickers.txt or hardcoded subset
+
+    Args:
+        limit: Max number of tickers to return (1500-2000)
+
+    Returns:
+        List of ticker symbols
+    """
+    # --- Primary: FMP stock screener (more permissive) ---
+    try:
+        api_key = os.getenv("FMP_API_KEY", "")
+        if api_key:
+            url = "https://financialmodelingprep.com/api/v3/stock-screener"
+            params = {
+                "marketCapMoreThan": 1_000_000_000,  # > $1B
+                "limit": limit,
+                "apikey": api_key,
+            }
+            resp = requests.get(url, params=params, timeout=8)
+            if resp.status_code == 200:
+                data = resp.json() or []
+                rows = []
+                for it in data:
+                    sym = it.get("symbol")
+                    mcap = it.get("marketCap") or it.get("marketCapitalization") or 0.0
+                    if sym and isinstance(mcap, (int, float)) and float(mcap) > 0:
+                        rows.append((sym, float(mcap)))
+                rows.sort(key=lambda x: x[1], reverse=True)
+                out = _normalize_symbols([s for s, _ in rows][:limit])
+                if out:
+                    logger.info(f"✓ Universe from FMP screener: {len(out)} tickers")
+                    return out
+            else:
+                logger.warning(f"FMP screener failed: HTTP {resp.status_code}")
+        else:
+            logger.warning("FMP_API_KEY missing; skipping FMP universe fetch")
+    except Exception as e:
+        logger.warning(f"FMP universe fetch errored: {e}")
+
+    # --- Fallback 1: Polygon v3/reference/tickers ---
+    try:
+        poly_key = os.getenv("POLYGON_API_KEY", "")
+        if poly_key:
+            url = "https://api.polygon.io/v3/reference/tickers"
+            base_params = {
+                "market": "stocks",
+                "type": "CS",
+                "active": "true",
+                "limit": 1000,
+                "apiKey": poly_key,
+            }
+            tickers: List[str] = []
+            next_url: Optional[str] = None
+            attempts = 0
+            while len(tickers) < limit and attempts < 15:
+                if next_url:
+                    # Ensure apiKey present on next_url
+                    if "apiKey=" not in next_url:
+                        sep = '&' if '?' in next_url else '?'
+                        next_url = f"{next_url}{sep}apiKey={poly_key}"
+                    r = requests.get(next_url, timeout=10)
+                else:
+                    r = requests.get(url, params=base_params, timeout=10)
+                if r.status_code == 429:
+                    time.sleep(1.0)
+                    attempts += 1
+                    continue
+                if r.status_code != 200:
+                    logger.warning(f"Polygon reference/tickers failed: HTTP {r.status_code}")
+                    break
+                payload = r.json() or {}
+                results = payload.get("results") or []
+                for it in results:
+                    sym = it.get("ticker")
+                    if sym:
+                        tickers.append(sym)
+                next_url = payload.get("next_url")
+                attempts += 1
+                if not next_url:
+                    break
+            out = _normalize_symbols(tickers[:limit])
+            if out:
+                logger.info(f"✓ Universe from Polygon: {len(out)} tickers")
+                return out
+        else:
+            logger.warning("POLYGON_API_KEY missing; skipping Polygon universe fetch")
+    except Exception as e:
+        logger.warning(f"Polygon universe fetch errored: {e}")
+
+    # --- Fallback 2: Local/Gist S&P 500 ---
+    try:
+        local_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "sp500_tickers.txt")
+        if os.path.exists(local_path):
+            with open(local_path, "r") as f:
+                syms = [ln.strip() for ln in f if ln.strip() and not ln.strip().startswith("#")]
+            logger.warning(f"Using local S&P 500 fallback: {len(syms)} tickers")
+            return syms[:min(limit, len(syms))]
+    except Exception as e:
+        logger.debug(f"Local S&P 500 read failed: {e}")
+
+    # Hardcoded minimal subset to ensure progress if file missing
+    try:
+        minimal = [
+            "AAPL","MSFT","NVDA","AMZN","GOOG","META","TSLA","AVGO","BRK-B","UNH",
+            "V","JPM","WMT","XOM","LLY","MA","HD","PG","COST","ORCL",
+        ]
+        out = _normalize_symbols(minimal)
+        logger.warning(f"Using hardcoded minimal universe: {len(out)} tickers")
+        return out[:min(limit, len(out))]
+    except Exception:
+        return minimal
+
+def _normalize_symbols(symbols: List[str]) -> List[str]:
+    """Normalize ticker symbols for consistency across providers/yfinance.
+    - Convert dots/slashes to dashes (e.g., BRK.B → BRK-B, BRK/B → BRK-B)
+    - Uppercase symbols
+    - De-duplicate while preserving order
+    """
+    seen = set()
+    out: List[str] = []
+    for s in symbols:
+        if not s:
+            continue
+        t = str(s).upper().replace('.', '-').replace('/', '-')
+        if t not in seen:
+            out.append(t)
+            seen.add(t)
+    return out
+
+def fetch_latest_company_news(symbol: str, count: int = 5) -> List[Dict[str, Any]]:
+    """Fetch latest company news via Finnhub.
+
+    Args:
+        symbol: Ticker symbol
+        count: Number of headlines to return
+    """
+    token = os.getenv("FINNHUB_API_KEY", "")
+    if not token:
+        return []
+    # Use last 7 days window
+    to_dt = datetime.utcnow().date()
+    from_dt = to_dt - timedelta(days=7)
+    url = "https://finnhub.io/api/v1/company-news"
+    params = {"symbol": symbol, "from": str(from_dt), "to": str(to_dt), "token": token}
+    try:
+        r = requests.get(url, params=params, timeout=6)
+        if r.status_code != 200:
+            return []
+        items = r.json() or []
+        # Sort by datetime descending and take top count
+        items.sort(key=lambda x: x.get("datetime", 0), reverse=True)
+        return items[:count]
+    except Exception:
+        return []
+
+def analyze_sentiment_openai(headlines: List[str]) -> Dict[str, Any]:
+    """Call OpenAI Chat Completions to score sentiment for a set of headlines.
+
+    Returns a dict with overall sentiment and per-headline scores.
+    If OPENAI_API_KEY missing, returns a neutral placeholder.
+    """
+    api_key = os.getenv("OPENAI_API_KEY", "")
+    model = os.getenv("OPENAI_API_MODEL", "gpt-4o-mini")
+    if not api_key or not headlines:
+        return {"overall": "NEUTRAL", "confidence": 0.0, "details": []}
+    try:
+        url = "https://api.openai.com/v1/chat/completions"
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        prompt = (
+            "You are an equity news analyst. Given the following 5 headlines, "
+            "return a JSON with fields: overall in {POSITIVE, NEGATIVE, NEUTRAL}, confidence (0-1), "
+            "and details per headline with sentiment and rationale (short). Keep it concise."
+        )
+        messages = [
+            {"role": "system", "content": "Analyze equity news sentiment succinctly."},
+            {"role": "user", "content": prompt + "\n\n" + "\n".join(f"- {h}" for h in headlines)},
+        ]
+        body = {"model": model, "messages": messages, "temperature": 0.2}
+        r = requests.post(url, headers=headers, json=body, timeout=15)
+        if r.status_code != 200:
+            return {"overall": "NEUTRAL", "confidence": 0.0, "details": []}
+        js = r.json()
+        content = js.get("choices", [{}])[0].get("message", {}).get("content", "{}")
+        # Try to parse as JSON; if it isn't pure JSON, return as text blob
+        try:
+            import json
+            return json.loads(content)
+        except Exception:
+            return {"overall": "NEUTRAL", "confidence": 0.0, "details": [{"raw": content}]}
+    except Exception:
+        return {"overall": "NEUTRAL", "confidence": 0.0, "details": []}
 
 def _normalize_config(config: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize legacy/uppercase config keys to canonical lowercase ones.
@@ -140,74 +360,114 @@ def _step_fetch_and_prepare_base_data(
     return data_map, benchmark_df
 
 
+def _process_single_ticker(tkr: str, df: pd.DataFrame, skip_tech_filter: bool) -> Optional[pd.Series]:
+    if df.empty:
+        return None
+    try:
+        tech_df = build_technical_indicators(df)
+        row_indicators = tech_df.iloc[-1]
+    except Exception as exc:
+        logger.warning("indicator build failed for %s: %s", tkr, exc)
+        return None
+
+    # Relative Strength vs SPY (ensure working source via market_context)
+    try:
+        spy_df = get_benchmark_series("SPY", period='3mo')
+        spy_df_cap = spy_df.rename(columns={
+            "date": "Date",
+            "open": "Open",
+            "high": "High",
+            "low": "Low",
+            "close": "Close",
+            "volume": "Volume",
+        })
+        rs_val = compute_relative_strength_vs_spy(tech_df.rename(columns=str.title), spy_df_cap)
+        row_indicators["relative_strength_20d"] = float(rs_val)
+    except Exception:
+        row_indicators["relative_strength_20d"] = np.nan
+
+    # Tier 2 may skip this filter because Tier 1 already applied OHLCV checks
+    if not skip_tech_filter:
+        if not apply_technical_filters(row_indicators, strict=False):
+            return None
+
+    # Use the last bar's date as the signal date
+    try:
+        as_of_dt = pd.to_datetime(df.index[-1])
+    except Exception:
+        as_of_dt = None
+
+    rec_series = compute_recommendation_scores(
+        row=row_indicators,
+        ticker=tkr,
+        as_of_date=as_of_dt,
+        enable_ml=ML_20D_AVAILABLE,
+        use_multi_source=False,
+    )
+
+    # Enhance with Big Winner signal + historical pattern matching
+    try:
+        bw_signal = compute_big_winner_signal_20d(row_indicators)
+        patt_eval = PatternMatcher.evaluate_stock(row_indicators)
+
+        final_score, breakdown = compute_final_score_with_patterns(
+            tech_score=float(rec_series.get("TechScore_20d", 0.0)),
+            fundamental_score=float(rec_series.get("Fundamental_Score", 0.0)),
+            ml_prob=float(rec_series.get("ML_20d_Prob", 0.5)),
+            big_winner_score=float(bw_signal or 0.0),
+            pattern_score=float(patt_eval.get("pattern_score", 0.0)),
+            bw_weight=0.10,
+            pattern_weight=0.10,
+        )
+
+        rec_series["FinalScore_20d"] = float(final_score)
+        rec_series["Pattern_Score"] = float(patt_eval.get("pattern_score", 0.0))
+        rec_series["Pattern_Count"] = int(patt_eval.get("pattern_count", 0))
+        rec_series["Big_Winner_Signal"] = float(bw_signal or 0.0)
+        rec_series["Score_Breakdown_Patterns"] = breakdown
+    except Exception as exc:
+        logger.debug(f"Pattern/BW enhancement failed for {tkr}: {exc}")
+
+    return rec_series
+
+
 def _step_compute_scores_with_unified_logic(
     data_map: Dict[str, pd.DataFrame],
     config: Dict[str, Any],
     status_callback: Optional[Callable[[str], None]],
+    skip_tech_filter: bool = False,
 ) -> pd.DataFrame:
     if status_callback:
-        status_callback("Computing technical indicators...")
+        status_callback("Computing technical indicators (parallel)...")
 
-    rows = []
-    for tkr, df in data_map.items():
-        if df.empty:
-            continue
-
-        try:
-            tech_df = build_technical_indicators(df)
-            row_indicators = tech_df.iloc[-1]
-        except Exception as exc:
-            logger.warning("indicator build failed for %s: %s", tkr, exc)
-            continue
-
-        if not apply_technical_filters(row_indicators, strict=False):
-            continue
-
-        # Use the last bar's date as the signal date
-        try:
-            as_of_dt = pd.to_datetime(df.index[-1])
-        except Exception:
-            as_of_dt = None
-
-        rec_series = compute_recommendation_scores(
-            row=row_indicators,
-            ticker=tkr,
-            as_of_date=as_of_dt,
-            enable_ml=ML_20D_AVAILABLE,
-            use_multi_source=config.get("fundamental_enabled", True),
-        )
-
-        # Enhance with Big Winner signal + historical pattern matching
-        try:
-            bw_signal = compute_big_winner_signal_20d(row_indicators)
-            patt_eval = PatternMatcher.evaluate_stock(row_indicators)
-
-            final_score, breakdown = compute_final_score_with_patterns(
-                tech_score=float(rec_series.get("TechScore_20d", 0.0)),
-                fundamental_score=float(rec_series.get("Fundamental_Score", 0.0)),
-                ml_prob=float(rec_series.get("ML_20d_Prob", 0.5)),
-                big_winner_score=float(bw_signal or 0.0),
-                pattern_score=float(patt_eval.get("pattern_score", 0.0)),
-                bw_weight=0.10,
-                pattern_weight=0.10,
-            )
-
-            # Update series with blended score and diagnostics
-            rec_series["FinalScore_20d"] = float(final_score)
-            rec_series["Pattern_Score"] = float(patt_eval.get("pattern_score", 0.0))
-            rec_series["Pattern_Count"] = int(patt_eval.get("pattern_count", 0))
-            rec_series["Big_Winner_Signal"] = float(bw_signal or 0.0)
-            rec_series["Score_Breakdown_Patterns"] = breakdown
-        except Exception as exc:
-            logger.debug(f"Pattern/BW enhancement failed for {tkr}: {exc}")
-
-        rows.append(rec_series)
+    rows: List[pd.Series] = []
+    # Parallel processing with max_workers=10
+    # Threading backoff: submit in small batches to avoid provider rate limits
+    max_workers = min(10, max(1, len(data_map)))
+    batch_size = max(10, max_workers * 2)  # reasonable batch size
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_map = {}
+        items = list(data_map.items())
+        for i in range(0, len(items), batch_size):
+            batch = items[i:i+batch_size]
+            for tkr, df in batch:
+                future = executor.submit(_process_single_ticker, tkr, df, skip_tech_filter)
+                future_map[future] = tkr
+            # small backoff between batches
+            time.sleep(0.5)
+        for future in as_completed(future_map):
+            tkr = future_map[future]
+            try:
+                res = future.result()
+                if res is not None:
+                    rows.append(res)
+            except Exception as exc:
+                logger.warning(f"Ticker {tkr} failed in parallel scoring: {exc}")
 
     if not rows:
         return pd.DataFrame()
 
     results = pd.DataFrame(rows)
-    # Ensure canonical columns exist
     if "Score" not in results.columns and "FinalScore_20d" in results.columns:
         results["Score"] = results["FinalScore_20d"]
     return results
@@ -255,11 +515,11 @@ def run_scan_pipeline(
         - FinalScore_20d: Main ranking score (0-100)
         - TechScore_20d: Technical component (0-100)
         - Fundamental_Score: Fundamental component (0-100)
-        - ML_20d_Prob: ML probability (0-1)
+            winners = results.loc[results["Score"] > 65.0, "Ticker"].tolist()
         - ConvictionScore: Conviction metric (0-100)
-        - Risk_Meter: Risk level (0-100, higher = riskier)
+                logger.info("No winners with Score > 65; skipping fundamentals fetch")
         - Reliability_Score: Data quality (0-100)
-        - buy_amount_v2: Allocated dollar amount
+                logger.info(f"Fetching fundamentals for {len(winners)} winners (Score > 65)")
         - Score: Legacy alias for FinalScore_20d
     """
     # Normalize config keys (support legacy uppercase keys)
@@ -270,8 +530,51 @@ def run_scan_pipeline(
 
     start_universe = len(universe)
     data_map, benchmark_df = _step_fetch_and_prepare_base_data(universe, config, status_callback, data_map)
-    results = _step_compute_scores_with_unified_logic(data_map, config, status_callback)
-    logger.info(f"[PIPELINE] Stage counts: universe={start_universe}, tech_pass={len(results)}")
+
+    # --- Tier 1: Fast Scan (OHLCV-only, relaxed=False) ---
+    if status_callback:
+        status_callback("Tier 1: applying OHLCV filters...")
+
+    tier1_pass: List[str] = []
+    for tkr, df in (data_map or {}).items():
+        try:
+            if df is None or df.empty:
+                continue
+            last = df.iloc[-1]
+            # Apply fast technical filter using only OHLCV
+            if apply_technical_filters(last, relaxed=False):
+                tier1_pass.append(tkr)
+        except Exception as exc:
+            logger.debug(f"Tier1 filter failed for {tkr}: {exc}")
+            continue
+
+    filtered_count = start_universe - len(tier1_pass)
+    logger.info(
+        f"[PIPELINE] Tier 1: scanned={start_universe}, passed={len(tier1_pass)}, filtered={filtered_count}"
+    )
+
+    # Build Tier 2 input map strictly from Tier 1 output
+    tier2_map: Dict[str, pd.DataFrame] = {t: data_map[t] for t in tier1_pass if t in data_map}
+
+    # --- Tier 2: Deep Dive (indicators + ML, fundamentals later) ---
+    results = _step_compute_scores_with_unified_logic(
+        tier2_map, config, status_callback, skip_tech_filter=True
+    )
+
+    # Verify Tier 2 input list matches Tier 1 output
+    tier2_input_set = set(tier2_map.keys())
+    tier2_output_set = set(results["Ticker"].tolist()) if not results.empty else set()
+    if tier2_input_set == tier2_output_set:
+        logger.info(
+            f"[PIPELINE] Tier 2 verification OK: input={len(tier2_input_set)} equals output tickers"
+        )
+    else:
+        missing = sorted(list(tier2_input_set - tier2_output_set))
+        extra = sorted(list(tier2_output_set - tier2_input_set))
+        logger.warning(
+            f"[PIPELINE] Tier 2 verification mismatch: input={len(tier2_input_set)}, output={len(tier2_output_set)}; "
+            f"missing={len(missing)}, extra={len(extra)}"
+        )
 
     if results.empty:
         return results, data_map
@@ -358,19 +661,19 @@ def run_scan_pipeline(
             # enhanced is in [0, 1] range, so penalty must be too
             results.at[idx, "FinalScore_20d"] = max(0.01, enhanced - normalized_penalty)
 
-    # Ensure Score always matches FinalScore_20d after advanced filters
-    if "FinalScore_20d" in results.columns:
-        results["Score"] = results["FinalScore_20d"]
-    
     # Scale FinalScore_20d back to 0-100 for consistency with rest of system
     # (all other scoring is in 0-100 range, FinalScore_20d is canonical for display/filtering)
     results["FinalScore_20d"] = results["FinalScore_20d"] * 100.0
+
+    # Ensure Score always matches the scaled FinalScore_20d after advanced filters
+    if "FinalScore_20d" in results.columns:
+        results["Score"] = results["FinalScore_20d"]
     
     # Keep stocks with positive scores (allow FinalScore_20d >= 1.0 which is 0.01 in normalized)
     results = results[results["FinalScore_20d"] >= 1.0].copy()
     logger.info(f"[PIPELINE] After advanced filters: {len(results)} stocks with FinalScore_20d >= 1.0")
     
-    # 5. Fundamentals & Sector Enrichment
+    # 5. Fundamentals & Sector Enrichment (only for Tier 1 passed stocks)
     if config.get("fundamental_enabled", True):
         if status_callback: status_callback("Fetching fundamentals & sector data...")
         # Choose scan date as the signal date (not wall-clock)
@@ -392,7 +695,29 @@ def run_scan_pipeline(
         except Exception:
             fund_as_of = None
 
-        fund_df = fetch_fundamentals_batch(results["Ticker"].tolist(), as_of_date=fund_as_of)
+        # IMPORTANT: Only fetch fundamentals for high-Score candidates with an optional Top-N cap
+        try:
+            score_thr = float(config.get("fundamentals_score_threshold", float(os.getenv("FUNDAMENTALS_SCORE_THRESHOLD", "65"))))
+        except Exception:
+            score_thr = 65.0
+        try:
+            top_n_cap = int(config.get("fundamentals_top_n", int(os.getenv("FUNDAMENTALS_TOP_N", "200"))))
+        except Exception:
+            top_n_cap = 200
+
+        # Filter and cap by top-N, prioritizing highest technical scores
+        score_col = "TechScore_20d" if "TechScore_20d" in results.columns else "Score"
+        eligible = results[results[score_col] > score_thr].sort_values(score_col, ascending=False)
+        if top_n_cap > 0:
+            eligible = eligible.head(top_n_cap)
+        winners = eligible["Ticker"].tolist()
+
+        if not winners:
+            logger.info(f"No winners with Score > {score_thr:.0f}; skipping fundamentals fetch")
+            fund_df = pd.DataFrame()
+        else:
+            logger.info(f"Fetching fundamentals for {len(winners)} winners ({score_col} > {score_thr:.0f}, TopN={top_n_cap})")
+            fund_df = fetch_fundamentals_batch(winners, as_of_date=fund_as_of)
         
         # Properly handle index/column ambiguity
         if isinstance(fund_df.index, pd.Index):
@@ -491,3 +816,76 @@ def run_scan_pipeline(
         logger.info(f"[PIPELINE] Final check: Score column set to FinalScore_20d for all {len(results)} results")
         
     return results, data_map
+
+
+def main():
+    """Main entry for production scan: 1500-2000 US stocks, strict mode.
+
+    Steps:
+    - Preflight keys
+    - Initialize global market context
+    - Fetch top market cap universe via FMP
+    - Run pipeline
+    - Filter Final_Score > 70 AND Market_Regime == 'TREND_UP'
+    - For Top 10, fetch Finnhub news and analyze sentiment with OpenAI
+    - Print JSON summary to stdout
+    """
+    logging.basicConfig(level=logging.INFO)
+    preflight_check()
+
+    # Initialize market context early to populate global caches
+    from core.market_context import initialize_market_context
+    logger.info("Initializing Market Context...")
+    initialize_market_context()
+    try:
+        from core.data_sources_v2 import get_last_index_source
+        src = get_last_index_source('SPY') or 'Unknown'
+        logger.info(f"[SUCCESS via {src}] Market context initialized")
+    except Exception:
+        logger.info("[SUCCESS] Market context initialized")
+
+    # Universe
+    universe = fetch_top_us_tickers_by_market_cap(limit=2000)
+    logger.info(f"Fetched {len(universe)} tickers")
+
+    # Config
+    cfg = _normalize_config(get_config())
+    cfg["fundamental_enabled"] = True
+    cfg["beta_filter_enabled"] = False
+
+    results, data_map = run_scan_pipeline(universe, cfg)
+    if results.empty:
+        logger.error("No results from pipeline")
+        return
+
+    # Apply final filter
+    filtered = results[(results["FinalScore_20d"] > 70.0) & (results["Market_Regime"].str.upper() == "TREND_UP")].copy()
+    filtered = filtered.sort_values("FinalScore_20d", ascending=False)
+    top10 = filtered.head(10)
+
+    # Enrich with sentiment
+    output = []
+    for _, row in top10.iterrows():
+        tkr = str(row.get("Ticker"))
+        news_items = fetch_latest_company_news(tkr, count=5)
+        headlines = [n.get("headline") or n.get("title") or "" for n in news_items]
+        headlines = [h for h in headlines if h]
+        sentiment = analyze_sentiment_openai(headlines)
+        output.append({
+            "Ticker": tkr,
+            "FinalScore_20d": float(row.get("FinalScore_20d", 0.0)),
+            "TechScore_20d": float(row.get("TechScore_20d", 0.0)),
+            "Fundamental_Score": float(row.get("Fundamental_Score", row.get("Fundamental_S", 0.0))),
+            "ML_20d_Prob": float(row.get("ML_20d_Prob", 0.5)),
+            "Market_Regime": str(row.get("Market_Regime")),
+            "Sector": str(row.get("Sector", "Unknown")),
+            "Sentiment": sentiment,
+        })
+
+    # Print JSON table
+    import json
+    print(json.dumps(output, indent=2))
+
+
+if __name__ == "__main__":
+    main()

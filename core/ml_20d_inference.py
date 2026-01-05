@@ -1,4 +1,5 @@
 import joblib
+import os
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -21,46 +22,36 @@ except ImportError:
 
 
 def _load_bundle_impl() -> tuple[bool, Any, list[str], str]:
-    """Load model bundle from absolute path for Streamlit Cloud compatibility."""
+    """Load model bundle from absolute path for Streamlit Cloud compatibility.
+
+    Ensures we target the canonical path `models/model_20d_v3.pkl`.
+    If not found, logs the absolute path being attempted and lists contents
+    of the `models/` directory to aid debugging.
+    """
     try:
         # Use absolute path relative to this file's location
         module_dir = Path(__file__).resolve().parent.parent  # stock-scout-2 root
-        # Prefer v3 model; fallback to v2, then v1
-        # Prefer newest timestamped v3 bundle if present; allow drift-based fallback to previous
         models_dir = module_dir / "models"
-        model_path_v3 = models_dir / "model_20d_v3.pkl"
-        candidates = []
-        try:
-            candidates = sorted(models_dir.glob("model_20d_v3_*.pkl"), key=lambda p: p.stat().st_mtime, reverse=True)
-            if candidates:
-                model_path_v3 = candidates[0]
-        except Exception:
-            candidates = []
-        # Drift alert fallback: if severe drift flagged, prefer previous timestamped model when available
-        try:
-            alert_path = models_dir / "drift_alert.json"
-            if alert_path.exists() and candidates and len(candidates) >= 2:
-                import json
-                with open(alert_path, "r", encoding="utf-8") as f:
-                    alert = json.load(f)
-                if alert.get("drift_alert") and alert.get("recommend_fallback"):
-                    model_path_v3 = candidates[1]
-                    logger.warning(f"Drift alert detected — falling back to previous model: {model_path_v3}")
-        except Exception:
-            pass
-        model_path_v2 = module_dir / "models" / "model_20d_v2.pkl"
-        model_path_v1 = module_dir / "models" / "model_20d_v1.pkl"
-        
-        if model_path_v3.exists():
-            model_path = model_path_v3
-        elif model_path_v2.exists():
-            logger.warning(f"Model v3 not found, falling back to v2 at {model_path_v2}")
-            model_path = model_path_v2
-        elif model_path_v1.exists():
-            logger.warning(f"Model v2 not found, falling back to v1 at {model_path_v1}")
-            model_path = model_path_v1
+        env_model = os.getenv("ML_MODEL_PATH")
+        if env_model:
+            model_path = Path(env_model)
         else:
-            logger.warning(f"No ML 20d model found at {model_path_v3}, {model_path_v2}, or {model_path_v1}")
+            model_path = models_dir / "model_20d_v3.pkl"
+        # Log absolute path being attempted
+        try:
+            logger.info(f"Attempting to load ML model from: {model_path.resolve()}")
+        except Exception:
+            logger.info(f"Attempting to load ML model from: {model_path}")
+        if not model_path.exists():
+            # Print directory contents to help diagnose path issues
+            try:
+                candidates = list(models_dir.glob("*.pkl"))
+                logger.warning(
+                    "Model file not found. models/ contains: %s",
+                    [str(p.resolve()) for p in candidates]
+                )
+            except Exception:
+                logger.warning("Model file not found and could not list models directory")
             return False, None, [], "hybrid"
         
         if not model_path.exists():

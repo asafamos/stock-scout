@@ -281,8 +281,38 @@ def compute_recommendation_scores(
         ml_prob = 0.5
 
     # --- Final & conviction ---
-    final_score = compute_final_score(tech_score, fundamental_score, ml_prob)
+    # Compute market regime around as_of_date (fallback to last available date)
+    market_regime = None
+    data_integrity = "OK"
+    try:
+        if as_of_date is not None:
+            start_ctx = (pd.to_datetime(as_of_date) - pd.Timedelta(days=180)).strftime('%Y-%m-%d')
+            end_ctx = (pd.to_datetime(as_of_date) + pd.Timedelta(days=1)).strftime('%Y-%m-%d')
+            ctx = build_market_context_table(start_ctx, end_ctx)
+            if ctx is not None and not ctx.empty:
+                market_regime = str(ctx['Market_Regime'].iloc[-1])
+            else:
+                data_integrity = "DATA_INCOMPLETE"
+    except Exception:
+        market_regime = None
+        data_integrity = "DATA_INCOMPLETE"
+
+    final_score = compute_final_score(tech_score, fundamental_score, ml_prob, market_regime=market_regime)
     conviction_score = final_score
+
+    # ML confidence flagging for transparency
+    try:
+        ml_val = float(ml_prob) if ml_prob is not None else np.nan
+    except Exception:
+        ml_val = np.nan
+    if pd.isna(ml_val):
+        ml_conf_status = "NEUTRAL"
+    elif ml_val < 0.15:
+        ml_conf_status = "PENALIZED"
+    elif ml_val > 0.62:
+        ml_conf_status = "BOOSTED"
+    else:
+        ml_conf_status = "NEUTRAL"
 
     # --- Reliability & risk ---
     tech_fields = [
@@ -330,6 +360,9 @@ def compute_recommendation_scores(
             "Sources_Used": ms_data.sources_used,
             "Price_STD": ms_data.price_std,
             "Price_Mean": ms_data.price_mean,
+            "ML_Confidence_Status": ml_conf_status,
+            "Market_Regime": market_regime,
+            "Data_Integrity": data_integrity,
         },
     )
 
@@ -801,6 +834,20 @@ def build_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     result['RSI'] = compute_rsi(close, period=14)
     result['ATR'] = compute_atr(df, period=14)
     result['ATR_Pct'] = result['ATR'] / close
+
+    # Volatility Contraction Pattern (VCP) score
+    # Compare short-term ATR (10d) vs long-term ATR (30d) to detect contraction
+    atr_10 = compute_atr(df, period=10)
+    atr_30 = compute_atr(df, period=30)
+    ratio = (atr_10 / atr_30)
+    # Base VCP: contraction yields positive score, else 0
+    vcp_raw = (1.0 - ratio.clip(lower=0.0)).where((atr_10 < atr_30) & ratio.notna(), 0.0)
+    vcp_raw = vcp_raw.astype(float)
+    # Bonus: within 2% of MA20 while ATR is contracting
+    near_ma20 = ((close / result['MA20']) - 1.0).abs() <= 0.02
+    bonus_mask = (atr_10 < atr_30) & near_ma20
+    vcp_bonus = vcp_raw.where(~bonus_mask, (vcp_raw * 1.2).clip(upper=1.0))
+    result['Volatility_Contraction_Score'] = vcp_bonus
     
     # Price-based features
     result['Overext'] = (close / result['MA50']) - 1
@@ -965,6 +1012,22 @@ def compute_technical_score(row: pd.Series, weights: Optional[Dict[str, float]] 
     adx_val = _get_float("ADX14", 0.0)
     adx_score = float(np.clip(adx_val / 50.0, 0.0, 1.0))
 
+    # Include Volatility Contraction Pattern (VCP) component if available
+    vcp_score = float(np.clip(row.get("Volatility_Contraction_Score", 0.0), 0.0, 1.0))
+
+    # Relative Strength vs SPY component (0-1)
+    rs_val = row.get("Relative_Strength_vs_SPY", np.nan)
+    if pd.isna(rs_val):
+        rs_val = row.get("relative_strength_20d", np.nan)
+    if pd.isna(rs_val):
+        rs_score = 0.5
+    else:
+        # Map: RS_diff >= +0.50 → 1.0, RS_diff <= 0 → 0.0, linear in between
+        try:
+            rs_score = float(np.clip(rs_val / 0.50, 0.0, 1.0))
+        except Exception:
+            rs_score = 0.5
+
     base = (
         norm_w["ma"] * ma_score
         + norm_w["mom"] * mom_score
@@ -976,6 +1039,8 @@ def compute_technical_score(row: pd.Series, weights: Optional[Dict[str, float]] 
         + norm_w["risk_reward"] * rr_score
         + norm_w["macd"] * macd_score
         + norm_w["adx"] * adx_score
+        + norm_w.get("relative_strength", 0.0) * rs_score
+        + norm_w.get("vcp", 0.0) * vcp_score
     )
 
     vol_adjust = 1.0
@@ -1094,168 +1159,14 @@ def compute_forward_returns(
     return results
 
 
-def compute_technical_score(row: pd.Series, weights: Optional[Dict[str, float]] = None) -> float:
-    """Compute a deterministic technical score (0-100) from indicators in `row`.
-    
-    This is the SINGLE SOURCE OF TRUTH for technical scoring.
-    All entry points must call this function with identical parameters
-    to ensure consistent, reproducible results.
-    
-    Scoring formula (November 2025 - Volatility Adjusted):
-    - Component scores (0-1): MA alignment, momentum, RSI, volume, overextension, 
-      pullback strength, risk/reward, MACD, ADX
-    - Weights: Configurable via `weights` parameter; defaults to balanced allocation
-    - Volatility adjustment:
-      * ATR > 6% (extreme volatility): 50% score penalty
-      * ATR 5-6% (high volatility): 30% score penalty
-      * ATR 2-4% (sweet spot): 20% score bonus
-      * ATR < 2% (low volatility): 20% score penalty
-    - Risk/reward is volatility-adjusted: RR_adjusted = RR * vol_multiplier
-    - Final score clipped to [0, 100]
-    
-    Args:
-        row: Series with technical indicator columns from build_technical_indicators().
-             Expected columns: MA_Aligned, Momentum_Consistency, RSI, VolSurge,
-             Overext, Near52w, RR, ATR_Pct, MACD_Pos, ADX14.
-             Missing values default to neutral (0.5) or 0.
-        weights: Optional dict mapping component names to weight values:
-                 {'ma', 'mom', 'rsi', 'near_high_bell', 'vol', 'overext',
-                  'pullback', 'risk_reward', 'macd', 'adx'}.
-                 Defaults to balanced allocation if None.
-                 Weights are normalized internally to sum to 1.0.
-        
-    Returns:
-        Float between 0.0 and 100.0 representing technical conviction score.
-        Higher scores indicate stronger technical alignment.
-        
-    Raises:
-        No exceptions. Missing indicator values handled gracefully with defaults.
-    
-    Examples:
-        >>> row = pd.Series({'MA_Aligned': 1.0, 'RSI': 50, 'Overext': 0.05, 
-        ...                   'ATR_Pct': 0.03, 'VolSurge': 1.5, 'Momentum_Consistency': 0.6})
-        >>> compute_technical_score(row)  # Uses default weights
-        78.5
-        >>> custom_w = {'ma': 0.4, 'mom': 0.3, ...}  # Custom weights
-        >>> compute_technical_score(row, weights=custom_w)
-        82.1
-    
-    Note:
-        Volatility adjustment is ALWAYS applied, regardless of weights parameter.
-        Extreme volatility (ATR > 6%) significantly reduces scores to penalize
-        high-risk, high-uncertainty trading opportunities.
-    """
-    default_weights = {
-        'ma': 0.2,
-        'mom': 0.25,
-        'rsi': 0.12,
-        'near_high_bell': 0.10,
-        'vol': 0.08,
-        'overext': 0.06,
-        'pullback': 0.05,
-        'risk_reward': 0.06,
-        'macd': 0.04,
-        'adx': 0.04,
-    }
-
-    # Sanitize weights: coerce to float, clamp negatives, drop invalid to 0.0
-    raw_weights = default_weights.copy()
-    if weights is not None:
-        raw_weights.update(weights)
-
-    def _safe_weight(val: float) -> float:
-        try:
-            w = float(val)
-            if not np.isfinite(w):
-                return 0.0
-            return max(w, 0.0)
-        except Exception:
-            return 0.0
-
-    sanitized = {k: _safe_weight(v) for k, v in raw_weights.items()}
-    total_w = sum(sanitized.values())
-
-    # If everything zero/invalid, fall back to defaults
-    if total_w <= 0:
-        sanitized = default_weights
-        total_w = sum(sanitized.values())
-
-    # Normalize weights to sum 1
-    norm_w = {k: (v / total_w) for k, v in sanitized.items()}
-
-    # Extract components from row (use safe defaults)
-    ma_ok = float(row.get('MA_Aligned', 0.0)) if pd.notna(row.get('MA_Aligned', np.nan)) else 0.0
-    mom = float(row.get('Momentum_Consistency', 0.0)) if pd.notna(row.get('Momentum_Consistency', np.nan)) else 0.0
-    
-    # RSI score: closer to mid-band (50) is neutral; reward 50-40/60 range
-    rsi = row.get('RSI', np.nan)
-    if pd.isna(rsi):
-        rsi_score = 0.5
-    else:
-        # Map RSI 0-100 to 0-1 with preference for 25-75
-        if 25 <= rsi <= 75:
-            rsi_score = 1.0
-        else:
-            rsi_score = max(0.0, 1.0 - (abs(rsi - 50) - 25) / 50.0)
-
-    vol = float(row.get('VolSurge', 1.0)) if pd.notna(row.get('VolSurge', np.nan)) else 1.0
-    vol_score = min(2.0, vol) / 2.0
-
-    overext = float(row.get('Overext', 0.0)) if pd.notna(row.get('Overext', np.nan)) else 0.0
-    overext_score = max(0.0, 1.0 - (overext / 0.2))
-
-    pullback = float(row.get('Near52w', np.nan)) / 100.0 if pd.notna(row.get('Near52w', np.nan)) else 0.5
-
-    # VOLATILITY-ADJUSTED RISK/REWARD
-    # Penalize high volatility, reward stable movers
-    rr = float(row.get('RR', np.nan)) if pd.notna(row.get('RR', np.nan)) else 1.0
-    atr_pct = float(row.get('ATR_Pct', np.nan)) if pd.notna(row.get('ATR_Pct', np.nan)) else 0.03
-    
-    # Volatility penalty/bonus
-    if atr_pct > 0.06:  # >6% = extreme volatility
-        vol_adjustment = 0.5  # Heavy penalty
-    elif atr_pct > 0.05:  # 5-6% = high volatility
-        vol_adjustment = 0.7
-    elif atr_pct < 0.02:  # <2% = too stable (low opportunity)
-        vol_adjustment = 0.8
-    elif 0.02 <= atr_pct <= 0.04:  # Sweet spot: 2-4%
-        vol_adjustment = 1.2  # Bonus!
-    else:  # 4-5% = acceptable
-        vol_adjustment = 1.0
-    
-    # Risk-adjusted RR = RR * volatility adjustment
-    adjusted_rr = rr * vol_adjustment
-    rr_score = max(0.0, min(1.0, (adjusted_rr + 1.0) / 5.0))
-
-    macd = 1.0 if row.get('MACD_Pos', False) else 0.0
-    adx = float(row.get('ADX14', 0.0)) if pd.notna(row.get('ADX14', np.nan)) else 0.0
-    adx_score = np.clip((adx - 15.0) / 20.0, 0.0, 1.0)
-
-    tech = (
-        norm_w['ma'] * ma_ok
-        + norm_w['mom'] * mom
-        + norm_w['rsi'] * rsi_score
-        + norm_w['near_high_bell'] * pullback
-        + norm_w['vol'] * vol_score
-        + norm_w['overext'] * overext_score
-        + norm_w['pullback'] * pullback
-        + norm_w['risk_reward'] * rr_score  # Now volatility-adjusted!
-        + norm_w['macd'] * macd
-        + norm_w['adx'] * adx_score
-    )
-
-    # Additional volatility penalty for extreme cases
-    if atr_pct > 0.06:
-        tech *= 0.85  # 15% penalty to overall score
-    
-    # scale to 0-100
-    return float(np.clip(tech * 100.0, 0.0, 100.0))
+# Duplicate legacy implementation removed; unified earlier definition now includes RS & VCP with TECH_WEIGHTS.
 
 
 def compute_final_score(
     tech_score: float,
     fundamental_score: Optional[float] = None,
     ml_prob: Optional[float] = None,
+    market_regime: Optional[str] = None,
 ) -> float:
     """Combine technical, fundamental, and ML components into a 0–100 score.
     
@@ -1278,11 +1189,39 @@ def compute_final_score(
     fund = 0.0 if fundamental_score is None or pd.isna(fundamental_score) else float(fundamental_score)
     ml_score = 0.5 if ml_prob is None or pd.isna(ml_prob) else float(ml_prob)
 
+    # Base score using configured weights
     final = (
         weights["technical"] * float(tech_score)
         + weights["fundamental"] * fund
         + weights["ml"] * (ml_score * 100.0)
     )
+
+    # Confidence Penalty/Bonus (Meta-labeling gatekeeper)
+    # Neutral if ml_prob is NaN/None; penalty if < 0.38; bonus if > 0.62
+    multiplier = 1.0
+    try:
+        ml_val = float(ml_prob) if ml_prob is not None else np.nan
+    except Exception:
+        ml_val = np.nan
+
+    if pd.notna(ml_val):
+        if ml_val < 0.15:
+            multiplier = 0.6  # 40% penalty
+        elif ml_val > 0.62:
+            multiplier = 1.15  # 15% bonus
+        else:
+            multiplier = 1.0
+
+    # Apply market regime adjustment
+    regime_mult = 1.0
+    if isinstance(market_regime, str):
+        reg = market_regime.upper()
+        if reg == 'TREND_UP':
+            regime_mult = 1.1
+        elif reg in ('PANIC', 'CORRECTION'):
+            regime_mult = 0.7
+
+    final = final * multiplier * regime_mult
 
     return float(np.clip(final, 0.0, 100.0))
 
@@ -1295,6 +1234,7 @@ def compute_final_score_with_patterns(
     pattern_score: Optional[float] = None,
     bw_weight: float = 0.10,
     pattern_weight: float = 0.10,
+    market_regime: Optional[str] = None,
 ) -> Tuple[float, Dict[str, float]]:
     """
     Enhanced final score incorporating Big Winner signal and pattern matching.
@@ -1339,6 +1279,7 @@ def compute_final_score_with_patterns(
     total_weight = sum(base_weights.values())
     normalized_weights = {k: v / total_weight for k, v in base_weights.items()}
     
+    # Base score using normalized weights
     final = (
         normalized_weights["technical"] * tech
         + normalized_weights["fundamental"] * fund
@@ -1347,7 +1288,31 @@ def compute_final_score_with_patterns(
         + normalized_weights["pattern"] * patt
     )
     
-    final = float(np.clip(final, 0.0, 100.0))
+    # Confidence Penalty/Bonus (Meta-labeling gatekeeper)
+    multiplier = 1.0
+    try:
+        ml_val = float(ml_prob) if ml_prob is not None else np.nan
+    except Exception:
+        ml_val = np.nan
+
+    if pd.notna(ml_val):
+        if ml_val < 0.15:
+            multiplier = 0.6
+        elif ml_val > 0.62:
+            multiplier = 1.15
+        else:
+            multiplier = 1.0
+
+    # Apply market regime adjustment
+    regime_mult = 1.0
+    if isinstance(market_regime, str):
+        reg = market_regime.upper()
+        if reg == 'TREND_UP':
+            regime_mult = 1.1
+        elif reg in ('PANIC', 'CORRECTION'):
+            regime_mult = 0.7
+
+    final = float(np.clip(final * multiplier * regime_mult, 0.0, 100.0))
     
     breakdown = {
         "tech_component": normalized_weights["technical"] * tech,
@@ -1533,20 +1498,17 @@ def build_market_context_table(
     start_extended = start_dt.strftime('%Y-%m-%d')
     end_extended = end_dt.strftime('%Y-%m-%d')
     
-    # Fetch SPY data
+    # Fetch SPY data (STRICT: no fallback)
     spy_df = get_index_series('SPY', start_extended, end_extended, provider_status)
     if spy_df is None or spy_df.empty:
-        logger.error("Failed to fetch SPY data for market context")
-        return pd.DataFrame()
+        logger.error("Failed to fetch SPY data via primary provider(s)")
+        raise RuntimeError("Market context unavailable: SPY series missing")
     
-    # Fetch VIX data (optional, use defaults if unavailable)
+    # Fetch VIX data (STRICT: required)
     vix_df = get_index_series('^VIX', start_extended, end_extended, provider_status)
     if vix_df is None or vix_df.empty:
-        logger.warning("VIX data unavailable, using default neutral values")
-        vix_df = pd.DataFrame({
-            'date': spy_df['date'],
-            'close': 20.0  # Neutral VIX level
-        })
+        logger.error("Failed to fetch VIX data via primary provider(s)")
+        raise RuntimeError("Market context unavailable: VIX series missing")
     
     # Prepare SPY features
     spy_df = spy_df.sort_values('date').reset_index(drop=True)
@@ -1578,20 +1540,33 @@ def build_market_context_table(
     # Classify market regime
     def classify_regime(row):
         """
-        Classify market regime based on SPY performance and VIX.
+        Classify market regime based on SPY performance, VIX, and breadth.
         
         PANIC: SPY drawdown < -15% OR VIX percentile > 85%
         CORRECTION: SPY drawdown < -8% OR VIX percentile > 70%
-        TREND_UP: SPY 60d return > +8% AND drawdown > -5%
+        TREND_UP: SPY 60d return > +8% AND drawdown > -5% AND market_breadth > 0.60
+        DISTRIBUTION: SPY ~flat (|60d return| <= 2%) AND market_breadth < 0.40
         SIDEWAYS: everything else
         """
+        # Fetch proxy breadth (STRICT: no neutral default)
+        from core.market_context import get_market_breadth
+        # Pass the row date for per-date caching if available
+        row_date = row.get('date') if isinstance(row, dict) else row.get('date', None)
+        date_key = None
+        try:
+            if row_date is not None:
+                date_key = pd.to_datetime(row_date).strftime('%Y-%m-%d')
+        except Exception:
+            date_key = None
+        breadth = float(get_market_breadth(date_key))
+
         dd = row.get('SPY_drawdown_60d', 0)
         ret_60d = row.get('SPY_60d_ret', 0)
         vix_pct = row.get('VIX_pct', 0.5)
         
-        # Handle NaN values
-        if pd.isna(dd) or pd.isna(ret_60d) or pd.isna(vix_pct):
-            return 'SIDEWAYS'
+        # Handle NaN values strictly
+        if pd.isna(dd) or pd.isna(ret_60d) or pd.isna(vix_pct) or not np.isfinite(breadth):
+            raise ValueError("Market regime classification inputs missing")
         
         # Panic conditions
         if dd < -0.15 or vix_pct > 0.85:
@@ -1601,14 +1576,23 @@ def build_market_context_table(
         if dd < -0.08 or vix_pct > 0.70:
             return 'CORRECTION'
         
-        # Trend up conditions
-        if ret_60d > 0.08 and dd > -0.05:
+        # Distribution: market breadth weak while SPY is flat (~±2% in 60d)
+        if abs(ret_60d) <= 0.02 and breadth < 0.40:
+            return 'DISTRIBUTION'
+        
+        # Trend up conditions require broad participation
+        if ret_60d > 0.08 and dd > -0.05 and breadth > 0.60:
             return 'TREND_UP'
         
-        # Default sideways
+        # Default classification when inputs are valid but no extreme conditions
         return 'SIDEWAYS'
     
-    context_df['Market_Regime'] = context_df.apply(classify_regime, axis=1)
+    # Strict classification — raise if breadth or context missing
+    try:
+        context_df['Market_Regime'] = context_df.apply(classify_regime, axis=1)
+    except Exception as e:
+        logger.error(f"Market regime classification failed: {e}")
+        raise
     
     # One-hot encode regime flags
     context_df['Regime_TrendUp'] = (context_df['Market_Regime'] == 'TREND_UP').astype(int)

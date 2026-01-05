@@ -25,9 +25,15 @@ def compute_relative_strength(
         if len(ticker_df) < period or len(benchmark_df) < period:
             rs_scores[f"rs_{period}d"] = np.nan
             continue
-            
-        ticker_return = float(ticker_df["Close"].iloc[-1] / ticker_df["Close"].iloc[-period] - 1)
-        bench_return = float(benchmark_df["Close"].iloc[-1] / benchmark_df["Close"].iloc[-period] - 1)
+        
+        # Extract scalar closes explicitly to avoid float-on-Series warnings
+        t_close_now = float(ticker_df["Close"].iloc[-1])
+        t_close_prev = float(ticker_df["Close"].iloc[-period])
+        b_close_now = float(benchmark_df["Close"].iloc[-1])
+        b_close_prev = float(benchmark_df["Close"].iloc[-period])
+
+        ticker_return = float(t_close_now / t_close_prev - 1.0) if t_close_prev != 0 else np.nan
+        bench_return = float(b_close_now / b_close_prev - 1.0) if b_close_prev != 0 else np.nan
         
         # Relative strength: positive means outperforming
         rs_scores[f"rs_{period}d"] = float(ticker_return - bench_return)

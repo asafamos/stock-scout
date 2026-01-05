@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-01-03T23:17:26.311928",
+  "timestamp": "2026-01-05T00:05:38.956530",
   "universe_size": 11,
   "universe_name": "default",
   "config_version": "unknown",
@@ -20,12 +20,16 @@
     "Sources_Used",
     "Price_STD",
     "Price_Mean",
+    "ML_Confidence_Status",
+    "Market_Regime",
+    "Data_Integrity",
     "MA20",
     "MA50",
     "MA200",
     "RSI",
     "ATR",
     "ATR_Pct",
+    "Volatility_Contraction_Score",
     "Overext",
     "Near52w",
     "MomCons",
@@ -61,6 +65,8 @@
     "Volume",
     "High",
     "Low",
+    "relative_strength_20d",
+    "As_Of_Date",
     "Risk_Level",
     "Data_Quality",
     "Confidence_Level",
@@ -97,6 +103,7 @@
     "Fundamental_Sources_Count",
     "Fundamental_S",
     "Fundamental_Backtest_Unsafe",
+    "Fundamental_From_Store",
     "Sector",
     "RiskClass",
     "SafetyBlocked",
@@ -105,5 +112,5 @@
   ],
   "scan_type": "live_streamlit",
   "total_tickers": 11,
-  "build_commit": "0b94843"
+  "build_commit": "bd19b98"
 }
