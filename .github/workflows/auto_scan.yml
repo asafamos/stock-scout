@@ -14,6 +14,12 @@ jobs:
   scan:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      METEOR_MODE: '1'
+      MIN_MCAP: '300000000'
+      MAX_MCAP: '15000000000'
+      UNIVERSE_SIZE: '2000'
+      RS_RANKING: '1'
     
     steps:
       - name: Checkout code
@@ -29,27 +35,37 @@ jobs:
         run: |
           pip install -r requirements.txt
           
-      - name: Run automated scan
+      - name: Configure provider secrets
         env:
-          ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
-          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
           FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
           POLYGON_API_KEY: ${{ secrets.POLYGON_API_KEY }}
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+          ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
           TIINGO_API_KEY: ${{ secrets.TIINGO_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          AUTO_SCAN_UNIVERSE_LIMIT: 1500
         run: |
-          python auto_scan_runner.py
-          
-      - name: Commit scan results
+          echo "Provider keys configured"
+
+      - name: Pre-check Meteor setup
         run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          git add data/scans/latest_scan.parquet data/scans/latest_scan.json
-          git diff --quiet && git diff --staged --quiet || git commit -m "Auto scan: $(date '+%Y-%m-%d %H:%M UTC')"
-          
-      - name: Push changes
-        uses: ad-m/github-push-action@master
+          python verify_meteor_setup.py AAPL
+
+      - name: Run 2000-ticker Meteor scan
+        env:
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+          POLYGON_API_KEY: ${{ secrets.POLYGON_API_KEY }}
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+          ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
+          TIINGO_API_KEY: ${{ secrets.TIINGO_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          python run_2000_meteor_scan.py --limit ${UNIVERSE_SIZE}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          branch: ${{ github.event.repository.default_branch }}
+          name: meteor-results
+          path: |
+            reports/*.csv
+            data/scans/*.parquet
+            data/scans/*.json
