@@ -3370,10 +3370,26 @@ def apply_sector_cap(df: pd.DataFrame, cap: int) -> pd.DataFrame:
     return result
 
 
+score_candidates = [
+    "overall_score_20d",
+    "Score",
+    "overall_score",
+    "conviction_v2_final",
+    "overall_score_pretty",
+]
+score_col = None
+for c in score_candidates:
+    if c in results.columns:
+        score_col = c
+        break
+
+if score_col is not None:
+    sorted_results = results.sort_values([score_col, "Ticker"], ascending=[False, True]).reset_index(drop=True)
+else:
+    sorted_results = results.sort_values(["Ticker"], ascending=[True]).reset_index(drop=True)
+
 results = apply_sector_cap(
-    results.sort_values(["Score", "Ticker"], ascending=[False, True]).reset_index(
-        drop=True
-    ),
+    sorted_results,
     int(CONFIG["SECTOR_CAP_MAX"]),
 )
 
