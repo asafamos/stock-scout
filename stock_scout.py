@@ -163,7 +163,7 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
     - Tabular numbers, consistent formatting
     """
     esc = html_escape.escape
-    ticker = esc(_safe_str(row.get("Ticker", "N/A"), "N/A"))
+        ticker = esc(_safe_str(row.get("Ticker", "N/A")))
     overall_rank = row.get("Overall_Rank", "N/A")
     # Use pretty score for display (60-90 range), raw score for internal logic
     # Show both pretty score and 20d score
@@ -5231,9 +5231,20 @@ st.dataframe(
 
 # ==================== Quick chart ====================
 st.subheader("🔍 Chart Ticker from Results")
-choices = ["(Select)"] + rec_df["Ticker"].astype(str).tolist()
-choice = st.selectbox("Select ticker", choices, index=0)
-if choice and choice != "(Select)" and choice in data_map:
+# Choose a safe ticker column for charting
+_ticker_candidates = ["Ticker", "symbol", "Symbol", "ticker"]
+_tcol = None
+for _tc in _ticker_candidates:
+    if _tc in rec_df.columns:
+        _tcol = _tc
+        break
+
+if _tcol is None or rec_df.empty:
+    st.caption("No ticker column available for charting.")
+else:
+    choices = ["(Select)"] + rec_df[_tcol].astype(str).tolist()
+    choice = st.selectbox("Select ticker", choices, index=0)
+    if choice and choice != "(Select)" and isinstance(data_map, dict) and choice in data_map:
     dfv = data_map[choice].copy()
     dfv["MA_S"] = dfv["Close"].rolling(int(CONFIG["MA_SHORT"])).mean()
     dfv["MA_L"] = dfv["Close"].rolling(int(CONFIG["MA_LONG"])).mean()
@@ -5248,35 +5259,35 @@ if choice and choice != "(Select)" and choice in data_map:
             name="Price",
         )
     )
-    fig.add_trace(
-        go.Scatter(
-            x=dfv.index,
-            y=dfv["MA_S"],
-            mode="lines",
-            name=f"MA{int(CONFIG['MA_SHORT'])}",
+        fig.add_trace(
+            go.Scatter(
+                x=dfv.index,
+                y=dfv["MA_S"],
+                mode="lines",
+                name=f"MA{int(CONFIG['MA_SHORT'])}",
+            )
         )
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=dfv.index, y=dfv["MA_L"], mode="lines", name=f"MA{int(CONFIG['MA_LONG'])}"
+        fig.add_trace(
+            go.Scatter(
+                x=dfv.index, y=dfv["MA_L"], mode="lines", name=f"MA{int(CONFIG['MA_LONG'])}"
+            )
         )
-    )
-    fig.update_layout(
-        height=480, xaxis_rangeslider_visible=False, legend_orientation="h"
-    )
-    st.plotly_chart(fig, width='stretch')
-    dfv["RSI"] = rsi(dfv["Close"], 14)
-    fig2 = go.Figure()
-    fig2.add_trace(go.Scatter(x=dfv.index, y=dfv["RSI"], mode="lines", name="RSI14"))
-    fig2.add_hrect(
-        y0=CONFIG["RSI_BOUNDS"][0],
-        y1=CONFIG["RSI_BOUNDS"][1],
-        fillcolor="LightGreen",
-        opacity=0.2,
-        line_width=0,
-    )
-    fig2.update_layout(height=220, legend_orientation="h")
-    st.plotly_chart(fig2, width='stretch')
+        fig.update_layout(
+            height=480, xaxis_rangeslider_visible=False, legend_orientation="h"
+        )
+        st.plotly_chart(fig, width='stretch')
+        dfv["RSI"] = rsi(dfv["Close"], 14)
+        fig2 = go.Figure()
+        fig2.add_trace(go.Scatter(x=dfv.index, y=dfv["RSI"], mode="lines", name="RSI14"))
+        fig2.add_hrect(
+            y0=CONFIG["RSI_BOUNDS"][0],
+            y1=CONFIG["RSI_BOUNDS"][1],
+            fillcolor="LightGreen",
+            opacity=0.2,
+            line_width=0,
+        )
+        fig2.update_layout(height=220, legend_orientation="h")
+        st.plotly_chart(fig2, width='stretch')
 
 # ==================== Notes ====================
 with st.expander("ℹ️ Methodology (Summary)"):
