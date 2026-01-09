@@ -163,7 +163,7 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
     - Tabular numbers, consistent formatting
     """
     esc = html_escape.escape
-        ticker = esc(_safe_str(row.get("Ticker", "N/A")))
+    ticker = esc(_safe_str(row.get("Ticker", "N/A")))
     overall_rank = row.get("Overall_Rank", "N/A")
     # Use pretty score for display (60-90 range), raw score for internal logic
     # Show both pretty score and 20d score
@@ -5245,20 +5245,20 @@ else:
     choices = ["(Select)"] + rec_df[_tcol].astype(str).tolist()
     choice = st.selectbox("Select ticker", choices, index=0)
     if choice and choice != "(Select)" and isinstance(data_map, dict) and choice in data_map:
-    dfv = data_map[choice].copy()
-    dfv["MA_S"] = dfv["Close"].rolling(int(CONFIG["MA_SHORT"])).mean()
-    dfv["MA_L"] = dfv["Close"].rolling(int(CONFIG["MA_LONG"])).mean()
-    fig = go.Figure()
-    fig.add_trace(
-        go.Candlestick(
-            x=dfv.index,
-            open=dfv["Open"],
-            high=dfv["High"],
-            low=dfv["Low"],
-            close=dfv["Close"],
-            name="Price",
+        dfv = data_map[choice].copy()
+        dfv["MA_S"] = dfv["Close"].rolling(int(CONFIG["MA_SHORT"])).mean()
+        dfv["MA_L"] = dfv["Close"].rolling(int(CONFIG["MA_LONG"])).mean()
+        fig = go.Figure()
+        fig.add_trace(
+            go.Candlestick(
+                x=dfv.index,
+                open=dfv["Open"],
+                high=dfv["High"],
+                low=dfv["Low"],
+                close=dfv["Close"],
+                name="Price",
+            )
         )
-    )
         fig.add_trace(
             go.Scatter(
                 x=dfv.index,
