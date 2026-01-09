@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-01-05T00:05:38.956530",
+  "timestamp": "2026-01-09T17:29:22.473241",
   "universe_size": 11,
   "universe_name": "default",
   "config_version": "unknown",
@@ -29,11 +29,16 @@
     "RSI",
     "ATR",
     "ATR_Pct",
+    "ADR_Pct",
+    "RangeRatio_5_20",
+    "Tightness_Ratio",
     "Volatility_Contraction_Score",
     "Overext",
     "Near52w",
+    "Dist_52w_High",
     "MomCons",
     "VolSurge",
+    "Volume_Surge_Ratio",
     "RR",
     "RR_MomCons",
     "RSI_Neutral",
@@ -72,6 +77,9 @@
     "Confidence_Level",
     "Classification_Warnings",
     "Score_Breakdown",
+    "Pattern_Score",
+    "Pattern_Count",
+    "ML_Features_Fallback",
     "Beta",
     "RS_63d",
     "Volume_Surge",
@@ -112,5 +120,5 @@
   ],
   "scan_type": "live_streamlit",
   "total_tickers": 11,
-  "build_commit": "bd19b98"
+  "build_commit": "e27bf79"
 }

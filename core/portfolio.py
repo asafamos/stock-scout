@@ -61,6 +61,23 @@ def allocate_budget(
         except Exception:
             # On any import/apply failure, fall back to raw scores
             adjusted_scores = df[score_col]
+
+    # Coil Bonus: favor resilient, tightly coiled mid/small-caps
+    try:
+        rr_col = "RangeRatio_5_20"
+        # Support multiple RS column names across pipelines
+        rs_col = "Blended_RS_Value" if "Blended_RS_Value" in df.columns else (
+            "relative_strength_20d" if "relative_strength_20d" in df.columns else None
+        )
+        coil_mult = pd.Series(1.0, index=df.index, dtype=float)
+        if rr_col in df.columns and rs_col is not None:
+            rr = pd.to_numeric(df[rr_col], errors="coerce")
+            rs = pd.to_numeric(df[rs_col], errors="coerce")
+            mask = (rr.notna()) & (rs.notna()) & (rr < 0.7) & (rs > 0.02)
+            coil_mult.loc[mask] = 1.25
+            adjusted_scores = adjusted_scores.astype(float) * coil_mult.astype(float)
+    except Exception:
+        pass
     
     df = df.sort_values([score_col, "Ticker"], ascending=[False, True]).reset_index(drop=True)
     remaining = float(total)

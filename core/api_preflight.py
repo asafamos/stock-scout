@@ -126,5 +126,17 @@ def run_preflight(timeout: float = 3.0) -> Dict[str, Dict[str, any]]:
     else:
         status["ALPHAVANTAGE"] = {"ok": False, "reason": "No API key"}
     
-    logger.info(f"[Preflight] Checked {len(status)} providers, {sum(1 for s in status.values() if s['ok'])} OK")
+    # Build Active Providers list for fundamentals in strict priority
+    # Priority: FMP → FINNHUB → TIINGO → ALPHAVANTAGE (include only providers with ok=True)
+    fundamentals_priority = ["FMP", "FINNHUB", "TIINGO", "ALPHAVANTAGE"]
+    active_fundamentals = [p for p in fundamentals_priority if status.get(p, {}).get("ok", False)]
+
+    # Attach sorted active list to the status dict for downstream routing
+    status["FUNDAMENTALS_ACTIVE"] = active_fundamentals
+
+    logger.info(
+        f"[Preflight] Checked {len(status)-1} providers, "
+        f"{sum(1 for k,v in status.items() if k != 'FUNDAMENTALS_ACTIVE' and v.get('ok'))} OK; "
+        f"Fundamentals Active: {active_fundamentals}"
+    )
     return status

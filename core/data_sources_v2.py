@@ -889,6 +889,9 @@ def aggregate_fundamentals(
         - coverage: Dict[str, List[str]] - which sources provided each field
         - disagreement_score: float (0-1) - how much sources disagree
     """
+    # Use global rotation counter for primary fundamentals providers (finnhub/alpha)
+    global _PRIMARY_FUND_ROTATE
+
     # BACKTEST: Prefer local point-in-time store to avoid lookahead bias
     if mode == DataMode.BACKTEST and as_of_date is not None:
         try:
@@ -908,23 +911,98 @@ def aggregate_fundamentals(
             logger.info(f"Using stored fundamentals snapshot for {ticker} as of {as_of_date}")
             return snapshot
 
-    # Fetch from all sources (in parallel conceptually, but sequentially for rate limits)
+    # FAST FUNDAMENTAL mode: If FMP and FINNHUB both unavailable (rate-limited/auth),
+    # attempt to load a cached snapshot from the last 24 hours (today/yesterday) from SQLite store.
+    try:
+        fmp_ok = (provider_status or {}).get("FMP", {"ok": True}).get("ok", True)
+        finnhub_ok = (provider_status or {}).get("FINNHUB", {"ok": True}).get("ok", True)
+        fast_needed = (not fmp_ok) and (not finnhub_ok)
+    except Exception:
+        fast_needed = False
+
+    if fast_needed:
+        try:
+            today = datetime.utcnow().date()
+            # Try today, then yesterday for a <=24h snapshot
+            snapshot = load_fundamentals_as_of(ticker, today)
+            if not snapshot:
+                snapshot = load_fundamentals_as_of(ticker, today - timedelta(days=1))
+        except Exception:
+            snapshot = None
+        if snapshot:
+            snap = dict(snapshot)
+            snap["ticker"] = ticker
+            snap["Fundamental_From_Store"] = True
+            snap["Fundamental_Backtest_Unsafe"] = False
+            snap.setdefault("sources_used", [])
+            snap.setdefault("Fundamental_Sources_Count", len(snap.get("sources_used", [])))
+            snap.setdefault("Fundamental_Coverage_Pct", 0.0)
+            snap.setdefault("timestamp", time.time())
+            logger.info(f"FastFundamental: using cached snapshot for {ticker}")
+            return snap
+
+    # Fetch from all sources (sequential, rate-limit friendly)
     sources_data = {}
 
-    # Smart routing order:
-    # - PRIMARY (rotating): Finnhub <-> Alpha
-    # - SECONDARY: SimFin, EODHD
-    # - TERTIARY: FMP, Tiingo
-    global _PRIMARY_FUND_ROTATE
-    primary_cycle = [("finnhub", fetch_fundamentals_finnhub), ("alpha", fetch_fundamentals_alpha)]
-    # rotate starting point
-    primary_order = [primary_cycle[_PRIMARY_FUND_ROTATE % 2], primary_cycle[(_PRIMARY_FUND_ROTATE + 1) % 2]]
-    _PRIMARY_FUND_ROTATE = (_PRIMARY_FUND_ROTATE + 1) % 2
-    fetch_funcs = (
-        primary_order
-        + [("simfin", fetch_fundamentals_simfin), ("eodhd", fetch_fundamentals_eodhd)]
-        + [("fmp", fetch_fundamentals_fmp), ("tiingo", fetch_fundamentals_tiingo)]
-    )
+    # Determine fundamentals priority using preflight results
+    # Map uppercase preflight keys → internal function names
+    fetch_map = {
+        "FMP": ("fmp", fetch_fundamentals_fmp),
+        "FINNHUB": ("finnhub", fetch_fundamentals_finnhub),
+        "TIINGO": ("tiingo", fetch_fundamentals_tiingo),
+        "ALPHAVANTAGE": ("alpha", fetch_fundamentals_alpha),
+    }
+    # Default strict priority
+    default_priority = ["FMP", "FINNHUB", "TIINGO", "ALPHAVANTAGE"]
+    active_from_preflight = []
+    if provider_status and isinstance(provider_status.get("FUNDAMENTALS_ACTIVE"), list):
+        # Use the preflight-computed active list if available
+        active_from_preflight = [p for p in provider_status["FUNDAMENTALS_ACTIVE"] if p in fetch_map]
+    if not active_from_preflight:
+        # Fallback: include providers marked ok=True (or missing ⇒ treat as ok) in strict priority
+        active_from_preflight = [p for p in default_priority if (provider_status or {}).get(p, {"ok": True}).get("ok", True)]
+
+    # Build fetch order with dynamic anchors:
+    # - If FMP ok: start with FMP
+    # - If FMP not ok: anchor with EODHD and SimFin before FINNHUB/ALPHA
+    fetch_funcs = []
+    fmp_ok = (provider_status or {}).get("FMP", {"ok": True}).get("ok", True)
+    if fmp_ok and "FMP" in active_from_preflight:
+        fetch_funcs.append(fetch_map["FMP"])  # FMP anchor
+        # Add remaining active providers excluding FMP, with rotating order for Finnhub/Alpha
+        primary_cycle = [("finnhub", fetch_fundamentals_finnhub), ("alpha", fetch_fundamentals_alpha)]
+        # rotate starting point for diversity
+        order = [primary_cycle[_PRIMARY_FUND_ROTATE % 2], primary_cycle[(_PRIMARY_FUND_ROTATE + 1) % 2]]
+        _PRIMARY_FUND_ROTATE = (_PRIMARY_FUND_ROTATE + 1) % 2
+        # Append rotating primaries if present in active list
+        for name, func in order:
+            key = {
+                "finnhub": "FINNHUB",
+                "alpha": "ALPHAVANTAGE",
+            }[name]
+            if key in active_from_preflight:
+                fetch_funcs.append((name, func))
+        # Add Tiingo if active
+        if "TIINGO" in active_from_preflight:
+            fetch_funcs.append(fetch_map["TIINGO"])
+        # Secondary group afterwards
+        fetch_funcs.extend([("eodhd", fetch_fundamentals_eodhd), ("simfin", fetch_fundamentals_simfin)])
+    else:
+        # FMP restricted: use EODHD and SimFin as secondary anchors first
+        fetch_funcs.extend([("eodhd", fetch_fundamentals_eodhd), ("simfin", fetch_fundamentals_simfin)])
+        # Then rotating primaries (Finnhub/Alpha), followed by Tiingo if active
+        primary_cycle = [("finnhub", fetch_fundamentals_finnhub), ("alpha", fetch_fundamentals_alpha)]
+        order = [primary_cycle[_PRIMARY_FUND_ROTATE % 2], primary_cycle[(_PRIMARY_FUND_ROTATE + 1) % 2]]
+        _PRIMARY_FUND_ROTATE = (_PRIMARY_FUND_ROTATE + 1) % 2
+        for name, func in order:
+            key = {
+                "finnhub": "FINNHUB",
+                "alpha": "ALPHAVANTAGE",
+            }[name]
+            if key in active_from_preflight:
+                fetch_funcs.append((name, func))
+        if "TIINGO" in active_from_preflight:
+            fetch_funcs.append(fetch_map["TIINGO"])
     
     for source_name, fetch_func in fetch_funcs:
         # Respect preflight: skip disabled providers
@@ -1151,7 +1229,8 @@ def fetch_price_multi_source(ticker: str, provider_status: Dict | None = None) -
             _rate_limit("polygon")
             url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/prev"
             params = {"apiKey": POLYGON_API_KEY}
-            data = _http_get_with_retry(url, params=params, timeout=3)
+            # Prefer shorter fixed sleep on 429 to reduce burst retries in tests
+            data = _http_get_with_retry(url, params=params, timeout=3, on_429_sleep=1)
             if data and "results" in data and len(data["results"]) > 0:
                 prices["polygon"] = data["results"][0].get("c")
                 prices["primary_source"] = "polygon"

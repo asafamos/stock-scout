@@ -62,7 +62,7 @@ class Config:
     max_position_pct: float = 15.0
     
     # Universe & Data
-    universe_limit: int = int(_get_config_value('UNIVERSE_LIMIT', '1500'))
+    universe_limit: int = int(_get_config_value('UNIVERSE_LIMIT', '2000'))
     lookback_days: int = int(_get_config_value('LOOKBACK_DAYS', '90'))
     smart_scan: bool = _get_config_value('SMART_SCAN', 'true').lower() in ('true', '1', 'yes')
     
@@ -163,6 +163,10 @@ class APIKeys:
     polygon: Optional[str] = None
     tiingo: Optional[str] = None
     openai: Optional[str] = None
+    marketstack: Optional[str] = None
+    nasdaq: Optional[str] = None
+    eodhd: Optional[str] = None
+    simfin: Optional[str] = None
     
     @classmethod
     def from_env(cls) -> "APIKeys":
@@ -177,6 +181,10 @@ class APIKeys:
             polygon=_get_key("POLYGON_API_KEY"),
             tiingo=_get_key("TIINGO_API_KEY"),
             openai=_get_key("OPENAI_API_KEY"),
+            marketstack=_get_key("MARKETSTACK_API_KEY"),
+            nasdaq=_get_key("NASDAQ_API_KEY"),
+            eodhd=_get_key("EODHD_API_KEY"),
+            simfin=_get_key("SIMFIN_API_KEY"),
         )
     
     def has_alpha_vantage(self) -> bool:
@@ -200,6 +208,18 @@ class APIKeys:
 
     def has_openai(self) -> bool:
         return self.openai is not None and len(self.openai) > 0
+
+    def has_marketstack(self) -> bool:
+        return self.marketstack is not None and len(self.marketstack) > 0
+
+    def has_nasdaq(self) -> bool:
+        return self.nasdaq is not None and len(self.nasdaq) > 0
+
+    def has_eodhd(self) -> bool:
+        return self.eodhd is not None and len(self.eodhd) > 0
+
+    def has_simfin(self) -> bool:
+        return self.simfin is not None and len(self.simfin) > 0
 
 
 # Global config instance

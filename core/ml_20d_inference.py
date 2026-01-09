@@ -315,6 +315,8 @@ def calibrate_ml_20d_prob(
     atr_pct_percentile: float | None = None,
     price_as_of: float | None = None,
     reliability_factor: float | None = None,
+    market_regime: str | None = None,
+    rsi: float | None = None,
 ) -> float:
     """
     Calibrate a single raw ML 20d probability using the same semantics as live_v3.
@@ -344,7 +346,11 @@ def calibrate_ml_20d_prob(
             if 0.0 <= v < 0.25:
                 adjusted -= 0.01
             elif 0.50 <= v < 0.75:
-                adjusted += 0.015
+                # Sweet spot boost varies by regime: stronger in bull markets
+                boost = 0.015
+                if isinstance(market_regime, str) and market_regime.upper() == 'BULLISH':
+                    boost = 0.035
+                adjusted += boost
             elif v >= 0.75:
                 adjusted -= 0.005
 
@@ -361,6 +367,25 @@ def calibrate_ml_20d_prob(
         # Reliability multiplier
         if reliability_factor is not None and np.isfinite(reliability_factor):
             adjusted *= float(reliability_factor)
+
+        # Regime Bonus/Penalty adjustments
+        try:
+            regime = (market_regime or '').upper()
+            rsi_val = float(rsi) if (rsi is not None and np.isfinite(rsi)) else 50.0
+
+            # BEARISH or PANIC: suppress overbought names
+            if regime in {'BEARISH', 'PANIC'}:
+                if rsi_val > 65.0:
+                    adjusted -= 0.06
+
+            # CORRECTION: flight to quality via reliability emphasis
+            if regime == 'CORRECTION':
+                if reliability_factor is not None and np.isfinite(reliability_factor):
+                    if float(reliability_factor) > 1.1:
+                        adjusted += 0.02
+        except Exception:
+            # Defensive: ignore regime tweaks if inputs malformed
+            pass
 
         # Clip
         adjusted = float(np.clip(adjusted, 0.01, 0.99))

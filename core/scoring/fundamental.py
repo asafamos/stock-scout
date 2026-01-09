@@ -239,6 +239,25 @@ def compute_fundamental_score_with_breakdown(data: dict, coverage_pct: float = 1
     breakdown.growth_score = float(0.45 * rev_g_score + 0.55 * eps_g_score)
     breakdown.growth_score = float(np.clip(breakdown.growth_score, 0, 100))
     breakdown.growth_label = _growth_label(breakdown.growth_score)
+
+    # --- Growth Acceleration Bonus ---
+    # If EPS YoY > 25%: +5 points
+    # If Revenue YoY > 20%: additional +5 points (total +10)
+    try:
+        growth_bonus = 0.0
+        eps_g_val = breakdown.eps_growth_yoy
+        rev_g_val = breakdown.revenue_growth_yoy
+        if eps_g_val is not None and np.isfinite(eps_g_val) and eps_g_val > 25.0:
+            growth_bonus += 5.0
+        if rev_g_val is not None and np.isfinite(rev_g_val) and rev_g_val > 20.0:
+            growth_bonus += 5.0
+        if growth_bonus > 0:
+            breakdown.growth_score = float(np.clip(breakdown.growth_score + growth_bonus, 0.0, 100.0))
+            breakdown.growth_label = _growth_label(breakdown.growth_score)
+            logger.debug(f"Applied Growth Acceleration bonus (+{growth_bonus:.0f})")
+    except Exception:
+        # If any issue occurs, keep original growth score
+        pass
     
     # === Valuation Score (0-100, lower multiples = higher score) ===
     # P/E and P/S with strong penalties for extreme valuations

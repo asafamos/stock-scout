@@ -66,7 +66,7 @@ def fetch_top_us_tickers_by_market_cap(limit: int = 2000) -> List[str]:
     3) Local/Gist fallback: S&P 500 list from data/sp500_tickers.txt or hardcoded subset
 
     Args:
-        limit: Max number of tickers to return (1500-2000)
+        limit: Hard cap of 2000 tickers (defaults to 2000)
 
     Returns:
         List of ticker symbols
@@ -77,19 +77,18 @@ def fetch_top_us_tickers_by_market_cap(limit: int = 2000) -> List[str]:
         api_key = get_secret("FMP_API_KEY", "")
         if api_key:
             url = "https://financialmodelingprep.com/api/v3/stock-screener"
-            # Market cap range configurable via env: $300M-$15B default
             try:
                 min_cap = int(os.getenv("MIN_MCAP", "300000000"))
             except Exception:
                 min_cap = 300_000_000
             try:
-                max_cap = int(os.getenv("MAX_MCAP", "15000000000"))
+                max_cap = int(os.getenv("MAX_MCAP", "20000000000"))
             except Exception:
-                max_cap = 15_000_000_000
+                max_cap = 20_000_000_000
             params = {
                 "marketCapMoreThan": max(min_cap, 0),
                 "marketCapLowerThan": max_cap,
-                "limit": limit,
+                "limit": 2000,
                 "apikey": api_key,
             }
             resp = requests.get(url, params=params, timeout=8)
@@ -106,6 +105,8 @@ def fetch_top_us_tickers_by_market_cap(limit: int = 2000) -> List[str]:
                 if out:
                     logger.info(f"✓ Universe from FMP screener: {len(out)} tickers")
                     return out
+            elif resp.status_code == 403:
+                logger.warning("FMP screener 403; falling back immediately to Polygon")
             else:
                 logger.warning(f"FMP screener failed: HTTP {resp.status_code}")
         else:
@@ -163,7 +164,36 @@ def fetch_top_us_tickers_by_market_cap(limit: int = 2000) -> List[str]:
     except Exception as e:
         logger.warning(f"Polygon universe fetch errored: {e}")
 
-    # --- Fallback 2: Local/Gist S&P 500 ---
+    # --- Fallback 2: EODHD or Nasdaq ---
+    try:
+        from core.config import get_secret
+        eod_key = get_secret("EODHD_API_KEY", "")
+        if eod_key:
+            url = "https://eodhd.com/api/exchange-symbol-list/US"
+            params = {"api_token": eod_key, "fmt": "json"}
+            r = requests.get(url, params=params, timeout=10)
+            if r.status_code == 200:
+                data = r.json() or []
+                syms = []
+                for it in data:
+                    sym = it.get("Code") or it.get("code") or it.get("Symbol")
+                    type_ = (it.get("Type") or it.get("type") or "").upper()
+                    # Keep common stocks only
+                    if sym and ("COMMON" in type_ or type_ in ("COMMON STOCK", "CS", "ETF")):
+                        syms.append(sym)
+                out = _normalize_symbols(syms[:limit])
+                if out:
+                    logger.info(f"✓ Universe from EODHD: {len(out)} tickers")
+                    return out
+        nasdaq_key = get_secret("NASDAQ_API_KEY", "")
+        if nasdaq_key:
+            # Placeholder: Attempt Nasdaq symbols endpoint if available
+            # If unsupported, skip silently
+            pass
+    except Exception as e:
+        logger.warning(f"EODHD/Nasdaq universe fetch errored: {e}")
+
+    # --- Fallback 3: Local/Gist S&P 500 ---
     try:
         local_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "sp500_tickers.txt")
         if os.path.exists(local_path):
@@ -291,34 +321,37 @@ def fetch_history_bulk(tickers: List[str], period_days: int, ma_long: int) -> Di
     end = datetime.utcnow()
     start = end - timedelta(days=period_days + 50)
     data_map = {}
-    # More lenient: just need enough for MA calculation, not ma_long + 40
-    min_rows = max(50, ma_long // 2)  # At least 50 rows or half of ma_long
-    
-    try:
-        # Use threads=True for faster download
-        df_all = yf.download(tickers, start=start, end=end, group_by='ticker', progress=False, threads=True)
-        
-        if len(tickers) == 1:
-            tkr = tickers[0]
-            if not df_all.empty and len(df_all) >= min_rows:
-                data_map[tkr] = df_all
-                logger.info(f"Fetched {len(df_all)} rows for {tkr}")
+    min_rows = max(50, ma_long // 2)
+
+    # Batch in groups of 50 to mitigate timeouts; sleep 1s between batches
+    CHUNK = 50
+    for i in range(0, len(tickers), CHUNK):
+        chunk = tickers[i:i+CHUNK]
+        try:
+            df_all = yf.download(chunk, start=start, end=end, group_by='ticker', progress=False, threads=True)
+            if len(chunk) == 1:
+                tkr = chunk[0]
+                df = df_all
+                if not df.empty and len(df) >= min_rows:
+                    data_map[tkr] = df
+                    logger.info(f"Fetched {len(df)} rows for {tkr}")
+                else:
+                    logger.warning(f"Insufficient data for {tkr}: {len(df)} rows < {min_rows} required")
             else:
-                logger.warning(f"Insufficient data for {tkr}: {len(df_all)} rows < {min_rows} required")
-        else:
-            for tkr in tickers:
-                try:
-                    df = df_all[tkr].dropna(how='all')
-                    if len(df) >= min_rows:
-                        data_map[tkr] = df
-                        logger.info(f"Fetched {len(df)} rows for {tkr}")
-                    else:
-                        logger.warning(f"Insufficient data for {tkr}: {len(df)} rows < {min_rows} required")
-                except KeyError:
-                    logger.warning(f"No data for {tkr} in bulk download")
-    except Exception as e:
-        logger.warning(f"Bulk fetch failed: {e}")
-        
+                for tkr in chunk:
+                    try:
+                        df = df_all[tkr].dropna(how='all')
+                        if len(df) >= min_rows:
+                            data_map[tkr] = df
+                            logger.info(f"Fetched {len(df)} rows for {tkr}")
+                        else:
+                            logger.warning(f"Insufficient data for {tkr}: {len(df)} rows < {min_rows} required")
+                    except KeyError:
+                        logger.warning(f"No data for {tkr} in bulk download")
+        except Exception as e:
+            logger.warning(f"Batch fetch failed for {len(chunk)} tickers: {e}")
+        # Sleep between batches to ease provider load
+        time.sleep(1.0)
     return data_map
 
 def fetch_beta_vs_benchmark(ticker: str, bench: str = "SPY", days: int = 252) -> float:
@@ -541,6 +574,21 @@ def run_scan_pipeline(
     if status_callback:
         status_callback(f"Starting pipeline for {len(universe)} tickers...")
 
+    # Initialize global market context caches (SPY + VIX) to avoid repeated provider hits
+    try:
+        from core.market_context import initialize_market_context
+        initialize_market_context(symbols=["SPY", "^VIX"], period_days=int(config.get("lookback_days", 200)))
+        logger.info("[PIPELINE] Global index cache initialized (SPY, VIX)")
+    except Exception as e:
+        logger.debug(f"[PIPELINE] Market context init skipped: {e}")
+
+    # Run API preflight to determine active providers for this scan
+    try:
+        from core.api_preflight import run_preflight
+        provider_status: Dict[str, Dict[str, Any]] = run_preflight()
+    except Exception:
+        provider_status = {}
+
     start_universe = len(universe)
     data_map, benchmark_df = _step_fetch_and_prepare_base_data(universe, config, status_callback, data_map)
 
@@ -654,7 +702,25 @@ def run_scan_pipeline(
         if tkr in data_map:
             df = data_map[tkr]
             base_score = row["Score"]
-            enhanced, sig = compute_advanced_score(tkr, df, benchmark_df, base_score / 100.0)
+            # advanced_filters expects Title-case OHLCV column names
+            df_title = df.rename(columns=str.title)
+            # Ensure Date column exists for advanced_filters expectations
+            if "Date" not in df_title.columns:
+                try:
+                    df_title = df_title.reset_index()
+                    if "Date" not in df_title.columns and df_title.columns[0] not in ("Date", "date"):
+                        # Fallback: rename first column to Date
+                        first = df_title.columns[0]
+                        df_title = df_title.rename(columns={first: "Date"})
+                except Exception:
+                    pass
+            bench_title = benchmark_df.rename(columns=str.title)
+            enhanced, sig = compute_advanced_score(
+                tkr,
+                df_title,
+                bench_title,
+                base_score / 100.0,
+            )
             signals_store.append((idx, sig, enhanced))
             
     rs_vals = [s.get("rs_63d") for _, s, _ in signals_store if s.get("rs_63d") is not None]
@@ -728,7 +794,7 @@ def run_scan_pipeline(
     if meteor_mode and not results.empty:
         if status_callback: status_callback("Applying Meteor filters (VCP + RS + Pocket Pivots)...")
         try:
-            from advanced_filters import compute_advanced_score, fetch_benchmark_data
+            # Use core.filters version to avoid local import shadowing
             bench_df = fetch_benchmark_data("SPY", days=200)
             kept_rows = []
             for _, row in results.iterrows():
@@ -795,7 +861,8 @@ def run_scan_pipeline(
             fund_df = pd.DataFrame()
         else:
             logger.info(f"Fetching fundamentals for {len(winners)} winners ({score_col} > {score_thr:.0f}, TopN={top_n_cap})")
-            fund_df = fetch_fundamentals_batch(winners, as_of_date=fund_as_of)
+            # Pass provider_status so data layer strictly skips failed providers and promotes alternates
+            fund_df = fetch_fundamentals_batch(winners, provider_status=provider_status, as_of_date=fund_as_of)
         
         # Properly handle index/column ambiguity
         if isinstance(fund_df.index, pd.Index):

@@ -300,9 +300,20 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
     warning = ""
     if (_is_finite(rr_ratio) and rr_ratio < 1.5) or (_is_finite(risk_meter) and risk_meter > 70):
         warning = " ⚠️"
+    # Badges: Coiled + Growth Boost
+    rr_5_20 = _num(row.get("RangeRatio_5_20", row.get("range_ratio_5_20", np.nan)))
+    tightness = _num(row.get("Tightness_Ratio", row.get("tightness_ratio", np.nan)))
+    eps_g = _num(row.get("eps_g_yoy", row.get("EPS YoY", np.nan)))
+    is_coiled = (np.isfinite(rr_5_20) and rr_5_20 < 0.7) or (np.isfinite(tightness) and tightness < 0.6)
+    is_growth = np.isfinite(eps_g) and eps_g > 0.25
 
-        # Build explanation bullets (top-level quick rationale)
-        bullets = []
+    coil_badge = "<span class='badge coil'>🎯 COILED</span>" if is_coiled else ""
+    growth_badge = "<span class='badge growth'>🚀 GROWTH BOOST</span>" if is_growth else ""
+
+    # Build explanation bullets (top-level quick rationale) only when warning
+    bullets = []
+    bullet_html = ""
+    if warning:
         if _is_finite(fund_score):
             if fund_score >= 60:
                 bullets.append(f"Fundamentals solid ({fmt_score(fund_score)})")
@@ -320,16 +331,15 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
             bullets.append(f"Rank #{overall_rank}")
         if potential_fmt not in ("N/A", None):
             bullets.append(f"Upside {potential_fmt}")
-        bullet_html = ""
         if bullets:
-                items = "".join(f"<li>{html_escape.escape(b)}</li>" for b in bullets[:6])
-                bullet_html = f"<ul class='signal-bullets'>{items}</ul>"
+            items = "".join(f"<li>{html_escape.escape(b)}</li>" for b in bullets[:6])
+            bullet_html = f"<ul class='signal-bullets'>{items}</ul>"
 
-        # Card HTML rendering block (fixed)
-        card_html = f"""
+    # Card HTML rendering block (always render)
+    card_html = f"""
 <div class='clean-card { 'speculative' if speculative else 'core' }'>
     <div class='card-header'>
-        <div class='ticker-line'><span class='ticker-badge ltr'>{ticker}</span><span class='type-badge'>{type_badge}</span><span class='rank-badge ltr'>#{overall_rank}</span></div>
+        <div class='ticker-line'><span class='ticker-badge ltr'>{ticker}</span><span class='type-badge'>{type_badge}</span><span class='rank-badge ltr'>#{overall_rank}</span> {coil_badge} {growth_badge}</div>
         <h2 class='overall-score'>{overall_score_fmt}<span class='score-label ltr'>/100</span>{warning}</h2>
     </div>
     <div class='entry-target-line'>Entry <b class='ltr'>{entry_fmt}</b> -> Target <b class='ltr'>{target_fmt}</b> {target_badge} <span class='potential ltr'>{potential_fmt}</span></div>
@@ -355,7 +365,7 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
     </details>
 </div>
 """
-        return card_html
+    return card_html
 # Deterministic ranking helper (score desc, ticker asc) prior to Core/Spec split
 def apply_deterministic_ranking(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
@@ -2392,6 +2402,23 @@ with st.expander("🎛️ אפשרויות מתקדמות", expanded=False):
         )
         st.session_state["ml_threshold"] = int(ml_threshold)
 
+    # Coiled/Growth filters
+    col_f1, col_f2 = st.columns(2)
+    with col_f1:
+        only_coiled = st.checkbox(
+            "הצג רק מניות מצומצמות (Coiled)",
+            value=bool(st.session_state.get("only_coiled", False)),
+            help="סינון לפי הידוק תבנית (Tightness/RangeRatio)"
+        )
+        st.session_state["only_coiled"] = only_coiled
+    with col_f2:
+        only_growth = st.checkbox(
+            "הצג רק מובילות צמיחה",
+            value=bool(st.session_state.get("only_growth_leaders", False)),
+            help="סינון לפי קצב צמיחת EPS"
+        )
+        st.session_state["only_growth_leaders"] = only_growth
+
 # OpenAI target price enhancement
 if OPENAI_AVAILABLE and _env("OPENAI_API_KEY"):
     with col_a1:
@@ -3645,8 +3672,47 @@ if not rec_df.empty:
     if "RSI" in rec_df.columns:
         rec_df = rec_df[(rec_df["RSI"].isna()) | (rec_df["RSI"] <= rsi_max)]
 
+    # Apply Coiled filter
+    if bool(st.session_state.get("only_coiled", False)):
+        rr_5 = pd.to_numeric(rec_df.get("RangeRatio_5_20", np.nan), errors="coerce")
+        tight = pd.to_numeric(rec_df.get("Tightness_Ratio", np.nan), errors="coerce")
+        cond_coiled = (
+            (rr_5.notna() & (rr_5 < 0.7)) | (tight.notna() & (tight < 0.6))
+        )
+        before = len(rec_df)
+        rec_df = rec_df[cond_coiled].copy()
+        logger.info(f"[FILTER] Coiled filter: {len(rec_df)} remain (removed {before - len(rec_df)})")
+
+    # Apply Growth Leaders filter
+    if bool(st.session_state.get("only_growth_leaders", False)):
+        eps = pd.to_numeric(
+            rec_df.get("eps_g_yoy", rec_df.get("EPS YoY", np.nan)), errors="coerce"
+        )
+        boost = pd.to_numeric(rec_df.get("Growth_Boost", np.nan), errors="coerce")
+        cond_growth = (
+            (eps.notna() & (eps > 0.25)) | (boost.notna() & (boost > 0.0))
+        )
+        before = len(rec_df)
+        rec_df = rec_df[cond_growth].copy()
+        logger.info(f"[FILTER] Growth leaders filter: {len(rec_df)} remain (removed {before - len(rec_df)})")
+
 logger.info(f"[FILTER] Final recommendations after all filters: {len(rec_df)} stocks (started with {initial_rec_count})")
 st.info(f"📊 **{len(rec_df)} מניות** עברו את כל המסננים (מתוך {initial_rec_count} שנבדקו)")
+
+# KPI: Coiled Gems Found (based on Tightness/RangeRatio)
+try:
+    rr_5_all = pd.to_numeric(rec_df.get("RangeRatio_5_20", np.nan), errors="coerce")
+    tight_all = pd.to_numeric(rec_df.get("Tightness_Ratio", np.nan), errors="coerce")
+    coiled_count = int((
+        ((rr_5_all.notna()) & (rr_5_all < 0.7)) | ((tight_all.notna()) & (tight_all < 0.6))
+    ).sum())
+    k1, k2 = st.columns(2)
+    with k1:
+        st.metric("Coiled Gems Found", f"{coiled_count}")
+    with k2:
+        st.metric("Total Candidates", f"{len(rec_df)}")
+except Exception:
+    pass
 
 if initial_rec_count > 0 and len(rec_df) < initial_rec_count:
     removed = initial_rec_count - len(rec_df)
@@ -4940,6 +5006,10 @@ show_order = [
     "Tech Score",
     "Fundamental Score",
     "RSI",
+    "Blended_RS_Value",
+    "Tightness_Ratio",
+    "Growth_Boost",
+    "MarketCap_B",
     "Market vs (3M) (%)",
     "Volume Surge (x)",
     "MA Aligned",
@@ -5003,8 +5073,29 @@ hebrew_cols = {
     "Fundamental_S": "ציון יסודות",
     "Technical_S": "ציון טכני",
     "overall_score_20d": "ציון 20 יום",
+    "Blended_RS_Value": "RS משולב",
+    "Tightness_Ratio": "יחס הידוק",
+    "Growth_Boost": "בוסט צמיחה",
+    "MarketCap_B": "שווי שוק (מיליארדים)",
     # Add more mappings as needed for full export
 }
+
+# Ensure aliases for UI columns
+try:
+    if "Blended_RS_Value" not in rec_df.columns:
+        rec_df["Blended_RS_Value"] = rec_df.get("market_rs_blended", rec_df.get("RS_63d", np.nan))
+    # Tightness alias
+    if "Tightness_Ratio" not in rec_df.columns:
+        rec_df["Tightness_Ratio"] = rec_df.get("tightness_ratio", rec_df.get("VCP_Tightness", np.nan))
+    # Growth boost alias
+    if "Growth_Boost" not in rec_df.columns:
+        rec_df["Growth_Boost"] = rec_df.get("growth_boost", rec_df.get("growth_accel_bonus", np.nan))
+    # MarketCap in Billions
+    if "MarketCap_B" not in rec_df.columns:
+        mc = pd.to_numeric(rec_df.get("MarketCap", rec_df.get("market_cap", np.nan)), errors="coerce")
+        rec_df["MarketCap_B"] = (mc / 1e9).where(mc.notna(), np.nan)
+except Exception:
+    pass
 
 csv_df = rec_df.rename(columns=hebrew_cols)
 

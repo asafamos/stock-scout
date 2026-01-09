@@ -128,17 +128,119 @@ def compute_simple_rsi(series: pd.Series, period: int = 14) -> float:
 
 def compute_relative_strength_vs_spy(ticker_df: pd.DataFrame, spy_df: pd.DataFrame, period: int = 20) -> float:
     """
-    Relative strength = stock outperformance vs SPY.
-    Positive = beating market = good.
+    Dual-Phase Relative Strength vs SPY.
+
+    Returns a single float representing a weighted blend of:
+    - Standard 20d RS: stock 20-day return minus SPY 20-day return
+    - Resilience RS: if SPY's cumulative 10-day return is negative, blend in the
+      stock's compounded return on the specific SPY down-days (last 10 trading days)
+      with a 1.5x multiplier
+
+    NaN/length safety: returns 0.0 if inputs are insufficient.
     """
-    if len(ticker_df) < period or len(spy_df) < period:
+    try:
+        # Normalize close column casing ('Close' preferred, fallback to 'close')
+        def _get_close(df: pd.DataFrame) -> Optional[pd.Series]:
+            if df is None or df.empty:
+                return None
+            if 'Close' in df.columns:
+                return df['Close']
+            if 'close' in df.columns:
+                return df['close']
+            return None
+
+        t_close = _get_close(ticker_df)
+        s_close = _get_close(spy_df)
+        if t_close is None or s_close is None:
+            return 0.0
+
+        if len(t_close) < period or len(s_close) < period:
+            return 0.0
+
+        # Standard 20d returns and RS
+        t0, t20 = float(t_close.iloc[-1]), float(t_close.iloc[-period])
+        s0, s20 = float(s_close.iloc[-1]), float(s_close.iloc[-period])
+        if not np.isfinite(t0) or not np.isfinite(t20) or t20 == 0:
+            return 0.0
+        if not np.isfinite(s0) or not np.isfinite(s20) or s20 == 0:
+            return 0.0
+
+        stock_20d_ret = (t0 / t20) - 1.0
+        spy_20d_ret = (s0 / s20) - 1.0
+        standard_rs = float(stock_20d_ret - spy_20d_ret)
+
+        # Resilience RS: only applies if SPY 10-day cumulative return is negative
+        resilience_rs = 0.0
+
+        # Build aligned daily return frame over recent window (last ~12 days for pct_change)
+        # Use 'Date' column if present; else derive from index
+        def _with_date_close(df: pd.DataFrame) -> Optional[pd.DataFrame]:
+            if df is None or df.empty:
+                return None
+            date_col = None
+            if 'Date' in df.columns:
+                date_col = 'Date'
+            elif 'date' in df.columns:
+                date_col = 'date'
+            else:
+                # try index as date
+                try:
+                    idx = pd.to_datetime(df.index)
+                    tmp = pd.DataFrame({'Date': idx})
+                    # attach close series with normalized casing
+                    close_series = _get_close(df)
+                    if close_series is None:
+                        return None
+                    tmp['Close'] = close_series.values
+                    return tmp[['Date', 'Close']]
+                except Exception:
+                    return None
+            # build from explicit column
+            close_series = _get_close(df)
+            if close_series is None:
+                return None
+            return df[[date_col]].rename(columns={date_col: 'Date'}).assign(Close=close_series.values)
+
+        t_df = _with_date_close(ticker_df)
+        s_df = _with_date_close(spy_df)
+        if t_df is None or s_df is None or t_df.empty or s_df.empty:
+            return standard_rs
+
+        # Keep only the last 12 rows to compute recent daily returns robustly
+        t_df = t_df.dropna().copy()
+        s_df = s_df.dropna().copy()
+        t_df = t_df.sort_values('Date').tail(12)
+        s_df = s_df.sort_values('Date').tail(12)
+
+        merged = pd.merge(t_df, s_df, on='Date', suffixes=('_stock', '_spy'))
+        if len(merged) < 2:
+            return standard_rs
+
+        # Daily returns
+        merged['ret_stock'] = merged['Close_stock'].pct_change()
+        merged['ret_spy'] = merged['Close_spy'].pct_change()
+        recent = merged.tail(10)
+
+        # Determine whether SPY 10-day cumulative return is negative
+        try:
+            spy_10d_cum = (float(recent['Close_spy'].iloc[-1]) / float(recent['Close_spy'].iloc[0])) - 1.0
+        except Exception:
+            spy_10d_cum = float(recent['ret_spy'].add(1.0).prod() - 1.0)
+
+        if np.isfinite(spy_10d_cum) and spy_10d_cum < 0:
+            down_mask = recent['ret_spy'] < 0
+            stock_on_down = recent.loc[down_mask, 'ret_stock'].dropna()
+            if len(stock_on_down) > 0:
+                # compounded return on SPY down-days
+                resilience_rs = float(stock_on_down.add(1.0).prod() - 1.0)
+
+        final_rs = float(standard_rs + 1.5 * resilience_rs)
+        # NaN safety
+        if not np.isfinite(final_rs):
+            return 0.0
+        return final_rs
+    except Exception:
         return 0.0
-    
-    # Align dates
-    ticker_ret = (ticker_df['Close'].iloc[-1] / ticker_df['Close'].iloc[-period]) - 1
-    spy_ret = (spy_df['Close'].iloc[-1] / spy_df['Close'].iloc[-period]) - 1
-    
-    return ticker_ret - spy_ret
 
 
 def compute_sector_momentum(ticker: str) -> float:

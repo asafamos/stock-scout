@@ -65,6 +65,11 @@ class PatternMatcher:
             "success_rate": 0.61,
             "win_rate_pct": 1.25,
         },
+        "narrow_range_5d": {
+            "description": "Last 5d ATR vs 20d ATR < 0.7 (tight coil)",
+            "success_rate": 0.72,
+            "win_rate_pct": 1.80,
+        },
     }
     
     @classmethod
@@ -169,6 +174,23 @@ class PatternMatcher:
                     "sr": 0.65
                 }
                 match_scores.append((0.65, 1.0))
+
+        # Pattern 7: Narrow Range 5d (tight volatility coil)
+        # Range Ratio = ATR_5 / ATR_20 computed upstream in indicators
+        rr_5_20 = row.get("RangeRatio_5_20")
+        if rr_5_20 is not None and pd.notna(rr_5_20):
+            try:
+                ratio_val = float(rr_5_20)
+                if np.isfinite(ratio_val) and ratio_val < 0.7:
+                    matches["narrow_range_5d"] = {
+                        "match": True,
+                        "value": ratio_val,
+                        "score": 1.0,
+                        "sr": 0.72,
+                    }
+                    match_scores.append((0.72, 1.0))
+            except Exception:
+                pass
         
         # Calculate aggregate pattern score
         if match_scores:

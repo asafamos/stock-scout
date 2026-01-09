@@ -242,9 +242,25 @@ def compute_recommendation_scores(
     fundamental = compute_fundamental_score_with_breakdown(fund_input)
     fundamental_score = float(fundamental.total) if fundamental else 0.0
 
+    # --- Market regime (needed for ML calibration) ---
+    market_regime = None
+    data_integrity = "OK"
+    try:
+        if as_of_date is not None:
+            start_ctx = (pd.to_datetime(as_of_date) - pd.Timedelta(days=180)).strftime('%Y-%m-%d')
+            end_ctx = (pd.to_datetime(as_of_date) + pd.Timedelta(days=1)).strftime('%Y-%m-%d')
+            ctx = build_market_context_table(start_ctx, end_ctx)
+            if ctx is not None and not ctx.empty:
+                market_regime = str(ctx['Market_Regime'].iloc[-1])
+            else:
+                data_integrity = "DATA_INCOMPLETE"
+    except Exception:
+        market_regime = None
+        data_integrity = "DATA_INCOMPLETE"
+
     # --- ML component ---
     # Canonical rule: prefer already-set ML_20d_Prob if present; otherwise
-    # compute raw via model and calibrate to obtain the final probability.
+    # compute raw via model and calibrate to obtain the final probability (regime-aware).
     ml_prob = ml_prob_override
     if ml_prob is None:
         # If upstream has already set the canonical field, use it directly
@@ -265,11 +281,14 @@ def compute_recommendation_scores(
                     atr_pct_pct = row.get("ATR_Pct_percentile", np.nan)
                     price_as_of = row.get("Price_As_Of_Date", np.nan)
                     reliability_factor = row.get("ReliabilityFactor", np.nan)
+                    rsi_val = row.get("RSI", np.nan)
                     ml_prob = calibrate_ml_20d_prob(
                         prob_raw,
                         atr_pct_percentile=float(atr_pct_pct) if pd.notna(atr_pct_pct) else None,
                         price_as_of=float(price_as_of) if pd.notna(price_as_of) else None,
                         reliability_factor=float(reliability_factor) if pd.notna(reliability_factor) else None,
+                        market_regime=market_regime,
+                        rsi=float(rsi_val) if pd.notna(rsi_val) else None,
                     )
             except Exception:
                 ml_prob = None
@@ -280,25 +299,24 @@ def compute_recommendation_scores(
     except Exception:
         ml_prob = 0.5
 
-    # --- Final & conviction ---
-    # Compute market regime around as_of_date (fallback to last available date)
-    market_regime = None
-    data_integrity = "OK"
+    # Pattern and Big Winner enhancements
     try:
-        if as_of_date is not None:
-            start_ctx = (pd.to_datetime(as_of_date) - pd.Timedelta(days=180)).strftime('%Y-%m-%d')
-            end_ctx = (pd.to_datetime(as_of_date) + pd.Timedelta(days=1)).strftime('%Y-%m-%d')
-            ctx = build_market_context_table(start_ctx, end_ctx)
-            if ctx is not None and not ctx.empty:
-                market_regime = str(ctx['Market_Regime'].iloc[-1])
-            else:
-                data_integrity = "DATA_INCOMPLETE"
+        bw_signal = compute_big_winner_signal_20d(row)
+        patt_eval = PatternMatcher.evaluate_stock(row)
+        final_score, breakdown = compute_final_score_with_patterns(
+            tech_score=float(tech_score),
+            fundamental_score=float(fundamental_score),
+            ml_prob=float(ml_prob),
+            big_winner_score=float(bw_signal.get("BigWinnerScore_20d", 0.0) if isinstance(bw_signal, dict) else float(bw_signal or 0.0)),
+            pattern_score=float(patt_eval.get("pattern_score", 0.0)),
+            bw_weight=0.10,
+            pattern_weight=0.10,
+            market_regime=market_regime,
+        )
+        conviction_score = final_score
     except Exception:
-        market_regime = None
-        data_integrity = "DATA_INCOMPLETE"
-
-    final_score = compute_final_score(tech_score, fundamental_score, ml_prob, market_regime=market_regime)
-    conviction_score = final_score
+        final_score = compute_final_score(tech_score, fundamental_score, ml_prob, market_regime=market_regime)
+        conviction_score = final_score
 
     # ML confidence flagging for transparency
     try:
@@ -390,6 +408,15 @@ def compute_recommendation_scores(
     # Legacy overall score/breakdown for backward compatibility
     score, breakdown = compute_overall_score(rec_row)
     rec_row["Score_Breakdown"] = breakdown
+
+    # Attach pattern/big-winner extras if available
+    try:
+        patt_eval = PatternMatcher.evaluate_stock(rec_row)
+        rec_row["Pattern_Score"] = float(patt_eval.get("pattern_score", 0.0))
+        rec_row["Pattern_Count"] = int(patt_eval.get("pattern_count", 0))
+    except Exception:
+        rec_row["Pattern_Score"] = rec_row.get("Pattern_Score", np.nan)
+        rec_row["Pattern_Count"] = rec_row.get("Pattern_Count", np.nan)
     
     # STRICT RULE: Score must always equal FinalScore_20d (set in to_series above)
     # Never override Score here - it's already set correctly
@@ -843,6 +870,24 @@ def build_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     # ADR_Pct alias for ML features (using ATR_Pct)
     result['ADR_Pct'] = result['ATR_Pct']
 
+    # Tightness metric: Range Ratio (ATR_5 / ATR_20)
+    try:
+        atr_5 = compute_atr(df, period=5)
+        atr_20 = compute_atr(df, period=20)
+        range_ratio = atr_5 / atr_20
+        result['RangeRatio_5_20'] = range_ratio.replace([np.inf, -np.inf], np.nan)
+    except Exception:
+        result['RangeRatio_5_20'] = np.nan
+
+    # Tightness_Ratio: stddev(5d Close) / stddev(20d Close)
+    try:
+        std_5 = close.rolling(5).std()
+        std_20 = close.rolling(20).std()
+        tight_ratio = (std_5 / std_20).replace([np.inf, -np.inf], np.nan)
+        result['Tightness_Ratio'] = tight_ratio
+    except Exception:
+        result['Tightness_Ratio'] = np.nan
+
     # Volatility Contraction Pattern (VCP) score
     # Compare short-term ATR (10d) vs long-term ATR (30d) to detect contraction
     atr_10 = compute_atr(df, period=10)
@@ -933,6 +978,15 @@ def build_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     
     # Rolling 20d high/low for pullback/extension metrics
     result['High_20d'] = high.rolling(20).max()
+    # VCP bonus: identify tight coiling near 20d high
+    try:
+        near_20d_high = close >= (result['High_20d'] * 0.97)
+        tight_mask = (result['Tightness_Ratio'] < 0.6) & near_20d_high
+        vcp_with_bonus = result['Volatility_Contraction_Score'] + (tight_mask.astype(float) * 0.15)
+        result['Volatility_Contraction_Score'] = vcp_with_bonus.clip(upper=1.0)
+    except Exception:
+        # Leave original VCP score if any input missing
+        pass
     result['Low_20d'] = low.rolling(20).min()
     result['PullbackFromHigh_20d'] = (close - result['High_20d']) / result['High_20d']
     result['DistanceFromLow_20d'] = (close - result['Low_20d']) / result['Low_20d']
@@ -1059,9 +1113,10 @@ def compute_technical_score(row: pd.Series, weights: Optional[Dict[str, float]] 
     vcp_score = float(np.clip(row.get("Volatility_Contraction_Score", 0.0), 0.0, 1.0))
 
     # Relative Strength vs SPY component (0-1)
-    rs_val = row.get("Relative_Strength_vs_SPY", np.nan)
+    # Prefer Dual-Phase RS from context ('relative_strength_20d'); fallback to legacy
+    rs_val = row.get("relative_strength_20d", np.nan)
     if pd.isna(rs_val):
-        rs_val = row.get("relative_strength_20d", np.nan)
+        rs_val = row.get("Relative_Strength_vs_SPY", np.nan)
     if pd.isna(rs_val):
         rs_score = 0.5
     else:
@@ -1530,7 +1585,7 @@ def build_market_context_table(
         - Market_Regime: categorical string
         - Regime_TrendUp, Regime_Sideways, Regime_Correction, Regime_Panic: binary flags
     """
-    from core.data_sources_v2 import get_index_series
+    from core.market_context import get_benchmark_series
     import logging
     logger = logging.getLogger(__name__)
     
@@ -1541,14 +1596,14 @@ def build_market_context_table(
     start_extended = start_dt.strftime('%Y-%m-%d')
     end_extended = end_dt.strftime('%Y-%m-%d')
     
-    # Fetch SPY data (STRICT: no fallback)
-    spy_df = get_index_series('SPY', start_extended, end_extended, provider_status)
+    # Fetch SPY data, preferring global cache via get_benchmark_series
+    spy_df = get_benchmark_series('SPY', period='18mo')
     if spy_df is None or spy_df.empty:
         logger.error("Failed to fetch SPY data via primary provider(s)")
         raise RuntimeError("Market context unavailable: SPY series missing")
     
-    # Fetch VIX data (STRICT: required)
-    vix_df = get_index_series('^VIX', start_extended, end_extended, provider_status)
+    # Fetch VIX data, preferring global cache via get_benchmark_series
+    vix_df = get_benchmark_series('^VIX', period='18mo')
     if vix_df is None or vix_df.empty:
         logger.error("Failed to fetch VIX data via primary provider(s)")
         raise RuntimeError("Market context unavailable: VIX series missing")
