@@ -3383,10 +3383,28 @@ for c in score_candidates:
         score_col = c
         break
 
+# Choose a safe ticker column if available
+ticker_candidates = ["Ticker", "symbol", "Symbol", "ticker"]
+ticker_col = None
+for t in ticker_candidates:
+    if t in results.columns:
+        ticker_col = t
+        break
+
+sort_by = []
+ascending = []
 if score_col is not None:
-    sorted_results = results.sort_values([score_col, "Ticker"], ascending=[False, True]).reset_index(drop=True)
+    sort_by.append(score_col)
+    ascending.append(False)
+if ticker_col is not None:
+    sort_by.append(ticker_col)
+    ascending.append(True)
+
+if sort_by:
+    sorted_results = results.sort_values(sort_by, ascending=ascending).reset_index(drop=True)
 else:
-    sorted_results = results.sort_values(["Ticker"], ascending=[True]).reset_index(drop=True)
+    # No valid sort keys; keep original order
+    sorted_results = results.reset_index(drop=True)
 
 results = apply_sector_cap(
     sorted_results,
