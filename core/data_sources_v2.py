@@ -74,7 +74,7 @@ def get_last_index_source(symbol: str) -> Optional[str]:
 # Cache configuration (shared across threads)
 _CACHE: Dict[str, Dict[str, Any]] = {}
 _CACHE_LOCK = threading.Lock()
-CACHE_TTL_SECONDS = 3600  # 1 hour default
+CACHE_TTL_SECONDS = 14400  # 4 hours to reduce rate-limit issues
 
 # Rate limiting (shared across threads)
 _LAST_CALL_TIME: Dict[str, float] = {}

@@ -101,7 +101,7 @@ from core.ui_helpers import (
     show_config_summary,
     create_debug_expander,
 )
-from core.pipeline_runner import run_scan_pipeline
+from core.pipeline_runner import run_scan_pipeline, fetch_top_us_tickers_by_market_cap
 
 # Helper: build clean minimal card
 
@@ -2947,8 +2947,9 @@ if not skip_pipeline:
         uni_limit = int(getattr(cfg, 'universe_limit', 1500))
     except Exception:
         uni_limit = 1500
-    universe = build_universe(limit=uni_limit)
-    status_manager.advance(f"Universe built: {len(universe)} tickers")
+    # Replace local universe builder with market-cap ranked fetcher
+    universe = fetch_top_us_tickers_by_market_cap(limit=uni_limit)
+    status_manager.advance(f"Universe fetched by market cap: {len(universe)} tickers")
     
     # Respect UI toggle for multi-source fundamentals
     try:
@@ -3672,6 +3673,19 @@ if not rec_df.empty:
     if "RSI" in rec_df.columns:
         rec_df = rec_df[(rec_df["RSI"].isna()) | (rec_df["RSI"] <= rsi_max)]
 
+    # Apply Market Cap range ($300M - $20B)
+    try:
+        mc_series = pd.to_numeric(
+            rec_df.get("market_cap", rec_df.get("MarketCap", np.nan)), errors="coerce"
+        )
+        # Persist a normalized billions column for display
+        rec_df["MarketCap_B"] = (mc_series / 1e9).where(mc_series.notna(), np.nan)
+        before = len(rec_df)
+        rec_df = rec_df[(mc_series >= 3e8) & (mc_series <= 2e10)].copy()
+        logger.info(f"[FILTER] Market cap range $300M-$20B: {len(rec_df)} remain (removed {before - len(rec_df)})")
+    except Exception as _e:
+        logger.warning(f"[FILTER] Market cap range filter skipped: {_e}")
+
     # Apply Coiled filter
     if bool(st.session_state.get("only_coiled", False)):
         rr_5 = pd.to_numeric(rec_df.get("RangeRatio_5_20", np.nan), errors="coerce")
@@ -3699,18 +3713,13 @@ if not rec_df.empty:
 logger.info(f"[FILTER] Final recommendations after all filters: {len(rec_df)} stocks (started with {initial_rec_count})")
 st.info(f"📊 **{len(rec_df)} מניות** עברו את כל המסננים (מתוך {initial_rec_count} שנבדקו)")
 
-# KPI: Coiled Gems Found (based on Tightness/RangeRatio)
+# KPI: Totals and pass-through
 try:
-    rr_5_all = pd.to_numeric(rec_df.get("RangeRatio_5_20", np.nan), errors="coerce")
-    tight_all = pd.to_numeric(rec_df.get("Tightness_Ratio", np.nan), errors="coerce")
-    coiled_count = int((
-        ((rr_5_all.notna()) & (rr_5_all < 0.7)) | ((tight_all.notna()) & (tight_all < 0.6))
-    ).sum())
     k1, k2 = st.columns(2)
     with k1:
-        st.metric("Coiled Gems Found", f"{coiled_count}")
+        st.metric("Total Candidates", f"{initial_rec_count}")
     with k2:
-        st.metric("Total Candidates", f"{len(rec_df)}")
+        st.metric("Stocks Passed", f"{len(rec_df)}")
 except Exception:
     pass
 
