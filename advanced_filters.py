@@ -607,38 +607,30 @@ def compute_advanced_score(
 
 def should_reject_ticker(signals: Dict[str, any], dynamic: Optional[Dict[str, float]] = None) -> Tuple[bool, str]:
     """
-    Hard rejection criteria - eliminate poor setups.
+    Hard rejection criteria — EXTREMELY LENIENT.
+    Only reject catastrophic cases (insufficient data or obviously broken setups).
+
     Returns (should_reject, reason)
-    
-    EXTREMELY RELAXED - only reject absolute worst cases.
-    Goal: Let the scoring and classification do the heavy lifting.
     """
-    # Dynamic / static thresholds (static fallback keeps tests stable)
-    rs_thresh = (dynamic.get("rs_63d") if dynamic else None)
-    if rs_thresh is None:
-        rs_thresh = -0.25  # more permissive - only reject severely underperforming
+    # 1) Catastrophic data failure: all core metrics unavailable
+    core_vals = [signals.get("rs_63d", np.nan), signals.get("momentum_consistency", np.nan), signals.get("risk_reward_ratio", np.nan)]
+    if all([not np.isfinite(v) for v in core_vals]):
+        return True, "insufficient_data"
+
+    # 2) Ultra-permissive thresholds: reject only worst-of-the-worst
     rs_63d = signals.get("rs_63d", np.nan)
-    if np.isfinite(rs_63d) and rs_63d <= rs_thresh:
-        return True, f"Underperforming market (<= {rs_thresh:.2f})"
-    
-    # Momentum threshold (dynamic fallback)
-    mom_thresh = (dynamic.get("momentum_consistency") if dynamic else None)
-    if mom_thresh is None:
-        mom_thresh = 0.10  # very permissive - only reject worst momentum
-    mom_consistency = signals.get("momentum_consistency", 0.0)
-    if mom_consistency < mom_thresh:
-        return True, f"Weak momentum (<{mom_thresh:.2f})"
-    
-    # Risk/Reward threshold (dynamic fallback)
-    rr_thresh = (dynamic.get("risk_reward_ratio") if dynamic else None)
-    if rr_thresh is None:
-        rr_thresh = 0.40  # relax from 0.80 -> 0.40 to allow more stocks
+    if np.isfinite(rs_63d) and rs_63d <= (dynamic.get("rs_63d", -0.40) if dynamic else -0.40):
+        return True, "extreme_underperformance"
+
+    mom_consistency = float(signals.get("momentum_consistency", 0.0))
+    if mom_consistency < (dynamic.get("momentum_consistency", 0.00) if dynamic else 0.00):
+        return True, "momentum_breakdown"
+
     rr = signals.get("risk_reward_ratio", np.nan)
-    if np.isfinite(rr) and rr < rr_thresh:
-        return True, f"Poor Risk/Reward (<{rr_thresh:.2f})"
-    
-    # Don't reject based on MA alignment at all - let scoring handle it
-    
+    if np.isfinite(rr) and rr < (dynamic.get("risk_reward_ratio", 0.20) if dynamic else 0.20):
+        return True, "unfavorable_rr"
+
+    # Never reject based on MA alignment; scoring handles it
     return False, ""
 
 

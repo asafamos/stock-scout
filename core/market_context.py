@@ -234,7 +234,8 @@ def compute_relative_strength_vs_spy(ticker_df: pd.DataFrame, spy_df: pd.DataFra
                 # compounded return on SPY down-days
                 resilience_rs = float(stock_on_down.add(1.0).prod() - 1.0)
 
-        final_rs = float(standard_rs + 1.5 * resilience_rs)
+        # Increase resilience emphasis in down markets
+        final_rs = float(standard_rs + 2.0 * resilience_rs)
         # NaN safety
         if not np.isfinite(final_rs):
             return 0.0

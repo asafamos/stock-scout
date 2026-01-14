@@ -10,18 +10,19 @@ from typing import Dict
 
 # Technical scoring weights (must sum to ~1.0; normalized internally)
 TECH_WEIGHTS: Dict[str, float] = {
-    "ma": 0.15,
-    "mom": 0.15,
+    "ma": 0.14,
+    "mom": 0.14,
     "rsi": 0.12,
-    "near_high_bell": 0.07,
-    "vol": 0.06,
+    "near_high_bell": 0.06,
+    "vol": 0.05,
     "overext": 0.04,
     "pullback": 0.03,
     "risk_reward": 0.04,
     "macd": 0.03,
     "adx": 0.04,
-    "vcp": 0.12,
-    "relative_strength": 0.15,
+    # Emphasize VCP and RS (normalized downstream)
+    "vcp": 0.20,
+    "relative_strength": 0.17,
 }
 
 # Final score combination weights

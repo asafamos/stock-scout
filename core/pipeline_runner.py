@@ -331,7 +331,17 @@ def _normalize_config(config: Dict[str, Any]) -> Dict[str, Any]:
     }
     for old_key, new_key in key_map.items():
         if old_key in normalized and new_key not in normalized:
-            normalized[new_key] = normalized[old_key]
+                normalized[new_key] = normalized[old_key]
+        # Enforce softened volume constraint for Tier 1 and downstream risk filters
+        try:
+            if "min_avg_volume" not in normalized or not isinstance(normalized.get("min_avg_volume"), (int, float)):
+                normalized["min_avg_volume"] = 100_000
+            else:
+                # Reduce to 100k if higher
+                if float(normalized.get("min_avg_volume", 100_000)) > 100_000:
+                    normalized["min_avg_volume"] = 100_000
+        except Exception:
+            normalized["min_avg_volume"] = 100_000
     return normalized
 
 def fetch_history_bulk(tickers: List[str], period_days: int, ma_long: int) -> Dict[str, pd.DataFrame]:
@@ -637,12 +647,12 @@ def run_scan_pipeline(
                 except Exception:
                     rs_records.append({"Ticker": tkr, "RS_blend": np.nan})
             if rs_records:
+                # Compute RS percentiles for diagnostics/sorting only; do NOT filter out names
                 rs_df = pd.DataFrame(rs_records)
                 rs_df["RS_blend_Pctl"] = rs_df["RS_blend"].rank(pct=True, ascending=True)
-                keep = rs_df[rs_df["RS_blend_Pctl"] >= 0.80]["Ticker"].tolist()
-                # Filter data_map to top 20% by RS
-                data_map = {t: data_map[t] for t in keep if t in data_map}
-                logger.info(f"[PIPELINE] RS blend top-20% kept {len(data_map)} tickers out of {len(rs_records)}")
+                logger.info(
+                    f"[PIPELINE] RS blended ranking computed for {len(rs_records)} tickers (no hard filter applied)"
+                )
         except Exception as e:
             logger.warning(f"RS blended ranking failed (continuing without): {e}")
 

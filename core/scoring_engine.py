@@ -71,11 +71,34 @@ def compute_final_score_20d(row: pd.Series) -> float:
             0.15 * rr_score +
             0.15 * rel
         )
-
-        # Optional ML adjustment
+        
+        # Optional ML adjustment with reliability gating
         ml_prob = row.get("ML_20d_Prob", None)
         delta = ml_boost_component(ml_prob)
-        final_score = float(np.clip(base + delta, 0.0, 100.0))
+        # Determine reliability level (prefer canonical 'ReliabilityScore')
+        reliability = float(row.get("ReliabilityScore", row.get("Reliability_Score", 50.0)))
+        if reliability < 40:
+            delta *= 0.25  # very low reliability → heavily clamp ML boost
+        elif reliability < 60:
+            delta *= 0.50  # medium-low reliability → half boost
+        # else: full ±10 applies for Medium and above
+
+        # Pattern bonus: emphasize VCP/tight coiling (capped)
+        try:
+            vcp = row.get("Volatility_Contraction_Score", 0.0)
+            vcp = float(vcp) if np.isfinite(vcp) else 0.0
+            tight_ratio = row.get("Tightness_Ratio", np.nan)
+            bonus = 0.0
+            if vcp > 0:
+                bonus += min(5.0, 5.0 * vcp)  # up to +5 for strong contraction
+            if np.isfinite(tight_ratio) and tight_ratio < 0.6:
+                bonus += 2.0  # extra +2 for tightness
+            # Keep total pattern bonus bounded
+            bonus = float(np.clip(bonus, 0.0, 7.0))
+        except Exception:
+            bonus = 0.0
+
+        final_score = float(np.clip(base + delta + bonus, 0.0, 100.0))
         return final_score
     except Exception:
         # Safe fallback to a neutral score

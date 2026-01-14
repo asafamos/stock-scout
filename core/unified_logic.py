@@ -982,7 +982,8 @@ def build_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     try:
         near_20d_high = close >= (result['High_20d'] * 0.97)
         tight_mask = (result['Tightness_Ratio'] < 0.6) & near_20d_high
-        vcp_with_bonus = result['Volatility_Contraction_Score'] + (tight_mask.astype(float) * 0.15)
+        # Stronger bonus for tight coiling near highs
+        vcp_with_bonus = result['Volatility_Contraction_Score'] + (tight_mask.astype(float) * 0.25)
         result['Volatility_Contraction_Score'] = vcp_with_bonus.clip(upper=1.0)
     except Exception:
         # Leave original VCP score if any input missing
