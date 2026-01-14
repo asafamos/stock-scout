@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 import os
+import sys
 import json
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import List, Tuple
+
+# Ensure project root is on sys.path for absolute imports
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
 import pandas as pd
