@@ -2409,22 +2409,7 @@ with st.expander("🎛️ אפשרויות מתקדמות", expanded=False):
         )
         st.session_state["ml_threshold"] = int(ml_threshold)
 
-    # Coiled/Growth filters
-    col_f1, col_f2 = st.columns(2)
-    with col_f1:
-        only_coiled = st.checkbox(
-            "הצג רק מניות מצומצמות (Coiled)",
-            value=bool(st.session_state.get("only_coiled", False)),
-            help="סינון לפי הידוק תבנית (Tightness/RangeRatio)"
-        )
-        st.session_state["only_coiled"] = only_coiled
-    with col_f2:
-        only_growth = st.checkbox(
-            "הצג רק מובילות צמיחה",
-            value=bool(st.session_state.get("only_growth_leaders", False)),
-            help="סינון לפי קצב צמיחת EPS"
-        )
-        st.session_state["only_growth_leaders"] = only_growth
+    # Removed manual binary UI filters (Coiled/Growth) — handled via scoring bonuses
 
 # OpenAI target price enhancement
 if OPENAI_AVAILABLE and _env("OPENAI_API_KEY"):
@@ -2868,50 +2853,8 @@ if skip_pipeline:
     elif "FinalScore_20d" in results.columns and "Score" not in results.columns:
         results["Score"] = results["FinalScore_20d"]
     
-    # Align precomputed snapshot with auto/batch filtering (score floor + top 15)
-    original_count = len(results)
-    score_candidates = ["conviction_v2_final", "Score", "FinalScore_20d", "overall_score_20d", "TechScore_20d"]
-    score_col = next((c for c in score_candidates if c in results.columns), None)
-    top_n = 15
-    removed_below = 0
-
-    if score_col:
-        score_values = pd.to_numeric(results[score_col], errors="coerce")
-        valid_scores = score_values.dropna()
-        if len(valid_scores) >= 10:
-            min_score = float(valid_scores.quantile(0.25))
-        elif len(valid_scores) >= 3:
-            min_score = float(valid_scores.quantile(0.10))
-        else:
-            min_score = 0.0
-        min_score = max(2.0, min_score)
-        results = results.loc[score_values >= min_score].copy()
-        removed_below = original_count - len(results)
-        logger.info(f"[PRECOMPUTED] Min score filter (p25 adaptive, threshold={min_score:.2f}): {len(results)} remain (removed {removed_below})")
-
-        # Keep only the strongest ideas by score (numeric nlargest guards against unsorted snapshots)
-        if len(results) > top_n:
-            results = (
-                results.assign(_score_numeric=pd.to_numeric(results[score_col], errors="coerce"))
-                .nlargest(top_n, "_score_numeric")
-                .drop(columns="_score_numeric")
-            )
-            logger.info(f"[PRECOMPUTED] Top-{top_n} filter: {len(results)} remain")
-    else:
-        logger.warning("[PRECOMPUTED] No score column found; applying top-N filter anyway")
-        # Even without score column, limit to top N to prevent showing too many stocks
-        if len(results) > top_n:
-            results = results.head(top_n).copy()
-
-    filtered_count = len(results)
-    display_cap = min(int(CONFIG.get("TOPN_RESULTS", 15)), top_n)
-    if len(results) > display_cap:
-        results = results.head(display_cap).copy()
-        logger.info(f"[PRECOMPUTED] Display cap ({display_cap}): showing top {len(results)} of {filtered_count} filtered stocks")
-
-    logger.info(
-        f"[PRECOMPUTED] Final display: {len(results)} stocks (original {original_count}, removed_below_min={removed_below})"
-    )
+    # UI now shows all pipeline results; no adaptive percentile or top-N capping
+    logger.info(f"[PRECOMPUTED] Final display: {len(results)} stocks (no adaptive/top-N filter applied)")
     
     # IMPORTANT: Update session state with filtered results so they persist
     st.session_state["precomputed_results"] = results.copy()
@@ -3027,54 +2970,8 @@ if not skip_pipeline:
     except Exception as e:
         logger.warning(f"Failed to auto-save full live scan: {e}")
     
-    # Apply same filters as precomputed to ensure consistency
-    logger.info(f"[LIVE] Filtering live scan results: {len(results)} initial")
-    
-    # Keep copy for comparison logging
-    results_before_display_filter = results.copy()
-    
-    # Use same score column candidates as precomputed
-    score_candidates = ["conviction_v2_final", "Score", "FinalScore_20d", "overall_score_20d", "TechScore_20d"]
-    score_col = next((c for c in score_candidates if c in results.columns), None)
-    top_n = 15
-    removed_below = 0
-    
-    if score_col:
-        score_values = pd.to_numeric(results[score_col], errors="coerce")
-        valid_scores = score_values.dropna()
-        if len(valid_scores) >= 10:
-            min_score = float(valid_scores.quantile(0.25))
-        elif len(valid_scores) >= 3:
-            min_score = float(valid_scores.quantile(0.10))
-        else:
-            min_score = 0.0
-        min_score = max(2.0, min_score)
-        results = results.loc[score_values >= min_score].copy()
-        removed_below = len(results_before_display_filter) - len(results)
-        logger.info(f"[LIVE] Min score filter (p25 adaptive, threshold={min_score:.2f}): {len(results)} remain (removed {removed_below})")
-        
-        # Keep only the strongest ideas by score (numeric nlargest guards against unsorted data)
-        if len(results) > top_n:
-            results = (
-                results.assign(_score_numeric=pd.to_numeric(results[score_col], errors="coerce"))
-                .nlargest(top_n, "_score_numeric")
-                .drop(columns="_score_numeric")
-            )
-            logger.info(f"[LIVE] Top-{top_n} filter: {len(results)} remain")
-    else:
-        logger.warning("[LIVE] No score column found; applying top-N filter anyway")
-        if len(results) > top_n:
-            results = results.head(top_n).copy()
-    
-    filtered_count = len(results)
-    display_cap = min(int(CONFIG.get("TOPN_RESULTS", 15)), top_n)
-    if len(results) > display_cap:
-        results = results.head(display_cap).copy()
-        logger.info(f"[LIVE] Display cap ({display_cap}): showing top {len(results)} of {filtered_count} filtered stocks")
-    
-    logger.info(
-        f"[LIVE] Final display: {len(results)} stocks (original {len(results_before_display_filter)}, removed_below_min={removed_below})"
-    )
+    # Live results: no adaptive percentile or top-N capping; show all
+    logger.info(f"[LIVE] Final display: {len(results)} stocks (no adaptive/top-N filter applied)")
 
 # External price verification (Top-K)
 t0 = t_start()
@@ -3697,17 +3594,17 @@ show_debug_attr = bool(st.session_state.get("show_debug_attr", False))
 compact_mode = bool(st.session_state.get("compact_mode", False))
 score_range = st.session_state.get("score_range", (0.0, 100.0))
 
-# Prepare recommendations view: sort by FinalScore_20d (or best available) and take top 15
+# Prepare recommendations view: sort by FinalScore_20d (primary) and show all
 initial_rec_count = len(results)
 rec_df = results.copy()
-score_candidates = [
-    "FinalScore_20d",
-    "conviction_v2_final",
-    "overall_score_20d",
-    "overall_score",
-    "Score",
-]
-score_col = next((c for c in score_candidates if c in rec_df.columns), None)
+# Prefer FinalScore_20d for ranking; fallback if missing
+score_col = "FinalScore_20d" if "FinalScore_20d" in rec_df.columns else (
+    "Score" if "Score" in rec_df.columns else (
+        "overall_score_20d" if "overall_score_20d" in rec_df.columns else (
+            "overall_score" if "overall_score" in rec_df.columns else None
+        )
+    )
+)
 if score_col:
     rec_df = (
         rec_df.assign(_score_numeric=pd.to_numeric(rec_df[score_col], errors="coerce"))
@@ -3717,9 +3614,7 @@ if score_col:
     )
 else:
     logger.warning("[DISPLAY] No score column found for ranking; preserving source order")
-top_n = int(CONFIG.get("TOPN_RESULTS", 15))
-if len(rec_df) > top_n:
-    rec_df = rec_df.head(top_n).copy()
+    # No TOPN cap — show all viable candidates
 
 if not rec_df.empty:
     # Apply risk filter
@@ -3730,10 +3625,12 @@ if not rec_df.empty:
     if quality_filter and "Data_Quality" in rec_df.columns:
         rec_df = rec_df[rec_df["Data_Quality"].isin(quality_filter)]
 
-    # Apply score range
-    if "Score" in rec_df.columns:
+    # Apply score range on FinalScore_20d (primary) or fallback
+    range_col = "FinalScore_20d" if "FinalScore_20d" in rec_df.columns else ("Score" if "Score" in rec_df.columns else None)
+    if range_col is not None:
         rec_df = rec_df[
-            (rec_df["Score"] >= score_range[0]) & (rec_df["Score"] <= score_range[1])
+            (pd.to_numeric(rec_df[range_col], errors="coerce") >= score_range[0]) &
+            (pd.to_numeric(rec_df[range_col], errors="coerce") <= score_range[1])
         ]
 
     # Apply sector filter
@@ -3746,29 +3643,7 @@ if not rec_df.empty:
 
     # Removed UI market cap filter: the UI now mirrors the pipeline output without local cap constraints
 
-    # Apply Coiled filter
-    if bool(st.session_state.get("only_coiled", False)):
-        rr_5 = pd.to_numeric(rec_df.get("RangeRatio_5_20", np.nan), errors="coerce")
-        tight = pd.to_numeric(rec_df.get("Tightness_Ratio", np.nan), errors="coerce")
-        cond_coiled = (
-            (rr_5.notna() & (rr_5 < 0.7)) | (tight.notna() & (tight < 0.6))
-        )
-        before = len(rec_df)
-        rec_df = rec_df[cond_coiled].copy()
-        logger.info(f"[FILTER] Coiled filter: {len(rec_df)} remain (removed {before - len(rec_df)})")
-
-    # Apply Growth Leaders filter
-    if bool(st.session_state.get("only_growth_leaders", False)):
-        eps = pd.to_numeric(
-            rec_df.get("eps_g_yoy", rec_df.get("EPS YoY", np.nan)), errors="coerce"
-        )
-        boost = pd.to_numeric(rec_df.get("Growth_Boost", np.nan), errors="coerce")
-        cond_growth = (
-            (eps.notna() & (eps > 0.25)) | (boost.notna() & (boost > 0.0))
-        )
-        before = len(rec_df)
-        rec_df = rec_df[cond_growth].copy()
-        logger.info(f"[FILTER] Growth leaders filter: {len(rec_df)} remain (removed {before - len(rec_df)})")
+    # Removed Coiled/Growth hard filters — handled as scoring bonuses in backend
 
 logger.info(f"[FILTER] Final recommendations after all filters: {len(rec_df)} stocks (started with {initial_rec_count})")
 st.info(f"📊 **{len(rec_df)} מניות** עברו את כל המסננים (מתוך {initial_rec_count} שנבדקו)")
