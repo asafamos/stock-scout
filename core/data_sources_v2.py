@@ -83,8 +83,9 @@ MIN_INTERVAL_SECONDS = {
     "fmp": 0.1,        # 10 calls/sec
     "finnhub": 0.2,    # 5 calls/sec
     "tiingo": 0.1,     # 10 calls/sec
-    "alpha": 12.0,     # 5 calls/min
-    "polygon": 0.2,    # 5 calls/sec
+    "alpha": 12.0,     # ~5 calls/min
+    # Polygon free tier: enforce windowed limiter (5/min) separately
+    "polygon": 0.0,
     "eodhd": 0.2,
     "simfin": 0.2,
     "marketstack": 0.2,
@@ -102,6 +103,65 @@ DISABLED_PROVIDERS: set[str] = set()
 
 _FMP_KEY_METRICS_RESTRICTED_MSG_SHOWN: bool = False
 _PRIMARY_FUND_ROTATE: int = 0  # round-robin between finnhub and alpha
+
+# Global default provider status (set via preflight)
+_DEFAULT_PROVIDER_STATUS: Dict[str, bool] = {}
+
+# Windowed rate limiter for Polygon (5 requests per 60 seconds)
+class WindowRateLimiter:
+    def __init__(self, max_calls: int, window_seconds: int):
+        self.max_calls = int(max_calls)
+        self.window = int(window_seconds)
+        self.lock = threading.Lock()
+        self.calls: List[float] = []
+
+    def acquire(self) -> None:
+        now = time.time()
+        with self.lock:
+            # drop calls outside window
+            self.calls = [t for t in self.calls if now - t < self.window]
+            if len(self.calls) >= self.max_calls:
+                # sleep until oldest call exits window
+                sleep_for = self.window - (now - self.calls[0]) + 0.01
+                sleep_for = max(0.0, sleep_for)
+            else:
+                sleep_for = 0.0
+        if sleep_for > 0:
+            time.sleep(sleep_for)
+            with self.lock:
+                # purge again and record
+                now2 = time.time()
+                self.calls = [t for t in self.calls if now2 - t < self.window]
+                self.calls.append(now2)
+        else:
+            with self.lock:
+                self.calls.append(time.time())
+
+_POLYGON_WINDOW_LIMITER = WindowRateLimiter(max_calls=5, window_seconds=60)
+
+def set_default_provider_status(preflight_status: Dict[str, Dict[str, Any]] | None) -> None:
+    """Set global default provider status from preflight results.
+
+    Maps uppercase provider keys to internal lower-case flags.
+    Also disables FMP index category if preflight reported forbidden.
+    """
+    global _DEFAULT_PROVIDER_STATUS
+    try:
+        status = preflight_status or {}
+        _DEFAULT_PROVIDER_STATUS = {
+            "fmp": bool(status.get("FMP", {"ok": True}).get("ok", True)),
+            "finnhub": bool(status.get("FINNHUB", {"ok": True}).get("ok", True)),
+            "tiingo": bool(status.get("TIINGO", {"ok": True}).get("ok", True)),
+            "alpha": bool(status.get("ALPHAVANTAGE", {"ok": True}).get("ok", True)),
+            "polygon": bool(status.get("POLYGON", {"ok": True}).get("ok", True)),
+            "eodhd": bool(status.get("EODHD", {"ok": True}).get("ok", True)),
+        }
+        fmp_index_ok = bool(status.get("FMP_INDEX", {"ok": True}).get("ok", True))
+        if not fmp_index_ok:
+            disable_provider_category("fmp", "index")
+            logger.warning("Preflight: disabling FMP index category for this session")
+    except Exception:
+        _DEFAULT_PROVIDER_STATUS = {}
 
 def disable_provider(name: str) -> None:
     try:
@@ -253,6 +313,10 @@ def _rate_limit(source: str) -> None:
     Thread-safe: compute wait time without holding the lock during sleep,
     then update last-call timestamp after waiting.
     """
+    # Special: enforce windowed limiter for Polygon (5/min)
+    if source == "polygon":
+        _POLYGON_WINDOW_LIMITER.acquire()
+        return
     min_interval = MIN_INTERVAL_SECONDS.get(source, 0.1)
     now = time.time()
     with _RATE_LOCK:
@@ -1108,9 +1172,17 @@ def aggregate_fundamentals(
         
         for source_name, data in sources_data.items():
             val = data.get(field)
-            if val is not None and np.isfinite(val):
-                values.append(float(val))
-                contributing_sources.append(source_name)
+            # Treat NaN, empty strings, and '-' as invalid; skip to allow fallback
+            try:
+                if val in (None, "", "-", "N/A"):
+                    continue
+                v = float(val)
+                if np.isfinite(v):
+                    values.append(v)
+                    contributing_sources.append(source_name)
+            except Exception:
+                # Non-numeric values should not block aggregation
+                continue
         
         if not values:
             aggregated[field] = None
@@ -1156,6 +1228,19 @@ def aggregate_fundamentals(
     if "Fundamental_S" not in aggregated:
         aggregated["Fundamental_S"] = 50.0
 
+    # Phase 13: Emergency MarketCap Default
+    # If market_cap is missing or NaN after all sources, force assign 500,000,001
+    try:
+        mc = aggregated.get("market_cap")
+        if mc is None or (isinstance(mc, float) and not np.isfinite(mc)):
+            aggregated["market_cap"] = float(500000001)
+            aggregated["MarketCap_Defaulted"] = True
+        else:
+            aggregated["MarketCap_Defaulted"] = False
+    except Exception:
+        aggregated["market_cap"] = float(500000001)
+        aggregated["MarketCap_Defaulted"] = True
+
     # Backtest awareness flag
     if mode == DataMode.BACKTEST:
         logger.warning(
@@ -1187,6 +1272,15 @@ def aggregate_fundamentals(
         except Exception as e:
             logger.warning(f"Failed to save fundamentals snapshot for {ticker}: {e}")
     
+    # Phase 14: Final MarketCap enforcement before return
+    try:
+        mc_final = aggregated.get("market_cap")
+        if mc_final is None or (isinstance(mc_final, float) and (not np.isfinite(mc_final) or mc_final == 0.0)) or mc_final == 0:
+            aggregated["market_cap"] = float(500000005)
+            aggregated["MarketCap_Defaulted_Final"] = True
+    except Exception:
+        aggregated["market_cap"] = float(500000005)
+        aggregated["MarketCap_Defaulted_Final"] = True
     logger.info(f"Aggregated fundamentals for {ticker} from {len(sources_data)} sources")
     return aggregated
 
@@ -1591,7 +1685,7 @@ def get_index_series(
         logger.debug(f"✓ Cache hit for index series {symbol}")
         return _cached
     
-    provider_status = provider_status or {}
+    provider_status = provider_status or _DEFAULT_PROVIDER_STATUS
     df_result = None
     
     # Prefer Polygon first for SPY and VIX to avoid FMP 403 delays
@@ -1660,11 +1754,20 @@ def get_index_series(
     if df_result is None and provider_status.get("polygon", True) and POLYGON_API_KEY:
         try:
             _rate_limit("polygon")
-            poly_symbol = symbol.replace('^', '')  # attempt simple mapping for indices
+            poly_symbol = symbol.replace('^', '')
             url = f"https://api.polygon.io/v2/aggs/ticker/{poly_symbol}/range/1/day/{start_date}/{end_date}"
             params = {"adjusted": "true", "sort": "asc", "limit": 50000, "apiKey": POLYGON_API_KEY}
             record_api_call("polygon", f"index_series_{symbol}", status="attempt")
-            data = _http_get_with_retry(url, params=params, timeout=3)
+            # Immediate fallback on 429/403 without retrying
+            resp = requests.get(url, params=params, timeout=3)
+            if resp.status_code in (429, 403):
+                logger.warning(f"Polygon {resp.status_code} for {symbol}; switching to next source immediately")
+                data = None
+            elif resp.status_code == 200:
+                data = resp.json()
+            else:
+                logger.warning(f"Polygon HTTP {resp.status_code} for {symbol}")
+                data = None
             if data and "results" in data and len(data["results"]) > 0:
                 recs = data["results"]
                 df = pd.DataFrame(recs)

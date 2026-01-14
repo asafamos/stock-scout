@@ -11,6 +11,8 @@ import functools
 from typing import Optional
 
 from core.data_sources_v2 import get_index_series, get_last_index_source
+from core.config import get_secret
+import requests
 
 # Global cache for per-date market breadth
 _MARKET_BREADTH_CACHE = {}
@@ -34,7 +36,40 @@ def initialize_market_context(symbols: Optional[list[str]] = None, period_days: 
     required = {"SPY", "^VIX"}
     for sym in syms:
         try:
-            df = get_index_series(sym, start_dt, end_dt)
+            # Prefer Tiingo for sector ETFs (XL*) first; if it fails, try Polygon after a short delay
+            df = None
+            if sym.upper().startswith("XL"):
+                tiingo_key = get_secret("TIINGO_API_KEY", "")
+                if tiingo_key:
+                    try:
+                        tiingo_symbol = sym.replace('^', '$')
+                        url = f"https://api.tiingo.com/tiingo/daily/{tiingo_symbol}/prices"
+                        headers = {"Content-Type": "application/json", "Authorization": f"Token {tiingo_key}"}
+                        params = {"startDate": start_dt, "endDate": end_dt}
+                        resp = requests.get(url, params=params, headers=headers, timeout=4)
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            if isinstance(data, list) and len(data) > 0:
+                                tdf = pd.DataFrame(data)
+                                tdf["date"] = pd.to_datetime(tdf["date"]) if "date" in tdf.columns else pd.to_datetime(tdf.index)
+                                tdf = tdf.rename(columns={"open": "open", "high": "high", "low": "low", "close": "close", "volume": "volume"})
+                                cols = ["date", "open", "high", "low", "close", "volume"]
+                                if all(c in tdf.columns for c in cols):
+                                    df = tdf[cols].sort_values("date").reset_index(drop=True)
+                        else:
+                            df = None
+                    except Exception:
+                        df = None
+                # If Tiingo failed, try Polygon with a 2-second delay and FMP disabled to avoid delays
+                if df is None:
+                    try:
+                        import time as _t
+                        _t.sleep(2)
+                        df = get_index_series(sym, start_dt, end_dt, provider_status={"fmp": False, "polygon": True, "tiingo": True, "alpha": True})
+                    except Exception:
+                        df = None
+            if df is None:
+                df = get_index_series(sym, start_dt, end_dt)
             if df is None or df.empty:
                 if sym in required:
                     raise RuntimeError(f"Missing global series for {sym}")
@@ -234,8 +269,8 @@ def compute_relative_strength_vs_spy(ticker_df: pd.DataFrame, spy_df: pd.DataFra
                 # compounded return on SPY down-days
                 resilience_rs = float(stock_on_down.add(1.0).prod() - 1.0)
 
-        # Increase resilience emphasis in down markets
-        final_rs = float(standard_rs + 2.0 * resilience_rs)
+        # Increase resilience emphasis in down markets (2.5x multiplier)
+        final_rs = float(standard_rs + 2.5 * resilience_rs)
         # NaN safety
         if not np.isfinite(final_rs):
             return 0.0

@@ -79,6 +79,18 @@ def compute_position_risk_factor(row: pd.Series) -> float:
 
     The result is clamped to [0, 1].
     """
+    # Coil/VCP override detection
+    coil_vcp_override = False
+    try:
+        coil_flag = bool(row.get("Coil_Bonus", False))
+    except Exception:
+        coil_flag = False
+    try:
+        vcp_score = float(row.get("Volatility_Contraction_Score", 0.0) or 0.0)
+    except Exception:
+        vcp_score = 0.0
+    coil_vcp_override = coil_flag or (vcp_score >= 0.6)
+
     # Safety gates
     risk_class = row.get("RiskClass", None)
     if risk_class is None:
@@ -86,7 +98,7 @@ def compute_position_risk_factor(row: pd.Series) -> float:
         rl = str(row.get("Risk_Level", "speculative")).lower()
         risk_class = "CORE" if rl == "core" else "SPEC"
     safety_blocked = bool(row.get("SafetyBlocked", False))
-    if str(risk_class).upper() == "REJECT" or safety_blocked:
+    if (str(risk_class).upper() == "REJECT" or safety_blocked) and not coil_vcp_override:
         return 0.0
 
     # Base factor by class
@@ -96,7 +108,11 @@ def compute_position_risk_factor(row: pd.Series) -> float:
     rel = _get_canonical_reliability(row)
     if np.isfinite(rel):
         if rel < 10.0:
-            return 0.0
+            # Do not hard-block coil/VCP; apply heavy reduction instead
+            if coil_vcp_override:
+                base *= 0.50
+            else:
+                return 0.0
         elif rel < 30.0:
             base *= 0.50
         elif rel < 50.0:
@@ -323,7 +339,8 @@ def calculate_risk_gate_v2(
     rr_ratio: float,
     reliability_v2: float,
     fund_sources_count: int = 0,
-    quality_score: float = 50.0
+    quality_score: float = 50.0,
+    coil_vcp_override: bool = False
 ) -> Tuple[str, float, Dict[str, Any]]:
     """
     Risk/Reward gate that BLOCKS or REDUCES position sizing.
@@ -355,6 +372,10 @@ def calculate_risk_gate_v2(
     if rr_ratio < 1.0:
         rr_gate = "blocked"
         rr_penalty = 0.0
+        if coil_vcp_override:
+            # Bypass hard block for coil/VCP; treat as reduced
+            rr_gate = "reduced"
+            rr_penalty = 0.6
     elif rr_ratio < 1.5:
         rr_gate = "reduced"
         rr_penalty = 0.5
@@ -371,6 +392,9 @@ def calculate_risk_gate_v2(
     if reliability_v2 < 10:
         reliability_gate = "blocked"
         reliability_penalty = 0.0
+        if coil_vcp_override:
+            reliability_gate = "reduced"
+            reliability_penalty = 0.6
     elif reliability_v2 < 30:
         reliability_gate = "reduced"
         reliability_penalty = 0.5
@@ -399,8 +423,13 @@ def calculate_risk_gate_v2(
     # Special strict rule: if no fund sources -> BLOCK
     if fund_sources_count <= 0:
         details["reason"] = "no_fund_sources"
-        details["combined_penalty"] = 0.0
-        return "blocked", 0.0, details
+        if coil_vcp_override:
+            # Allow reduced sizing instead of full block
+            details["combined_penalty"] = 0.6
+            return "reduced", 0.6, details
+        else:
+            details["combined_penalty"] = 0.0
+            return "blocked", 0.0, details
 
     # Combined conviction factor: more restrictive of rr vs reliability, then scaled by quality
     combined_penalty = min(rr_penalty, reliability_penalty) * quality_penalty
@@ -624,8 +653,16 @@ def score_ticker_v2_enhanced(
         
         # Pass the detected number of fund sources to the gate for strict blocking
         fund_src_count = int(rel_details.get("fund_sources_count", 0))
+        # Coil/VCP override flag
+        coil_flag = bool(row.get("Coil_Bonus", False))
+        try:
+            vcp_score = float(row.get("Volatility_Contraction_Score", 0.0) or 0.0)
+        except Exception:
+            vcp_score = 0.0
+        coil_override = coil_flag or (vcp_score >= 0.6)
+
         gate_status, gate_penalty, gate_details = calculate_risk_gate_v2(
-            rr_ratio, reliability_v2, fund_src_count, quality_score
+            rr_ratio, reliability_v2, fund_src_count, quality_score, coil_vcp_override=coil_override
         )
         result["rr_ratio_v2"] = rr_ratio
         result["risk_gate_status_v2"] = gate_status

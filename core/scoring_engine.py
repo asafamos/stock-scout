@@ -59,6 +59,13 @@ def compute_final_score_20d(row: pd.Series) -> float:
     try:
         fund = float(row.get("FundamentalScore", 50.0))
         mom = float(row.get("MomentumScore", row.get("TechScore_20d", 50.0)))
+        # Hunter amplification: if Coil_Bonus is active, amplify technical/momentum
+        try:
+            coil_bonus_active = bool(row.get("Coil_Bonus", 0)) or str(row.get("Coil_Bonus", "0")) in ("1", "True")
+            if coil_bonus_active:
+                mom = float(mom) * 1.5
+        except Exception:
+            pass
         rel = float(row.get("ReliabilityScore", 50.0))
 
         # RR ratio → score (0-100)
@@ -90,15 +97,30 @@ def compute_final_score_20d(row: pd.Series) -> float:
             tight_ratio = row.get("Tightness_Ratio", np.nan)
             bonus = 0.0
             if vcp > 0:
-                bonus += min(5.0, 5.0 * vcp)  # up to +5 for strong contraction
+                bonus += min(8.0, 8.0 * vcp)  # amplify VCP impact (up to +8)
             if np.isfinite(tight_ratio) and tight_ratio < 0.6:
-                bonus += 2.0  # extra +2 for tightness
+                bonus += 3.0  # tighter coils get stronger boost
             # Keep total pattern bonus bounded
-            bonus = float(np.clip(bonus, 0.0, 7.0))
+            bonus = float(np.clip(bonus, 0.0, 10.0))
         except Exception:
             bonus = 0.0
 
         final_score = float(np.clip(base + delta + bonus, 0.0, 100.0))
+        # Ensure a minimum floor for high-quality pre-jump setups
+        try:
+            vcp_score = row.get("Volatility_Contraction_Score", 0.0)
+            coil_bonus_active = bool(row.get("Coil_Bonus", 0)) or str(row.get("Coil_Bonus", "0")) in ("1", "True")
+            vcp_good = isinstance(vcp_score, (int, float)) and np.isfinite(vcp_score) and float(vcp_score) > 0.6
+            if coil_bonus_active or vcp_good:
+                final_score = max(final_score, 40.0)
+        except Exception:
+            pass
+        # Phase 14: Hunter floor enforcement for springs/coils
+        try:
+            if row.get('Coil_Bonus') == 1 or float(row.get('Volatility_Contraction_Score', 0) or 0) > 0.6:
+                final_score = max(final_score, 55.0)
+        except Exception:
+            pass
         return final_score
     except Exception:
         # Safe fallback to a neutral score
@@ -373,7 +395,8 @@ def compute_overall_score(row: pd.Series) -> Tuple[float, Dict[str, float]]:
             missing_count += 1
     
     if missing_count > 0:
-        penalty = missing_count * 2.0  # 2 points per missing key metric
+        # Cap missing-data penalty to a maximum of 15 points
+        penalty = min(missing_count * 2.0, 15.0)
         penalty_breakdown["missing_data"] = penalty
         penalty_total += penalty
     

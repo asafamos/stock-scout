@@ -87,9 +87,10 @@ def fetch_top_us_tickers_by_market_cap(limit: int = 2000) -> List[str]:
             except Exception:
                 min_cap = 300_000_000
             try:
-                max_cap = int(os.getenv("MAX_MCAP", "20000000000"))
+                # Target pre-jump candidates: cap upper bound at ~$10B by default
+                max_cap = int(os.getenv("MAX_MCAP", "10000000000"))
             except Exception:
-                max_cap = 20_000_000_000
+                max_cap = 10_000_000_000
             params = {
                 "marketCapMoreThan": max(min_cap, 0),
                 "marketCapLowerThan": max_cap,
@@ -345,17 +346,28 @@ def _normalize_config(config: Dict[str, Any]) -> Dict[str, Any]:
     return normalized
 
 def fetch_history_bulk(tickers: List[str], period_days: int, ma_long: int) -> Dict[str, pd.DataFrame]:
+    # Phase 14: Hard override for lookback – ignore args and fetch 365-calendar days
+    days_to_fetch = 365
     end = datetime.utcnow()
-    start = end - timedelta(days=period_days + 50)
+    start = end - timedelta(days=days_to_fetch)
     data_map = {}
-    min_rows = max(50, ma_long // 2)
+    # Relax minimum rows requirement: allow proceeding with 60 rows
+    min_rows = 60
 
     # Batch in groups of 50 to mitigate timeouts; sleep 1s between batches
     CHUNK = 50
     for i in range(0, len(tickers), CHUNK):
         chunk = tickers[i:i+CHUNK]
         try:
-            df_all = yf.download(chunk, start=start, end=end, group_by='ticker', progress=False, threads=True)
+            df_all = yf.download(
+                chunk,
+                start=start,
+                end=end,
+                group_by='ticker',
+                progress=False,
+                threads=True,
+                auto_adjust=True,
+            )
             if len(chunk) == 1:
                 tkr = chunk[0]
                 df = df_all
@@ -385,8 +397,8 @@ def fetch_beta_vs_benchmark(ticker: str, bench: str = "SPY", days: int = 252) ->
     try:
         end = datetime.utcnow()
         start = end - timedelta(days=days + 30)
-        df_t = yf.download(ticker, start=start, end=end, progress=False)
-        df_b = yf.download(bench, start=start, end=end, progress=False)
+        df_t = yf.download(ticker, start=start, end=end, progress=False, auto_adjust=True)
+        df_b = yf.download(bench, start=start, end=end, progress=False, auto_adjust=True)
         
         if df_t.empty or df_b.empty: return np.nan
         
@@ -427,9 +439,11 @@ def _step_fetch_and_prepare_base_data(
     if data_map is None:
         if status_callback:
             status_callback("Fetching historical data...")
-        data_map = fetch_history_bulk(universe, config.get("lookback_days", 200), config.get("ma_long", 200))
+        # Phase 13: Hard-code minimum lookback to 250 days for VCP/52-week calculations
+        data_map = fetch_history_bulk(universe, 250, config.get("ma_long", 200))
 
-    benchmark_df = fetch_benchmark_data(config.get("beta_benchmark", "SPY"), config.get("lookback_days", 252))
+    # Ensure benchmark also uses at least ~250 days (252 acceptable); keep existing default
+    benchmark_df = fetch_benchmark_data(config.get("beta_benchmark", "SPY"), max(250, int(config.get("lookback_days", 252))))
     return data_map, benchmark_df
 
 
@@ -604,7 +618,8 @@ def run_scan_pipeline(
     # Initialize global market context caches (SPY + VIX) to avoid repeated provider hits
     try:
         from core.market_context import initialize_market_context
-        initialize_market_context(symbols=["SPY", "^VIX"], period_days=int(config.get("lookback_days", 200)))
+        # Enforce minimum market context window of 250 days
+        initialize_market_context(symbols=["SPY", "^VIX"], period_days=250)
         logger.info("[PIPELINE] Global index cache initialized (SPY, VIX)")
     except Exception as e:
         logger.debug(f"[PIPELINE] Market context init skipped: {e}")
@@ -613,6 +628,15 @@ def run_scan_pipeline(
     try:
         from core.api_preflight import run_preflight
         provider_status: Dict[str, Dict[str, Any]] = run_preflight()
+        # Apply global default provider status to v2 data layer
+        try:
+            from core.data_sources_v2 import set_default_provider_status, disable_provider_category
+            set_default_provider_status(provider_status)
+            # If FMP index endpoint is not OK, disable for session
+            if not provider_status.get("FMP_INDEX", {"ok": True}).get("ok", True):
+                disable_provider_category("fmp", "index")
+        except Exception:
+            pass
     except Exception:
         provider_status = {}
 
@@ -787,9 +811,9 @@ def run_scan_pipeline(
         results.at[idx, "Momentum_Consistency"] = sig.get("momentum_consistency")
         
         if catastrophic:
-            # Apply penalty by reducing FinalScore_20d, not by overwriting Score
-            # Set to minimum score (0.01 in normalized [0, 1] range, will be scaled to 1.0 later)
-            results.at[idx, "FinalScore_20d"] = 0.01
+            # Absolute Hunter Override (Phase 13): do NOT zero technical score
+            # Preserve the true technical/VCP strength and annotate the reason
+            results.at[idx, "FinalScore_20d"] = float(enhanced)
             results.at[idx, "RejectionReason"] = reason
         else:
             # Penalties are in [0, 4.5] scale (0-100 range), normalize to [0, 0.045]
@@ -800,9 +824,9 @@ def run_scan_pipeline(
             
             normalized_penalty = penalty / 100.0  # Convert from [0, 4.5] to [0, 0.045]
             results.at[idx, "AdvPenalty"] = penalty
-            # Apply penalty to FinalScore_20d, not Score
-            # enhanced is in [0, 1] range, so penalty must be too
-            results.at[idx, "FinalScore_20d"] = max(0.01, enhanced - normalized_penalty)
+            # Apply a mild penalty to FinalScore_20d, but never hard-zero it
+            # enhanced is in [0, 1] range; keep lower bound small but positive
+            results.at[idx, "FinalScore_20d"] = max(0.01, float(enhanced) - float(normalized_penalty))
 
     # Scale FinalScore_20d back to 0-100 for consistency with rest of system
     # (all other scoring is in 0-100 range, FinalScore_20d is canonical for display/filtering)
@@ -812,9 +836,8 @@ def run_scan_pipeline(
     if "FinalScore_20d" in results.columns:
         results["Score"] = results["FinalScore_20d"]
     
-    # Keep stocks with positive scores (allow FinalScore_20d >= 1.0 which is 0.01 in normalized)
-    results = results[results["FinalScore_20d"] >= 1.0].copy()
-    logger.info(f"[PIPELINE] After advanced filters: {len(results)} stocks with FinalScore_20d >= 1.0")
+    # Do not filter out low scores here; the UI will label REJECTs but keep their scores visible
+    logger.info(f"[PIPELINE] Advanced filters applied without score-zeroing; total stocks: {len(results)}")
     
     # Optional: Meteor Mode filter (VCP + RS + Pocket Pivots)
     meteor_mode = bool(config.get("meteor_mode", bool(os.getenv("METEOR_MODE", "1") == "1")))

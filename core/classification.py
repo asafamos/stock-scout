@@ -199,6 +199,18 @@ def apply_classification(df: pd.DataFrame) -> pd.DataFrame:
 
         rc = assign_risk_class(row) if not blocked else "REJECT"
 
+        # Hunter rule: if data is incomplete but the setup is a technical gem,
+        # keep it visible as SPEC instead of REJECT.
+        try:
+            data_integrity = str(row.get("Data_Integrity", "OK")).upper()
+            coil_bonus_active = bool(row.get("Coil_Bonus", 0)) or str(row.get("Coil_Bonus", "0")) in ("1", "True")
+            vcp_score = row.get("Volatility_Contraction_Score", 0.0)
+            vcp_good = isinstance(vcp_score, (int, float)) and np.isfinite(vcp_score) and float(vcp_score) > 0.6
+            if (rc == "REJECT") and (not blocked) and (data_integrity == "DATA_INCOMPLETE") and (coil_bonus_active or vcp_good):
+                rc = "SPEC"
+        except Exception:
+            pass
+
         # Legacy compatibility mapping
         legacy_level = "core" if rc == "CORE" else "speculative"
         should_display = (rc != "REJECT") and (not blocked)

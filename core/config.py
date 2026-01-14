@@ -63,7 +63,7 @@ class Config:
     
     # Universe & Data
     universe_limit: int = int(_get_config_value('UNIVERSE_LIMIT', '2000'))
-    lookback_days: int = int(_get_config_value('LOOKBACK_DAYS', '90'))
+    lookback_days: int = int(_get_config_value('LOOKBACK_DAYS', '250'))
     smart_scan: bool = _get_config_value('SMART_SCAN', 'true').lower() in ('true', '1', 'yes')
     
     # Price & Volume Filters
@@ -143,6 +143,9 @@ class Config:
             "universe_limit": self.universe_limit,
             "lookback_days": self.lookback_days,
             "smart_scan": self.smart_scan,
+            # Expose MA windows so downstream logic doesn't fallback to wrong defaults
+            "ma_short": self.ma_short,
+            "ma_long": self.ma_long,
             "min_price": self.min_price,
             "min_avg_volume": self.min_avg_volume,
             "min_dollar_volume": self.min_dollar_volume,

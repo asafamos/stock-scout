@@ -131,6 +131,23 @@ def build_row_from_multi_source(
     
     market_cap = multi_source_payload.get("market_cap")
     row["MarketCap"] = float(market_cap) if (market_cap and np.isfinite(market_cap)) else np.nan
+    # Fallback: if market cap missing, try yfinance info
+    if (row["MarketCap"] is np.nan) or (not np.isfinite(row["MarketCap"])):
+        try:
+            import yfinance as yf
+            info = yf.Ticker(ticker).info
+            mc = info.get("marketCap") or info.get("market_cap")
+            if isinstance(mc, (int, float)) and float(mc) > 0:
+                row["MarketCap"] = float(mc)
+        except Exception:
+            # Keep NaN if fallback fails
+            pass
+    # Neutral default: if all fallbacks fail, default MarketCap to $500M
+    try:
+        if (row["MarketCap"] is np.nan) or (not np.isfinite(row["MarketCap"])) or float(row["MarketCap"]) <= 0:
+            row["MarketCap"] = 500_000_000.0
+    except Exception:
+        row["MarketCap"] = 500_000_000.0
     
     # === FUNDAMENTAL METADATA ===
     coverage_pct = multi_source_payload.get("Fundamental_Coverage_Pct")

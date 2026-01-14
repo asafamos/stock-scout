@@ -1037,7 +1037,12 @@ def compute_technical_score(row: pd.Series, weights: Optional[Dict[str, float]] 
 
     # Merge user weights with defaults and normalize
     raw_weights = {**TECH_WEIGHTS, **(weights or {})}
-    sanitized = {k: max(float(v), 0.0) if np.isfinite(v) else 0.0 for k, v in raw_weights.items()}
+    def _coerce_float(val) -> float:
+        try:
+            return float(val)
+        except Exception:
+            return 0.0
+    sanitized = {k: max(_coerce_float(v), 0.0) for k, v in raw_weights.items()}
     total_w = sum(sanitized.values()) or 1.0
     norm_w = {k: v / total_w for k, v in sanitized.items()}
 

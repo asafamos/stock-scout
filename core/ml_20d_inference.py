@@ -114,6 +114,8 @@ if _STREAMLIT_AVAILABLE:
         return _load_bundle_impl()
     
     _success, BUNDLE_MODEL, FEATURE_COLS_20D, PREFERRED_SCORING_MODE_20D = _load_bundle_cached()
+    # Force hybrid mode globally regardless of bundle preference
+    PREFERRED_SCORING_MODE_20D = "hybrid"
     ML_20D_AVAILABLE = _success
 else:
     from functools import lru_cache
@@ -123,6 +125,8 @@ else:
         return _load_bundle_impl()
     
     _success, BUNDLE_MODEL, FEATURE_COLS_20D, PREFERRED_SCORING_MODE_20D = _load_bundle_cached()
+    # Force hybrid mode globally regardless of bundle preference
+    PREFERRED_SCORING_MODE_20D = "hybrid"
     ML_20D_AVAILABLE = _success
 
 def compute_ml_20d_probabilities_raw(row: pd.Series) -> float:

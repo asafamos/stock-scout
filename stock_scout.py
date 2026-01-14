@@ -2325,103 +2325,8 @@ st.markdown("""
 st.title("📈 סקאוט מניות — 2025 אסף")
 st.caption("🇮🇱 סקאן מניות אישי בעברית | כלי למחקר בלבד. לא ייעוץ השקעות.")
 
-# === TOP CONTROL BAR (REPLACING SIDEBAR) ===
-st.markdown("### ⚙️ הגדרות השקעה")
-
-with st.container():
-    col1, col2, col3 = st.columns([2, 2, 1])
-    
-    with col1:
-        alloc_style = st.selectbox(
-            "סגנון השקעה",
-            ["Balanced (core tilt)", "Conservative", "Aggressive"],
-            index=0,
-            key="alloc_style_top"
-        )
-        st.session_state["alloc_style_idx"] = ["Balanced (core tilt)", "Conservative", "Aggressive"].index(alloc_style)
-    
-    with col2:
-        total_budget = st.number_input(
-            "תקציב ($)",
-            min_value=0.0,
-            value=float(st.session_state.get("total_budget", CONFIG["BUDGET_TOTAL"])),
-            step=1000.0,
-            key="budget_top"
-        )
-        st.session_state["total_budget"] = float(total_budget)
-    
-    with col3:
-        st.markdown("<br>", unsafe_allow_html=True)  # Vertical spacing
-        run_scan = st.button("🚀 הרץ סריקה", width='stretch', type="primary")
-
-# Advanced options in collapsible expander
-with st.expander("🎛️ אפשרויות מתקדמות", expanded=False):
-    col_a1, col_a2, col_a3 = st.columns(3)
-    
-    with col_a1:
-        fast_mode = st.checkbox(
-            "⚡ מצב מהיר",
-            value=bool(st.session_state.get("fast_mode", False)),
-            help="מצמצם יקום וזמני סריקה"
-        )
-        st.session_state["fast_mode"] = fast_mode
-        
-        min_position = st.number_input(
-            "פוזיציה מינימלית ($)",
-            min_value=0.0,
-            value=float(st.session_state.get("min_position", max(50.0, round(float(total_budget) * 0.10)))),
-            step=50.0
-        )
-        st.session_state["min_position"] = float(min_position)
-    
-    with col_a2:
-        enable_multi_source = st.checkbox(
-            "מקורות נתונים מרובים",
-            value=bool(st.session_state.get("enable_multi_source", True)),
-            help="שילוב נתונים ממספר ספקים"
-        )
-        st.session_state["enable_multi_source"] = enable_multi_source
-        
-        max_position_pct = st.slider(
-            "פוזיציה מקסימלית (% מסך התיק)",
-            min_value=5.0,
-            max_value=60.0,
-            value=float(st.session_state.get("max_position_pct", CONFIG["MAX_POSITION_PCT"])),
-            step=1.0
-        )
-        st.session_state["max_position_pct"] = float(max_position_pct)
-    
-    with col_a3:
-        enable_ml_boost = st.checkbox(
-            "ML Boost",
-            value=bool(st.session_state.get("enable_ml_boost", True)),
-            help="התאמת ציון באמצעות מודל ML"
-        )
-        st.session_state["enable_ml_boost"] = enable_ml_boost
-        
-        ml_threshold = st.slider(
-            "סף ML (%)",
-            min_value=0,
-            max_value=100,
-            value=int(st.session_state.get("ml_threshold", 0)),
-            step=5,
-            help="מינימום הסתברות ML (0=ללא סינון)"
-        )
-        st.session_state["ml_threshold"] = int(ml_threshold)
-
-    # Removed manual binary UI filters (Coiled/Growth) — handled via scoring bonuses
-
-# OpenAI target price enhancement
-if OPENAI_AVAILABLE and _env("OPENAI_API_KEY"):
-    with col_a1:
-        enable_openai_targets = st.checkbox(
-            "🤖 חיזוי מחירים AI",
-            value=bool(st.session_state.get("enable_openai_targets", True)),
-            help="שימוש ב-GPT לחיזוי מחירי יעד"
-        )
-        st.session_state["enable_openai_targets"] = enable_openai_targets
-else:
-    st.session_state["enable_openai_targets"] = False
+st.markdown("### 📊 Read-Only Dashboard")
+st.session_state["enable_openai_targets"] = False
 
 # Force ML always on (no visible toggle)
 st.session_state["ENABLE_ML"] = True
@@ -2612,13 +2517,11 @@ use_precomputed = False
 def _load_precomputed_scan_with_fallback(scan_dir: Path):
     """Load the freshest available snapshot.
     Considers:
-      - Automated: latest_scan.parquet
-      - Live manual: latest_scan_live.parquet
+      - Any latest_scan*.parquet (including latest_scan_live.parquet)
       - Timestamped backups: scan_*.parquet (newest)
     Chooses the newest by metadata timestamp or file mtime.
     """
-    auto_path = scan_dir / "latest_scan.parquet"
-    live_path = scan_dir / "latest_scan_live.parquet"
+    latest_candidates = sorted(scan_dir.glob("latest_scan*.parquet"))
 
     def _load(path: Path):
         df, meta = load_latest_scan(path)
@@ -2637,10 +2540,10 @@ def _load_precomputed_scan_with_fallback(scan_dir: Path):
         ts_effective = max([t for t in [ts_parsed, ts_file] if t is not None], default=None)
         return df, meta, ts_effective
 
-    best_df, best_meta, best_ts, best_path = None, None, None, auto_path
+    best_df, best_meta, best_ts, best_path = None, None, None, None
 
-    # Load auto and live snapshots if present
-    for candidate_path in [auto_path, live_path]:
+    # Load any latest_scan*.parquet candidates if present
+    for candidate_path in latest_candidates:
         if candidate_path.exists():
             df_c, meta_c, ts_c = _load(candidate_path)
             if df_c is not None and meta_c is not None:
@@ -2659,7 +2562,8 @@ def _load_precomputed_scan_with_fallback(scan_dir: Path):
             meta_cand.setdefault("total_tickers", len(df_cand))
             return df_cand, meta_cand, candidate
 
-    return None, None, auto_path
+    # If nothing found, default to conventional latest path for display
+    return None, None, (scan_dir / "latest_scan.parquet")
 
 
 scan_dir = Path(__file__).parent / "data" / "scans"
@@ -2783,6 +2687,10 @@ elif precomputed_df is not None and precomputed_meta is not None and not scan_to
 
     st.session_state["skip_pipeline"] = True
     st.session_state["precomputed_results"] = precomputed_df
+    try:
+        st.session_state["universe_size"] = int(universe_size)
+    except Exception:
+        pass
     logger.info(f"[PERF] Precomputed scan: DataFrame shape {precomputed_df.shape}")
     use_precomputed = True
 else:
@@ -2795,6 +2703,10 @@ else:
         # Use old scan anyway but warn user
         st.session_state["skip_pipeline"] = True
         st.session_state["precomputed_results"] = precomputed_df
+        try:
+            st.session_state["universe_size"] = int(universe_size)
+        except Exception:
+            pass
         use_precomputed = True
     else:
         st.info("📊 אין סריקה זמינה - מחכה לסריקה אוטומטית הבאה.")
@@ -2866,6 +2778,16 @@ if skip_pipeline:
         pass
     
     # Show summary to user
+    try:
+        original_count = int(st.session_state.get("universe_size", 0))
+        if not original_count:
+            # Fall back to computed universe_size (from metadata) or current results length
+            try:
+                original_count = int(universe_size)
+            except Exception:
+                original_count = len(results)
+    except Exception:
+        original_count = len(results)
     st.info(f"⚡ **{len(results)} מניות מובילות** מתוך {original_count} שעברו סריקה מלאה")
     st.caption("✅ כולל: ML model, Technical scoring, Fundamental data, Risk assessment, Classification")
     
@@ -2873,8 +2795,9 @@ if skip_pipeline:
     logger.info(f"[PERF] Precomputed stage 3/10 (post-load to recommendations) time: {t1_stage3-t0_stage3:.3f}s")
     
 else:
-    # Run live pipeline as normal
-    status_manager.advance(f"Market regime: {regime.upper()}")
+    # Read-only mode: no live pipeline execution
+    st.warning("📄 No precomputed scan available. This dashboard is read-only and will display results after the next automated scan.")
+    results = pd.DataFrame()
 
 # Debug logging if enabled
 create_debug_expander({
@@ -2903,90 +2826,23 @@ except Exception:
 # Initialize sources tracker
 sources_overview = SourcesOverview()
 
-if not skip_pipeline:
-    # Use the unified pipeline runner with configured universe size
-    # Note: Manual scans are discouraged - use automated scans from GitHub Actions
-    st.warning("⚠️ סריקה ידנית פועלת - זה יכול לקחת זמן. מומלץ להשתמש בסריקות אוטומטיות.")
-    # Determine universe size: prefer UI state; default to 2000 if missing
-    try:
-        uni_limit = int(st.session_state.get("universe_size", 2000))
-    except Exception:
-        uni_limit = 2000
-    # Replace local universe builder with market-cap ranked fetcher
-    # Cache the universe for 4 hours to improve reliability during repeated runs
-    try:
-        @st.cache_data(ttl=60 * 60 * 4)
-        def _get_universe_cached(limit: int) -> list:
-            return fetch_top_us_tickers_by_market_cap(limit=limit)
-        universe = _get_universe_cached(uni_limit)
-        # Record pre-scan universe count for KPI
-        try:
-            st.session_state["pre_scan_universe_count"] = len(universe)
-        except Exception:
-            pass
-    except Exception:
-        universe = fetch_top_us_tickers_by_market_cap(limit=uni_limit)
-    status_manager.advance(f"Universe fetched by market cap: {len(universe)} tickers")
-    try:
-        provider = LAST_UNIVERSE_PROVIDER or "Unknown"
-        provider_label = {
-            "FMP": "Universe via FMP (FMP_API_KEY)",
-            "Polygon": "Universe via Polygon (POLYGON_API_KEY)",
-            "EODHD": "Universe via EODHD (EODHD_API_KEY)",
-            "Local_SP500": "Universe via Local Backup (S&P 500 file)",
-            "Hardcoded_Minimal": "Universe via Hardcoded Minimal Fallback",
-        }.get(provider, f"Universe via {provider}")
-        st.caption(provider_label)
-    except Exception:
-        pass
-    
-    # Respect UI toggle for multi-source fundamentals
-    try:
-        CONFIG["fundamental_enabled"] = bool(st.session_state.get("enable_multi_source", CONFIG.get("fundamental_enabled", True)))
-        CONFIG["FUNDAMENTAL_ENABLED"] = CONFIG["fundamental_enabled"]
-    except Exception:
-        pass
-
-    results, data_map = run_scan_pipeline(
-        universe=universe,
-        config=CONFIG,
-        status_callback=status_with_progress
-    )
-    
-    logger.info(f"[LIVE] Pipeline returned {len(results)} stocks")
-    
-    # Mark yfinance as used for price history (always runs in pipeline)
-    # Mark Yahoo prices used for this run
-    mark_provider_usage("Yahoo", "price")
-    
-    # Save full pipeline results immediately (before any filtering) for next precomputed load
-    try:
-        if not results.empty:
-            save_latest_scan_from_results(
-                results, 
-                metadata={"timestamp": datetime.utcnow().isoformat(), "scan_type": "live_streamlit"}
-            )
-            logger.info(f"✅ Auto-saved full live scan: {len(results)} tickers (before filtering)")
-    except Exception as e:
-        logger.warning(f"Failed to auto-save full live scan: {e}")
-    
-    # Live results: no adaptive percentile or top-N capping; show all
-    logger.info(f"[LIVE] Final display: {len(results)} stocks (no adaptive/top-N filter applied)")
+## Read-only mode: live scan execution removed. Always use precomputed results loaded above.
 
 # External price verification (Top-K)
 t0 = t_start()
-results["Price_Alpha"] = np.nan
-results["Price_Finnhub"] = np.nan
-# IEX price column removed
-results["Price_Polygon"] = np.nan
-results["Price_Tiingo"] = np.nan
-results["Price_Marketstack"] = np.nan
-results["Price_NasdaqDL"] = np.nan
-results["Price_EODHD"] = np.nan
-results["Price_Mean"] = np.nan
-results["Price_STD"] = np.nan
-results["Source_List"] = "🟡Yahoo"
-results["Historical_StdDev"] = np.nan  # Initialize for all, fill selectively below
+if CONFIG.get("EXTERNAL_PRICE_VERIFY", False):
+    results["Price_Alpha"] = np.nan
+    results["Price_Finnhub"] = np.nan
+    # IEX price column removed
+    results["Price_Polygon"] = np.nan
+    results["Price_Tiingo"] = np.nan
+    results["Price_Marketstack"] = np.nan
+    results["Price_NasdaqDL"] = np.nan
+    results["Price_EODHD"] = np.nan
+    results["Price_Mean"] = np.nan
+    results["Price_STD"] = np.nan
+    results["Source_List"] = "🟡Yahoo"
+    results["Historical_StdDev"] = np.nan  # Initialize for all, fill selectively below
 
 
 def _fetch_external_for(
@@ -3579,20 +3435,16 @@ DEBUG_SKIP_PIPELINE = bool(st.session_state.get("DEBUG_SKIP_PIPELINE", False))
 use_full_export = bool(st.session_state.get("use_full_export", False))
 
 # Initialize view filters from session state or defaults
-risk_filter = st.session_state.get("risk_filter", ["core", "speculative"])
-quality_filter = st.session_state.get("quality_filter", ["high", "medium", "low"])
-score_min = st.session_state.get("score_min", 0.0)
-score_max = st.session_state.get("score_max", 100.0)
-rsi_max = st.session_state.get("rsi_max", 100.0)
-sector_filter = st.session_state.get("sector_filter", [])
+risk_filter = ["core", "speculative"]
+quality_filter = ["high", "medium", "low"]
+sector_filter = []
 
 # Continue with main app flow
 st.markdown("---")
 
-# Initialize view parameters from session state
-show_debug_attr = bool(st.session_state.get("show_debug_attr", False))
-compact_mode = bool(st.session_state.get("compact_mode", False))
-score_range = st.session_state.get("score_range", (0.0, 100.0))
+# Initialize view parameters for read-only display
+show_debug_attr = False
+compact_mode = False
 
 # Prepare recommendations view: sort by FinalScore_20d (primary) and show all
 initial_rec_count = len(results)
@@ -3616,8 +3468,18 @@ else:
     logger.warning("[DISPLAY] No score column found for ranking; preserving source order")
     # No TOPN cap — show all viable candidates
 
+# Apply display threshold: show candidates with FinalScore_20d (or fallback score) >= 30, regardless of allocation
 if not rec_df.empty:
-    # Apply risk filter
+    threshold_col = None
+    for c in ["FinalScore_20d", "Score", "overall_score_20d", "overall_score"]:
+        if c in rec_df.columns:
+            threshold_col = c
+            break
+    if threshold_col is not None:
+        rec_df = rec_df[pd.to_numeric(rec_df[threshold_col], errors="coerce") >= 30].copy()
+
+if not rec_df.empty:
+    # Apply risk filter (inclusive defaults)
     if risk_filter and "Risk_Level" in rec_df.columns:
         rec_df = rec_df[rec_df["Risk_Level"].isin(risk_filter)]
 
@@ -3625,28 +3487,50 @@ if not rec_df.empty:
     if quality_filter and "Data_Quality" in rec_df.columns:
         rec_df = rec_df[rec_df["Data_Quality"].isin(quality_filter)]
 
-    # Apply score range on FinalScore_20d (primary) or fallback
-    range_col = "FinalScore_20d" if "FinalScore_20d" in rec_df.columns else ("Score" if "Score" in rec_df.columns else None)
-    if range_col is not None:
-        rec_df = rec_df[
-            (pd.to_numeric(rec_df[range_col], errors="coerce") >= score_range[0]) &
-            (pd.to_numeric(rec_df[range_col], errors="coerce") <= score_range[1])
-        ]
-
     # Apply sector filter
     if sector_filter and "Sector" in rec_df.columns:
         rec_df = rec_df[rec_df["Sector"].isin(sector_filter)]
 
-    # Apply RSI filter
-    if "RSI" in rec_df.columns:
-        rec_df = rec_df[(rec_df["RSI"].isna()) | (rec_df["RSI"] <= rsi_max)]
+    # Drop any explicit REJECT decisions if present
+    for _col in ["Decision", "Recommendation", "Status"]:
+        if _col in rec_df.columns:
+            rec_df = rec_df[rec_df[_col].astype(str).str.upper() != "REJECT"]
 
     # Removed UI market cap filter: the UI now mirrors the pipeline output without local cap constraints
 
     # Removed Coiled/Growth hard filters — handled as scoring bonuses in backend
 
 logger.info(f"[FILTER] Final recommendations after all filters: {len(rec_df)} stocks (started with {initial_rec_count})")
-st.info(f"📊 **{len(rec_df)} מניות** עברו את כל המסננים (מתוך {initial_rec_count} שנבדקו)")
+
+# Hunter display logic: if no CORE, show top SPEC by VCP
+core_count = 0
+if "Risk_Level" in rec_df.columns:
+    try:
+        core_count = int((rec_df["Risk_Level"].astype(str) == "core").sum())
+    except Exception:
+        core_count = 0
+
+if core_count == 0 and not rec_df.empty:
+    spec_df = rec_df[rec_df["Risk_Level"].astype(str) == "speculative"].copy() if "Risk_Level" in rec_df.columns else rec_df.copy()
+    sort_col = "Volatility_Contraction_Score" if "Volatility_Contraction_Score" in spec_df.columns else ("FinalScore_20d" if "FinalScore_20d" in spec_df.columns else None)
+    if sort_col:
+        spec_df = (
+            spec_df.assign(_sort_val=pd.to_numeric(spec_df[sort_col], errors="coerce"))
+            .sort_values(by=["_sort_val"], ascending=[False])
+            .drop(columns=["_sort_val"])
+        )
+    # Keep top 15 SPEC
+    spec_df = spec_df.head(15)
+    if spec_df.empty:
+        st.warning("🔍 No high-conviction setups found. Check back after the next automated scan.")
+    else:
+        st.info("🟠 Showing top 15 SPEC setups (no CORE found)")
+        rec_df = spec_df
+else:
+    if rec_df.empty:
+        st.warning("🔍 No high-conviction setups found. Check back after the next automated scan.")
+    else:
+        st.info(f"📊 **{len(rec_df)} מניות** עברו את כל המסננים (מתוך {initial_rec_count} שנבדקו)")
 
 # KPI: Totals and pass-through
 try:

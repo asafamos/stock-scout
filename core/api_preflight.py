@@ -47,6 +47,25 @@ def run_preflight(timeout: float = 3.0) -> Dict[str, Dict[str, any]]:
             status["FMP"] = {"ok": False, "reason": f"Error: {str(e)[:50]}"}
     else:
         status["FMP"] = {"ok": False, "reason": "No API key"}
+
+    # FMP Index endpoint specific check (indices/ETFs often blocked on free tier)
+    try:
+        fmp_key_idx = os.getenv("FMP_API_KEY") or os.getenv("FMP_KEY")
+        if fmp_key_idx:
+            idx_url = f"https://financialmodelingprep.com/api/v3/historical-chart/1day/SPY?apikey={fmp_key_idx}"
+            idx_resp = requests.get(idx_url, timeout=timeout)
+            if idx_resp.status_code == 200:
+                status["FMP_INDEX"] = {"ok": True, "reason": "OK"}
+            elif idx_resp.status_code in (401, 403):
+                status["FMP_INDEX"] = {"ok": False, "reason": "Auth/Forbidden"}
+            elif idx_resp.status_code == 429:
+                status["FMP_INDEX"] = {"ok": False, "reason": "Rate limit"}
+            else:
+                status["FMP_INDEX"] = {"ok": False, "reason": f"HTTP {idx_resp.status_code}"}
+        else:
+            status["FMP_INDEX"] = {"ok": False, "reason": "No API key"}
+    except Exception as e:
+        status["FMP_INDEX"] = {"ok": False, "reason": f"Error: {str(e)[:50]}"}
     
     # Tiingo
     tiingo_key = os.getenv("TIINGO_API_KEY")
