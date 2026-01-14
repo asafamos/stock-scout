@@ -101,7 +101,7 @@ from core.ui_helpers import (
     show_config_summary,
     create_debug_expander,
 )
-from core.pipeline_runner import run_scan_pipeline, fetch_top_us_tickers_by_market_cap
+from core.pipeline_runner import run_scan_pipeline, fetch_top_us_tickers_by_market_cap, LAST_UNIVERSE_PROVIDER
 
 # Helper: build clean minimal card
 
@@ -310,6 +310,12 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
     coil_badge = "<span class='badge coil'>🎯 COILED</span>" if is_coiled else ""
     growth_badge = "<span class='badge growth'>🚀 GROWTH BOOST</span>" if is_growth else ""
 
+    # Allocation note when buy amount is zero or missing
+    buy_amt = _num(row.get("buy_amount_v2", row.get("סכום קנייה ($)", np.nan)))
+    allocation_note = ""
+    if not np.isfinite(buy_amt) or buy_amt <= 0:
+        allocation_note = "<div class='allocation-note'>Insufficient confidence for allocation</div>"
+
     # Build explanation bullets (top-level quick rationale) only when warning
     bullets = []
     bullet_html = ""
@@ -344,6 +350,7 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
     </div>
     <div class='entry-target-line'>Entry <b class='ltr'>{entry_fmt}</b> -> Target <b class='ltr'>{target_fmt}</b> {target_badge} <span class='potential ltr'>{potential_fmt}</span></div>
     {bullet_html}
+    {allocation_note}
     <div class='top-grid'>
         <div class='field'><span class='label'>R/R</span><span class='value tabular ltr'>{rr_ratio_fmt} <span class='band ltr'>{rr_band}</span></span></div>
         <div class='field'><span class='label'>Risk</span><span class='value tabular ltr'>{risk_fmt}</span></div>
@@ -2935,6 +2942,21 @@ create_debug_expander({
     "vix_level": market_regime_data.get("vix", 0),
 }, title="📊 Market Regime Details")
 
+# API keys and universe provider diagnostics
+try:
+    api_status = {
+        "FMP_API_KEY": "OK" if bool(_env("FMP_API_KEY")) else "MISSING",
+        "POLYGON_API_KEY": "OK" if bool(_env("POLYGON_API_KEY")) else "MISSING",
+        "EODHD_API_KEY": "OK" if bool(_env("EODHD_API_KEY")) else "MISSING",
+        "FINNHUB_API_KEY": "OK" if bool(_env("FINNHUB_API_KEY")) else "MISSING",
+        "ALPHA_VANTAGE_API_KEY": "OK" if bool(_env("ALPHA_VANTAGE_API_KEY")) else "MISSING",
+        "TIINGO_API_KEY": "OK" if bool(_env("TIINGO_API_KEY")) else "MISSING",
+        "Universe_Provider": LAST_UNIVERSE_PROVIDER,
+    }
+    create_debug_expander(api_status, title="🔑 API Keys & Universe Provider")
+except Exception:
+    pass
+
 # Initialize sources tracker
 sources_overview = SourcesOverview()
 
@@ -2942,14 +2964,38 @@ if not skip_pipeline:
     # Use the unified pipeline runner with configured universe size
     # Note: Manual scans are discouraged - use automated scans from GitHub Actions
     st.warning("⚠️ סריקה ידנית פועלת - זה יכול לקחת זמן. מומלץ להשתמש בסריקות אוטומטיות.")
+    # Determine universe size: prefer UI state; default to 2000 if missing
     try:
-        cfg = get_config()
-        uni_limit = int(getattr(cfg, 'universe_limit', 1500))
+        uni_limit = int(st.session_state.get("universe_size", 2000))
     except Exception:
-        uni_limit = 1500
+        uni_limit = 2000
     # Replace local universe builder with market-cap ranked fetcher
-    universe = fetch_top_us_tickers_by_market_cap(limit=uni_limit)
+    # Cache the universe for 4 hours to improve reliability during repeated runs
+    try:
+        @st.cache_data(ttl=60 * 60 * 4)
+        def _get_universe_cached(limit: int) -> list:
+            return fetch_top_us_tickers_by_market_cap(limit=limit)
+        universe = _get_universe_cached(uni_limit)
+        # Record pre-scan universe count for KPI
+        try:
+            st.session_state["pre_scan_universe_count"] = len(universe)
+        except Exception:
+            pass
+    except Exception:
+        universe = fetch_top_us_tickers_by_market_cap(limit=uni_limit)
     status_manager.advance(f"Universe fetched by market cap: {len(universe)} tickers")
+    try:
+        provider = LAST_UNIVERSE_PROVIDER or "Unknown"
+        provider_label = {
+            "FMP": "Universe via FMP (FMP_API_KEY)",
+            "Polygon": "Universe via Polygon (POLYGON_API_KEY)",
+            "EODHD": "Universe via EODHD (EODHD_API_KEY)",
+            "Local_SP500": "Universe via Local Backup (S&P 500 file)",
+            "Hardcoded_Minimal": "Universe via Hardcoded Minimal Fallback",
+        }.get(provider, f"Universe via {provider}")
+        st.caption(provider_label)
+    except Exception:
+        pass
     
     # Respect UI toggle for multi-source fundamentals
     try:
@@ -3618,7 +3664,7 @@ st.caption("These cards are buy recommendations only. This is not investment adv
 # Sidebar removed - all controls moved to top bar above
 
 # Read session state values set by top control bar
-universe_size = int(st.session_state.get("universe_size", CONFIG.get("UNIVERSE_LIMIT", 100)))
+universe_size = int(st.session_state.get("universe_size", 2000))
 fast_mode = bool(st.session_state.get("fast_mode", False))
 total_budget = float(st.session_state.get("total_budget", CONFIG["BUDGET_TOTAL"]))
 min_position = float(st.session_state.get("min_position", max(50.0, round(total_budget * 0.10))))
@@ -3651,38 +3697,29 @@ show_debug_attr = bool(st.session_state.get("show_debug_attr", False))
 compact_mode = bool(st.session_state.get("compact_mode", False))
 score_range = st.session_state.get("score_range", (0.0, 100.0))
 
-# Apply filters
+# Prepare recommendations view: sort by FinalScore_20d (or best available) and take top 15
+initial_rec_count = len(results)
 rec_df = results.copy()
-initial_rec_count = len(rec_df)
-logger.info(f"[FILTER] Starting recommendation filtering with {initial_rec_count} stocks")
-
-# Filter: only tickers with 20d score >= 2 (already applied above, but keep for safety)
-if "overall_score_20d" in rec_df.columns:
-    before = len(rec_df)
-    rec_df = rec_df[rec_df["overall_score_20d"] >= 2].copy()
-    logger.info(f"[FILTER] Overall score >= 2: {len(rec_df)} remain (removed {before - len(rec_df)})")
+score_candidates = [
+    "FinalScore_20d",
+    "conviction_v2_final",
+    "overall_score_20d",
+    "overall_score",
+    "Score",
+]
+score_col = next((c for c in score_candidates if c in rec_df.columns), None)
+if score_col:
+    rec_df = (
+        rec_df.assign(_score_numeric=pd.to_numeric(rec_df[score_col], errors="coerce"))
+        .sort_values(by=["_score_numeric"], ascending=[False])
+        .drop(columns=["_score_numeric"])
+        .copy()
+    )
 else:
-    # In precomputed mode this may be expected; reduce noise
-    if st.session_state.get("skip_pipeline", False):
-        logger.info("[FILTER] 'overall_score_20d' missing (precomputed), skipping score filter")
-    else:
-        logger.warning("[FILTER] 'overall_score_20d' missing from rec_df columns, skipping score filter!")
-
-# Prefer V2 strict buy amounts for recommendations; fallback to legacy Hebrew buy column
-if "buy_amount_v2" in rec_df.columns:
-    before = len(rec_df)
-    rec_df = rec_df[rec_df["buy_amount_v2"].fillna(0) > 0].copy()
-    logger.info(f"[FILTER] Buy amount > 0: {len(rec_df)} remain (removed {before - len(rec_df)})")
-elif "סכום קנייה ($)" in rec_df.columns:
-    before = len(rec_df)
-    rec_df = rec_df[rec_df["סכום קנייה ($)"].fillna(0) > 0].copy()
-    logger.info(f"[FILTER] Hebrew buy amount > 0: {len(rec_df)} remain (removed {before - len(rec_df)})")
-
-# Explicitly exclude tickers blocked by the strict V2 gate
-if "risk_gate_status_v2" in rec_df.columns:
-    before = len(rec_df)
-    rec_df = rec_df[rec_df["risk_gate_status_v2"] != "blocked"].copy()
-    logger.info(f"[FILTER] Risk gate not blocked: {len(rec_df)} remain (removed {before - len(rec_df)})")
+    logger.warning("[DISPLAY] No score column found for ranking; preserving source order")
+top_n = int(CONFIG.get("TOPN_RESULTS", 15))
+if len(rec_df) > top_n:
+    rec_df = rec_df.head(top_n).copy()
 
 if not rec_df.empty:
     # Apply risk filter
@@ -3707,18 +3744,7 @@ if not rec_df.empty:
     if "RSI" in rec_df.columns:
         rec_df = rec_df[(rec_df["RSI"].isna()) | (rec_df["RSI"] <= rsi_max)]
 
-    # Apply Market Cap range ($300M - $20B)
-    try:
-        mc_series = pd.to_numeric(
-            rec_df.get("market_cap", rec_df.get("MarketCap", np.nan)), errors="coerce"
-        )
-        # Persist a normalized billions column for display
-        rec_df["MarketCap_B"] = (mc_series / 1e9).where(mc_series.notna(), np.nan)
-        before = len(rec_df)
-        rec_df = rec_df[(mc_series >= 3e8) & (mc_series <= 2e10)].copy()
-        logger.info(f"[FILTER] Market cap range $300M-$20B: {len(rec_df)} remain (removed {before - len(rec_df)})")
-    except Exception as _e:
-        logger.warning(f"[FILTER] Market cap range filter skipped: {_e}")
+    # Removed UI market cap filter: the UI now mirrors the pipeline output without local cap constraints
 
     # Apply Coiled filter
     if bool(st.session_state.get("only_coiled", False)):
@@ -3749,11 +3775,21 @@ st.info(f"📊 **{len(rec_df)} מניות** עברו את כל המסננים (�
 
 # KPI: Totals and pass-through
 try:
+    total_candidates = int(st.session_state.get("pre_scan_universe_count", 0))
+    # Count stocks with FinalScore_20d > 10 from the full results (not only top-15)
+    sc_full = None
+    for c in ["FinalScore_20d", "conviction_v2_final", "overall_score_20d", "overall_score", "Score"]:
+        if c in results.columns:
+            sc_full = c
+            break
+    passed_count = 0
+    if sc_full is not None and not results.empty:
+        passed_count = int(pd.to_numeric(results[sc_full], errors="coerce").gt(10).sum())
     k1, k2 = st.columns(2)
     with k1:
-        st.metric("Total Candidates", f"{initial_rec_count}")
+        st.metric("Total Candidates", f"{total_candidates}")
     with k2:
-        st.metric("Stocks Passed", f"{len(rec_df)}")
+        st.metric("Stocks Passed", f"{passed_count}")
 except Exception:
     pass
 

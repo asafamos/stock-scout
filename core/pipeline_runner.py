@@ -37,6 +37,9 @@ from core.ml_20d_inference import ML_20D_AVAILABLE
 
 logger = logging.getLogger(__name__)
 
+# Public diagnostic: last provider used for universe construction
+LAST_UNIVERSE_PROVIDER: str = "Unknown"
+
 # --- Helper Functions ---
 
 def preflight_check() -> None:
@@ -71,6 +74,8 @@ def fetch_top_us_tickers_by_market_cap(limit: int = 2000) -> List[str]:
     Returns:
         List of ticker symbols
     """
+    global LAST_UNIVERSE_PROVIDER
+
     # --- Primary: FMP stock screener (more permissive) ---
     try:
         from core.config import get_secret
@@ -104,6 +109,7 @@ def fetch_top_us_tickers_by_market_cap(limit: int = 2000) -> List[str]:
                 out = _normalize_symbols([s for s, _ in rows][:limit])
                 if out:
                     logger.info(f"✓ Universe from FMP screener: {len(out)} tickers")
+                    LAST_UNIVERSE_PROVIDER = "FMP"
                     return out
             elif resp.status_code == 403:
                 logger.warning("FMP screener 403; falling back immediately to Polygon")
@@ -158,6 +164,7 @@ def fetch_top_us_tickers_by_market_cap(limit: int = 2000) -> List[str]:
             out = _normalize_symbols(tickers[:limit])
             if out:
                 logger.info(f"✓ Universe from Polygon: {len(out)} tickers")
+                LAST_UNIVERSE_PROVIDER = "Polygon"
                 return out
         else:
             logger.warning("POLYGON_API_KEY missing; skipping Polygon universe fetch")
@@ -184,6 +191,7 @@ def fetch_top_us_tickers_by_market_cap(limit: int = 2000) -> List[str]:
                 out = _normalize_symbols(syms[:limit])
                 if out:
                     logger.info(f"✓ Universe from EODHD: {len(out)} tickers")
+                    LAST_UNIVERSE_PROVIDER = "EODHD"
                     return out
         nasdaq_key = get_secret("NASDAQ_API_KEY", "")
         if nasdaq_key:
@@ -195,12 +203,20 @@ def fetch_top_us_tickers_by_market_cap(limit: int = 2000) -> List[str]:
 
     # --- Fallback 3: Local/Gist S&P 500 ---
     try:
-        local_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "sp500_tickers.txt")
-        if os.path.exists(local_path):
-            with open(local_path, "r") as f:
-                syms = [ln.strip() for ln in f if ln.strip() and not ln.strip().startswith("#")]
-            logger.warning(f"Using local S&P 500 fallback: {len(syms)} tickers")
-            return syms[:min(limit, len(syms))]
+        base_dir = os.path.dirname(os.path.dirname(__file__))
+        # Prefer root-level file if present (typically contains full 500 list),
+        # then fall back to data/sp500_tickers.txt
+        candidates = [
+            os.path.join(base_dir, "sp500_tickers.txt"),
+            os.path.join(base_dir, "data", "sp500_tickers.txt"),
+        ]
+        for local_path in candidates:
+            if os.path.exists(local_path):
+                with open(local_path, "r") as f:
+                    syms = [ln.strip() for ln in f if ln.strip() and not ln.strip().startswith("#")]
+                logger.warning(f"Using local S&P 500 fallback: {len(syms)} tickers from {os.path.relpath(local_path, base_dir)}")
+                LAST_UNIVERSE_PROVIDER = "Local_SP500"
+                return syms[:min(limit, len(syms))]
     except Exception as e:
         logger.debug(f"Local S&P 500 read failed: {e}")
 
@@ -212,6 +228,7 @@ def fetch_top_us_tickers_by_market_cap(limit: int = 2000) -> List[str]:
         ]
         out = _normalize_symbols(minimal)
         logger.warning(f"Using hardcoded minimal universe: {len(out)} tickers")
+        LAST_UNIVERSE_PROVIDER = "Hardcoded_Minimal"
         return out[:min(limit, len(out))]
     except Exception:
         return minimal
