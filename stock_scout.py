@@ -615,13 +615,9 @@ def render_data_sources_overview(provider_status: dict, provider_usage: dict, re
     st.markdown("### 🔌 מקורות נתונים")
     st.dataframe(styled, width='stretch', hide_index=True)
 
-    used_count = 0
-    for provider_name in provider_status.keys():
-        usage_key = provider_name if provider_name in provider_usage else synonyms.get(provider_name, provider_name)
-        info = provider_usage.get(usage_key, {})
-        if info.get("used_price") or info.get("used_fundamentals") or info.get("used_ml"):
-            used_count += 1
-    st.caption(f"סה\"כ ספקים פעילים: {used_count} / {len(provider_status)}")
+    # Count active providers by connectivity status (not just usage)
+    active_count = sum(1 for v in provider_status.values() if bool(v.get("ok", False)))
+    st.caption(f"סה\"כ ספקים פעילים: {active_count} / {len(provider_status)}")
 
 
 # Load environment variables
@@ -2795,9 +2791,51 @@ if skip_pipeline:
     logger.info(f"[PERF] Precomputed stage 3/10 (post-load to recommendations) time: {t1_stage3-t0_stage3:.3f}s")
     
 else:
-    # Read-only mode: no live pipeline execution
-    st.warning("📄 No precomputed scan available. This dashboard is read-only and will display results after the next automated scan.")
-    results = pd.DataFrame()
+    # Live mode: run pipeline when no precomputed scan is available or forced by user
+    try:
+        status_manager.update_detail("Starting live scan — building universe...")
+    except Exception:
+        pass
+
+    # Build universe using robust provider chain (FMP → Polygon → EODHD → Local SP500 → Minimal)
+    try:
+        limit = int(CONFIG.get("UNIVERSE_LIMIT", 500))
+    except Exception:
+        limit = 500
+    universe = fetch_top_us_tickers_by_market_cap(limit=limit)
+    st.session_state["universe_size"] = len(universe)
+
+    # Run unified scan pipeline with status updates
+    try:
+        status_manager.update_detail(f"Running pipeline for {len(universe)} tickers...")
+    except Exception:
+        pass
+    try:
+        results, data_map = run_scan_pipeline(
+            universe=universe,
+            config=CONFIG,
+            status_callback=status_with_progress,
+        )
+        # Persist results for downstream UI sections
+        st.session_state["precomputed_results"] = results.copy()
+        # Provide user feedback depending on outcome
+        if results is None or results.empty:
+            st.info("ℹ️ Pipeline completed, but 0 stocks passed current filters.")
+        else:
+            st.success(f"✅ Live scan completed: {len(results)} candidates")
+            try:
+                status_manager.set_progress(1.0)
+            except Exception:
+                pass
+        # Optionally save a lightweight latest snapshot for continuity
+        try:
+            save_latest_scan_from_results(results_df=results, metadata={"timestamp": datetime.now().isoformat()})
+        except Exception:
+            pass
+    except Exception as e:
+        logger.error(f"Live pipeline run failed: {e}")
+        st.error("❌ Pipeline failed to run. Please verify API keys and try again.")
+        results = pd.DataFrame()
 
 # Debug logging if enabled
 create_debug_expander({
