@@ -1,6 +1,6 @@
 {
-  "timestamp": "2026-01-14T10:31:35.132779",
-  "universe_size": 2,
+  "timestamp": "2026-01-15T21:28:53.858422",
+  "universe_size": 2000,
   "universe_name": "default",
   "config_version": "unknown",
   "lookback_days": 90,
@@ -88,7 +88,6 @@
     "RR_Ratio",
     "Momentum_Consistency",
     "AdvPenalty",
-    "RejectionReason",
     "pe",
     "ps",
     "pb",
@@ -110,6 +109,7 @@
     "Fundamental_Coverage_Pct",
     "Fundamental_Sources_Count",
     "Fundamental_S",
+    "MarketCap_Defaulted",
     "Fundamental_Backtest_Unsafe",
     "Fundamental_From_Store",
     "Sector",
@@ -118,7 +118,8 @@
     "SafetyReasons",
     "\u05e1\u05db\u05d5\u05dd \u05e7\u05e0\u05d9\u05d9\u05d4 ($)"
   ],
+  "total_tickers": 1354,
+  "universe_count": 2000,
   "scan_type": "live_streamlit",
-  "total_tickers": 2,
-  "build_commit": "77e6bfe"
+  "build_commit": "1eae53c"
 }
