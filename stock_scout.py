@@ -3191,27 +3191,27 @@ phase_times["price_verification"] = t_end(t0)
 status_manager.update_detail(f"Price verification: {len(results)} validated")
 status_manager.advance("Price Verification")
 
-    # Ensure default price source fields even when verification is skipped
-    if "Source_List" not in results.columns:
-        results["Source_List"] = "🟡Yahoo"
-    if "Price_Sources_Count" not in results.columns:
-        results["Price_Sources_Count"] = results["Source_List"].apply(
-            lambda s: len(str(s).split(" - ")) if isinstance(s, str) and s else 1
-        )
-    if "Price_Reliability" not in results.columns:
-        # Fallback reliability based on source count only
-        counts = results["Price_Sources_Count"].fillna(0).astype(int)
-        rel = []
-        for n in counts:
-            if n <= 1:
-                rel.append(0.15)
-            elif n == 2:
-                rel.append(0.35)
-            elif n == 3:
-                rel.append(0.55)
-            else:
-                rel.append(0.75)
-        results["Price_Reliability"] = pd.Series(rel, index=results.index)
+# Ensure default price source fields even when verification is skipped
+if "Source_List" not in results.columns:
+    results["Source_List"] = "🟡Yahoo"
+if "Price_Sources_Count" not in results.columns:
+    results["Price_Sources_Count"] = results["Source_List"].apply(
+        lambda s: len(str(s).split(" - ")) if isinstance(s, str) and s else 1
+    )
+if "Price_Reliability" not in results.columns:
+    # Fallback reliability based on source count only
+    counts = results["Price_Sources_Count"].fillna(0).astype(int)
+    rel = []
+    for n in counts:
+        if n <= 1:
+            rel.append(0.15)
+        elif n == 2:
+            rel.append(0.35)
+        elif n == 3:
+            rel.append(0.55)
+        else:
+            rel.append(0.75)
+    results["Price_Reliability"] = pd.Series(rel, index=results.index)
 
 
 # Horizon heuristic
