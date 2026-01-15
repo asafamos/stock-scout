@@ -163,7 +163,8 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
     - Tabular numbers, consistent formatting
     """
     esc = html_escape.escape
-    ticker = esc(_safe_str(row.get("Ticker", "N/A")))
+    raw_ticker = _safe_str(row.get("Ticker", "N/A"))
+    ticker = esc(raw_ticker)
     overall_rank = row.get("Overall_Rank", "N/A")
     # Use pretty score for display (60-90 range), raw score for internal logic
     # Show both pretty score and 20d score
@@ -235,6 +236,15 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
     sources_line = ""
     if price_sources or fund_sources:
         sources_line = f"Data sources: Prices - {price_sources or 'N/A'}; Fundamentals - {fund_sources or 'N/A'}"
+
+    # Debug: warn when price sources missing (helps diagnose local fetch failures)
+    try:
+        cnt = row.get("Price_Sources_Count", row.get("price_sources_used_v2", np.nan))
+        cnt_num = _num(cnt)
+        if (not np.isfinite(cnt_num)) or (cnt_num <= 0):
+            logger.warning(f"[DATA] Price sources missing for {raw_ticker}: Price_Sources_Count={cnt}")
+    except Exception:
+        pass
 
     def fmt_money(v):
         return f"${v:.2f}" if _is_finite(v) else "N/A"
@@ -3894,7 +3904,7 @@ def calculate_targets(row):
             ml_mult = 1.2 - (ml_prob * 0.4)  # 0.5→1.0, 1.0→0.8 (high conf = faster)
 
         # Calculate fallback days from multiple factors (more dynamic)
-        if np.isfinite(rr):
+        if np.isfinite(rr) and rr > 0.1:
             # Base days from RR
             base_days = 20 + (rr * 10)
 
@@ -3955,7 +3965,7 @@ def calculate_targets(row):
             # Use AI prediction for both target price AND timing
             target_price, days = ai_result
             target_source = "AI"
-        elif np.isfinite(atr) and np.isfinite(rr):
+        elif np.isfinite(atr) and np.isfinite(rr) and rr > 0.1:
             # Fallback to technical calculation: entry + (RR * ATR)
             base_target_pct = rr * (atr / current_price) if current_price > 0 else 0.10
             
