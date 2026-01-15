@@ -783,34 +783,28 @@ def compute_volume_surge(volume: pd.Series, lookback: int = 20) -> pd.Series:
     return surge
 
 
-def compute_reward_risk(close: pd.Series, lookback: int = 20) -> pd.Series:
+def compute_reward_risk(close: pd.Series, low: pd.Series, high: pd.Series, lookback: int = 14) -> pd.Series:
     """
-    Compute reward/risk ratio - upside opportunity vs downside risk.
-
-    Quantifies risk/reward setup:
-        RR = (high_20d - current_price) / (current_price - low_20d)
-
-    - RR > 2.0: Favorable setup (2:1 or better reward)
-    - RR 1.0-2.0: Neutral setup
-    - RR < 1.0: Unfavorable (risk exceeds reward)
-    - Capped at 10 to avoid extreme outliers
-
-    Args:
-        close: Series of closing prices
-        lookback: Period for high/low range (default 20)
-
-    Returns:
-        Series with RR values, capped at 10.0
+    Compute Trend-Following Reward/Risk using ATR.
+    Assumes a breakout strategy: Reward = 3*ATR, Risk = 1.5*ATR.
+    This avoids penalizing stocks at 20-day highs (unlike mean-reversion RR).
     """
-    high_20d = close.rolling(window=lookback).max()
-    low_20d = close.rolling(window=lookback).min()
+    # Calculate ATR (True Range)
+    prev_close = close.shift(1)
+    tr = pd.concat([
+        (high - low),
+        (high - prev_close).abs(),
+        (low - prev_close).abs()
+    ], axis=1).max(axis=1)
+    atr = tr.rolling(window=lookback).mean()
     
-    reward = high_20d - close
-    risk = close - low_20d
+    # Dynamic RR: Reward breakout, Risk volatility
+    reward = 3.0 * atr
+    risk = 1.5 * atr
     
     rr = reward / risk.replace(0, np.nan)
-    rr = rr.clip(upper=10)
-    return rr
+    # Sanity clip and default neutral
+    return rr.clip(lower=0.5, upper=5.0).fillna(2.0)
 
 
 def build_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
@@ -922,7 +916,7 @@ def build_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
         result['Volume_Surge_Ratio'] = recent_vol / avg_vol20
     except Exception:
         result['Volume_Surge_Ratio'] = np.nan
-    result['RR'] = compute_reward_risk(close, lookback=20)
+    result['RR'] = compute_reward_risk(close, low, high, lookback=14)
     
     # Derived features for ML
     result['RR_MomCons'] = result['RR'] * result['MomCons']
