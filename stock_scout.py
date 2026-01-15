@@ -2795,9 +2795,36 @@ if skip_pipeline:
     logger.info(f"[PERF] Precomputed stage 3/10 (post-load to recommendations) time: {t1_stage3-t0_stage3:.3f}s")
     
 else:
-    # Read-only mode: no live pipeline execution
-    st.warning("📄 No precomputed scan available. This dashboard is read-only and will display results after the next automated scan.")
-    results = pd.DataFrame()
+    # Live scan execution fallback
+    with st.status("🚀 Running Live Scan...", expanded=True) as status:
+        status.write("Initializing pipeline...")
+        # 1. Fetch Universe
+        universe = fetch_top_us_tickers_by_market_cap(limit=CONFIG["UNIVERSE_LIMIT"])
+        status.write(f"Fetched universe: {len(universe)} tickers")
+        
+        # 2. Run Pipeline
+        results, data_map = run_scan_pipeline(
+            universe, 
+            CONFIG, 
+            status_callback=status.write
+        )
+        
+        # 3. Save Results
+        if not results.empty:
+            try:
+                # Ensure metadata includes timestamp and type
+                meta = {
+                    "universe_count": len(universe),
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "scan_type": "live_streamlit"
+                }
+                save_latest_scan_from_results(results, metadata=meta)
+                st.session_state["precomputed_results"] = results
+                st.success(f"✅ Scan complete: {len(results)} results found")
+            except Exception as e:
+                logger.warning(f"Failed to save live scan: {e}")
+        else:
+            st.error("❌ Live scan returned 0 results. Check logs/filtering.")
 
 # Debug logging if enabled
 create_debug_expander({
