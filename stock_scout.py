@@ -3191,6 +3191,28 @@ phase_times["price_verification"] = t_end(t0)
 status_manager.update_detail(f"Price verification: {len(results)} validated")
 status_manager.advance("Price Verification")
 
+    # Ensure default price source fields even when verification is skipped
+    if "Source_List" not in results.columns:
+        results["Source_List"] = "🟡Yahoo"
+    if "Price_Sources_Count" not in results.columns:
+        results["Price_Sources_Count"] = results["Source_List"].apply(
+            lambda s: len(str(s).split(" - ")) if isinstance(s, str) and s else 1
+        )
+    if "Price_Reliability" not in results.columns:
+        # Fallback reliability based on source count only
+        counts = results["Price_Sources_Count"].fillna(0).astype(int)
+        rel = []
+        for n in counts:
+            if n <= 1:
+                rel.append(0.15)
+            elif n == 2:
+                rel.append(0.35)
+            elif n == 3:
+                rel.append(0.55)
+            else:
+                rel.append(0.75)
+        results["Price_Reliability"] = pd.Series(rel, index=results.index)
+
 
 # Horizon heuristic
 def infer_horizon(row: pd.Series) -> str:
@@ -3591,7 +3613,13 @@ else:
 
 # KPI: Totals and pass-through
 try:
-    total_candidates = int(st.session_state.get("pre_scan_universe_count", 0))
+    # Prefer actual results count; fallback to universe size if available
+    try:
+        total_candidates = int(len(results)) if results is not None else 0
+        if total_candidates == 0:
+            total_candidates = int(st.session_state.get("universe_size", 0)) or int(st.session_state.get("pre_scan_universe_count", 0))
+    except Exception:
+        total_candidates = int(st.session_state.get("universe_size", 0)) or int(st.session_state.get("pre_scan_universe_count", 0))
     # Count stocks with FinalScore_20d > 10 from the full results (not only top-15)
     sc_full = None
     for c in ["FinalScore_20d", "conviction_v2_final", "overall_score_20d", "overall_score", "Score"]:
