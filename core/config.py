@@ -133,6 +133,9 @@ class Config:
     # Results
     topn_results: int = int(_get_config_value('TOPN_RESULTS', '15'))
     topk_recommend: int = int(_get_config_value('TOPK_RECOMMEND', '5'))
+
+    # Meteor Mode (environment-driven for CI/UI parity)
+    meteor_mode: bool = _get_config_value('METEOR_MODE', '0') == '1'
     
     def to_dict(self) -> dict:
         """Convert config to dictionary."""
@@ -153,6 +156,7 @@ class Config:
             "sector_cap_max": self.sector_cap_max,
             "max_sector_allocation_pct": self.max_sector_allocation_pct,
             "max_positions_per_sector": self.max_positions_per_sector,
+            "meteor_mode": self.meteor_mode,
         }
 
 

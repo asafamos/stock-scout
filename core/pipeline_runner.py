@@ -840,7 +840,8 @@ def run_scan_pipeline(
     logger.info(f"[PIPELINE] Advanced filters applied without score-zeroing; total stocks: {len(results)}")
     
     # Optional: Meteor Mode filter (VCP + RS + Pocket Pivots)
-    meteor_mode = bool(config.get("meteor_mode", bool(os.getenv("METEOR_MODE", "1") == "1")))
+    # Meteor Mode: honor unified config; avoid diverging env defaults
+    meteor_mode = bool(config.get("meteor_mode", False))
     if meteor_mode and not results.empty:
         if status_callback: status_callback("Applying Meteor filters (VCP + RS + Pocket Pivots)...")
         try:

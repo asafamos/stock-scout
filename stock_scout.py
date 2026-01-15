@@ -446,6 +446,13 @@ CONFIG = {
     "BETA_MAX_ALLOWED": _config_obj.beta_max_allowed,
     "SECTOR_CAP_MAX": _config_obj.sector_cap_max,
     "SECTOR_CAP_ENABLED": _config_obj.sector_cap_enabled,
+    # Canonical lowercase keys for pipeline compatibility
+    "beta_filter_enabled": _config_obj.beta_filter_enabled,
+    "beta_top_k": _config_obj.beta_top_k,
+    "beta_max_allowed": _config_obj.beta_max_allowed,
+    "beta_benchmark": _config_obj.beta_benchmark,
+    # Meteor mode
+    "meteor_mode": _config_obj.meteor_mode,
     # Results sizing
     "TOPN_RESULTS": _config_obj.topn_results,
     "TOPK_RECOMMEND": _config_obj.topk_recommend,
@@ -2480,7 +2487,16 @@ def save_latest_scan_from_results(results_df: pd.DataFrame, metadata: Optional[D
     
     # Prepare metadata
     meta = metadata.copy() if metadata else {}
-    meta["total_tickers"] = len(results_df)
+    # Standard metadata fields for parity with GitHub autoscan
+    meta["timestamp"] = meta.get("timestamp") or datetime.now().isoformat()
+    meta["total_tickers"] = int(len(results_df))
+    # Universe size/count (include both keys for compatibility)
+    try:
+        uni = int(st.session_state.get("universe_size", meta.get("universe_size", len(results_df))))
+    except Exception:
+        uni = int(len(results_df))
+    meta["universe_size"] = uni
+    meta["universe_count"] = uni
     meta["scan_type"] = "live_streamlit"
     # Add build commit for parity with autoscan artifacts
     try:
@@ -2690,23 +2706,16 @@ elif precomputed_df is not None and precomputed_meta is not None and not scan_to
     logger.info(f"[PERF] Precomputed scan: DataFrame shape {precomputed_df.shape}")
     use_precomputed = True
 else:
-    # Either no snapshot exists, or scan is too old
+    # Either no snapshot exists, or the freshest snapshot is too old -> prefer live run
     if scan_too_old and precomputed_df is not None:
         age_display = f"{scan_age_hours:.1f}" if isinstance(scan_age_hours, (int, float)) else "unknown"
-        st.warning(f"⚠️ הסריקה הקיימת ישנה מדי ({age_display} שעות) - מחכה לסריקה אוטומטית הבאה")
+        st.warning(f"⚠️ הסריקה הקיימת ישנה מדי ({age_display} שעות) - מריץ סריקה חיה כעת")
         _render_snapshot_banner(precomputed_meta, scan_path, scan_age_hours)
-        st.info("💡 סריקה אוטומטית חדשה תתבצע תוך מספר שעות (פעמיים ביום: 8:00 + 20:00 UTC)")
-        # Use old scan anyway but warn user
-        st.session_state["skip_pipeline"] = True
-        st.session_state["precomputed_results"] = precomputed_df
-        try:
-            st.session_state["universe_size"] = int(universe_size)
-        except Exception:
-            pass
-        use_precomputed = True
+        use_precomputed = False
+        st.session_state["skip_pipeline"] = False
     else:
-        st.info("📊 אין סריקה זמינה - מחכה לסריקה אוטומטית הבאה.")
-        st.caption("💡 סריקות אוטומטיות רצות פעמיים ביום דרך GitHub Actions.")
+        st.info("📊 אין סריקה זמינה - מריץ סריקה חיה כעת.")
+        st.caption("💡 אם אין תוצאות לוקליות, נטען נתונים מרחוק במידת הצורך.")
         use_precomputed = False
         st.session_state["skip_pipeline"] = False
     
