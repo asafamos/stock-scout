@@ -1122,9 +1122,9 @@ def run_scan_pipeline(
         score_col = "FinalScore_20d" if "FinalScore_20d" in results.columns else ("Score" if "Score" in results.columns else None)
         if score_col is not None and not results.empty:
             sc = pd.to_numeric(results[score_col], errors="coerce")
-            # Step 1: Quality filter at 60; if <5 remain, relax to 50
+            # Step 1: Quality filter at 60; if <3 remain, relax to 50
             filtered = results[sc >= 60].copy()
-            if len(filtered) < 5:
+            if len(filtered) < 3:
                 filtered = results[sc >= 50].copy()
             # Step 2: Sort by score desc
             filtered = (
@@ -1132,9 +1132,9 @@ def run_scan_pipeline(
                         .sort_values(by=["_score_numeric"], ascending=[False])
                         .drop(columns=["_score_numeric"])
             )
-            # Step 3: Quantity cap Top-50
-            results = filtered.head(50).reset_index(drop=True)
-            logger.info(f"[PIPELINE] Quality+Quantity applied: kept {len(results)} (from {orig_len}), threshold={'60' if len(results)>=5 else '50'}")
+            # Step 3: Quantity cap Top-12 (strict)
+            results = filtered.head(12).reset_index(drop=True)
+            logger.info(f"[PIPELINE] Quality+Quantity applied (strict 12): kept {len(results)} (from {orig_len}), threshold={'60' if len(results)>=3 else '50'}")
         else:
             logger.info("[PIPELINE] No score column for quality filter; skipping Top-50 cap")
     except Exception as e:
@@ -1154,11 +1154,7 @@ def run_scan_pipeline(
         to_save.to_json(latest_json, orient="records", date_format="iso")
         # Save Parquet
         to_save.to_parquet(latest_parquet, index=False)
-        try:
-            total_base = orig_len if 'orig_len' in locals() else len(results)
-        except Exception:
-            total_base = len(results)
-        logger.info(f"✅ Dashboard Sync: Saved Top {len(to_save)} stocks (out of {total_base})")
+        logger.info(f"✅ Pipeline Finalized: Saved strict Top {len(to_save)} recommendations")
     except Exception as e:
         logger.warning(f"[PIPELINE] Failed to persist latest scan files: {e}")
 

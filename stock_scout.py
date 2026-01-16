@@ -3588,7 +3588,7 @@ if "Risk_Level" in rec_df.columns:
     except Exception:
         core_count = 0
 
-if core_count == 0 and not rec_df.empty:
+    if core_count == 0 and not rec_df.empty:
     spec_df = rec_df[rec_df["Risk_Level"].astype(str) == "speculative"].copy() if "Risk_Level" in rec_df.columns else rec_df.copy()
     sort_col = "Volatility_Contraction_Score" if "Volatility_Contraction_Score" in spec_df.columns else ("FinalScore_20d" if "FinalScore_20d" in spec_df.columns else None)
     if sort_col:
@@ -3597,12 +3597,10 @@ if core_count == 0 and not rec_df.empty:
             .sort_values(by=["_sort_val"], ascending=[False])
             .drop(columns=["_sort_val"])
         )
-    # Keep top 15 SPEC
-    spec_df = spec_df.head(15)
     if spec_df.empty:
         st.warning("🔍 No high-conviction setups found. Check back after the next automated scan.")
     else:
-        st.info("🟠 Showing top 15 SPEC setups (no CORE found)")
+        st.info(f"🟠 Showing {len(spec_df)} recommendations (no CORE found)")
         rec_df = spec_df
 else:
     if rec_df.empty:
@@ -4397,37 +4395,13 @@ else:
         except Exception:
             return na
 
-    # --- Enforce Top-N card limit consistently (both Core and Spec) ---
-    try:
-        top_n = st.sidebar.slider("Card limit (Top N)", min_value=5, max_value=50, value=10, step=5)
-    except Exception:
-        top_n = 10
-
-    sort_col = "FinalScore_20d" if "FinalScore_20d" in rec_df.columns else ("Score" if "Score" in rec_df.columns else None)
-    if sort_col:
-        # Sort and slice Core
-        core_total = len(core_df)
-        core_df = (
-            core_df.assign(_sort_val=pd.to_numeric(core_df[sort_col], errors="coerce"))
-                   .sort_values(by=["_sort_val"], ascending=[False])
-                   .drop(columns=["_sort_val"])
-                   .head(top_n)
-        )
-        # Sort and slice Spec
-        spec_total = len(spec_df)
-        spec_df = (
-            spec_df.assign(_sort_val=pd.to_numeric(spec_df[sort_col], errors="coerce"))
-                   .sort_values(by=["_sort_val"], ascending=[False])
-                   .drop(columns=["_sort_val"])
-                   .head(top_n)
-        )
-        # Informational header
-        st.write(f"Showing top {len(core_df) + len(spec_df)} recommendations out of {core_total + spec_total} passing stocks")
+    # UI displays exactly what the pipeline provided (no extra slicing)
+    st.write(f"Showing {len(rec_df)} recommendations")
 
     # Core recommendations
     if not core_df.empty:
         st.markdown("### 🛡️ Core Stocks — Lower Relative Risk")
-        st.caption(f"✅ {len(core_df)} stocks with high data quality and balanced risk profile")
+        st.caption(f"Showing {len(core_df)} recommendations")
         
         @st.cache_data(ttl=3600)
         def _fallback_sector_yf(ticker: str) -> str:
@@ -4528,7 +4502,7 @@ else:
     # Speculative recommendations
     if not spec_df.empty:
         st.markdown("### ⚡ Speculative Stocks — High Upside, High Risk")
-        st.caption(f"⚠️ {len(spec_df)} stocks with a higher risk profile")
+        st.caption(f"Showing {len(spec_df)} recommendations")
         st.warning("🔔 Warning: These stocks are classified as speculative due to partial data or elevated risk factors. Suitable for experienced investors only.")
         
         @st.cache_data(ttl=3600)
