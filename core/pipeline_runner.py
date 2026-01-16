@@ -1023,6 +1023,99 @@ def run_scan_pipeline(
         results["Score"] = results["FinalScore_20d"]
         logger.info(f"[PIPELINE] Final check: Score column set to FinalScore_20d for all {len(results)} results")
     
+    # --- Dynamic Risk/Reward based on resistance & Bollinger ---
+    try:
+        def _compute_rr_for_row(row: pd.Series) -> Dict[str, Any]:
+            tkr = str(row.get("Ticker"))
+            hist = data_map.get(tkr)
+            if hist is None or len(hist) < 5:
+                return {
+                    "Entry_Price": np.nan,
+                    "Target_Price": np.nan,
+                    "Stop_Loss": np.nan,
+                    "RewardRisk": np.nan,
+                    "RR_Ratio": np.nan,
+                    "RR": np.nan,
+                    "Target_Source": "N/A",
+                }
+            try:
+                # Ensure expected columns
+                hdf = hist.copy()
+                if "Close" not in hdf.columns or "High" not in hdf.columns or "Low" not in hdf.columns:
+                    return {
+                        "Entry_Price": np.nan,
+                        "Target_Price": np.nan,
+                        "Stop_Loss": np.nan,
+                        "RewardRisk": np.nan,
+                        "RR_Ratio": np.nan,
+                        "RR": np.nan,
+                        "Target_Source": "N/A",
+                    }
+                # Entry price = latest close
+                entry = float(hdf["Close"].iloc[-1])
+                # ATR(14) using simple true range approximation
+                close_shift = hdf["Close"].shift(1)
+                tr = pd.concat([
+                    (hdf["High"] - hdf["Low"]),
+                    (hdf["High"] - close_shift).abs(),
+                    (hdf["Low"] - close_shift).abs()
+                ], axis=1).max(axis=1)
+                atr14 = float(tr.rolling(14, min_periods=5).mean().iloc[-1]) if len(tr) >= 5 else float((hdf["High"] - hdf["Low"]).tail(5).mean())
+                atr14 = max(atr14, 1e-6)
+                # Stop loss = min(Low of last 5 days, entry - 2*ATR)
+                low_5 = float(hdf["Low"].tail(5).min())
+                stop_price = float(min(low_5, entry - 2.0 * atr14))
+                # Bollinger upper band (20, 2)
+                ma20 = float(hdf["Close"].rolling(20, min_periods=5).mean().iloc[-1])
+                std20 = float(hdf["Close"].rolling(20, min_periods=5).std(ddof=0).iloc[-1])
+                bb_upper = ma20 + 2.0 * std20 if np.isfinite(ma20) and np.isfinite(std20) else float(hdf["High"].tail(20).max())
+                # Resistance = highest high last 60 days
+                res_60 = float(hdf["High"].tail(60).max())
+                target = float(max(res_60, bb_upper))
+                # Compute RR = (target - entry) / (entry - stop)
+                risk = float(entry - stop_price)
+                reward = float(target - entry)
+                rr = np.nan
+                if risk > 0 and reward > 0:
+                    rr = float(np.clip(reward / risk, 0.0, 10.0))
+                return {
+                    "Entry_Price": entry,
+                    "Target_Price": target,
+                    "Stop_Loss": stop_price,
+                    "RewardRisk": rr,
+                    "RR_Ratio": rr,
+                    "RR": rr,
+                    "Target_Source": "Resistance/Bollinger",
+                }
+            except Exception:
+                return {
+                    "Entry_Price": np.nan,
+                    "Target_Price": np.nan,
+                    "Stop_Loss": np.nan,
+                    "RewardRisk": np.nan,
+                    "RR_Ratio": np.nan,
+                    "RR": np.nan,
+                    "Target_Source": "N/A",
+                }
+
+        # Apply to all rows
+        rr_updates = results.apply(_compute_rr_for_row, axis=1, result_type="expand")
+        for col in ["Entry_Price", "Target_Price", "Stop_Loss", "RewardRisk", "RR_Ratio", "RR", "Target_Source"]:
+            if col in rr_updates.columns:
+                results[col] = rr_updates[col]
+
+        # Adjust score for low RR
+        if "FinalScore_20d" in results.columns and "RR" in results.columns:
+            low_mask = pd.to_numeric(results["RR"], errors="coerce") < 1.5
+            mid_mask = (~low_mask) & (pd.to_numeric(results["RR"], errors="coerce") < 2.0)
+            results.loc[low_mask, "FinalScore_20d"] = results.loc[low_mask, "FinalScore_20d"] - 8.0
+            results.loc[mid_mask, "FinalScore_20d"] = results.loc[mid_mask, "FinalScore_20d"] - 3.0
+            # Keep alias in sync
+            results["FinalScore"] = results["FinalScore_20d"]
+            results["Score"] = results["FinalScore_20d"]
+    except Exception as e:
+        logger.warning(f"[PIPELINE] Dynamic RR computation failed: {e}")
+
     # --- Persist latest results for Streamlit dashboard freshness ---
     try:
         # What-You-See-Is-What-You-Save: persist only filtered picks
