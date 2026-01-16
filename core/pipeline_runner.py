@@ -1116,30 +1116,34 @@ def run_scan_pipeline(
     except Exception as e:
         logger.warning(f"[PIPELINE] Dynamic RR computation failed: {e}")
 
+    # --- Strict Consistency & Quality Filter (Quality then Quantity) ---
+    try:
+        orig_len = len(results)
+        score_col = "FinalScore_20d" if "FinalScore_20d" in results.columns else ("Score" if "Score" in results.columns else None)
+        if score_col is not None and not results.empty:
+            sc = pd.to_numeric(results[score_col], errors="coerce")
+            # Step 1: Quality filter at 60; if <5 remain, relax to 50
+            filtered = results[sc >= 60].copy()
+            if len(filtered) < 5:
+                filtered = results[sc >= 50].copy()
+            # Step 2: Sort by score desc
+            filtered = (
+                filtered.assign(_score_numeric=pd.to_numeric(filtered[score_col], errors="coerce"))
+                        .sort_values(by=["_score_numeric"], ascending=[False])
+                        .drop(columns=["_score_numeric"])
+            )
+            # Step 3: Quantity cap Top-50
+            results = filtered.head(50).reset_index(drop=True)
+            logger.info(f"[PIPELINE] Quality+Quantity applied: kept {len(results)} (from {orig_len}), threshold={'60' if len(results)>=5 else '50'}")
+        else:
+            logger.info("[PIPELINE] No score column for quality filter; skipping Top-50 cap")
+    except Exception as e:
+        logger.warning(f"[PIPELINE] Quality/Quantity filtering failed: {e}")
+
     # --- Persist latest results for Streamlit dashboard freshness ---
     try:
-        # What-You-See-Is-What-You-Save: persist only filtered picks
+        # What-You-See-Is-What-You-Save: save exactly the final filtered results
         to_save = results.copy()
-        # Drop explicit rejects if present
-        for col in ("Decision", "Recommendation", "Status"):
-            if col in to_save.columns:
-                to_save = to_save[to_save[col].astype(str).str.upper() != "REJECT"]
-        # Threshold by primary score
-        score_col = "FinalScore_20d" if "FinalScore_20d" in to_save.columns else ("Score" if "Score" in to_save.columns else None)
-        if score_col is not None:
-            to_save = to_save[pd.to_numeric(to_save[score_col], errors="coerce") >= 30].copy()
-        # Keep funded picks, if available
-        if "buy_amount_v2" in to_save.columns:
-            to_save = to_save[pd.to_numeric(to_save["buy_amount_v2"], errors="coerce") > 0].copy()
-
-        # Enforce Top-50 for dashboard sync
-        if score_col is not None and not to_save.empty:
-            to_save = (
-                to_save.assign(_score_numeric=pd.to_numeric(to_save[score_col], errors="coerce"))
-                      .sort_values(by=["_score_numeric"], ascending=[False])
-                      .drop(columns=["_score_numeric"])
-                      .head(50)
-            )
 
         data_dir = Path("data")
         data_dir.mkdir(parents=True, exist_ok=True)
@@ -1150,7 +1154,11 @@ def run_scan_pipeline(
         to_save.to_json(latest_json, orient="records", date_format="iso")
         # Save Parquet
         to_save.to_parquet(latest_parquet, index=False)
-        logger.info(f"✅ Dashboard Sync: Saved Top {len(to_save)} stocks (out of {len(results)})")
+        try:
+            total_base = orig_len if 'orig_len' in locals() else len(results)
+        except Exception:
+            total_base = len(results)
+        logger.info(f"✅ Dashboard Sync: Saved Top {len(to_save)} stocks (out of {total_base})")
     except Exception as e:
         logger.warning(f"[PIPELINE] Failed to persist latest scan files: {e}")
 
