@@ -1012,23 +1012,25 @@ def aggregate_fundamentals(
             fetch_funcs.append(fetch_map["TIINGO"])
     
     for source_name, fetch_func in fetch_funcs:
-        # Respect preflight: skip disabled providers
+        # Respect preflight minimally: skip only when auth/no_key or cannot serve fundamentals
         if provider_status is not None:
             key_map = {
                 "fmp": "FMP",
                 "finnhub": "FINNHUB",
                 "tiingo": "TIINGO",
                 "alpha": "ALPHAVANTAGE",
+                "eodhd": "EODHD",
+                "simfin": "SIMFIN",
             }
             s = provider_status.get(key_map.get(source_name, source_name))
-            if s and not s.get("ok", True):
+            if s and (s.get("status") in ("auth_error", "no_key") or (s.get("can_fund") is False)):
                 try:
                     record_api_call(
                         provider=key_map.get(source_name, source_name),
                         endpoint="fundamentals",
                         status="skipped_preflight",
                         latency_sec=0.0,
-                        extra={"ticker": ticker, "reason": "disabled_by_preflight"},
+                        extra={"ticker": ticker, "reason": s.get("status", "capability_off")},
                     )
                 except Exception:
                     pass
@@ -1254,8 +1256,22 @@ def fetch_price_multi_source(ticker: str, provider_status: Dict | None = None) -
     ALPHA_KEY_RUNTIME = get_secret("ALPHA_VANTAGE_API_KEY", os.getenv("ALPHA_VANTAGE_API_KEY", "")) or os.getenv("ALPHAVANTAGE_API_KEY", "")
     MARKETSTACK_KEY_RUNTIME = get_secret("MARKETSTACK_API_KEY", os.getenv("MARKETSTACK_API_KEY", ""))
 
+    # Helper to check if a provider can price per preflight
+    def _can_price(name_upper: str) -> bool:
+        try:
+            if not provider_status:
+                return True
+            s = provider_status.get(name_upper)
+            if not s:
+                return True
+            if s.get("status") in ("auth_error", "no_key"):
+                return False
+            return s.get("can_price", True)
+        except Exception:
+            return True
+
     # Polygon price (PRIMARY)
-    if POLYGON_KEY_RUNTIME or POLYGON_API_KEY:
+    if _can_price("POLYGON") and (POLYGON_KEY_RUNTIME or POLYGON_API_KEY):
         try:
             _rate_limit("polygon")
             url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/prev"
@@ -1270,7 +1286,7 @@ def fetch_price_multi_source(ticker: str, provider_status: Dict | None = None) -
             prices["polygon"] = None
 
     # EODHD price (alternative PRIMARY if Polygon absent)
-    if ("primary_source" not in prices) and (EODHD_KEY_RUNTIME or EODHD_API_KEY) and ("eodhd:price" not in DISABLED_PROVIDERS):
+    if _can_price("EODHD") and ("primary_source" not in prices) and (EODHD_KEY_RUNTIME or EODHD_API_KEY) and ("eodhd:price" not in DISABLED_PROVIDERS):
         try:
             _rate_limit("eodhd")
             url = f"https://eodhd.com/api/real-time/{ticker}"
@@ -1291,7 +1307,7 @@ def fetch_price_multi_source(ticker: str, provider_status: Dict | None = None) -
             logger.warning(f"EODHD price fetch failed: {e}")
 
     # FMP price (secondary)
-    if (FMP_KEY_RUNTIME or FMP_API_KEY) and ("fmp:price" not in DISABLED_PROVIDERS):
+    if _can_price("FMP") and (FMP_KEY_RUNTIME or FMP_API_KEY) and ("fmp:price" not in DISABLED_PROVIDERS):
         try:
             _rate_limit("fmp")
             url = f"https://financialmodelingprep.com/api/v3/quote/{ticker}"
@@ -1324,7 +1340,7 @@ def fetch_price_multi_source(ticker: str, provider_status: Dict | None = None) -
             prices["fmp"] = None
 
     # Finnhub price (secondary)
-    if FINNHUB_KEY_RUNTIME or FINNHUB_API_KEY:
+    if _can_price("FINNHUB") and (FINNHUB_KEY_RUNTIME or FINNHUB_API_KEY):
         try:
             _rate_limit("finnhub")
             url = "https://finnhub.io/api/v1/quote"
@@ -1337,7 +1353,7 @@ def fetch_price_multi_source(ticker: str, provider_status: Dict | None = None) -
             prices["finnhub"] = None
 
     # Tiingo price (secondary)
-    if TIINGO_KEY_RUNTIME or TIINGO_API_KEY:
+    if _can_price("TIINGO") and (TIINGO_KEY_RUNTIME or TIINGO_API_KEY):
         try:
             _rate_limit("tiingo")
             url = f"https://api.tiingo.com/tiingo/daily/{ticker}/prices"
@@ -1368,7 +1384,7 @@ def fetch_price_multi_source(ticker: str, provider_status: Dict | None = None) -
             prices["alpha"] = None
 
     # MarketStack price (fallback for daily bars)
-    if ("primary_source" not in prices) and (MARKETSTACK_KEY_RUNTIME or MARKETSTACK_API_KEY) and ("marketstack:price" not in DISABLED_PROVIDERS):
+    if _can_price("MARKETSTACK") and ("primary_source" not in prices) and (MARKETSTACK_KEY_RUNTIME or MARKETSTACK_API_KEY) and ("marketstack:price" not in DISABLED_PROVIDERS):
         try:
             _rate_limit("marketstack")
             url = "http://api.marketstack.com/v1/eod/latest"

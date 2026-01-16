@@ -9,6 +9,7 @@ Used in LIVE Streamlit runs only (not offline audits).
 import os
 import requests
 from typing import Dict, Any
+from datetime import datetime
 import logging
 
 logger = logging.getLogger(__name__)
@@ -33,26 +34,26 @@ def _check_provider(name: str, url: str | None, *, params: Dict[str, Any] | None
     - If no URL provided: rely purely on key presence.
     """
     if not _key_present(*key_envs):
-        return {"ok": False, "status": "no_key", "reason": "No API key"}
+        return {"ok": False, "status": "no_key", "reason": "No API key", "detail": None}
     if not url:
-        return {"ok": True, "status": "ok", "reason": "Key present (no check)"}
+        return {"ok": True, "status": "ok", "reason": "Key present (no check)", "detail": None}
     try:
         resp = requests.get(url, params=params or {}, headers=headers or {}, timeout=timeout)
         sc = resp.status_code
         if sc in (401, 403):
-            return {"ok": False, "status": "auth_error", "reason": f"HTTP {sc}"}
+            return {"ok": False, "status": "auth_error", "reason": f"HTTP {sc}", "detail": (resp.text or "")[:160]}
         if sc == 429:
-            return {"ok": True, "status": "rate_limit", "reason": "Rate limit"}
+            return {"ok": True, "status": "rate_limit", "reason": "Rate limit", "detail": (resp.text or "")[:160]}
         if sc >= 500:
-            return {"ok": True, "status": "transient_error", "reason": f"HTTP {sc}"}
+            return {"ok": True, "status": "transient_error", "reason": f"HTTP {sc}", "detail": (resp.text or "")[:160]}
         if sc == 200:
-            return {"ok": True, "status": "ok", "reason": "OK"}
+            return {"ok": True, "status": "ok", "reason": "OK", "detail": None}
         # Other non-200 codes: treat as transient
-        return {"ok": True, "status": "transient_error", "reason": f"HTTP {sc}"}
+        return {"ok": True, "status": "transient_error", "reason": f"HTTP {sc}", "detail": (resp.text or "")[:160]}
     except requests.Timeout:
-        return {"ok": True, "status": "transient_error", "reason": "timeout"}
+        return {"ok": True, "status": "transient_error", "reason": "timeout", "detail": None}
     except Exception as e:
-        return {"ok": True, "status": "transient_error", "reason": str(e)[:80]}
+        return {"ok": True, "status": "transient_error", "reason": str(e)[:80], "detail": None}
 
 def run_preflight(timeout: float = 3.0) -> Dict[str, Dict[str, any]]:
     """
@@ -148,12 +149,40 @@ def run_preflight(timeout: float = 3.0) -> Dict[str, Dict[str, any]]:
     nasdaq = _check_provider("NASDAQ", None, key_envs=("NASDAQ_API_KEY", "NASDAQ_DL_API_KEY"))
     status["NASDAQ"] = nasdaq
 
-    # Fundamentals active: include all except explicit auth/no-key failures
+    # Annotate capabilities per provider (price/fundamentals)
+    caps = {
+        "FMP": {"can_price": True, "can_fund": True},
+        "FMP_INDEX": {"can_price": True, "can_fund": False},
+        "TIINGO": {"can_price": True, "can_fund": True},
+        "POLYGON": {"can_price": True, "can_fund": False},
+        "FINNHUB": {"can_price": True, "can_fund": True},
+        "ALPHAVANTAGE": {"can_price": True, "can_fund": True},
+        "EODHD": {"can_price": True, "can_fund": True},
+        "SIMFIN": {"can_price": False, "can_fund": True},
+        "MARKETSTACK": {"can_price": True, "can_fund": False},
+        "NASDAQ": {"can_price": False, "can_fund": False},
+    }
+    for prov, meta in list(status.items()):
+        c = caps.get(prov, {"can_price": False, "can_fund": False})
+        # If explicit auth/no_key, zero out capabilities
+        if meta.get("status") in ("auth_error", "no_key"):
+            meta["can_price"] = False
+            meta["can_fund"] = False
+        else:
+            meta["can_price"] = c.get("can_price", False)
+            meta["can_fund"] = c.get("can_fund", False)
+        status[prov] = meta
+
+    # Active lists: include providers not explicitly blocked by auth/no_key and with capability
     fundamentals_priority = ["FMP", "FINNHUB", "TIINGO", "ALPHAVANTAGE", "EODHD", "SIMFIN"]
-    active_fundamentals = [p for p in fundamentals_priority if status.get(p, {}).get("status") not in ("auth_error", "no_key")]
+    active_fundamentals = [p for p in fundamentals_priority if status.get(p, {}).get("status") not in ("auth_error", "no_key") and status.get(p, {}).get("can_fund", False)]
     status["FUNDAMENTALS_ACTIVE"] = active_fundamentals
 
+    price_priority = ["POLYGON", "EODHD", "FMP", "FINNHUB", "TIINGO", "ALPHAVANTAGE", "MARKETSTACK"]
+    active_price = [p for p in price_priority if status.get(p, {}).get("status") not in ("auth_error", "no_key") and status.get(p, {}).get("can_price", False)]
+    status["PRICE_ACTIVE"] = active_price
+
     logger.info(
-        f"[Preflight] Providers OK (except explicit auth/no_key); Fundamentals Active: {active_fundamentals}"
+        f"[Preflight] Providers OK; Fundamentals Active: {active_fundamentals}; Price Active: {active_price}"
     )
     return status

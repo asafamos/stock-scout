@@ -15,6 +15,15 @@ except ImportError:
     pass
 
 
+def _clean_key(val: Optional[str]) -> Optional[str]:
+    try:
+        if val is None:
+            return None
+        return str(val).strip().strip('"').strip("'")
+    except Exception:
+        return val
+
+
 def get_secret(key: str, default: Optional[str] = None, nested_sections: Optional[list[str]] = None) -> Optional[str]:
     """Unified secret loader with precedence: Streamlit secrets -> env -> .env.
 
@@ -28,14 +37,14 @@ def get_secret(key: str, default: Optional[str] = None, nested_sections: Optiona
             sec: Any = st.secrets
             # Direct top-level
             if isinstance(sec, dict) and key in sec:
-                return str(sec[key])
+                return _clean_key(str(sec[key]))
             # Common nested containers
             sections = nested_sections or ["api_keys", "keys", "secrets", "tokens"]
             for section in sections:
                 try:
                     container = sec.get(section) if hasattr(sec, 'get') else sec[section]
                     if isinstance(container, dict) and key in container:
-                        return str(container[key])
+                        return _clean_key(str(container[key]))
                 except Exception:
                     continue
     except Exception:
@@ -43,7 +52,7 @@ def get_secret(key: str, default: Optional[str] = None, nested_sections: Optiona
     # Environment variable (includes .env loaded via load_dotenv())
     val = os.getenv(key)
     if val is not None:
-        return val
+        return _clean_key(val)
     return default
 
 def _get_config_value(key: str, default: str) -> str:

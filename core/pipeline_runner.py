@@ -960,6 +960,18 @@ def run_scan_pipeline(
     else:
         results["Sector"] = "Unknown"
         results["Fundamental_S"] = 50.0
+    
+    # Preserve and map source metadata to canonical UI columns
+    try:
+        if "sources_used" in results.columns:
+            results["fund_sources_used_v2"] = results["sources_used"].apply(lambda x: len(x) if isinstance(x, list) else 0)
+            results["Fundamental_Sources_Count"] = results["fund_sources_used_v2"]
+        if "price_sources" in results.columns:
+            # price_sources is expected to be an integer count from the data layer
+            results["price_sources_used_v2"] = results["price_sources"].fillna(0).astype(int)
+            results["Price_Sources_Count"] = results["price_sources_used_v2"]
+    except Exception as e:
+        logger.debug(f"Source metadata mapping skipped due to error: {e}")
         
     # 7. Classification & Allocation
     if status_callback: status_callback("Classifying & Allocating...")

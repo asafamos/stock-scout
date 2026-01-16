@@ -33,6 +33,57 @@ from dotenv import load_dotenv, find_dotenv
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import html as html_escape
 
+# --- FORCE API KEYS (USER CONFIGURATION / SAFE INJECTION) ---
+# Inject API keys from environment, .env, or Streamlit secrets BEFORE core imports.
+# This ensures all core modules initialize with real provider credentials.
+try:
+    # Load .env without overriding existing env
+    _dotenv_path = find_dotenv(usecwd=True)
+    if _dotenv_path:
+        load_dotenv(_dotenv_path, override=False)
+except Exception:
+    pass
+
+def _clean_key(val: Optional[str]) -> Optional[str]:
+    try:
+        if val is None:
+            return None
+        return str(val).strip().strip('"').strip("'")
+    except Exception:
+        return val
+
+def _inject_api_keys_early() -> None:
+    keys = [
+        "OPENAI_API_KEY",
+        "ALPHA_VANTAGE_API_KEY",
+        "FINNHUB_API_KEY",
+        "POLYGON_API_KEY",
+        "TIINGO_API_KEY",
+        "FMP_API_KEY",
+        "MARKETSTACK_API_KEY",
+        "NASDAQ_API_KEY",
+        "NASDAQ_DL_API_KEY",
+        "EODHD_API_KEY",
+        "EODHD_TOKEN",
+        "SIMFIN_API_KEY",
+    ]
+    for k in keys:
+        val = _clean_key(os.getenv(k))
+        # Prefer Streamlit secrets if available
+        try:
+            if not val and hasattr(st, "secrets") and k in st.secrets:
+                val = _clean_key(st.secrets[k])
+        except Exception:
+            pass
+        if val:
+            os.environ[k] = str(val)
+    # Universe limit: default to 2000 unless explicitly set
+    if not os.getenv("UNIVERSE_LIMIT"):
+        os.environ["UNIVERSE_LIMIT"] = "2000"
+
+_inject_api_keys_early()
+# ------------------------------------------------------------
+
 # ============================================================================
 # NEW UNIFIED API - Use wrapper modules
 # ============================================================================
@@ -365,8 +416,8 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
             <div class='field'><span class='label'>Target Date</span><span class='value ltr'>{target_date}</span></div>
             <div class='field'><span class='label'>ML Probability</span><span class='value ltr'>{fmt_pct(ml_prob * 100) if np.isfinite(ml_prob) else 'N/A'}</span></div>
             <div class='field'><span class='label'>Base Conviction</span><span class='value ltr'>{fmt_score(conv_base)}</span></div>
-            <div class='field'><span class='label'>Fund Sources</span><span class='value ltr'>{fmt_score(row.get('fund_sources_used_v2', 0))}</span></div>
-            <div class='field'><span class='label'>Price Sources</span><span class='value ltr'>{fmt_score(row.get('price_sources_used_v2', 0))}</span></div>
+            <div class='field'><span class='label'>Fund Sources</span><span class='value ltr'>{fmt_score(row.get('fund_sources_used_v2', row.get('Fundamental_Sources_Count', 0)))}</span></div>
+            <div class='field'><span class='label'>Price Sources</span><span class='value ltr'>{fmt_score(row.get('price_sources_used_v2', row.get('Price_Sources_Count', 0)))}</span></div>
             <div class='field'><span class='label'>Price Std Dev</span><span class='value ltr'>{fmt_money(row.get('Price_STD_v2', np.nan))}</span></div>
         </div>
     </details>
