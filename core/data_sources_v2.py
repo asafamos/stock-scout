@@ -415,23 +415,11 @@ def fetch_fundamentals_fmp(ticker: str, provider_status: Dict | None = None) -> 
     - pe, ps, pb, roe, margin, rev_yoy, eps_yoy, debt_equity
     - market_cap, beta, etc.
     """
-    # Preflight skip
-    if provider_status is not None:
-        s = provider_status.get("FMP")
-        if s and not s.get("ok", True):
-            try:
-                record_api_call(
-                    provider="FMP",
-                    endpoint="key-metrics",
-                    status="skipped_preflight",
-                    latency_sec=0.0,
-                    extra={"ticker": ticker, "reason": "disabled_by_preflight"},
-                )
-            except Exception:
-                pass
-            return None
+    # Preflight information is advisory only; do not skip when keys are present
+    # Reload key at runtime to honor late injection
+    FMP_KEY_RUNTIME = get_secret("FMP_API_KEY", os.getenv("FMP_API_KEY", "")) or os.getenv("FMP_KEY", "")
 
-    if not FMP_API_KEY:
+    if not (FMP_KEY_RUNTIME or FMP_API_KEY):
         return None
     # Respect session-level blacklist for FMP fundamentals
     if "fmp:fundamentals" in DISABLED_PROVIDERS:
@@ -456,7 +444,7 @@ def fetch_fundamentals_fmp(ticker: str, provider_status: Dict | None = None) -> 
     
     # Fetch key metrics with direct request to detect 403 and disable provider
     url = f"https://financialmodelingprep.com/api/v3/key-metrics/{ticker}"
-    params = {"apikey": FMP_API_KEY, "limit": 1}
+    params = {"apikey": (FMP_KEY_RUNTIME or FMP_API_KEY), "limit": 1}
     
     start = time.time()
     try:
@@ -580,23 +568,10 @@ def fetch_fundamentals_fmp(ticker: str, provider_status: Dict | None = None) -> 
 
 def fetch_fundamentals_finnhub(ticker: str, provider_status: Dict | None = None) -> Optional[Dict]:
     """Fetch fundamentals from Finnhub."""
-    # Preflight skip
-    if provider_status is not None:
-        s = provider_status.get("FINNHUB")
-        if s and not s.get("ok", True):
-            try:
-                record_api_call(
-                    provider="Finnhub",
-                    endpoint="metric",
-                    status="skipped_preflight",
-                    latency_sec=0.0,
-                    extra={"ticker": ticker, "reason": "disabled_by_preflight"},
-                )
-            except Exception:
-                pass
-            return None
+    # Preflight advisory only; do not skip when key present
+    FINNHUB_KEY_RUNTIME = get_secret("FINNHUB_API_KEY", os.getenv("FINNHUB_API_KEY", ""))
 
-    if not FINNHUB_API_KEY:
+    if not (FINNHUB_KEY_RUNTIME or FINNHUB_API_KEY):
         return None
     
     cache_key = f"finnhub_fund_{ticker}"
@@ -608,7 +583,7 @@ def fetch_fundamentals_finnhub(ticker: str, provider_status: Dict | None = None)
     
     # Fetch basic financials
     url = "https://finnhub.io/api/v1/stock/metric"
-    params = {"symbol": ticker, "metric": "all", "token": FINNHUB_API_KEY}
+    params = {"symbol": ticker, "metric": "all", "token": (FINNHUB_KEY_RUNTIME or FINNHUB_API_KEY)}
     
     start = time.time()
     try:
@@ -657,23 +632,10 @@ def fetch_fundamentals_finnhub(ticker: str, provider_status: Dict | None = None)
 
 def fetch_fundamentals_tiingo(ticker: str, provider_status: Dict | None = None) -> Optional[Dict]:
     """Fetch fundamentals from Tiingo (existing source - preserved)."""
-    # Preflight skip
-    if provider_status is not None:
-        s = provider_status.get("TIINGO")
-        if s and not s.get("ok", True):
-            try:
-                record_api_call(
-                    provider="Tiingo",
-                    endpoint="statements",
-                    status="skipped_preflight",
-                    latency_sec=0.0,
-                    extra={"ticker": ticker, "reason": "disabled_by_preflight"},
-                )
-            except Exception:
-                pass
-            return None
+    # Preflight advisory only; do not skip when key present
+    TIINGO_KEY_RUNTIME = get_secret("TIINGO_API_KEY", os.getenv("TIINGO_API_KEY", ""))
 
-    if not TIINGO_API_KEY:
+    if not (TIINGO_KEY_RUNTIME or TIINGO_API_KEY):
         return None
     
     cache_key = f"tiingo_fund_{ticker}"
@@ -685,7 +647,7 @@ def fetch_fundamentals_tiingo(ticker: str, provider_status: Dict | None = None) 
     
     # Tiingo fundamentals endpoint
     url = f"https://api.tiingo.com/tiingo/fundamentals/{ticker}/statements"
-    headers = {"Content-Type": "application/json", "Authorization": f"Token {TIINGO_API_KEY}"}
+    headers = {"Content-Type": "application/json", "Authorization": f"Token {TIINGO_KEY_RUNTIME or TIINGO_API_KEY}"}
     
     start = time.time()
     try:
@@ -734,23 +696,10 @@ def fetch_fundamentals_tiingo(ticker: str, provider_status: Dict | None = None) 
 
 def fetch_fundamentals_alpha(ticker: str, provider_status: Dict | None = None) -> Optional[Dict]:
     """Fetch fundamentals from Alpha Vantage (existing source - preserved)."""
-    # Preflight skip
-    if provider_status is not None:
-        s = provider_status.get("ALPHAVANTAGE")
-        if s and not s.get("ok", True):
-            try:
-                record_api_call(
-                    provider="AlphaVantage",
-                    endpoint="overview",
-                    status="skipped_preflight",
-                    latency_sec=0.0,
-                    extra={"ticker": ticker, "reason": "disabled_by_preflight"},
-                )
-            except Exception:
-                pass
-            return None
+    # Preflight advisory only; do not skip when key present
+    ALPHA_KEY_RUNTIME = get_secret("ALPHA_VANTAGE_API_KEY", os.getenv("ALPHA_VANTAGE_API_KEY", "")) or os.getenv("ALPHAVANTAGE_API_KEY", "")
 
-    if not ALPHA_VANTAGE_API_KEY:
+    if not (ALPHA_KEY_RUNTIME or ALPHA_VANTAGE_API_KEY):
         return None
     
     cache_key = f"alpha_fund_{ticker}"
@@ -764,7 +713,7 @@ def fetch_fundamentals_alpha(ticker: str, provider_status: Dict | None = None) -
     params = {
         "function": "OVERVIEW",
         "symbol": ticker,
-        "apikey": ALPHA_VANTAGE_API_KEY
+        "apikey": (ALPHA_KEY_RUNTIME or ALPHA_VANTAGE_API_KEY)
     }
     
     start = time.time()
@@ -813,12 +762,9 @@ def fetch_fundamentals_alpha(ticker: str, provider_status: Dict | None = None) -
 
 def fetch_fundamentals_eodhd(ticker: str, provider_status: Dict | None = None) -> Optional[Dict]:
     """Fetch fundamentals from EODHD (secondary group)."""
-    # Preflight
-    if provider_status is not None:
-        s = provider_status.get("EODHD") or provider_status.get("eodhd")
-        if s and not s.get("ok", True):
-            return None
-    if not EODHD_API_KEY or ("eodhd:fundamentals" in DISABLED_PROVIDERS):
+    # Preflight advisory only; proceed if key present
+    EODHD_KEY_RUNTIME = get_secret("EODHD_API_KEY", os.getenv("EODHD_API_KEY", "")) or os.getenv("EODHD_TOKEN", "")
+    if not (EODHD_KEY_RUNTIME or EODHD_API_KEY) or ("eodhd:fundamentals" in DISABLED_PROVIDERS):
         return None
     cache_key = f"eodhd_fund_{ticker}"
     cached = _get_from_cache(cache_key)
@@ -826,7 +772,7 @@ def fetch_fundamentals_eodhd(ticker: str, provider_status: Dict | None = None) -
         return cached
     _rate_limit("eodhd")
     url = f"https://eodhd.com/api/fundamentals/{ticker}"
-    params = {"api_token": EODHD_API_KEY, "fmt": "json"}
+    params = {"api_token": (EODHD_KEY_RUNTIME or EODHD_API_KEY), "fmt": "json"}
     start = time.time()
     try:
         resp = requests.get(url, params=params, timeout=4)
@@ -871,11 +817,9 @@ def fetch_fundamentals_eodhd(ticker: str, provider_status: Dict | None = None) -
 
 def fetch_fundamentals_simfin(ticker: str, provider_status: Dict | None = None) -> Optional[Dict]:
     """Fetch fundamentals from SimFin (secondary group)."""
-    if provider_status is not None:
-        s = provider_status.get("SIMFIN") or provider_status.get("simfin")
-        if s and not s.get("ok", True):
-            return None
-    if not SIMFIN_API_KEY or ("simfin:fundamentals" in DISABLED_PROVIDERS):
+    # Preflight advisory only; proceed if key present
+    SIMFIN_KEY_RUNTIME = get_secret("SIMFIN_API_KEY", os.getenv("SIMFIN_API_KEY", ""))
+    if not (SIMFIN_KEY_RUNTIME or SIMFIN_API_KEY) or ("simfin:fundamentals" in DISABLED_PROVIDERS):
         return None
     cache_key = f"simfin_fund_{ticker}"
     cached = _get_from_cache(cache_key)
@@ -885,7 +829,7 @@ def fetch_fundamentals_simfin(ticker: str, provider_status: Dict | None = None) 
     # Note: SimFin API specifics vary; implement a guarded request to a common endpoint.
     url = "https://simfin.com/api/v2/companies/statements"
     params = {
-        "api-key": SIMFIN_API_KEY,
+        "api-key": (SIMFIN_KEY_RUNTIME or SIMFIN_API_KEY),
         "ticker": ticker,
         "statement": "pl",
         "period": "ttm",
@@ -1302,27 +1246,21 @@ def fetch_price_multi_source(ticker: str, provider_status: Dict | None = None) -
     """
     prices: Dict[str, Optional[float]] = {}
 
+    # Reload keys at runtime
+    POLYGON_KEY_RUNTIME = get_secret("POLYGON_API_KEY", os.getenv("POLYGON_API_KEY", ""))
+    EODHD_KEY_RUNTIME = get_secret("EODHD_API_KEY", os.getenv("EODHD_API_KEY", "")) or os.getenv("EODHD_TOKEN", "")
+    FMP_KEY_RUNTIME = get_secret("FMP_API_KEY", os.getenv("FMP_API_KEY", "")) or os.getenv("FMP_KEY", "")
+    FINNHUB_KEY_RUNTIME = get_secret("FINNHUB_API_KEY", os.getenv("FINNHUB_API_KEY", ""))
+    TIINGO_KEY_RUNTIME = get_secret("TIINGO_API_KEY", os.getenv("TIINGO_API_KEY", ""))
+    ALPHA_KEY_RUNTIME = get_secret("ALPHA_VANTAGE_API_KEY", os.getenv("ALPHA_VANTAGE_API_KEY", "")) or os.getenv("ALPHAVANTAGE_API_KEY", "")
+    MARKETSTACK_KEY_RUNTIME = get_secret("MARKETSTACK_API_KEY", os.getenv("MARKETSTACK_API_KEY", ""))
+
     # Polygon price (PRIMARY)
-    if provider_status is not None:
-        s = provider_status.get("POLYGON")
-        if s and not s.get("ok", True):
-            try:
-                record_api_call(
-                    provider="Polygon",
-                    endpoint="prev",
-                    status="skipped_preflight",
-                    latency_sec=0.0,
-                    extra={"ticker": ticker, "reason": "disabled_by_preflight"},
-                )
-            except Exception:
-                pass
-        else:
-            pass
-    if POLYGON_API_KEY and (provider_status is None or provider_status.get("POLYGON", {"ok": True}).get("ok", True)):
+    if POLYGON_KEY_RUNTIME or POLYGON_API_KEY:
         try:
             _rate_limit("polygon")
             url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/prev"
-            params = {"apiKey": POLYGON_API_KEY}
+            params = {"apiKey": (POLYGON_KEY_RUNTIME or POLYGON_API_KEY)}
             # Prefer shorter fixed sleep on 429 to reduce burst retries in tests
             data = _http_get_with_retry(url, params=params, timeout=3, on_429_sleep=1)
             if data and "results" in data and len(data["results"]) > 0:
@@ -1333,11 +1271,11 @@ def fetch_price_multi_source(ticker: str, provider_status: Dict | None = None) -
             prices["polygon"] = None
 
     # EODHD price (alternative PRIMARY if Polygon absent)
-    if ("primary_source" not in prices) and EODHD_API_KEY and (provider_status is None or provider_status.get("EODHD", {"ok": True}).get("ok", True)) and ("eodhd:price" not in DISABLED_PROVIDERS):
+    if ("primary_source" not in prices) and (EODHD_KEY_RUNTIME or EODHD_API_KEY) and ("eodhd:price" not in DISABLED_PROVIDERS):
         try:
             _rate_limit("eodhd")
             url = f"https://eodhd.com/api/real-time/{ticker}"
-            params = {"api_token": EODHD_API_KEY, "fmt": "json"}
+            params = {"api_token": (EODHD_KEY_RUNTIME or EODHD_API_KEY), "fmt": "json"}
             resp = requests.get(url, params=params, timeout=3)
             if resp.status_code in (401, 403):
                 disable_provider_category("eodhd", "price")
@@ -1354,26 +1292,11 @@ def fetch_price_multi_source(ticker: str, provider_status: Dict | None = None) -
             logger.warning(f"EODHD price fetch failed: {e}")
 
     # FMP price (secondary)
-    if provider_status is not None:
-        s = provider_status.get("FMP")
-        if s and not s.get("ok", True):
-            try:
-                record_api_call(
-                    provider="FMP",
-                    endpoint="quote",
-                    status="skipped_preflight",
-                    latency_sec=0.0,
-                    extra={"ticker": ticker, "reason": "disabled_by_preflight"},
-                )
-            except Exception:
-                pass
-        else:
-            pass
-    if FMP_API_KEY and (provider_status is None or provider_status.get("FMP", {"ok": True}).get("ok", True)) and ("fmp:price" not in DISABLED_PROVIDERS):
+    if (FMP_KEY_RUNTIME or FMP_API_KEY) and ("fmp:price" not in DISABLED_PROVIDERS):
         try:
             _rate_limit("fmp")
             url = f"https://financialmodelingprep.com/api/v3/quote/{ticker}"
-            params = {"apikey": FMP_API_KEY}
+            params = {"apikey": (FMP_KEY_RUNTIME or FMP_API_KEY)}
             # Use raw request to catch 403 and blacklist
             resp = requests.get(url, params=params, timeout=3)
             if resp.status_code == 403:
@@ -1402,26 +1325,11 @@ def fetch_price_multi_source(ticker: str, provider_status: Dict | None = None) -
             prices["fmp"] = None
 
     # Finnhub price (secondary)
-    if provider_status is not None:
-        s = provider_status.get("FINNHUB")
-        if s and not s.get("ok", True):
-            try:
-                record_api_call(
-                    provider="Finnhub",
-                    endpoint="quote",
-                    status="skipped_preflight",
-                    latency_sec=0.0,
-                    extra={"ticker": ticker, "reason": "disabled_by_preflight"},
-                )
-            except Exception:
-                pass
-        else:
-            pass
-    if FINNHUB_API_KEY and (provider_status is None or provider_status.get("FINNHUB", {"ok": True}).get("ok", True)):
+    if FINNHUB_KEY_RUNTIME or FINNHUB_API_KEY:
         try:
             _rate_limit("finnhub")
             url = "https://finnhub.io/api/v1/quote"
-            params = {"symbol": ticker, "token": FINNHUB_API_KEY}
+            params = {"symbol": ticker, "token": (FINNHUB_KEY_RUNTIME or FINNHUB_API_KEY)}
             data = _http_get_with_retry(url, params=params, timeout=3)
             if data:
                 prices["finnhub"] = data.get("c")
@@ -1430,26 +1338,11 @@ def fetch_price_multi_source(ticker: str, provider_status: Dict | None = None) -
             prices["finnhub"] = None
 
     # Tiingo price (secondary)
-    if provider_status is not None:
-        s = provider_status.get("TIINGO")
-        if s and not s.get("ok", True):
-            try:
-                record_api_call(
-                    provider="Tiingo",
-                    endpoint="daily/prices",
-                    status="skipped_preflight",
-                    latency_sec=0.0,
-                    extra={"ticker": ticker, "reason": "disabled_by_preflight"},
-                )
-            except Exception:
-                pass
-        else:
-            pass
-    if TIINGO_API_KEY and (provider_status is None or provider_status.get("TIINGO", {"ok": True}).get("ok", True)):
+    if TIINGO_KEY_RUNTIME or TIINGO_API_KEY:
         try:
             _rate_limit("tiingo")
             url = f"https://api.tiingo.com/tiingo/daily/{ticker}/prices"
-            headers = {"Content-Type": "application/json", "Authorization": f"Token {TIINGO_API_KEY}"}
+            headers = {"Content-Type": "application/json", "Authorization": f"Token {TIINGO_KEY_RUNTIME or TIINGO_API_KEY}"}
             data = _http_get_with_retry(url, headers=headers, timeout=3, on_429_sleep=5)
             if data and isinstance(data, list) and len(data) > 0:
                 prices["tiingo"] = data[0].get("close")
@@ -1458,29 +1351,14 @@ def fetch_price_multi_source(ticker: str, provider_status: Dict | None = None) -
             prices["tiingo"] = None
 
     # Alpha Vantage price (secondary)
-    if provider_status is not None:
-        s = provider_status.get("ALPHAVANTAGE")
-        if s and not s.get("ok", True):
-            try:
-                record_api_call(
-                    provider="AlphaVantage",
-                    endpoint="global_quote",
-                    status="skipped_preflight",
-                    latency_sec=0.0,
-                    extra={"ticker": ticker, "reason": "disabled_by_preflight"},
-                )
-            except Exception:
-                pass
-        else:
-            pass
-    if ALPHA_VANTAGE_API_KEY and (provider_status is None or provider_status.get("ALPHAVANTAGE", {"ok": True}).get("ok", True)):
+    if ALPHA_KEY_RUNTIME or ALPHA_VANTAGE_API_KEY:
         try:
             _rate_limit("alpha")
             url = "https://www.alphavantage.co/query"
             params = {
                 "function": "GLOBAL_QUOTE",
                 "symbol": ticker,
-                "apikey": ALPHA_VANTAGE_API_KEY
+                "apikey": (ALPHA_KEY_RUNTIME or ALPHA_VANTAGE_API_KEY)
             }
             data = _http_get_with_retry(url, params=params, timeout=3)
             if data and "Global Quote" in data:
@@ -1491,11 +1369,11 @@ def fetch_price_multi_source(ticker: str, provider_status: Dict | None = None) -
             prices["alpha"] = None
 
     # MarketStack price (fallback for daily bars)
-    if ("primary_source" not in prices) and MARKETSTACK_API_KEY and (provider_status is None or provider_status.get("MARKETSTACK", {"ok": True}).get("ok", True)) and ("marketstack:price" not in DISABLED_PROVIDERS):
+    if ("primary_source" not in prices) and (MARKETSTACK_KEY_RUNTIME or MARKETSTACK_API_KEY) and ("marketstack:price" not in DISABLED_PROVIDERS):
         try:
             _rate_limit("marketstack")
             url = "http://api.marketstack.com/v1/eod/latest"
-            params = {"access_key": MARKETSTACK_API_KEY, "symbols": ticker}
+            params = {"access_key": (MARKETSTACK_KEY_RUNTIME or MARKETSTACK_API_KEY), "symbols": ticker}
             resp = requests.get(url, params=params, timeout=4)
             if resp.status_code in (401, 403):
                 disable_provider_category("marketstack", "price")
