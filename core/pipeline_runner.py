@@ -1132,6 +1132,15 @@ def run_scan_pipeline(
         if "buy_amount_v2" in to_save.columns:
             to_save = to_save[pd.to_numeric(to_save["buy_amount_v2"], errors="coerce") > 0].copy()
 
+        # Enforce Top-50 for dashboard sync
+        if score_col is not None and not to_save.empty:
+            to_save = (
+                to_save.assign(_score_numeric=pd.to_numeric(to_save[score_col], errors="coerce"))
+                      .sort_values(by=["_score_numeric"], ascending=[False])
+                      .drop(columns=["_score_numeric"])
+                      .head(50)
+            )
+
         data_dir = Path("data")
         data_dir.mkdir(parents=True, exist_ok=True)
         latest_json = data_dir / "latest_scan_live.json"
@@ -1141,7 +1150,7 @@ def run_scan_pipeline(
         to_save.to_json(latest_json, orient="records", date_format="iso")
         # Save Parquet
         to_save.to_parquet(latest_parquet, index=False)
-        logger.info(f"[PIPELINE] Persisted {len(to_save)} filtered stocks to {latest_json} and {latest_parquet}")
+        logger.info(f"✅ Dashboard Sync: Saved Top {len(to_save)} stocks (out of {len(results)})")
     except Exception as e:
         logger.warning(f"[PIPELINE] Failed to persist latest scan files: {e}")
 
