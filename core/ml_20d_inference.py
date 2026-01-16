@@ -368,9 +368,14 @@ def calibrate_ml_20d_prob(
             elif p >= 150:
                 adjusted -= 0.01
 
-        # Reliability multiplier
+        # Reliability handling
         if reliability_factor is not None and np.isfinite(reliability_factor):
+            # When provided, retain multiplicative semantics
             adjusted *= float(reliability_factor)
+        else:
+            # Missing reliability: move probability toward neutral (0.5)
+            # Blend current adjusted prob with 0.5 equally
+            adjusted = 0.5 * adjusted + 0.5 * 0.5
 
         # Regime Bonus/Penalty adjustments
         try:
