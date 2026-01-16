@@ -962,7 +962,11 @@ def run_scan_pipeline(
                     results[col] = pd.to_numeric(results[col], errors="coerce")
 
             # Fill missing via get_fundamentals_safe per ticker
-            ui_cols = ["Market_Cap", "PE_Ratio", "PEG_Ratio", "Beta", "Sector", "Debt_to_Equity"]
+            ui_cols = [
+                "Market_Cap", "PE_Ratio", "PEG_Ratio", "PB_Ratio",
+                "Beta", "Sector", "Industry", "Debt_to_Equity",
+                "ROE", "Vol_Avg", "Dividend", "Price"
+            ]
             for idx, row in results.iterrows():
                 tkr = row.get("Ticker")
                 if not tkr:
@@ -977,12 +981,19 @@ def run_scan_pipeline(
                     if pd.isna(row.get(c)) and (c in safe):
                         results.at[idx, c] = safe.get(c)
 
-            # Add explicit Valuation and Quality/Leverage helper columns for UI
+            # Add explicit Valuation, Quality, and Leverage for UI
             # Valuation: use PE_Ratio directly per spec
             if "PE_Ratio" in results.columns:
                 results["Valuation"] = pd.to_numeric(results["PE_Ratio"], errors="coerce")
             else:
                 results["Valuation"] = np.nan
+            # Quality: use ROE directly per spec
+            if "ROE" in results.columns:
+                results["Quality"] = pd.to_numeric(results["ROE"], errors="coerce")
+            elif "roe" in results.columns:
+                results["Quality"] = pd.to_numeric(results["roe"], errors="coerce")
+            else:
+                results["Quality"] = np.nan
             # Leverage: use Debt_to_Equity
             if "Debt_to_Equity" in results.columns:
                 results["Leverage"] = pd.to_numeric(results["Debt_to_Equity"], errors="coerce")
@@ -1028,8 +1039,7 @@ def run_scan_pipeline(
                 except Exception:
                     return 0.0
 
-            # Keep legacy Quality helper; Valuation already set to PE_Ratio above
-            results["Quality"] = results.apply(_quality_row, axis=1)
+            # Legacy Quality helper no longer used here; Quality set from ROE above
         except Exception as e:
             logger.debug(f"Valuation/Quality column creation skipped: {e}")
         

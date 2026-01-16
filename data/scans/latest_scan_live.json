@@ -1,6 +1,6 @@
 {
-  "timestamp": "2026-01-16T18:43:12.518455",
-  "universe_size": 50,
+  "timestamp": "2026-01-16T20:32:59.132206",
+  "universe_size": 12,
   "universe_name": "default",
   "config_version": "unknown",
   "lookback_days": 90,
@@ -98,6 +98,10 @@
     "debt_equity",
     "market_cap",
     "beta",
+    "peg",
+    "vol_avg",
+    "last_div",
+    "price_backup",
     "disagreement_score",
     "sources_used",
     "coverage",
@@ -112,6 +116,12 @@
     "MarketCap_Defaulted",
     "Fundamental_Backtest_Unsafe",
     "Fundamental_From_Store",
+    "PE",
+    "PEG",
+    "ROE",
+    "Debt_Equity",
+    "Valuation",
+    "Quality",
     "Sector",
     "fund_sources_used_v2",
     "RiskClass",
@@ -127,6 +137,6 @@
   ],
   "universe_count": 2000,
   "scan_type": "live_streamlit",
-  "total_tickers": 50,
-  "build_commit": "23ece0b"
+  "total_tickers": 12,
+  "build_commit": "2d9acc3"
 }

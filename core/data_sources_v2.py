@@ -411,11 +411,14 @@ def get_fundamentals_safe(ticker: str) -> Optional[Dict]:
     """
     Robust, flat fundamentals fetch using FMP Profile and Ratios TTM.
 
-    Returns None on connection/auth errors. On success, returns flat dict:
-    {
-      'Market_Cap': float, 'PE_Ratio': float, 'PEG_Ratio': float,
-      'Beta': float, 'Sector': str, 'Debt_to_Equity': float
-    }
+        Returns None on connection/auth errors. On success, returns flat dict:
+        {
+            'Market_Cap': float, 'PE_Ratio': float, 'PEG_Ratio': float,
+            'PB_Ratio': float, 'ROE': float,
+            'Beta': float, 'Sector': str, 'Industry': str,
+            'Vol_Avg': float, 'Dividend': float, 'Price': float,
+            'Debt_to_Equity': float
+        }
     """
     try:
         tkr = str(ticker).upper()
@@ -433,43 +436,43 @@ def get_fundamentals_safe(ticker: str) -> Optional[Dict]:
     if cached:
         return cached
 
-    # Profile
+    # Profile (best-effort; do not early-return on failure)
     _rate_limit("fmp")
     prof_url = f"https://financialmodelingprep.com/api/v3/profile/{tkr}"
     prof_params = {"apikey": (FMP_KEY_RUNTIME or FMP_API_KEY), "limit": 1}
     prof = None
     try:
         r = requests.get(prof_url, params=prof_params, timeout=4)
-        if r.status_code != 200:
+        if r.status_code == 200:
+            js = r.json()
+            if js and isinstance(js, list) and js:
+                prof = js[0]
+                record_api_call("FMP", "profile", "ok", 0.0, {"ticker": tkr})
+            else:
+                record_api_call("FMP", "profile", "empty", 0.0, {"ticker": tkr})
+        else:
             record_api_call("FMP", "profile", f"http_{r.status_code}", 0.0, {"ticker": tkr})
-            return None
-        js = r.json()
-        if not js or not isinstance(js, list):
-            return None
-        prof = js[0]
-        record_api_call("FMP", "profile", "ok", 0.0, {"ticker": tkr})
     except Exception as e:
         record_api_call("FMP", "profile", "exception", 0.0, {"ticker": tkr, "error": str(e)[:200]})
-        return None
 
-    # Ratios TTM
+    # Ratios TTM (best-effort)
     _rate_limit("fmp")
     ratios_url = f"https://financialmodelingprep.com/api/v3/ratios-ttm/{tkr}"
     ratios_params = {"apikey": (FMP_KEY_RUNTIME or FMP_API_KEY)}
     ratios = None
     try:
         r2 = requests.get(ratios_url, params=ratios_params, timeout=4)
-        if r2.status_code != 200:
+        if r2.status_code == 200:
+            js2 = r2.json()
+            if js2 and isinstance(js2, list) and js2:
+                ratios = js2[0]
+                record_api_call("FMP", "ratios-ttm", "ok", 0.0, {"ticker": tkr})
+            else:
+                record_api_call("FMP", "ratios-ttm", "empty", 0.0, {"ticker": tkr})
+        else:
             record_api_call("FMP", "ratios-ttm", f"http_{r2.status_code}", 0.0, {"ticker": tkr})
-            return None
-        js2 = r2.json()
-        if not js2 or not isinstance(js2, list):
-            return None
-        ratios = js2[0]
-        record_api_call("FMP", "ratios-ttm", "ok", 0.0, {"ticker": tkr})
     except Exception as e:
         record_api_call("FMP", "ratios-ttm", "exception", 0.0, {"ticker": tkr, "error": str(e)[:200]})
-        return None
 
     # Parse helpers
     def _f(v: Any) -> Optional[float]:
@@ -480,17 +483,67 @@ def get_fundamentals_safe(ticker: str) -> Optional[Dict]:
         except Exception:
             return None
 
-    out = {
-        "Market_Cap": _f(prof.get("mktCap")),
-        "Beta": _f(prof.get("beta")),
-        "Sector": prof.get("sector") or None,
-        "PE_Ratio": _f(ratios.get("peRatioTTM")),
-        "PEG_Ratio": _f(ratios.get("pegRatioTTM")),
-        "Debt_to_Equity": _f(ratios.get("debtEquityRatioTTM")),
-    }
+    # Build output using whichever sources succeeded
+    out = {}
+    if prof:
+        out.update({
+            "Market_Cap": _f(prof.get("mktCap")),
+            "Beta": _f(prof.get("beta")),
+            "Vol_Avg": _f(prof.get("volAvg")),
+            "Dividend": _f(prof.get("lastDiv")),
+            "Price": _f(prof.get("price")),
+            "Sector": prof.get("sector") or None,
+            "Industry": prof.get("industry") or None,
+        })
+    if ratios:
+        out.update({
+            "PE_Ratio": _f(ratios.get("peRatioTTM")),
+            "PEG_Ratio": _f(ratios.get("pegRatioTTM")),
+            "PB_Ratio": _f(ratios.get("priceToBookRatioTTM")),
+            "Debt_to_Equity": _f(ratios.get("debtEquityRatioTTM")),
+            "ROE": _f(ratios.get("returnOnEquityTTM")),
+        })
+
+    # Fallback to Alpha Vantage OVERVIEW if both FMP calls failed
+    if not out:
+        ALPHA_KEY_RUNTIME = get_secret("ALPHA_VANTAGE_API_KEY", os.getenv("ALPHA_VANTAGE_API_KEY", "")) or os.getenv("ALPHAVANTAGE_API_KEY", "")
+        if ALPHA_KEY_RUNTIME or ALPHA_VANTAGE_API_KEY:
+            try:
+                _rate_limit("alpha")
+                url = "https://www.alphavantage.co/query"
+                params = {"function": "OVERVIEW", "symbol": tkr, "apikey": (ALPHA_KEY_RUNTIME or ALPHA_VANTAGE_API_KEY)}
+                data = _http_get_with_retry(url, params=params, timeout=4)
+            except Exception:
+                data = None
+            if data and isinstance(data, dict):
+                def _fa(key: str) -> Optional[float]:
+                    try:
+                        v = data.get(key)
+                        if v in (None, "None", "-", "N/A", "null"):
+                            return None
+                        return float(v)
+                    except Exception:
+                        return None
+                out = {
+                    "Market_Cap": _fa("MarketCapitalization"),
+                    "PE_Ratio": _fa("PERatio"),
+                    "PEG_Ratio": _fa("PEGRatio"),
+                    "PB_Ratio": _fa("PriceToBookRatio"),
+                    "Debt_to_Equity": _fa("DebtToEquity"),
+                    "ROE": _fa("ReturnOnEquityTTM"),
+                    "Beta": _fa("Beta"),
+                    "Sector": data.get("Sector") or None,
+                }
+        # If still empty, return None
+        if not out:
+            return None
 
     _put_in_cache(cache_key, out)
     return out
+
+    
+
+    
 
 
 # ============================================================================
