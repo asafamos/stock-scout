@@ -73,25 +73,15 @@ def run_preflight(timeout: float = 3.0) -> Dict[str, Dict[str, any]]:
     """
     status: Dict[str, Dict[str, Any]] = {}
 
-    # FMP quote endpoint
+    # FMP profile endpoint (lightweight & stable)
     fmp = _check_provider(
         "FMP",
-        "https://financialmodelingprep.com/api/v3/quote/AAPL",
+        "https://financialmodelingprep.com/api/v3/profile/AAPL",
         params={"apikey": os.getenv("FMP_API_KEY") or os.getenv("FMP_KEY")},
         timeout=timeout,
         key_envs=("FMP_API_KEY", "FMP_KEY"),
     )
     status["FMP"] = fmp
-
-    # FMP index (SPY daily chart)
-    fmp_idx = _check_provider(
-        "FMP_INDEX",
-        "https://financialmodelingprep.com/api/v3/historical-chart/1day/SPY",
-        params={"apikey": os.getenv("FMP_API_KEY") or os.getenv("FMP_KEY")},
-        timeout=timeout,
-        key_envs=("FMP_API_KEY", "FMP_KEY"),
-    )
-    status["FMP_INDEX"] = fmp_idx
 
     tiingo = _check_provider(
         "TIINGO",
@@ -163,7 +153,6 @@ def run_preflight(timeout: float = 3.0) -> Dict[str, Dict[str, any]]:
     # Annotate capabilities per provider (price/fundamentals)
     caps = {
         "FMP": {"can_price": True, "can_fund": True},
-        "FMP_INDEX": {"can_price": True, "can_fund": False},
         "TIINGO": {"can_price": True, "can_fund": True},
         "POLYGON": {"can_price": True, "can_fund": False},
         "FINNHUB": {"can_price": True, "can_fund": True},

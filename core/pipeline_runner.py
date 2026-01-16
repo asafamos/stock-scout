@@ -7,6 +7,7 @@ from typing import List, Dict, Optional, Callable, Any, Tuple
 import os
 import requests
 import yfinance as yf
+from pathlib import Path
 
 from core.config import get_config
 from core.scoring import build_technical_indicators, compute_fundamental_score_with_breakdown
@@ -1021,7 +1022,22 @@ def run_scan_pipeline(
     if "FinalScore_20d" in results.columns:
         results["Score"] = results["FinalScore_20d"]
         logger.info(f"[PIPELINE] Final check: Score column set to FinalScore_20d for all {len(results)} results")
-        
+    
+    # --- Persist latest results for Streamlit dashboard freshness ---
+    try:
+        data_dir = Path("data")
+        data_dir.mkdir(parents=True, exist_ok=True)
+        latest_json = data_dir / "latest_scan_live.json"
+        latest_parquet = data_dir / "latest_scan_live.parquet"
+
+        # Save JSON (records, ISO dates)
+        results.to_json(latest_json, orient="records", date_format="iso")
+        # Save Parquet
+        results.to_parquet(latest_parquet, index=False)
+        logger.info(f"[PIPELINE] Persisted latest scan to {latest_json} and {latest_parquet}")
+    except Exception as e:
+        logger.warning(f"[PIPELINE] Failed to persist latest scan files: {e}")
+
     return results, data_map
 
 
