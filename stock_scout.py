@@ -4024,32 +4024,40 @@ def calculate_targets(row):
         return current_price, np.nan, "N/A", "N/A"
 
 
-# Skip target calculation for precomputed data that already has targets
-if not (st.session_state.get("skip_pipeline", False) and 
-        all(col in rec_df.columns for col in ["Entry_Price", "Target_Price", "Target_Date", "Target_Source"])):
+"""Respect pipeline targets: only compute if missing."""
+# Determine if targets already exist and are populated
+target_cols = ["Entry_Price", "Target_Price", "Stop_Loss"]
+has_target_cols = all(c in rec_df.columns for c in target_cols)
+has_any_targets = False
+if has_target_cols:
+    try:
+        vals = pd.to_numeric(rec_df["Target_Price"], errors="coerce")
+        has_any_targets = bool(np.isfinite(vals).any())
+    except Exception:
+        has_any_targets = False
+
+if not has_any_targets:
     with st.spinner(f"🎯 Calculating targets for {len(rec_df)} stocks..."):
-        # Calculate targets for each row and assign directly to avoid index mismatch
         if not rec_df.empty:
             entry_prices = []
             target_prices = []
             target_dates = []
             target_sources = []
-            
+
             for idx, row in rec_df.iterrows():
                 entry, target, date, source = calculate_targets(row)
                 entry_prices.append(entry)
                 target_prices.append(target)
                 target_dates.append(date)
                 target_sources.append(source)
-            
-            # Assign directly to avoid index issues
+
             rec_df["Entry_Price"] = entry_prices
             rec_df["Target_Price"] = target_prices
             rec_df["Target_Date"] = target_dates
             rec_df["Target_Source"] = target_sources
-    logger.info(f"Calculated targets for {len(rec_df)} stocks")
+    logger.info(f"Calculated targets for {len(rec_df)} stocks (UI fallback)")
 else:
-    logger.info(f"Using precomputed targets for {len(rec_df)} stocks")
+    logger.info(f"Using pipeline targets for {len(rec_df)} stocks")
 
 
 def calculate_rr(
@@ -4096,8 +4104,19 @@ def calculate_rr(
         return np.nan
 
 
-# Recalculate Reward/Risk after targets are known so RR uses the actual target price and ATR
+# Recalculate Reward/Risk only if pipeline RR not present; otherwise respect pipeline RR
 if not rec_df.empty:
+    rr_present = False
+    try:
+        if "RR" in rec_df.columns:
+            rr_present = pd.to_numeric(rec_df["RR"], errors="coerce").notna().any()
+        elif "RR_Ratio" in rec_df.columns or "RewardRisk" in rec_df.columns:
+            base_rr = rec_df.get("RR_Ratio", rec_df.get("RewardRisk", pd.Series([np.nan] * len(rec_df), index=rec_df.index)))
+            rr_present = pd.to_numeric(base_rr, errors="coerce").notna().any()
+    except Exception:
+        rr_present = False
+
+if not rec_df.empty and not rr_present:
     # ATR value may be stored under 'ATR' or 'ATR14' or 'ATR_Price'
     def _compute_rr_row(r):
         entry = r.get("Entry_Price", r.get("Unit_Price", r.get("Price_Yahoo", np.nan)))
@@ -4121,12 +4140,10 @@ if not rec_df.empty:
     # downstream fields (rr alias, rr_score_v2, conviction) use the updated values.
     try:
         rr_map = rec_df.set_index("Ticker")["RewardRisk"].to_dict()
-        # Only update tickers present in the map; keep existing values otherwise
         results["RewardRisk"] = (
             results["Ticker"].map(rr_map).fillna(results.get("RewardRisk", np.nan))
         )
         results["RR_Ratio"] = results["RewardRisk"]
-        # alias used elsewhere
         results["rr"] = results["RewardRisk"]
 
         # Recompute normalized rr_score_v2 (0-100) for any updated rr values
