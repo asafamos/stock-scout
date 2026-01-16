@@ -1,3 +1,7 @@
+import sys, os
+# Ensure project root is on sys.path when running directly
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import os
 import glob
 import json
@@ -129,14 +133,29 @@ def train_and_save_bundle() -> Tuple[str, dict]:
     csv_path = _find_latest_training_csv()
     df = pd.read_csv(csv_path)
     df_recent = _filter_recent_window(df)
-    tau = _regime_adjusted_tau(DEFAULT_RELATIVE_THRESHOLD)
-    y = _build_label(df_recent, tau)
-    if len(np.unique(y)) < 2:
-        # Fallback: use full dataset without window
+    base_tau = _regime_adjusted_tau(DEFAULT_RELATIVE_THRESHOLD)
+    # Dynamic threshold search: start high (0.20) and reduce until class diversity achieved
+    def _dynamic_label(df_in: pd.DataFrame, start_tau: float) -> Tuple[pd.Series, float]:
+        # Begin at 0.20 and reduce by 0.02 down to 0.05
+        tau_try = max(0.20, float(start_tau))
+        while tau_try >= 0.05:
+            y_try = _build_label(df_in, tau_try)
+            # Require at least 10 positives and both classes present
+            if y_try.sum() >= 10 and len(np.unique(y_try)) > 1:
+                print(f"Adjusted success threshold to {tau_try:.2f} to ensure class diversity.")
+                return y_try, tau_try
+            tau_try = round(tau_try - 0.02, 4)
+        # Final attempt with original regime-adjusted tau
+        y_final = _build_label(df_in, float(start_tau))
+        return y_final, float(start_tau)
+
+    y, tau = _dynamic_label(df_recent, base_tau)
+    if len(np.unique(y)) < 2 or y.sum() < 10:
+        # Fallback: try full dataset with dynamic threshold
         df_recent = df
-        y = _build_label(df_recent, tau)
-        if len(np.unique(y)) < 2:
-            raise RuntimeError("Insufficient class diversity in labels; adjust threshold or dataset.")
+        y, tau = _dynamic_label(df_recent, base_tau)
+        if len(np.unique(y)) < 2 or y.sum() < 10:
+            raise RuntimeError("Insufficient class diversity in labels even after dynamic threshold search.")
     feature_cols = _select_feature_cols(df)
     X = df_recent[feature_cols].copy().replace([np.inf, -np.inf], np.nan).fillna(0.0)
 
