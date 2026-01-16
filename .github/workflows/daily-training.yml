@@ -1,5 +1,8 @@
 name: Daily Rolling Training (20d)
 
+permissions:
+  contents: write  # allow committing trained model back to repo
+
 on:
   schedule:
     - cron: '15 3 * * *' # daily at 03:15 UTC
@@ -8,6 +11,13 @@ on:
 jobs:
   train:
     runs-on: ubuntu-latest
+    env:
+      # Provider keys (optional for dataset refresh scripts)
+      FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+      POLYGON_API_KEY: ${{ secrets.POLYGON_API_KEY }}
+      FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+      ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
+      TIINGO_API_KEY: ${{ secrets.TIINGO_API_KEY }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -44,3 +54,19 @@ jobs:
         with:
           name: rolling-training-reports
           path: reports/
+
+      - name: Commit and push updated model bundle
+        run: |
+          set -e
+          git config user.name "GitHub Action Bot"
+          git config user.email "actions@github.com"
+          # Add canonical model and timestamped bundles if present
+          git add models/model_20d_v3.pkl models/model_20d_v3_*.pkl || true
+          # Optionally include latest training report for traceability
+          git add reports/rolling_train_report_*.json || true
+          if git diff --cached --quiet; then
+            echo "No model changes to commit."
+          else
+            git commit -m "chore(ml): update 20d model bundle [skip ci]"
+            git push
+          fi
