@@ -1,0 +1,10 @@
+{
+  "csv": "data/training_dataset_20d_v3_with_overlay_v2_with_meta.csv",
+  "bundle": "models/model_20d_v3_20260116_1209.pkl",
+  "metrics": {
+    "auc": 0.9770648925051351,
+    "logloss": 0.06319008740991698,
+    "precision_at_k": 0.85,
+    "k": 20
+  }
+}

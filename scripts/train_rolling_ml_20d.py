@@ -59,30 +59,24 @@ def _filter_recent_window(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _build_label(df: pd.DataFrame, tau: float) -> pd.Series:
+    """Strict label: positive if relative 20d >= tau. No percentile fallback."""
     # Prefer existing label columns
     for c in ("Label","target","y","target_20d"):
         if c in df.columns:
             return pd.to_numeric(df[c], errors="coerce").fillna(0).astype(int)
     # Compute relative 20d vs SPY
-    if "Return_20d" in df.columns:
+    # Support both 'Forward_Return_20d' and 'Return_20d'
+    if "Forward_Return_20d" in df.columns:
+        ret20 = pd.to_numeric(df["Forward_Return_20d"], errors="coerce")
+    elif "Return_20d" in df.columns:
         ret20 = pd.to_numeric(df["Return_20d"], errors="coerce")
     else:
         ret20 = pd.Series(np.nan, index=df.index)
-    if "SPY_20d_ret" in df.columns:
-        spy20 = pd.to_numeric(df["SPY_20d_ret"], errors="coerce").fillna(0)
-    else:
-        spy20 = pd.Series(0.0, index=df.index)
+    spy20 = pd.to_numeric(df.get("SPY_20d_ret", pd.Series(0.0, index=df.index)), errors="coerce").fillna(0)
     rel = ret20 - spy20
-    y = (rel >= tau).astype(int)
-    # Ensure both classes present; fallback to percentile split
-    if y.sum() == 0 or y.sum() == len(y):
-        if ret20.notna().sum() > 0:
-            cutoff = np.nanpercentile(ret20.values, 70)
-            y = (ret20 >= cutoff).astype(int)
-        else:
-            # if no returns, default to zeros
-            y = pd.Series(np.zeros(len(df), dtype=int))
-    return y
+    y = (rel >= float(tau)).astype(int)
+    # No percentile fallback; if all zeros, return zeros
+    return y.fillna(0).astype(int)
 
 
 def _select_feature_cols(df: pd.DataFrame) -> List[str]:
@@ -132,6 +126,28 @@ def _regime_adjusted_tau(base_tau: float) -> float:
 def train_and_save_bundle() -> Tuple[str, dict]:
     csv_path = _find_latest_training_csv()
     df = pd.read_csv(csv_path)
+    # Flatten MultiIndex columns if present (e.g., from yfinance downstream merges)
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = ["_".join([str(lvl) for lvl in col if str(lvl) != ""]) for col in df.columns]
+    # Sanity: ensure ticker universe not empty; fallback to alternative dataset if needed
+    if "Ticker" not in df.columns or df["Ticker"].nunique() == 0:
+        alt = None
+        for name in [
+            "data/training_dataset_20d_v3_with_live_v3.csv",
+            "data/training_dataset_20d_v3_with_overlay_v2_with_meta.csv",
+            "data/training_dataset_20d_v3.csv",
+        ]:
+            try:
+                if Path(name).exists():
+                    alt = pd.read_csv(name)
+                    if "Ticker" in alt.columns and alt["Ticker"].nunique() > 0:
+                        df = alt
+                        print(f"DEBUG: Fallback to {name} due to empty universe in {csv_path}")
+                        break
+            except Exception:
+                continue
+        if "Ticker" not in df.columns or df["Ticker"].nunique() == 0:
+            raise RuntimeError("Training dataset has no tickers; verify data ingestion pipeline.")
     df_recent = _filter_recent_window(df)
     base_tau = _regime_adjusted_tau(DEFAULT_RELATIVE_THRESHOLD)
     # Dynamic threshold search: start high (0.20) and reduce until class diversity achieved
@@ -150,12 +166,40 @@ def train_and_save_bundle() -> Tuple[str, dict]:
         return y_final, float(start_tau)
 
     y, tau = _dynamic_label(df_recent, base_tau)
+    # Data profiling (Probe) prior to diversity checks
+    probe_df = df_recent.copy()
+    ret_col = "Forward_Return_20d" if "Forward_Return_20d" in probe_df.columns else ("Return_20d" if "Return_20d" in probe_df.columns else None)
+    try:
+        print(f"DEBUG: Loaded {probe_df['Ticker'].nunique()} unique tickers.")
+        print(f"DEBUG: Total rows: {len(probe_df)}")
+        if ret_col:
+            r = pd.to_numeric(probe_df[ret_col], errors="coerce")
+            print(f"DEBUG: Max 20d Return found: {np.nanmax(r.values):.4f}")
+            print(f"DEBUG: 95th Percentile Return: {np.nanpercentile(r.values, 95):.4f}")
+            print(f"DEBUG: Number of NaN targets: {probe_df[ret_col].isna().sum()}")
+        else:
+            print("DEBUG: No 20d return column found (Forward_Return_20d/Return_20d)")
+    except Exception:
+        print("DEBUG: Probe logging failed")
     if len(np.unique(y)) < 2 or y.sum() < 10:
         # Fallback: try full dataset with dynamic threshold
         df_recent = df
         y, tau = _dynamic_label(df_recent, base_tau)
+        # Run probe on full dataset too
+        try:
+            probe_df = df_recent.copy()
+            ret_col = "Forward_Return_20d" if "Forward_Return_20d" in probe_df.columns else ("Return_20d" if "Return_20d" in probe_df.columns else None)
+            print(f"DEBUG(FULL): Loaded {probe_df['Ticker'].nunique()} unique tickers.")
+            print(f"DEBUG(FULL): Total rows: {len(probe_df)}")
+            if ret_col:
+                r = pd.to_numeric(probe_df[ret_col], errors="coerce")
+                print(f"DEBUG(FULL): Max 20d Return found: {np.nanmax(r.values):.4f}")
+                print(f"DEBUG(FULL): 95th Percentile Return: {np.nanpercentile(r.values, 95):.4f}")
+                print(f"DEBUG(FULL): Number of NaN targets: {probe_df[ret_col].isna().sum()}")
+        except Exception:
+            pass
         if len(np.unique(y)) < 2 or y.sum() < 10:
-            raise RuntimeError("Insufficient class diversity in labels even after dynamic threshold search.")
+            raise RuntimeError("Insufficient class diversity in labels even after dynamic threshold search. Investigate data ingestion and return calculations.")
     feature_cols = _select_feature_cols(df)
     X = df_recent[feature_cols].copy().replace([np.inf, -np.inf], np.nan).fillna(0.0)
 
