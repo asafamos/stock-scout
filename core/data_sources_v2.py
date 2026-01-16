@@ -404,6 +404,96 @@ def _put_in_cache(cache_key: str, data: Dict) -> None:
 
 
 # ============================================================================
+# SAFE FUNDAMENTALS (FMP PROFILE + RATIOS TTM)
+# ============================================================================
+
+def get_fundamentals_safe(ticker: str) -> Optional[Dict]:
+    """
+    Robust, flat fundamentals fetch using FMP Profile and Ratios TTM.
+
+    Returns None on connection/auth errors. On success, returns flat dict:
+    {
+      'Market_Cap': float, 'PE_Ratio': float, 'PEG_Ratio': float,
+      'Beta': float, 'Sector': str, 'Debt_to_Equity': float
+    }
+    """
+    try:
+        tkr = str(ticker).upper()
+    except Exception:
+        tkr = ticker
+
+    # Key resolution
+    FMP_KEY_RUNTIME = os.getenv("FMP_API_KEY") or os.getenv("FMP_KEY") or get_secret("FMP_API_KEY", "")
+    if not (FMP_KEY_RUNTIME or FMP_API_KEY):
+        return None
+
+    # Cache
+    cache_key = f"fund_safe_{tkr}"
+    cached = _get_from_cache(cache_key)
+    if cached:
+        return cached
+
+    # Profile
+    _rate_limit("fmp")
+    prof_url = f"https://financialmodelingprep.com/api/v3/profile/{tkr}"
+    prof_params = {"apikey": (FMP_KEY_RUNTIME or FMP_API_KEY), "limit": 1}
+    prof = None
+    try:
+        r = requests.get(prof_url, params=prof_params, timeout=4)
+        if r.status_code != 200:
+            record_api_call("FMP", "profile", f"http_{r.status_code}", 0.0, {"ticker": tkr})
+            return None
+        js = r.json()
+        if not js or not isinstance(js, list):
+            return None
+        prof = js[0]
+        record_api_call("FMP", "profile", "ok", 0.0, {"ticker": tkr})
+    except Exception as e:
+        record_api_call("FMP", "profile", "exception", 0.0, {"ticker": tkr, "error": str(e)[:200]})
+        return None
+
+    # Ratios TTM
+    _rate_limit("fmp")
+    ratios_url = f"https://financialmodelingprep.com/api/v3/ratios-ttm/{tkr}"
+    ratios_params = {"apikey": (FMP_KEY_RUNTIME or FMP_API_KEY)}
+    ratios = None
+    try:
+        r2 = requests.get(ratios_url, params=ratios_params, timeout=4)
+        if r2.status_code != 200:
+            record_api_call("FMP", "ratios-ttm", f"http_{r2.status_code}", 0.0, {"ticker": tkr})
+            return None
+        js2 = r2.json()
+        if not js2 or not isinstance(js2, list):
+            return None
+        ratios = js2[0]
+        record_api_call("FMP", "ratios-ttm", "ok", 0.0, {"ticker": tkr})
+    except Exception as e:
+        record_api_call("FMP", "ratios-ttm", "exception", 0.0, {"ticker": tkr, "error": str(e)[:200]})
+        return None
+
+    # Parse helpers
+    def _f(v: Any) -> Optional[float]:
+        try:
+            if v in (None, "None", "-", "N/A", "null"):
+                return None
+            return float(v)
+        except Exception:
+            return None
+
+    out = {
+        "Market_Cap": _f(prof.get("mktCap")),
+        "Beta": _f(prof.get("beta")),
+        "Sector": prof.get("sector") or None,
+        "PE_Ratio": _f(ratios.get("peRatioTTM")),
+        "PEG_Ratio": _f(ratios.get("pegRatioTTM")),
+        "Debt_to_Equity": _f(ratios.get("debtEquityRatioTTM")),
+    }
+
+    _put_in_cache(cache_key, out)
+    return out
+
+
+# ============================================================================
 # FMP (Financial Modeling Prep) - PRIMARY SOURCE
 # ============================================================================
 

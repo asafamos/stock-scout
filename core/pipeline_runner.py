@@ -21,6 +21,7 @@ from core.data import (
     fetch_fundamentals_batch,
     aggregate_fundamentals,
     fetch_price_multi_source,
+    get_fundamentals_safe,
 )
 from core.allocation import allocate_budget
 from core.classifier import apply_classification
@@ -938,6 +939,58 @@ def run_scan_pipeline(
         else:
             logger.warning("Fundamental data has no Ticker column, skipping merge")
         
+        # Map to UI-expected keys and fill missing via safe FMP fetch
+        try:
+            # First, derive canonical UI columns from aggregated fields when present
+            # Lowercase agg -> UI uppercase names
+            if "market_cap" in results.columns and "Market_Cap" not in results.columns:
+                results["Market_Cap"] = results["market_cap"]
+            if "beta" in results.columns and "Beta" not in results.columns:
+                results["Beta"] = results["beta"]
+            if "sector" in results.columns and "Sector" not in results.columns:
+                results["Sector"] = results["sector"]
+            if "pe" in results.columns and "PE_Ratio" not in results.columns:
+                results["PE_Ratio"] = results["pe"]
+            if "peg" in results.columns and "PEG_Ratio" not in results.columns:
+                results["PEG_Ratio"] = results["peg"]
+            if "debt_equity" in results.columns and "Debt_to_Equity" not in results.columns:
+                results["Debt_to_Equity"] = results["debt_equity"]
+
+            # Ensure numeric types or NaN
+            for col in ["Market_Cap", "PE_Ratio", "PEG_Ratio", "Beta", "Debt_to_Equity"]:
+                if col in results.columns:
+                    results[col] = pd.to_numeric(results[col], errors="coerce")
+
+            # Fill missing via get_fundamentals_safe per ticker
+            ui_cols = ["Market_Cap", "PE_Ratio", "PEG_Ratio", "Beta", "Sector", "Debt_to_Equity"]
+            for idx, row in results.iterrows():
+                tkr = row.get("Ticker")
+                if not tkr:
+                    continue
+                need_fill = any(pd.isna(row.get(c)) for c in ui_cols)
+                if not need_fill:
+                    continue
+                safe = get_fundamentals_safe(str(tkr))
+                if not safe:
+                    continue
+                for c in ui_cols:
+                    if pd.isna(row.get(c)) and (c in safe):
+                        results.at[idx, c] = safe.get(c)
+
+            # Add explicit Valuation and Quality/Leverage helper columns for UI
+            # Valuation: use PE_Ratio directly per spec
+            if "PE_Ratio" in results.columns:
+                results["Valuation"] = pd.to_numeric(results["PE_Ratio"], errors="coerce")
+            else:
+                results["Valuation"] = np.nan
+            # Leverage: use Debt_to_Equity
+            if "Debt_to_Equity" in results.columns:
+                results["Leverage"] = pd.to_numeric(results["Debt_to_Equity"], errors="coerce")
+            else:
+                results["Leverage"] = np.nan
+        except Exception as e:
+            logger.debug(f"UI mapping/Valuation-Leverage setup skipped: {e}")
+
         # Add explicit Valuation and Quality helper columns to avoid NaN in UI cards
         try:
             # Raw metrics aliases
@@ -975,7 +1028,7 @@ def run_scan_pipeline(
                 except Exception:
                     return 0.0
 
-            results["Valuation"] = results.apply(_valuation_row, axis=1)
+            # Keep legacy Quality helper; Valuation already set to PE_Ratio above
             results["Quality"] = results.apply(_quality_row, axis=1)
         except Exception as e:
             logger.debug(f"Valuation/Quality column creation skipped: {e}")

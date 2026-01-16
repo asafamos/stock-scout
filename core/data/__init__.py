@@ -15,6 +15,7 @@ from core.data_sources_v2 import (
     aggregate_price,
     aggregate_fundamentals,
     fetch_fundamentals_batch,
+    get_fundamentals_safe,
 )
 
 # ============================================================================
@@ -34,6 +35,7 @@ __all__ = [
     "aggregate_price",
     "aggregate_fundamentals",
     "fetch_fundamentals_batch",
+    "get_fundamentals_safe",
     
     # Technical Indicators
     "build_technical_indicators",
