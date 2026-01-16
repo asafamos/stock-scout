@@ -415,9 +415,8 @@ def fetch_fundamentals_fmp(ticker: str, provider_status: Dict | None = None) -> 
     - pe, ps, pb, roe, margin, rev_yoy, eps_yoy, debt_equity
     - market_cap, beta, etc.
     """
-    # Preflight information is advisory only; do not skip when keys are present
-    # Reload key at runtime to honor late injection
-    FMP_KEY_RUNTIME = get_secret("FMP_API_KEY", os.getenv("FMP_API_KEY", "")) or os.getenv("FMP_KEY", "")
+    # Reload key at runtime from environment first; fallback to get_secret
+    FMP_KEY_RUNTIME = os.getenv("FMP_API_KEY") or os.getenv("FMP_KEY") or get_secret("FMP_API_KEY", "")
 
     if not (FMP_KEY_RUNTIME or FMP_API_KEY):
         return None
@@ -442,7 +441,7 @@ def fetch_fundamentals_fmp(ticker: str, provider_status: Dict | None = None) -> 
     
     _rate_limit("fmp")
     
-    # Fetch key metrics with direct request to detect 403 and disable provider
+    # Fetch key metrics with stable v3/key-metrics endpoint
     url = f"https://financialmodelingprep.com/api/v3/key-metrics/{ticker}"
     params = {"apikey": (FMP_KEY_RUNTIME or FMP_API_KEY), "limit": 1}
     
