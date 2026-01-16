@@ -4380,6 +4380,33 @@ else:
         except Exception:
             return na
 
+    # --- Enforce Top-N card limit consistently (both Core and Spec) ---
+    try:
+        top_n = st.sidebar.slider("Card limit (Top N)", min_value=5, max_value=50, value=10, step=5)
+    except Exception:
+        top_n = 10
+
+    sort_col = "FinalScore_20d" if "FinalScore_20d" in rec_df.columns else ("Score" if "Score" in rec_df.columns else None)
+    if sort_col:
+        # Sort and slice Core
+        core_total = len(core_df)
+        core_df = (
+            core_df.assign(_sort_val=pd.to_numeric(core_df[sort_col], errors="coerce"))
+                   .sort_values(by=["_sort_val"], ascending=[False])
+                   .drop(columns=["_sort_val"])
+                   .head(top_n)
+        )
+        # Sort and slice Spec
+        spec_total = len(spec_df)
+        spec_df = (
+            spec_df.assign(_sort_val=pd.to_numeric(spec_df[sort_col], errors="coerce"))
+                   .sort_values(by=["_sort_val"], ascending=[False])
+                   .drop(columns=["_sort_val"])
+                   .head(top_n)
+        )
+        # Informational header
+        st.write(f"Showing top {len(core_df) + len(spec_df)} recommendations out of {core_total + spec_total} passing stocks")
+
     # Core recommendations
     if not core_df.empty:
         st.markdown("### 🛡️ Core Stocks — Lower Relative Risk")
