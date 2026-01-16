@@ -413,7 +413,7 @@ def fetch_fundamentals_fmp(ticker: str, provider_status: Dict | None = None) -> 
     
     Returns standardized dict with keys:
     - pe, ps, pb, roe, margin, rev_yoy, eps_yoy, debt_equity
-    - market_cap, beta, etc.
+    - market_cap, beta, peg, sector, vol_avg, last_div, price_backup
     """
     # Reload key at runtime from environment first; fallback to get_secret
     FMP_KEY_RUNTIME = os.getenv("FMP_API_KEY") or os.getenv("FMP_KEY") or get_secret("FMP_API_KEY", "")
@@ -441,23 +441,23 @@ def fetch_fundamentals_fmp(ticker: str, provider_status: Dict | None = None) -> 
     
     _rate_limit("fmp")
     
-    # Fetch key metrics with stable v3/key-metrics endpoint
-    url = f"https://financialmodelingprep.com/api/v3/key-metrics/{ticker}"
+    # Fetch company profile for stable descriptive fields (sector, mktCap, beta, price)
+    url_profile = f"https://financialmodelingprep.com/api/v3/profile/{ticker}"
     params = {"apikey": (FMP_KEY_RUNTIME or FMP_API_KEY), "limit": 1}
     
     start = time.time()
     try:
-        resp = requests.get(url, params=params, timeout=3)
+        resp = requests.get(url_profile, params=params, timeout=3)
         if resp.status_code == 403:
             # Disable only fundamentals category and switch to Finnhub
             disable_provider_category("fmp", "fundamentals")
             global _FMP_KEY_METRICS_RESTRICTED_MSG_SHOWN
             if not _FMP_KEY_METRICS_RESTRICTED_MSG_SHOWN:
-                logger.error("FMP Key-Metrics Restricted: Switching to Finnhub")
+                logger.error("FMP Profile Restricted: Switching to Finnhub")
                 _FMP_KEY_METRICS_RESTRICTED_MSG_SHOWN = True
             record_api_call(
                 provider="FMP",
-                endpoint="key-metrics",
+                endpoint="profile",
                 status="http_403_disabled",
                 latency_sec=time.time() - start,
                 extra={"ticker": ticker}
@@ -466,7 +466,7 @@ def fetch_fundamentals_fmp(ticker: str, provider_status: Dict | None = None) -> 
         if resp.status_code != 200:
             record_api_call(
                 provider="FMP",
-                endpoint="key-metrics",
+                endpoint="profile",
                 status=f"http_{resp.status_code}",
                 latency_sec=time.time() - start,
                 extra={"ticker": ticker}
@@ -476,7 +476,7 @@ def fetch_fundamentals_fmp(ticker: str, provider_status: Dict | None = None) -> 
         status = "ok" if isinstance(data, list) and len(data) > 0 else "empty"
         record_api_call(
             provider="FMP",
-            endpoint="key-metrics",
+            endpoint="profile",
             status=status,
             latency_sec=time.time() - start,
             extra={"ticker": ticker}
@@ -484,7 +484,7 @@ def fetch_fundamentals_fmp(ticker: str, provider_status: Dict | None = None) -> 
     except Exception as e:
         record_api_call(
             provider="FMP",
-            endpoint="key-metrics",
+            endpoint="profile",
             status="exception",
             latency_sec=time.time() - start,
             extra={"ticker": ticker, "error": str(e)[:200]}
@@ -492,7 +492,51 @@ def fetch_fundamentals_fmp(ticker: str, provider_status: Dict | None = None) -> 
         return None
     if not data or not isinstance(data, list) or len(data) == 0:
         return None
-    metrics = data[0]
+    profile = data[0]
+    
+    # Fetch key metrics with stable v3/key-metrics endpoint (for PE/PB/PS/PEG)
+    url_km = f"https://financialmodelingprep.com/api/v3/key-metrics/{ticker}"
+    start_km = time.time()
+    metrics_data = None
+    try:
+        resp_km = requests.get(url_km, params=params, timeout=3)
+        if resp_km.status_code == 200:
+            metrics_data = resp_km.json()
+            status = "ok" if isinstance(metrics_data, list) and len(metrics_data) > 0 else "empty"
+            record_api_call(
+                provider="FMP",
+                endpoint="key-metrics",
+                status=status,
+                latency_sec=time.time() - start_km,
+                extra={"ticker": ticker}
+            )
+        elif resp_km.status_code == 403:
+            disable_provider_category("fmp", "fundamentals")
+            record_api_call(
+                provider="FMP",
+                endpoint="key-metrics",
+                status="http_403_disabled",
+                latency_sec=time.time() - start_km,
+                extra={"ticker": ticker}
+            )
+        else:
+            record_api_call(
+                provider="FMP",
+                endpoint="key-metrics",
+                status=f"http_{resp_km.status_code}",
+                latency_sec=time.time() - start_km,
+                extra={"ticker": ticker}
+            )
+    except Exception as e:
+        record_api_call(
+            provider="FMP",
+            endpoint="key-metrics",
+            status="exception",
+            latency_sec=time.time() - start_km,
+            extra={"ticker": ticker, "error": str(e)[:200]}
+        )
+        metrics_data = None
+    metrics = metrics_data[0] if metrics_data and isinstance(metrics_data, list) and len(metrics_data) > 0 else {}
     # Fetch ratios (skip if provider already disabled)
     url_ratios = f"https://financialmodelingprep.com/api/v3/ratios/{ticker}"
     start_ratios = time.time()
@@ -549,11 +593,17 @@ def fetch_fundamentals_fmp(ticker: str, provider_status: Dict | None = None) -> 
         "pb": metrics.get("pbRatio"),
         "roe": ratios.get("returnOnEquity"),
         "margin": ratios.get("netProfitMargin"),
-        "market_cap": metrics.get("marketCap"),
-        "beta": metrics.get("beta"),
+        "market_cap": profile.get("mktCap") or metrics.get("marketCap"),
+        "beta": profile.get("beta") or metrics.get("beta"),
         "debt_equity": ratios.get("debtEquityRatio"),
         "rev_yoy": ratios.get("revenueGrowth"),
         "eps_yoy": metrics.get("earningsYield"),  # Approximate
+        # Additional fields
+        "peg": metrics.get("pegRatio") or ratios.get("priceEarningsToGrowthRatio"),
+        "sector": profile.get("sector"),
+        "vol_avg": profile.get("volAvg"),
+        "last_div": profile.get("lastDiv"),
+        "price_backup": profile.get("price"),
         "timestamp": time.time()
     }
     
@@ -737,18 +787,31 @@ def fetch_fundamentals_alpha(ticker: str, provider_status: Dict | None = None) -
         return None
     if not data or "Symbol" not in data:
         return None
+    # Helper to parse float-like fields safely
+    def _f(key: str) -> Optional[float]:
+        v = data.get(key)
+        try:
+            if v is None or v == "None":
+                return None
+            return float(v)
+        except Exception:
+            return None
+
     result = {
         "source": "alpha",
-        "pe": float(data["PERatio"]) if data.get("PERatio") and data["PERatio"] != "None" else None,
-        "ps": float(data["PriceToSalesRatioTTM"]) if data.get("PriceToSalesRatioTTM") and data["PriceToSalesRatioTTM"] != "None" else None,
-        "pb": float(data["PriceToBookRatio"]) if data.get("PriceToBookRatio") and data["PriceToBookRatio"] != "None" else None,
-        "roe": float(data["ReturnOnEquityTTM"]) if data.get("ReturnOnEquityTTM") and data["ReturnOnEquityTTM"] != "None" else None,
-        "margin": float(data["ProfitMargin"]) if data.get("ProfitMargin") and data["ProfitMargin"] != "None" else None,
-        "market_cap": float(data["MarketCapitalization"]) if data.get("MarketCapitalization") else None,
-        "beta": float(data["Beta"]) if data.get("Beta") and data["Beta"] != "None" else None,
-        "debt_equity": float(data["DebtToEquity"]) if data.get("DebtToEquity") and data["DebtToEquity"] != "None" else None,
-        "rev_yoy": float(data["QuarterlyRevenueGrowthYOY"]) if data.get("QuarterlyRevenueGrowthYOY") and data["QuarterlyRevenueGrowthYOY"] != "None" else None,
-        "eps_yoy": float(data["QuarterlyEarningsGrowthYOY"]) if data.get("QuarterlyEarningsGrowthYOY") and data["QuarterlyEarningsGrowthYOY"] != "None" else None,
+        "pe": _f("PERatio"),
+        "ps": _f("PriceToSalesRatioTTM"),
+        "pb": _f("PriceToBookRatio"),
+        "roe": _f("ReturnOnEquityTTM"),
+        "margin": _f("ProfitMargin"),
+        "market_cap": _f("MarketCapitalization"),
+        "beta": _f("Beta"),
+        "debt_equity": _f("DebtToEquity"),
+        "rev_yoy": _f("QuarterlyRevenueGrowthYOY"),
+        "eps_yoy": _f("QuarterlyEarningsGrowthYOY"),
+        # Additional fields
+        "peg": _f("PEGRatio"),
+        "sector": data.get("Sector"),
         "timestamp": time.time()
     }
     _put_in_cache(cache_key, result)
@@ -1105,8 +1168,11 @@ def aggregate_fundamentals(
             result["Fundamental_From_Store"] = False
         return result
     
-    # Aggregate fields
-    fields = ["pe", "ps", "pb", "roe", "margin", "rev_yoy", "eps_yoy", "debt_equity", "market_cap", "beta"]
+    # Aggregate numeric fields (extend with PEG and selected profile numerics)
+    fields = [
+        "pe", "ps", "pb", "roe", "margin", "rev_yoy", "eps_yoy",
+        "debt_equity", "market_cap", "beta", "peg", "vol_avg", "last_div", "price_backup"
+    ]
     aggregated = {"ticker": ticker}
     coverage = {}
     disagreements = []
@@ -1227,6 +1293,20 @@ def aggregate_fundamentals(
         aggregated["market_cap"] = float(500000005)
         aggregated["MarketCap_Defaulted_Final"] = True
     logger.info(f"Aggregated fundamentals for {ticker} from {len(sources_data)} sources")
+    
+    # Map descriptive string fields opportunistically (sector)
+    try:
+        sector = None
+        # prefer FMP then Alpha
+        if "fmp" in sources_data:
+            sector = sources_data.get("fmp", {}).get("sector")
+        if (not sector) and ("alpha" in sources_data):
+            sector = sources_data.get("alpha", {}).get("sector")
+        if sector:
+            aggregated["sector"] = sector
+    except Exception:
+        pass
+
     return aggregated
 
 

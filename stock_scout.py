@@ -3589,19 +3589,19 @@ if "Risk_Level" in rec_df.columns:
         core_count = 0
 
     if core_count == 0 and not rec_df.empty:
-    spec_df = rec_df[rec_df["Risk_Level"].astype(str) == "speculative"].copy() if "Risk_Level" in rec_df.columns else rec_df.copy()
-    sort_col = "Volatility_Contraction_Score" if "Volatility_Contraction_Score" in spec_df.columns else ("FinalScore_20d" if "FinalScore_20d" in spec_df.columns else None)
-    if sort_col:
-        spec_df = (
-            spec_df.assign(_sort_val=pd.to_numeric(spec_df[sort_col], errors="coerce"))
-            .sort_values(by=["_sort_val"], ascending=[False])
-            .drop(columns=["_sort_val"])
-        )
-    if spec_df.empty:
-        st.warning("🔍 No high-conviction setups found. Check back after the next automated scan.")
-    else:
-        st.info(f"🟠 Showing {len(spec_df)} recommendations (no CORE found)")
-        rec_df = spec_df
+        spec_df = rec_df[rec_df["Risk_Level"].astype(str) == "speculative"].copy() if "Risk_Level" in rec_df.columns else rec_df.copy()
+        sort_col = "Volatility_Contraction_Score" if "Volatility_Contraction_Score" in spec_df.columns else ("FinalScore_20d" if "FinalScore_20d" in spec_df.columns else None)
+        if sort_col:
+            spec_df = (
+                spec_df.assign(_sort_val=pd.to_numeric(spec_df[sort_col], errors="coerce"))
+                .sort_values(by=["_sort_val"], ascending=[False])
+                .drop(columns=["_sort_val"])
+            )
+        if spec_df.empty:
+            st.warning("🔍 No high-conviction setups found. Check back after the next automated scan.")
+        else:
+            st.info(f"🟠 Showing {len(spec_df)} recommendations (no CORE found)")
+            rec_df = spec_df
 else:
     if rec_df.empty:
         st.warning("🔍 No high-conviction setups found. Check back after the next automated scan.")

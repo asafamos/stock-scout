@@ -938,6 +938,48 @@ def run_scan_pipeline(
         else:
             logger.warning("Fundamental data has no Ticker column, skipping merge")
         
+        # Add explicit Valuation and Quality helper columns to avoid NaN in UI cards
+        try:
+            # Raw metrics aliases
+            if "pe" in results.columns and "PE" not in results.columns:
+                results["PE"] = results["pe"]
+            if "peg" in results.columns and "PEG" not in results.columns:
+                results["PEG"] = results["peg"]
+            if "roe" in results.columns and "ROE" not in results.columns:
+                results["ROE"] = results["roe"]
+            if "debt_equity" in results.columns and "Debt_Equity" not in results.columns:
+                results["Debt_Equity"] = results["debt_equity"]
+
+            # Compute Valuation: favor lower PE and PEG; use PE/PEG when both present
+            def _valuation_row(row: pd.Series) -> float:
+                pe = row.get("pe")
+                peg = row.get("peg")
+                try:
+                    if pd.notna(pe) and pd.notna(peg) and float(peg) > 0:
+                        return float(pe) / float(peg)
+                    elif pd.notna(pe):
+                        return float(pe)
+                    else:
+                        return 0.0
+                except Exception:
+                    return 0.0
+
+            # Compute Quality: emphasize ROE vs Debt/Equity
+            def _quality_row(row: pd.Series) -> float:
+                roe = row.get("roe")
+                de = row.get("debt_equity")
+                try:
+                    base_roe = float(roe) if pd.notna(roe) else 0.0
+                    base_de = float(de) if (pd.notna(de) and float(de) > 0) else 1.0
+                    return float(base_roe) / float(base_de)
+                except Exception:
+                    return 0.0
+
+            results["Valuation"] = results.apply(_valuation_row, axis=1)
+            results["Quality"] = results.apply(_quality_row, axis=1)
+        except Exception as e:
+            logger.debug(f"Valuation/Quality column creation skipped: {e}")
+        
         # Compute fundamental scores only if missing to avoid double-calculation
         for idx, row in results.iterrows():
             if pd.notna(row.get("Fundamental_S")):
