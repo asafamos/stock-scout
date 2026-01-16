@@ -1025,16 +1025,30 @@ def run_scan_pipeline(
     
     # --- Persist latest results for Streamlit dashboard freshness ---
     try:
+        # What-You-See-Is-What-You-Save: persist only filtered picks
+        to_save = results.copy()
+        # Drop explicit rejects if present
+        for col in ("Decision", "Recommendation", "Status"):
+            if col in to_save.columns:
+                to_save = to_save[to_save[col].astype(str).str.upper() != "REJECT"]
+        # Threshold by primary score
+        score_col = "FinalScore_20d" if "FinalScore_20d" in to_save.columns else ("Score" if "Score" in to_save.columns else None)
+        if score_col is not None:
+            to_save = to_save[pd.to_numeric(to_save[score_col], errors="coerce") >= 30].copy()
+        # Keep funded picks, if available
+        if "buy_amount_v2" in to_save.columns:
+            to_save = to_save[pd.to_numeric(to_save["buy_amount_v2"], errors="coerce") > 0].copy()
+
         data_dir = Path("data")
         data_dir.mkdir(parents=True, exist_ok=True)
         latest_json = data_dir / "latest_scan_live.json"
         latest_parquet = data_dir / "latest_scan_live.parquet"
 
         # Save JSON (records, ISO dates)
-        results.to_json(latest_json, orient="records", date_format="iso")
+        to_save.to_json(latest_json, orient="records", date_format="iso")
         # Save Parquet
-        results.to_parquet(latest_parquet, index=False)
-        logger.info(f"[PIPELINE] Persisted latest scan to {latest_json} and {latest_parquet}")
+        to_save.to_parquet(latest_parquet, index=False)
+        logger.info(f"[PIPELINE] Persisted {len(to_save)} filtered stocks to {latest_json} and {latest_parquet}")
     except Exception as e:
         logger.warning(f"[PIPELINE] Failed to persist latest scan files: {e}")
 
