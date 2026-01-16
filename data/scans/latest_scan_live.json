@@ -1,6 +1,6 @@
 {
-  "timestamp": "2026-01-15T21:28:53.858422",
-  "universe_size": 2000,
+  "timestamp": "2026-01-16T13:05:11.248941",
+  "universe_size": 1365,
   "universe_name": "default",
   "config_version": "unknown",
   "lookback_days": 90,
@@ -113,13 +113,14 @@
     "Fundamental_Backtest_Unsafe",
     "Fundamental_From_Store",
     "Sector",
+    "fund_sources_used_v2",
     "RiskClass",
     "SafetyBlocked",
     "SafetyReasons",
     "\u05e1\u05db\u05d5\u05dd \u05e7\u05e0\u05d9\u05d9\u05d4 ($)"
   ],
-  "total_tickers": 1354,
   "universe_count": 2000,
   "scan_type": "live_streamlit",
-  "build_commit": "1eae53c"
+  "total_tickers": 1365,
+  "build_commit": "719e13a"
 }

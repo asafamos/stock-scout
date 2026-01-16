@@ -15,9 +15,20 @@ import logging
 logger = logging.getLogger(__name__)
 
 def _key_present(*env_names: str) -> bool:
-    for name in env_names:
-        if os.getenv(name):
-            return True
+    """Check for key presence using unified secrets precedence (Streamlit secrets -> env -> .env).
+
+    Falls back to raw env if config is unavailable.
+    """
+    try:
+        from core.config import get_secret
+        for name in env_names:
+            val = get_secret(name)
+            if val and str(val).strip():
+                return True
+    except Exception:
+        for name in env_names:
+            if os.getenv(name):
+                return True
     return False
 
 def _check_provider(name: str, url: str | None, *, params: Dict[str, Any] | None = None,

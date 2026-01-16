@@ -2419,30 +2419,30 @@ eodhd_key = (
     else None
 )
 
-# Critical API keys check (non-blocking). We only consider it critical if NEITHER Alpha nor Finnhub works.
-missing_critical = []
-if not (alpha_ok or finn_ok):
-    missing_critical.append("ALPHA_VANTAGE_API_KEY or FINNHUB_API_KEY")
+# Critical API keys presence check (non-blocking).
+# Consider it CRITICAL only if neither key is present at all.
+alpha_key_present = bool(_env("ALPHA_VANTAGE_API_KEY") or _env("ALPHAVANTAGE_API_KEY"))
+finn_key_present = bool(_env("FINNHUB_API_KEY"))
 
-if missing_critical:
+if not (alpha_key_present or finn_key_present):
     st.error(
         f"""
 **CRITICAL: Missing API Keys**
 
 At least one of the following is required for fundamentals:
-{', '.join(f'`{k}`' for k in missing_critical)}
+`ALPHA_VANTAGE_API_KEY` or `FINNHUB_API_KEY`
 
-**Streamlit Cloud:** Add either Alpha Vantage or Finnhub key (or both) under Settings -> Secrets:
-```
-ALPHA_VANTAGE_API_KEY = "YOUR_KEY"
-FINNHUB_API_KEY = "YOUR_KEY"
-```
-Then reboot the app.
+**Streamlit Cloud:** Add either Alpha Vantage or Finnhub key (or both) under Settings -> Secrets.
+Do not include quote characters around the value.
 
 **Local:** Put keys in `.env` and ensure `load_dotenv()` runs.
 
 The pipeline will continue with technical-only scoring.
 """
+    )
+elif not (alpha_ok or finn_ok):
+    st.warning(
+        "⚠️ Providers detected but currently unavailable (rate limits or network). Falling back to technical-only scoring and any other price sources."
     )
 elif not alpha_ok and finn_ok:
     st.warning(
