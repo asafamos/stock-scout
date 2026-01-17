@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-01-16T20:22:32.392345Z",
+  "timestamp": "2026-01-17T08:26:46.777356Z",
   "universe_count": 503,
   "provider": "Unknown",
   "results_count": 36,
@@ -7,5 +7,5 @@
   "lookback_days": 250,
   "beta_filter_enabled": false,
   "fundamental_enabled": true,
-  "runtime_seconds": 207.07
+  "runtime_seconds": 190.95
 }
