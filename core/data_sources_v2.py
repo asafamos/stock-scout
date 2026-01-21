@@ -176,11 +176,41 @@ def set_default_provider_status(preflight_status: Dict[str, Dict[str, Any]] | No
             "alpha": bool(status.get("ALPHAVANTAGE", {"ok": True}).get("ok", True)),
             "polygon": bool(status.get("POLYGON", {"ok": True}).get("ok", True)),
             "eodhd": bool(status.get("EODHD", {"ok": True}).get("ok", True)),
+            "simfin": bool(status.get("SIMFIN", {"ok": True}).get("ok", True)),
         }
         fmp_index_ok = bool(status.get("FMP_INDEX", {"ok": True}).get("ok", True))
         if not fmp_index_ok:
             disable_provider_category("fmp", "index")
             logger.warning("Preflight: disabling FMP index category for this session")
+
+        # Compute dynamic priority from measured latencies for fundamentals providers
+        fundamentals_providers = [
+            "FMP", "FINNHUB", "TIINGO", "ALPHAVANTAGE", "EODHD", "SIMFIN"
+        ]
+        def _lat(p: str) -> float:
+            try:
+                meta = status.get(p, {})
+                # Skip providers explicitly lacking capability/auth
+                if meta.get("status") in ("auth_error", "no_key") or meta.get("can_fund") is False:
+                    return float("inf")
+                lat = meta.get("latency")
+                if lat is None:
+                    return float("inf")
+                return float(lat)
+            except Exception:
+                return float("inf")
+        sorted_providers = sorted(fundamentals_providers, key=_lat)
+        # Filter out those not active for fundamentals
+        _PROVIDER_PRIORITY.clear()
+        for p in sorted_providers:
+            meta = status.get(p, {})
+            if meta.get("status") in ("auth_error", "no_key") or meta.get("can_fund") is False:
+                continue
+            _PROVIDER_PRIORITY.append(p)
+        if not _PROVIDER_PRIORITY:
+            # Fallback to static default ordering
+            _PROVIDER_PRIORITY.extend(["FMP", "FINNHUB", "TIINGO", "ALPHAVANTAGE", "EODHD", "SIMFIN"])
+        logger.info(f"[Preflight] Dynamic fundamentals priority: {_PROVIDER_PRIORITY}")
     except Exception:
         _DEFAULT_PROVIDER_STATUS = {}
 
@@ -1148,66 +1178,9 @@ def aggregate_fundamentals(
     # Fetch from all sources (sequential, rate-limit friendly)
     sources_data = {}
 
-    # Determine fundamentals priority using preflight results
-    # Map uppercase preflight keys → internal function names
-    fetch_map = {
-        "FMP": ("fmp", fetch_fundamentals_fmp),
-        "FINNHUB": ("finnhub", fetch_fundamentals_finnhub),
-        "TIINGO": ("tiingo", fetch_fundamentals_tiingo),
-        "ALPHAVANTAGE": ("alpha", fetch_fundamentals_alpha),
-    }
-    # Default strict priority
-    default_priority = ["FMP", "FINNHUB", "TIINGO", "ALPHAVANTAGE"]
-    active_from_preflight = []
-    if provider_status and isinstance(provider_status.get("FUNDAMENTALS_ACTIVE"), list):
-        # Use the preflight-computed active list if available
-        active_from_preflight = [p for p in provider_status["FUNDAMENTALS_ACTIVE"] if p in fetch_map]
-    if not active_from_preflight:
-        # Fallback: include providers marked ok=True (or missing ⇒ treat as ok) in strict priority
-        active_from_preflight = [p for p in default_priority if (provider_status or {}).get(p, {"ok": True}).get("ok", True)]
+    # Determine fundamentals priority using dynamic latency-based routing
+    fetch_funcs = get_prioritized_fetch_funcs(provider_status)
 
-    # Build fetch order with dynamic anchors:
-    # - If FMP ok: start with FMP
-    # - If FMP not ok: anchor with EODHD and SimFin before FINNHUB/ALPHA
-    fetch_funcs = []
-    fmp_ok = (provider_status or {}).get("FMP", {"ok": True}).get("ok", True)
-    if fmp_ok and "FMP" in active_from_preflight:
-        fetch_funcs.append(fetch_map["FMP"])  # FMP anchor
-        # Add remaining active providers excluding FMP, with rotating order for Finnhub/Alpha
-        primary_cycle = [("finnhub", fetch_fundamentals_finnhub), ("alpha", fetch_fundamentals_alpha)]
-        # rotate starting point for diversity
-        order = [primary_cycle[_PRIMARY_FUND_ROTATE % 2], primary_cycle[(_PRIMARY_FUND_ROTATE + 1) % 2]]
-        _PRIMARY_FUND_ROTATE = (_PRIMARY_FUND_ROTATE + 1) % 2
-        # Append rotating primaries if present in active list
-        for name, func in order:
-            key = {
-                "finnhub": "FINNHUB",
-                "alpha": "ALPHAVANTAGE",
-            }[name]
-            if key in active_from_preflight:
-                fetch_funcs.append((name, func))
-        # Add Tiingo if active
-        if "TIINGO" in active_from_preflight:
-            fetch_funcs.append(fetch_map["TIINGO"])
-        # Secondary group afterwards
-        fetch_funcs.extend([("eodhd", fetch_fundamentals_eodhd), ("simfin", fetch_fundamentals_simfin)])
-    else:
-        # FMP restricted: use EODHD and SimFin as secondary anchors first
-        fetch_funcs.extend([("eodhd", fetch_fundamentals_eodhd), ("simfin", fetch_fundamentals_simfin)])
-        # Then rotating primaries (Finnhub/Alpha), followed by Tiingo if active
-        primary_cycle = [("finnhub", fetch_fundamentals_finnhub), ("alpha", fetch_fundamentals_alpha)]
-        order = [primary_cycle[_PRIMARY_FUND_ROTATE % 2], primary_cycle[(_PRIMARY_FUND_ROTATE + 1) % 2]]
-        _PRIMARY_FUND_ROTATE = (_PRIMARY_FUND_ROTATE + 1) % 2
-        for name, func in order:
-            key = {
-                "finnhub": "FINNHUB",
-                "alpha": "ALPHAVANTAGE",
-            }[name]
-            if key in active_from_preflight:
-                fetch_funcs.append((name, func))
-        if "TIINGO" in active_from_preflight:
-            fetch_funcs.append(fetch_map["TIINGO"])
-    
     for source_name, fetch_func in fetch_funcs:
         # Respect preflight minimally: skip only when auth/no_key or cannot serve fundamentals
         if provider_status is not None:
@@ -2036,13 +2009,12 @@ def get_index_series(
 def fetch_fundamentals_batch(tickers: List[str], provider_status: Dict | None = None, mode: DataMode = DataMode.LIVE, as_of_date: Optional[date] = None) -> pd.DataFrame:
     """
     Batch fetch fundamentals for multiple tickers using aggregate_fundamentals.
+    Runs serially to avoid thread deadlocks / DB contention.
     Returns a DataFrame indexed by Ticker.
     """
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    
     if not tickers:
         return pd.DataFrame()
-        
+
     rows = []
     # Throttled submissions to reduce burst rate limits (tuned for stability)
     # If FMP and FINNHUB are both unavailable, we likely fall back to Tiingo
@@ -2072,10 +2044,10 @@ def fetch_fundamentals_batch(tickers: List[str], provider_status: Dict | None = 
                 
     if not rows:
         return pd.DataFrame()
-        
+
     df = pd.DataFrame(rows)
     if "ticker" in df.columns:
         df = df.rename(columns={"ticker": "Ticker"})
         df = df.set_index("Ticker")
-    
+
     return df

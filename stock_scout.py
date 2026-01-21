@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Asaf Stock Scout — 2025 (Auto Mode, Zero-Input) — FMP-free
+Asaf Stock Scout — 2026 (Auto Mode, Zero-Input) — FMP-free
 -----------------------------------------------------------
 • Technical score: MA, Momentum(1/3/6m), RSI band, Near-High bell, Overextension vs MA_L,
   Pullback window, ATR/Price, Reward/Risk, MACD/ADX.
@@ -2333,7 +2333,7 @@ def get_eodhd_price(ticker: str) -> Optional[float]:
 
 # ==================== UI ====================
 st.set_page_config(
-    page_title="סקאוט מניות — 2025", page_icon="📈", layout="wide"
+    page_title="סקאוט מניות — 2026", page_icon="📈", layout="wide"
 )
 
 # === HEBREW RTL STYLING WITH LTR ENGLISH TEXT ===
@@ -2373,7 +2373,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📈 סקאוט מניות — 2025 אסף")
+st.title("📈 סקאוט מניות — 2026 אסף")
 st.caption("🇮🇱 סקאן מניות אישי בעברית | כלי למחקר בלבד. לא ייעוץ השקעות.")
 
 st.markdown("### 📊 Read-Only Dashboard")

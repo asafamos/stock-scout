@@ -385,6 +385,8 @@ def compute_recommendation_scores(
     )
 
     rec_row = rec.to_series()
+    # Legacy alias expected by integration tests
+    rec_row["ReliabilityScore"] = rec_row["Reliability_Score"]
 
     # Preserve original indicators from the input row
     for k, v in row.items():

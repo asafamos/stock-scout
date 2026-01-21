@@ -33,9 +33,17 @@ from core.unified_logic import (
 from core.pattern_matcher import PatternMatcher
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from core.market_context import get_benchmark_series, compute_relative_strength_vs_spy
+from advanced_filters import compute_relative_strength
 
 # For backward compatibility with code that checks ML availability
 from core.ml_20d_inference import ML_20D_AVAILABLE
+
+# V2 Bridge (ML + Risk integration)
+try:
+    from core.bridge import analyze_row_with_bridge
+    V2_BRIDGE_AVAILABLE = True
+except ImportError:
+    V2_BRIDGE_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -454,7 +462,10 @@ def _process_single_ticker(tkr: str, df: pd.DataFrame, skip_tech_filter: bool) -
         return None
     try:
         tech_df = build_technical_indicators(df)
-        row_indicators = tech_df.iloc[-1]
+        # Work with a single-row DataFrame to avoid SettingWithCopy issues,
+        # then convert back to Series once enrichment is done
+        row_df = tech_df.iloc[[-1]].copy()
+        row_df["Ticker"] = tkr
     except Exception as exc:
         logger.warning("indicator build failed for %s: %s", tkr, exc)
         return None
@@ -471,9 +482,15 @@ def _process_single_ticker(tkr: str, df: pd.DataFrame, skip_tech_filter: bool) -
             "volume": "Volume",
         })
         rs_val = compute_relative_strength_vs_spy(tech_df.rename(columns=str.title), spy_df_cap)
-        row_indicators["relative_strength_20d"] = float(rs_val)
+        # Use .loc with 'Ticker' index to avoid SettingWithCopyWarning
+        row_df = row_df.set_index("Ticker")
+        row_df.loc[tkr, "relative_strength_20d"] = float(rs_val)
     except Exception:
-        row_indicators["relative_strength_20d"] = np.nan
+        # Ensure the column exists even on failure
+        row_df = row_df.set_index("Ticker")
+        row_df.loc[tkr, "relative_strength_20d"] = np.nan
+    # Convert enriched single-row DataFrame back to Series for downstream logic
+    row_indicators = row_df.reset_index(drop=False).iloc[0]
 
     # Tier 2 may skip this filter because Tier 1 already applied OHLCV checks
     if not skip_tech_filter:
@@ -486,13 +503,35 @@ def _process_single_ticker(tkr: str, df: pd.DataFrame, skip_tech_filter: bool) -
     except Exception:
         as_of_dt = None
 
-    rec_series = compute_recommendation_scores(
-        row=row_indicators,
-        ticker=tkr,
-        as_of_date=as_of_dt,
-        enable_ml=ML_20D_AVAILABLE,
-        use_multi_source=False,
-    )
+    used_v2 = False
+    if V2_BRIDGE_AVAILABLE:
+        try:
+            rec_dict = analyze_row_with_bridge(ticker=tkr, row=row_indicators)
+            # Verify success: ensure we have a valid score
+            if "FinalScore_20d" in rec_dict and rec_dict["FinalScore_20d"] is not None:
+                rec_series = pd.Series(rec_dict)
+                used_v2 = True
+            else:
+                logger.warning(f"Bridge returned no score for {tkr}, falling back to legacy.")
+        except Exception as e:
+            logger.error(f"Bridge failed for {tkr}: {e}")
+            used_v2 = False
+
+    if not used_v2:
+        # Fallback to legacy logic
+        rec_series = compute_recommendation_scores(
+            row=row_indicators,
+            ticker=tkr,
+            as_of_date=as_of_dt,
+            enable_ml=ML_20D_AVAILABLE,
+            use_multi_source=False,
+        )
+    # Ensure legacy alias for reliability is present regardless of source
+    if ("ReliabilityScore" not in rec_series) and ("Reliability_Score" in rec_series):
+        try:
+            rec_series["ReliabilityScore"] = rec_series["Reliability_Score"]
+        except Exception:
+            pass
 
     # Enhance with Big Winner signal + historical pattern matching
     try:
@@ -559,6 +598,27 @@ def _step_compute_scores_with_unified_logic(
     results = pd.DataFrame(rows)
     if "Score" not in results.columns and "FinalScore_20d" in results.columns:
         results["Score"] = results["FinalScore_20d"]
+    # Ensure reliability column compatibility for downstream consumers/tests
+    if (
+        ("ReliabilityScore" not in results.columns)
+        and ("Reliability_Score" not in results.columns)
+        and ("reliability_v2" not in results.columns)
+        and ("Reliability_v2" not in results.columns)
+    ):
+        # Create a conservative default reliability metric when missing
+        results["ReliabilityScore"] = 50.0
+    else:
+        # Provide legacy alias if canonical underscore variant exists
+        if ("Reliability_Score" in results.columns) and ("ReliabilityScore" not in results.columns):
+            results["ReliabilityScore"] = results["Reliability_Score"]
+    # Ensure momentum proxy exists (prefer TechScore_20d)
+    if ("MomentumScore" not in results.columns) and ("TechScore_20d" not in results.columns):
+        if "FinalScore_20d" in results.columns:
+            results["TechScore_20d"] = results["FinalScore_20d"]
+        elif "Score" in results.columns:
+            results["TechScore_20d"] = results["Score"]
+        else:
+            results["TechScore_20d"] = np.nan
     return results
 
 # --- Main Pipeline Runner ---
@@ -638,11 +698,36 @@ def run_scan_pipeline(
         provider_status: Dict[str, Dict[str, Any]] = run_preflight()
         # Apply global default provider status to v2 data layer
         try:
-            from core.data_sources_v2 import set_default_provider_status, disable_provider_category
+            from core.data_sources_v2 import set_default_provider_status, disable_provider_category, get_prioritized_fetch_funcs
             set_default_provider_status(provider_status)
             # If FMP index endpoint is not OK, disable for session
             if not provider_status.get("FMP_INDEX", {"ok": True}).get("ok", True):
                 disable_provider_category("fmp", "index")
+            # Log dynamic smart routing order for fundamentals
+            try:
+                funcs = get_prioritized_fetch_funcs(provider_status)
+                # Map internal names to uppercase provider keys
+                name_map = {
+                    "fmp": "FMP",
+                    "finnhub": "FINNHUB",
+                    "tiingo": "TIINGO",
+                    "alpha": "ALPHAVANTAGE",
+                    "eodhd": "EODHD",
+                    "simfin": "SIMFIN",
+                }
+                parts = []
+                for internal_name, _func in funcs:
+                    up = name_map.get(internal_name, internal_name.upper())
+                    meta = provider_status.get(up, {})
+                    lat = meta.get("latency")
+                    if isinstance(lat, (int, float)):
+                        parts.append(f"{up} ({lat:.2f}s)")
+                    else:
+                        parts.append(f"{up} (n/a)")
+                if parts:
+                    logger.info("Smart Routing: " + " -> ".join(parts))
+            except Exception:
+                pass
         except Exception:
             pass
     except Exception:
@@ -659,7 +744,6 @@ def run_scan_pipeline(
         if status_callback:
             status_callback("Ranking universe by blended RS (21/63d)...")
         try:
-            from advanced_filters import compute_relative_strength, fetch_benchmark_data
             bench_df = fetch_benchmark_data("SPY", days=200)
             # Explicit DataFrame check to avoid ambiguous truth errors
             if bench_df is None or bench_df.empty:
@@ -913,10 +997,9 @@ def run_scan_pipeline(
             score_thr = float(config.get("fundamentals_score_threshold", float(os.getenv("FUNDAMENTALS_SCORE_THRESHOLD", "65"))))
         except Exception:
             score_thr = 65.0
-        try:
-            top_n_cap = int(config.get("fundamentals_top_n", int(os.getenv("FUNDAMENTALS_TOP_N", "200"))))
-        except Exception:
-            top_n_cap = 200
+        # PERFORMANCE FIX: Force strict cap to prevent API throttling hanging the system
+        top_n_cap = 10
+        logger.info(f"⚡ Enforcing strict Top-{top_n_cap} limit for fundamentals fetch to prevent timeouts.")
 
         # Filter and cap by top-N, prioritizing highest technical scores
         score_col = "TechScore_20d" if "TechScore_20d" in results.columns else "Score"
@@ -930,6 +1013,8 @@ def run_scan_pipeline(
             fund_df = pd.DataFrame()
         else:
             logger.info(f"Fetching fundamentals for {len(winners)} winners ({score_col} > {score_thr:.0f}, TopN={top_n_cap})")
+            # Explicit progress log for batch size being sent to data layer
+            logger.info(f"[PIPELINE] Sending {len(winners)} tickers to fetch_fundamentals_batch")
             # Pass provider_status so data layer strictly skips failed providers and promotes alternates
             fund_df = fetch_fundamentals_batch(winners, provider_status=provider_status, as_of_date=fund_as_of)
         

@@ -8,6 +8,7 @@ Used in LIVE Streamlit runs only (not offline audits).
 
 import os
 import requests
+import time
 from typing import Dict, Any
 from datetime import datetime
 import logging
@@ -45,26 +46,38 @@ def _check_provider(name: str, url: str | None, *, params: Dict[str, Any] | None
     - If no URL provided: rely purely on key presence.
     """
     if not _key_present(*key_envs):
-        return {"ok": False, "status": "no_key", "reason": "No API key", "detail": None}
+        return {"ok": False, "status": "no_key", "reason": "No API key", "detail": None, "latency": None}
     if not url:
-        return {"ok": True, "status": "ok", "reason": "Key present (no check)", "detail": None}
+        # No live request performed; latency not applicable
+        return {"ok": True, "status": "ok", "reason": "Key present (no check)", "detail": None, "latency": None}
     try:
+        start = time.time()
         resp = requests.get(url, params=params or {}, headers=headers or {}, timeout=timeout)
+        elapsed = time.time() - start
         sc = resp.status_code
         if sc in (401, 403):
-            return {"ok": False, "status": "auth_error", "reason": f"HTTP {sc}", "detail": (resp.text or "")[:160]}
+            return {"ok": False, "status": "auth_error", "reason": f"HTTP {sc}", "detail": (resp.text or "")[:160], "latency": elapsed}
         if sc == 429:
-            return {"ok": True, "status": "rate_limit", "reason": "Rate limit", "detail": (resp.text or "")[:160]}
+            return {"ok": True, "status": "rate_limit", "reason": "Rate limit", "detail": (resp.text or "")[:160], "latency": elapsed}
         if sc >= 500:
-            return {"ok": True, "status": "transient_error", "reason": f"HTTP {sc}", "detail": (resp.text or "")[:160]}
+            return {"ok": True, "status": "transient_error", "reason": f"HTTP {sc}", "detail": (resp.text or "")[:160], "latency": elapsed}
         if sc == 200:
-            return {"ok": True, "status": "ok", "reason": "OK", "detail": None}
+            return {"ok": True, "status": "ok", "reason": "OK", "detail": None, "latency": elapsed}
         # Other non-200 codes: treat as transient
-        return {"ok": True, "status": "transient_error", "reason": f"HTTP {sc}", "detail": (resp.text or "")[:160]}
+        return {"ok": True, "status": "transient_error", "reason": f"HTTP {sc}", "detail": (resp.text or "")[:160], "latency": elapsed}
     except requests.Timeout:
-        return {"ok": True, "status": "transient_error", "reason": "timeout", "detail": None}
+        # Timeout: latency equals the timeout window or measured elapsed if available
+        try:
+            elapsed = time.time() - start
+        except Exception:
+            elapsed = None
+        return {"ok": True, "status": "transient_error", "reason": "timeout", "detail": None, "latency": elapsed}
     except Exception as e:
-        return {"ok": True, "status": "transient_error", "reason": str(e)[:80], "detail": None}
+        try:
+            elapsed = time.time() - start
+        except Exception:
+            elapsed = None
+        return {"ok": True, "status": "transient_error", "reason": str(e)[:80], "detail": None, "latency": elapsed}
 
 def run_preflight(timeout: float = 3.0) -> Dict[str, Dict[str, any]]:
     """
