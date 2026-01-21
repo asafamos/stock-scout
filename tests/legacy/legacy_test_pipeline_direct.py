@@ -19,7 +19,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 from core.config import get_config
-from core.pipeline_runner import run_scan_pipeline
+from core.pipeline_runner import run_scan
+from core.serialization import scanresult_to_dataframe
 from core.scan_io import load_latest_scan
 
 def test_live_pipeline():
@@ -37,10 +38,11 @@ def test_live_pipeline():
     logger.info(f"Running pipeline on: {test_universe}")
     
     try:
-        results_df, data_map = run_scan_pipeline(
+        sr = run_scan(
             universe=test_universe,
             config=config_dict
         )
+        results_df = scanresult_to_dataframe(sr)
         
         if not results_df.empty:
             logger.info(f"✅ Pipeline completed. Generated {len(results_df)} stocks")
@@ -75,7 +77,8 @@ def test_precomputed_vs_live():
     logger.info(f"Re-running pipeline on: {test_universe}")
     
     try:
-        live_df, _ = run_scan_pipeline(universe=test_universe, config=config_dict)
+        sr_live = run_scan(universe=test_universe, config=config_dict)
+        live_df = scanresult_to_dataframe(sr_live)
         
         if live_df is not None and not live_df.empty:
             logger.info(f"✅ Live run completed: {len(live_df)} stocks")
@@ -114,10 +117,11 @@ def test_specific_ticker():
     logger.info(f"Analyzing {ticker} in detail...")
     
     try:
-        results_df, data_map = run_scan_pipeline(
+        sr = run_scan(
             universe=[ticker],
             config=config_dict
         )
+        results_df = scanresult_to_dataframe(sr)
         
         if not results_df.empty:
             row = results_df.iloc[0]

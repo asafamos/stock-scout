@@ -1,0 +1,7 @@
+y/
+**/google-cloud-sdk/**
+.venv/
+venv/
+node_modules/
+data/scans/
+models/

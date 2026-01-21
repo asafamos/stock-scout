@@ -103,6 +103,23 @@ DISABLED_PROVIDERS: set[str] = set()
 
 _FMP_KEY_METRICS_RESTRICTED_MSG_SHOWN: bool = False
 _PRIMARY_FUND_ROTATE: int = 0  # round-robin between finnhub and alpha
+def disable_provider_category(provider: str, category: str) -> None:
+    """Disable a specific category (e.g. 'price', 'fundamentals') for a provider."""
+    try:
+        key = f"{provider.lower()}:{category.lower()}"
+        DISABLED_PROVIDERS.add(key)
+        logger.warning(f"Disabled provider category: {key}")
+    except Exception as e:
+        logger.error(f"Failed to disable provider category {provider}:{category}: {e}")
+
+def disable_provider(provider: str) -> None:
+    """Disable an entire provider for the session."""
+    try:
+        p = provider.lower()
+        _PROVIDER_DISABLED[p] = True
+        logger.warning(f"Disabled provider completely: {p}")
+    except Exception as e:
+        logger.error(f"Failed to disable provider {provider}: {e}")
 
 # Global default provider status (set via preflight)
 _DEFAULT_PROVIDER_STATUS: Dict[str, bool] = {}

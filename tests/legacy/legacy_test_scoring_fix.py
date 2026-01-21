@@ -13,7 +13,8 @@ from datetime import datetime, timedelta
 # Add repo to path
 sys.path.insert(0, "/workspaces/stock-scout-2")
 
-from core.pipeline_runner import run_scan_pipeline
+from core.pipeline_runner import run_scan
+from core.serialization import scanresult_to_dataframe
 from stock_scout import CONFIG, build_universe
 
 def test_scoring_fix():
@@ -24,11 +25,12 @@ def test_scoring_fix():
     print(f"Testing scoring fix on {test_universe}...\n")
     
     try:
-        results, data_map = run_scan_pipeline(
+        sr = run_scan(
             universe=test_universe,
             config=CONFIG,
             status_callback=lambda msg: print(f"  [Pipeline] {msg}")
         )
+        results = scanresult_to_dataframe(sr)
         
         if results.empty:
             print("❌ Pipeline returned no results!")

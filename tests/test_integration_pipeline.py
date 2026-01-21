@@ -8,7 +8,8 @@ import numpy as np
 from datetime import datetime, timedelta
 import pytest
 
-from core.pipeline_runner import run_scan_pipeline
+from core.pipeline_runner import run_scan_pipeline, run_scan
+from core.serialization import scanresult_to_dataframe
 from typing import Dict, Any
 
 
@@ -60,12 +61,13 @@ def test_minimal_pipeline_with_synthetic_data():
 
     config = get_base_config()
 
-    results, out_map = run_scan_pipeline(
+    sr = run_scan(
         universe=universe,
         config=config,
         status_callback=None,
         data_map=data_map,
     )
+    results = scanresult_to_dataframe(sr)
 
     # Basic assertions
     assert isinstance(results, pd.DataFrame)
@@ -78,8 +80,7 @@ def test_minimal_pipeline_with_synthetic_data():
     # If rows exist, ensure non-negative allocation values
     if not results.empty:
         assert results["סכום קנייה ($)"].iloc[0] >= 0.0
-    # Data map propagated
-    assert "FAKE" in out_map
+        # Data map removed; contracts output only
 
 
 def test_pipeline_with_multiple_tickers():
@@ -89,19 +90,20 @@ def test_pipeline_with_multiple_tickers():
 
     config = get_base_config()
 
-    results, out_map = run_scan_pipeline(
+    sr = run_scan(
         universe=universe,
         config=config,
         status_callback=None,
         data_map=data_map,
     )
+    results = scanresult_to_dataframe(sr)
 
     assert isinstance(results, pd.DataFrame)
     assert "Ticker" in results.columns
     assert "Score" in results.columns
-    # All tickers should be in output data map
+    # All tickers should be present in output DataFrame
     for ticker in universe:
-        assert ticker in out_map
+        assert ticker in results.get("Ticker", pd.Series(dtype=str)).tolist()
 
 
 def test_pipeline_output_schema():
@@ -112,12 +114,13 @@ def test_pipeline_output_schema():
 
     config = get_base_config()
 
-    results, _ = run_scan_pipeline(
+    sr = run_scan(
         universe=universe,
         config=config,
         status_callback=None,
         data_map=data_map,
     )
+    results = scanresult_to_dataframe(sr)
 
     # Required columns
     required_cols = ["Ticker", "Score", "סכום קנייה ($)"]
@@ -142,12 +145,13 @@ def test_canonical_schema_and_invariants():
 
     config = get_base_config()
 
-    results, _ = run_scan_pipeline(
+    sr = run_scan(
         universe=universe,
         config=config,
         status_callback=None,
         data_map=data_map,
     )
+    results = scanresult_to_dataframe(sr)
 
     # Schema checks (canonical)
     required = [
@@ -241,12 +245,13 @@ def test_pipeline_status_callback():
     def status_callback(msg: str):
         callback_messages.append(msg)
 
-    results, _ = run_scan_pipeline(
+    sr = run_scan(
         universe=universe,
         config=config,
         status_callback=status_callback,
         data_map=data_map,
     )
+    _results = scanresult_to_dataframe(sr)
 
     # Verify callback was called
     assert len(callback_messages) > 0
@@ -259,13 +264,14 @@ def test_pipeline_empty_universe():
     """Test pipeline with empty universe."""
     config = get_base_config()
 
-    results, out_map = run_scan_pipeline(
+    sr = run_scan(
         universe=[],
         config=config,
         status_callback=None,
         data_map=None,
     )
+    results = scanresult_to_dataframe(sr)
 
     assert isinstance(results, pd.DataFrame)
     assert len(results) == 0
-    assert isinstance(out_map, dict)
+    # Contracts output only; no data map returned

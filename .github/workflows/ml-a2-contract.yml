@@ -1,0 +1,62 @@
+name: ML A2 Contract
+
+on:
+  push:
+    paths:
+      - 'core/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - '.github/workflows/ml-a2-contract.yml'
+  workflow_dispatch:
+
+jobs:
+  validate-ml-a2:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt || true
+          pip install pytest scikit-learn joblib numpy pandas
+
+      - name: Pytest sanity
+        run: |
+          python -c "import pytest, sys; print('pytest ok')"
+
+      - name: Pytest discovery
+        run: |
+          pytest -q --collect-only tests > .pytest_collect.txt || true
+          echo 'Collected:'
+          cat .pytest_collect.txt
+          grep -E "collected [1-9][0-9]* items" .pytest_collect.txt || (echo "No tests collected" && exit 1)
+
+      - name: Run contract and smoke tests
+        run: |
+          pytest -q tests
+
+      - name: Run DEMO training
+        run: |
+          python scripts/train_rolling_ml_20d.py --fast-demo --output-path models/ml_20d_bundle_demo_ci.joblib
+
+      - name: Validate DEMO bundle metadata
+        run: |
+          python - << 'PY'
+          import joblib, sklearn
+          bundle = joblib.load('models/ml_20d_bundle_demo_ci.joblib')
+          assert isinstance(bundle, dict)
+          assert 'model' in bundle
+          assert 'sklearn_version' in bundle and bundle['sklearn_version'] == sklearn.__version__
+          feats = bundle.get('feature_names', [])
+          assert set(['Volume_Surge_Ratio','Dist_52w_High','ADR_Pct']).issubset(set(feats))
+          conv = bundle.get('feature_conventions', {})
+          assert conv.get('ADR_Pct') == 'fraction'
+          print('Bundle validated OK with', len(feats), 'features')
+          PY

@@ -24,7 +24,18 @@ jobs:
           pip install -r requirements.txt
           pip install pytest
 
+      - name: Pytest sanity
+        run: |
+          python -c "import pytest, sys; print('pytest ok')"
+
+      - name: Pytest discovery
+        run: |
+          pytest -q --collect-only tests > .pytest_collect.txt || true
+          echo 'Collected:'
+          cat .pytest_collect.txt
+          grep -E "collected [1-9][0-9]* items" .pytest_collect.txt || (echo "No tests collected" && exit 1)
+
       - name: Run tests
         run: |
-          # Run a focused smoke test subset to avoid flaky long tests
-          pytest -q test_simple_flow.py test_scoring_fix.py
+          # Run scoped tests under ./tests to avoid vendored folders
+          pytest -q tests

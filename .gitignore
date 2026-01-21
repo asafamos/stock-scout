@@ -35,6 +35,14 @@ streamlit*.log
 !requirements.txt
 !runtime.txt
 
+# Ignore repo artifacts and large outputs
+y/
+*.parquet
+*.joblib
+*.sqlite
+data/scans/
+data/latest_scan_live.json
+
 # Fundamentals SQLite store
 data/fundamentals_store.sqlite
 data/*.sqlite

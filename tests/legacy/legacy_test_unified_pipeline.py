@@ -11,7 +11,8 @@ os.environ["STREAMLIT_SERVER_PORT"] = "0"
 
 import pandas as pd
 import numpy as np
-from core.pipeline_runner import run_scan_pipeline
+from core.pipeline_runner import run_scan
+from core.serialization import scanresult_to_dataframe
 from core.config import get_config
 
 def test_unified_pipeline():
@@ -38,16 +39,17 @@ def test_unified_pipeline():
     print(f"Testing with universe: {test_tickers}")
     
     # Run pipeline
-    results, data_map = run_scan_pipeline(
+    sr = run_scan(
         universe=test_tickers,
         config=config,
         status_callback=lambda msg: print(f"  → {msg}")
     )
+    results = scanresult_to_dataframe(sr)
     
     print(f"\n{'='*80}")
     print("RESULTS SUMMARY")
     print(f"{'='*80}")
-    print(f"Tickers processed: {len(data_map)}")
+    # Data map removed in contracts output; results only
     print(f"Results returned: {len(results)}")
     
     if results.empty:
