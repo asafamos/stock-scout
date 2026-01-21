@@ -360,7 +360,8 @@ def _latency_probe(provider: str, timeout: float = 2.0) -> Tuple[bool, float, st
             key = os.getenv("FMP_API_KEY") or os.getenv("FMP_KEY") or FMP_API_KEY
             if not key:
                 return (False, float("inf"), "no_key")
-            url = f"https://financialmodelingprep.com/api/v3/profile/AAPL?apikey={key}"
+            # Use stable Screener endpoint confirmed working
+            url = f"https://financialmodelingprep.com/stable/company-screener?symbol=AAPL&apikey={key}"
             resp = requests.get(url, timeout=timeout)
             lat = time.perf_counter() - start
             if resp.status_code == 200:
@@ -620,11 +621,12 @@ def get_fundamentals_safe(ticker: str) -> Optional[Dict]:
 
 def fetch_fundamentals_fmp(ticker: str, provider_status: Dict | None = None) -> Optional[Dict]:
     """
-    Fetch fundamentals from FMP (primary source).
-    
-    Returns standardized dict with keys:
-    - pe, ps, pb, roe, margin, rev_yoy, eps_yoy, debt_equity
-    - market_cap, beta, peg, sector, vol_avg, last_div, price_backup
+    Fetch fundamentals from FMP via the stable company screener endpoint.
+
+    Notes:
+    - Screener provides descriptive fields (marketCap, beta, sector, industry, price).
+    - It may not include valuation ratios (PE). Aggregation should complement from others.
+    Returns a dict including both canonical lowercase fields and UI-standard aliases.
     """
     # Reload key at runtime from environment first; fallback to get_secret
     FMP_KEY_RUNTIME = os.getenv("FMP_API_KEY") or os.getenv("FMP_KEY") or get_secret("FMP_API_KEY", "")
@@ -651,43 +653,17 @@ def fetch_fundamentals_fmp(ticker: str, provider_status: Dict | None = None) -> 
         return cached
     
     _rate_limit("fmp")
-    
-    # Fetch company profile for stable descriptive fields (sector, mktCap, beta, price)
-    url_profile = f"https://financialmodelingprep.com/api/v3/profile/{ticker}"
-    params = {"apikey": (FMP_KEY_RUNTIME or FMP_API_KEY), "limit": 1}
-    
+    # Query stable Screener endpoint
+    url = f"https://financialmodelingprep.com/stable/company-screener"
+    params = {"symbol": ticker, "apikey": (FMP_KEY_RUNTIME or FMP_API_KEY)}
     start = time.time()
     try:
-        resp = requests.get(url_profile, params=params, timeout=3)
-        if resp.status_code == 403:
-            # Disable only fundamentals category and switch to Finnhub
-            disable_provider_category("fmp", "fundamentals")
-            global _FMP_KEY_METRICS_RESTRICTED_MSG_SHOWN
-            if not _FMP_KEY_METRICS_RESTRICTED_MSG_SHOWN:
-                logger.error("FMP Profile Restricted: Switching to Finnhub")
-                _FMP_KEY_METRICS_RESTRICTED_MSG_SHOWN = True
-            record_api_call(
-                provider="FMP",
-                endpoint="profile",
-                status="http_403_disabled",
-                latency_sec=time.time() - start,
-                extra={"ticker": ticker}
-            )
-            return None
-        if resp.status_code != 200:
-            record_api_call(
-                provider="FMP",
-                endpoint="profile",
-                status=f"http_{resp.status_code}",
-                latency_sec=time.time() - start,
-                extra={"ticker": ticker}
-            )
-            return None
-        data = resp.json()
-        status = "ok" if isinstance(data, list) and len(data) > 0 else "empty"
+        resp = requests.get(url, params=params, timeout=3)
+        data = resp.json() if resp.status_code == 200 else None
+        status = "ok" if isinstance(data, list) and len(data) > 0 else (f"http_{resp.status_code}" if resp is not None else "empty")
         record_api_call(
             provider="FMP",
-            endpoint="profile",
+            endpoint="company-screener",
             status=status,
             latency_sec=time.time() - start,
             extra={"ticker": ticker}
@@ -695,129 +671,49 @@ def fetch_fundamentals_fmp(ticker: str, provider_status: Dict | None = None) -> 
     except Exception as e:
         record_api_call(
             provider="FMP",
-            endpoint="profile",
+            endpoint="company-screener",
             status="exception",
             latency_sec=time.time() - start,
             extra={"ticker": ticker, "error": str(e)[:200]}
         )
-        return None
+        data = None
+
     if not data or not isinstance(data, list) or len(data) == 0:
         return None
-    profile = data[0]
-    
-    # Fetch key metrics with stable v3/key-metrics endpoint (for PE/PB/PS/PEG)
-    url_km = f"https://financialmodelingprep.com/api/v3/key-metrics/{ticker}"
-    start_km = time.time()
-    metrics_data = None
-    try:
-        resp_km = requests.get(url_km, params=params, timeout=3)
-        if resp_km.status_code == 200:
-            metrics_data = resp_km.json()
-            status = "ok" if isinstance(metrics_data, list) and len(metrics_data) > 0 else "empty"
-            record_api_call(
-                provider="FMP",
-                endpoint="key-metrics",
-                status=status,
-                latency_sec=time.time() - start_km,
-                extra={"ticker": ticker}
-            )
-        elif resp_km.status_code == 403:
-            disable_provider_category("fmp", "fundamentals")
-            record_api_call(
-                provider="FMP",
-                endpoint="key-metrics",
-                status="http_403_disabled",
-                latency_sec=time.time() - start_km,
-                extra={"ticker": ticker}
-            )
-        else:
-            record_api_call(
-                provider="FMP",
-                endpoint="key-metrics",
-                status=f"http_{resp_km.status_code}",
-                latency_sec=time.time() - start_km,
-                extra={"ticker": ticker}
-            )
-    except Exception as e:
-        record_api_call(
-            provider="FMP",
-            endpoint="key-metrics",
-            status="exception",
-            latency_sec=time.time() - start_km,
-            extra={"ticker": ticker, "error": str(e)[:200]}
-        )
-        metrics_data = None
-    metrics = metrics_data[0] if metrics_data and isinstance(metrics_data, list) and len(metrics_data) > 0 else {}
-    # Fetch ratios (skip if provider already disabled)
-    url_ratios = f"https://financialmodelingprep.com/api/v3/ratios/{ticker}"
-    start_ratios = time.time()
-    ratios_data = None
-    # Skip ratios if FMP fundamentals are disabled for session
-    if (not _PROVIDER_DISABLED.get("fmp", False)) and ("fmp:fundamentals" not in DISABLED_PROVIDERS):
+    item = data[0]
+
+    def _f(v):
         try:
-            resp_r = requests.get(url_ratios, params=params, timeout=3)
-            if resp_r.status_code == 403:
-                disable_provider_category("fmp", "fundamentals")
-                record_api_call(
-                    provider="FMP",
-                    endpoint="ratios",
-                    status="http_403_disabled",
-                    latency_sec=time.time() - start_ratios,
-                    extra={"ticker": ticker}
-                )
-                ratios_data = None
-            elif resp_r.status_code == 200:
-                ratios_data = resp_r.json()
-                status = "ok" if isinstance(ratios_data, list) and len(ratios_data) > 0 else "empty"
-                record_api_call(
-                    provider="FMP",
-                    endpoint="ratios",
-                    status=status,
-                    latency_sec=time.time() - start_ratios,
-                    extra={"ticker": ticker}
-                )
-            else:
-                record_api_call(
-                    provider="FMP",
-                    endpoint="ratios",
-                    status=f"http_{resp_r.status_code}",
-                    latency_sec=time.time() - start_ratios,
-                    extra={"ticker": ticker}
-                )
-                ratios_data = None
-        except Exception as e:
-            record_api_call(
-                provider="FMP",
-                endpoint="ratios",
-                status="exception",
-                latency_sec=time.time() - start_ratios,
-                extra={"ticker": ticker, "error": str(e)[:200]}
-            )
-            ratios_data = None
-    ratios = ratios_data[0] if ratios_data and isinstance(ratios_data, list) and len(ratios_data) > 0 else {}
-    
-    # Standardize output
+            if v in (None, "None", "-", "N/A", "null"):
+                return None
+            return float(v)
+        except Exception:
+            return None
+
+    # Map screener fields
+    market_cap = _f(item.get("marketCap"))
+    beta = _f(item.get("beta"))
+    sector = item.get("sector")
+    industry = item.get("industry")
+    price = _f(item.get("price"))
+
     result = {
         "source": "fmp",
-        "pe": metrics.get("peRatio"),
-        "ps": metrics.get("priceToSalesRatio"),
-        "pb": metrics.get("pbRatio"),
-        "roe": ratios.get("returnOnEquity"),
-        "margin": ratios.get("netProfitMargin"),
-        "market_cap": profile.get("mktCap") or metrics.get("marketCap"),
-        "beta": profile.get("beta") or metrics.get("beta"),
-        "debt_equity": ratios.get("debtEquityRatio"),
-        "rev_yoy": ratios.get("revenueGrowth"),
-        "eps_yoy": metrics.get("earningsYield"),  # Approximate
-        # Additional fields
-        "peg": metrics.get("pegRatio") or ratios.get("priceEarningsToGrowthRatio"),
-        "sector": profile.get("sector"),
-        "vol_avg": profile.get("volAvg"),
-        "last_div": profile.get("lastDiv"),
-        "price_backup": profile.get("price"),
-        "timestamp": time.time()
+        # Canonical lowercase
+        "market_cap": market_cap,
+        "beta": beta,
+        "sector": sector,
+        "industry": industry,
+        "price_backup": price,
+        "timestamp": time.time(),
+        # UI-standard aliases
+        "Market_Cap": market_cap,
+        "Beta": beta,
+        "Sector": sector,
+        "Industry": industry,
+        "Price": price,
     }
-    
+
     _put_in_cache(cache_key, result)
     return result
 
@@ -904,6 +800,11 @@ def fetch_fundamentals_tiingo(ticker: str, provider_status: Dict | None = None) 
         return cached
     
     _rate_limit("tiingo")
+    # Explicit pacer to avoid 429s even across processes
+    try:
+        time.sleep(1.2)
+    except Exception:
+        pass
     
     # Tiingo fundamentals endpoint
     url = f"https://api.tiingo.com/tiingo/fundamentals/{ticker}/statements"
