@@ -611,6 +611,12 @@ def run_scan_pipeline(
                 logger.info(f"Fetching fundamentals for {len(winners)} winners (Score > 65)")
         - Score: Legacy alias for FinalScore_20d
     """
+    # Log scope at entry
+    try:
+        logger.info(f"🌌 Starting pipeline with universe size: {len(universe)} tickers")
+    except Exception:
+        pass
+
     # Normalize config keys (support legacy uppercase keys)
     config = _normalize_config(config)
 
@@ -1303,8 +1309,9 @@ def main():
     except Exception:
         logger.info("[SUCCESS] Market context initialized")
 
-    # Universe
-    universe = fetch_top_us_tickers_by_market_cap(limit=2000)
+    # Universe (use configured limit)
+    cfg_probe = get_config()
+    universe = fetch_top_us_tickers_by_market_cap(limit=int(getattr(cfg_probe, 'universe_limit', 2000)))
     logger.info(f"Fetched {len(universe)} tickers")
 
     # Config
