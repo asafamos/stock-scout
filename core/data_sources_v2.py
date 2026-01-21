@@ -2028,7 +2028,17 @@ def fetch_fundamentals_batch(tickers: List[str], provider_status: Dict | None = 
         
     rows = []
     # Throttled submissions to reduce burst rate limits (tuned for stability)
-    max_workers = min(len(tickers), 12)
+    # If FMP and FINNHUB are both unavailable, we likely fall back to Tiingo
+    # which rejects high concurrency. In that case, cap workers at 2.
+    try:
+        fmp_ok = (provider_status or {}).get("FMP", {"ok": True}).get("ok", True)
+        finnhub_ok = (provider_status or {}).get("FINNHUB", {"ok": True}).get("ok", True)
+        if (not fmp_ok) and (not finnhub_ok):
+            max_workers = min(len(tickers), 2)
+        else:
+            max_workers = min(len(tickers), 12)
+    except Exception:
+        max_workers = min(len(tickers), 12)
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_ticker = {}
         for t in tickers:

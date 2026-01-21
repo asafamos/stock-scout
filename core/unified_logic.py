@@ -1656,34 +1656,39 @@ def build_market_context_table(
                 date_key = pd.to_datetime(row_date).strftime('%Y-%m-%d')
         except Exception:
             date_key = None
-        breadth = float(get_market_breadth(date_key))
+        try:
+            breadth = float(get_market_breadth(date_key))
 
-        dd = row.get('SPY_drawdown_60d', 0)
-        ret_60d = row.get('SPY_60d_ret', 0)
-        vix_pct = row.get('VIX_pct', 0.5)
-        
-        # Handle NaN values strictly
-        if pd.isna(dd) or pd.isna(ret_60d) or pd.isna(vix_pct) or not np.isfinite(breadth):
-            raise ValueError("Market regime classification inputs missing")
-        
-        # Panic conditions
-        if dd < -0.15 or vix_pct > 0.85:
-            return 'PANIC'
-        
-        # Correction conditions
-        if dd < -0.08 or vix_pct > 0.70:
-            return 'CORRECTION'
-        
-        # Distribution: market breadth weak while SPY is flat (~±2% in 60d)
-        if abs(ret_60d) <= 0.02 and breadth < 0.40:
-            return 'DISTRIBUTION'
-        
-        # Trend up conditions require broad participation
-        if ret_60d > 0.08 and dd > -0.05 and breadth > 0.60:
-            return 'TREND_UP'
-        
-        # Default classification when inputs are valid but no extreme conditions
-        return 'SIDEWAYS'
+            dd = row.get('SPY_drawdown_60d', 0)
+            ret_60d = row.get('SPY_60d_ret', 0)
+            vix_pct = row.get('VIX_pct', 0.5)
+            
+            # Inputs missing or invalid → fallback to SIDEWAYS
+            if pd.isna(dd) or pd.isna(ret_60d) or pd.isna(vix_pct) or not np.isfinite(breadth):
+                logger.warning("Market regime inputs missing/invalid; defaulting to SIDEWAYS")
+                return 'SIDEWAYS'
+            
+            # Panic conditions
+            if dd < -0.15 or vix_pct > 0.85:
+                return 'PANIC'
+            
+            # Correction conditions
+            if dd < -0.08 or vix_pct > 0.70:
+                return 'CORRECTION'
+            
+            # Distribution: market breadth weak while SPY is flat (~±2% in 60d)
+            if abs(ret_60d) <= 0.02 and breadth < 0.40:
+                return 'DISTRIBUTION'
+            
+            # Trend up conditions require broad participation
+            if ret_60d > 0.08 and dd > -0.05 and breadth > 0.60:
+                return 'TREND_UP'
+            
+            # Default classification when inputs are valid but no extreme conditions
+            return 'SIDEWAYS'
+        except Exception as e:
+            logger.warning(f"Regime classification error; defaulting to SIDEWAYS: {e}")
+            return 'SIDEWAYS'
     
     # Strict classification — raise if breadth or context missing
     try:

@@ -142,6 +142,12 @@ def compute_ml_20d_probabilities_raw(row: pd.Series) -> float:
         return np.nan
     
     try:
+        # Map Return_1m → Return_20d when training expects 20d but row provides 1m
+        try:
+            if ("Return_20d" in FEATURE_COLS_20D) and ("Return_20d" not in row) and ("Return_1m" in row):
+                row["Return_20d"] = row.get("Return_1m")
+        except Exception:
+            pass
         # Build feature dict with exact columns from training, in exact order
         feature_dict = {}
         missing_features = []
