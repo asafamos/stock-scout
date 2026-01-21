@@ -238,37 +238,6 @@ def get_fundamentals_safe(ticker: str) -> Optional[Dict]:
 
     logger.warning(f"Smart Router: no fundamentals for {tkr}; tried {tried}")
     return None
-                if len(rows) >= 5:
-                    last = rows[0].get("revenue")
-                    last_y = rows[4].get("revenue")
-                    if last and last_y and float(last_y) > 0:
-                        rev_yoy = float(last) / float(last_y) - 1.0
-                out[sym]["rev_yoy"] = rev_yoy
-            except Exception:
-                continue
-
-    # Earnings surprises (recent)
-    for i in range(0, len(tickers), CHUNK):
-        batch = tickers[i:i+CHUNK]
-        for t in batch:
-            sym = t.upper()
-            try:
-                _rate_limit("fmp")
-                url = f"https://financialmodelingprep.com/api/v3/earnings-surprises/{sym}"
-                params = {"limit": 4, "apikey": FMP_API_KEY}
-                r = requests.get(url, params=params, timeout=timeout)
-                if r.status_code != 200:
-                    continue
-                items = r.json() or []
-                surprise = None
-                if items:
-                    s = items[0].get("surprisePercent")
-                    surprise = float(s) if s is not None else None
-                out[sym]["eps_surprise"] = surprise
-            except Exception:
-                continue
-
-    return out
 
 
 def _rate_limit(source: str) -> None:
