@@ -3574,6 +3574,10 @@ if not rec_df.empty:
         if _col in rec_df.columns:
             rec_df = rec_df[rec_df[_col].astype(str).str.upper() != "REJECT"]
 
+    # Score-only mode: show technically valid actions regardless of allocation
+    if "Action" in rec_df.columns:
+        rec_df = rec_df[rec_df["Action"].astype(str).str.upper().isin(["BUY", "ACCUMULATE", "HOLD"])]
+
     # Removed UI market cap filter: the UI now mirrors the pipeline output without local cap constraints
 
     # Removed Coiled/Growth hard filters — handled as scoring bonuses in backend

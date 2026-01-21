@@ -655,6 +655,9 @@ def run_scan_pipeline(
         try:
             from advanced_filters import compute_relative_strength, fetch_benchmark_data
             bench_df = fetch_benchmark_data("SPY", days=200)
+            # Explicit DataFrame check to avoid ambiguous truth errors
+            if bench_df is None or bench_df.empty:
+                raise ValueError("Benchmark DataFrame is empty; skipping RS blended ranking")
             rs_records = []
             for tkr, df in (data_map or {}).items():
                 try:
@@ -848,24 +851,32 @@ def run_scan_pipeline(
         try:
             # Use core.filters version to avoid local import shadowing
             bench_df = fetch_benchmark_data("SPY", days=200)
-            kept_rows = []
-            for _, row in results.iterrows():
-                tkr = str(row.get("Ticker"))
-                df = tier2_map.get(tkr) or data_map.get(tkr)
-                if df is None or df.empty:
-                    continue
-                base_score = float(row.get("FinalScore_20d", row.get("Score", 0.0)))
-                new_score, details = compute_advanced_score(tkr, df.rename(columns=str.title), bench_df.rename(columns=str.title), base_score)
-                # Only keep Meteor passes
-                if details.get("passed"):
-                    row = row.copy()
-                    row["FinalScore_20d"] = float(new_score)
-                    row["Score"] = float(new_score)
-                    row["Meteor_Passed"] = True
-                    row["Meteor_Reason"] = details.get("reason")
-                    kept_rows.append(row)
-            results = pd.DataFrame(kept_rows)
-            logger.info(f"[PIPELINE] Meteor Mode: {len(results)} candidates after filters")
+            if bench_df is None or bench_df.empty:
+                logger.warning("Benchmark DataFrame empty; skipping Meteor filters")
+            else:
+                kept_rows = []
+                for _, row in results.iterrows():
+                    tkr = str(row.get("Ticker"))
+                    df = tier2_map.get(tkr) or data_map.get(tkr)
+                    if df is None or df.empty:
+                        continue
+                    base_score = float(row.get("FinalScore_20d", row.get("Score", 0.0)))
+                    new_score, details = compute_advanced_score(
+                        tkr,
+                        df.rename(columns=str.title),
+                        bench_df.rename(columns=str.title),
+                        base_score,
+                    )
+                    # Only keep Meteor passes
+                    if details.get("passed"):
+                        row = row.copy()
+                        row["FinalScore_20d"] = float(new_score)
+                        row["Score"] = float(new_score)
+                        row["Meteor_Passed"] = True
+                        row["Meteor_Reason"] = details.get("reason")
+                        kept_rows.append(row)
+                results = pd.DataFrame(kept_rows)
+                logger.info(f"[PIPELINE] Meteor Mode: {len(results)} candidates after filters")
         except Exception as e:
             logger.warning(f"Meteor filter application failed: {e}")
 
