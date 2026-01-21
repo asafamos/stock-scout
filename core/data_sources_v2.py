@@ -107,6 +107,10 @@ _PRIMARY_FUND_ROTATE: int = 0  # round-robin between finnhub and alpha
 # Global default provider status (set via preflight)
 _DEFAULT_PROVIDER_STATUS: Dict[str, bool] = {}
 
+# Smart Router cache (singleton per process)
+_SMART_ROUTER_STATE_LOCK = threading.Lock()
+_SMART_ROUTER_STATE: Optional[Dict[str, Any]] = None
+
 # Windowed rate limiter for Polygon (5 requests per 60 seconds)
 class WindowRateLimiter:
     def __init__(self, max_calls: int, window_seconds: int):
@@ -163,117 +167,77 @@ def set_default_provider_status(preflight_status: Dict[str, Dict[str, Any]] | No
     except Exception:
         _DEFAULT_PROVIDER_STATUS = {}
 
-def disable_provider(name: str) -> None:
-    try:
-        _PROVIDER_DISABLED[name] = True
-        logger.warning(f"Provider disabled for session: {name}")
-    except Exception:
-        pass
-
-
-def disable_provider_category(provider: str, category: str) -> None:
-    """Disable a specific provider endpoint category for the session.
-
-    Example: disable_provider_category("fmp", "fundamentals")
+def get_fundamentals_safe(ticker: str) -> Optional[Dict]:
     """
-    try:
-        key = f"{provider}:{category}"
-        if key not in DISABLED_PROVIDERS:
-            DISABLED_PROVIDERS.add(key)
-            logger.warning(f"Provider endpoint disabled for session: {key}")
-    except Exception:
-        pass
+    Smart, flat fundamentals fetch using the Smart Router's fastest healthy provider.
 
-
-def fetch_bulk_quotes_fmp(tickers: List[str], timeout: int = 6) -> Dict[str, Optional[float]]:
-    """Fetch bulk quotes from FMP using comma-separated symbols.
-
-    Example endpoint: /api/v3/quote/AAPL,MSFT,NVDA
-    Returns dict {symbol: price or None}.
+    Returns flat dict suitable for UI augmentation:
+    {
+        'Market_Cap': float, 'PE_Ratio': float, 'PEG_Ratio': float,
+        'PB_Ratio': float, 'ROE': float,
+        'Beta': float, 'Sector': str, 'Industry': str,
+        'Vol_Avg': float, 'Dividend': float, 'Price': float,
+        'Debt_to_Equity': float
+    }
     """
-    prices: Dict[str, Optional[float]] = {}
-    if not FMP_API_KEY or not tickers:
-        return prices
-    # Chunk to avoid URL length and rate limits
-    def _fetch_batch(batch: List[str], size: int) -> bool:
-        try:
-            if not batch:
-                return True
-            sym_csv = ",".join(batch)
-            url = f"https://financialmodelingprep.com/api/v3/quote/{sym_csv}"
-            params = {"apikey": FMP_API_KEY}
-            _rate_limit("fmp")
-            resp = requests.get(url, params=params, timeout=timeout)
-            if resp.status_code == 403:
-                disable_provider_category("fmp", "price")
-                return False
-            if resp.status_code != 200:
-                return False
-            data = resp.json() or []
-            for it in data:
-                sym = str(it.get("symbol") or it.get("ticker") or "").upper()
-                prices[sym] = it.get("price")
-            # Mark any missing symbols explicitly as None
-            provided = {str(it.get("symbol") or it.get("ticker") or "").upper() for it in data}
-            for s in batch:
-                if s.upper() not in provided:
-                    prices[s.upper()] = prices.get(s.upper(), None)
-            return True
-        except Exception:
-            return False
+    tkr = str(ticker).upper()
 
-    CHUNK = 100
-    i = 0
-    while i < len(tickers):
-        batch = tickers[i:i+CHUNK]
-        ok = _fetch_batch(batch, CHUNK)
-        if not ok and CHUNK > 50:
-            # Fallback to smaller chunk size (50)
-            subchunk = 50
-            j = 0
-            while j < len(batch):
-                sub = batch[j:j+subchunk]
-                if not _fetch_batch(sub, subchunk):
-                    # Final fallback: per-symbol
-                    for s in sub:
-                        _fetch_batch([s], 1)
-                j += subchunk
-        elif not ok and CHUNK <= 50:
-            # Final fallback already attempted
-            for s in batch:
-                _fetch_batch([s], 1)
-        i += CHUNK
-    return prices
-
-
-def fetch_bulk_fundamentals_fmp(tickers: List[str], timeout: int = 8) -> Dict[str, Dict[str, Optional[float]]]:
-    """Fetch selective fundamentals in bulk via FMP endpoints.
-
-    Focus on hyper-growth signals:
-    - YoY revenue growth (>25%) and acceleration hints
-    - Recent EPS surprises (positive)
-
-    Returns per-symbol dict with keys: rev_yoy, eps_surprise.
-    """
-    out: Dict[str, Dict[str, Optional[float]]] = {t.upper(): {} for t in tickers}
-    if not FMP_API_KEY or not tickers:
+    def _map_to_ui(d: Optional[Dict]) -> Optional[Dict]:
+        if not d:
+            return None
+        def _f(v):
+            try:
+                return float(v) if v is not None else None
+            except Exception:
+                return None
+        out = {
+            "Market_Cap": _f(d.get("market_cap")) or _f(d.get("Market_Cap")),
+            "PE_Ratio": _f(d.get("pe")) or _f(d.get("PE_Ratio")),
+            "PEG_Ratio": _f(d.get("peg")) or _f(d.get("PEG_Ratio")),
+            "PB_Ratio": _f(d.get("pb")) or _f(d.get("PB_Ratio")),
+            "ROE": _f(d.get("roe")) or _f(d.get("ROE")),
+            "Beta": _f(d.get("beta")) or _f(d.get("Beta")),
+            "Sector": d.get("sector") or d.get("Sector"),
+            "Industry": d.get("industry") or d.get("Industry"),
+            "Debt_to_Equity": _f(d.get("debt_equity")) or _f(d.get("Debt_to_Equity")),
+        }
+        # FMP extras if present
+        if "vol_avg" in d or "Vol_Avg" in d:
+            out["Vol_Avg"] = _f(d.get("vol_avg") or d.get("Vol_Avg"))
+        if "last_div" in d or "Dividend" in d:
+            out["Dividend"] = _f(d.get("last_div") or d.get("Dividend"))
+        if "price_backup" in d or "Price" in d or "price" in d:
+            out["Price"] = _f(d.get("price_backup") or d.get("Price") or d.get("price"))
         return out
 
-    # Revenue YoY via income statement quarterly series (per symbol)
-    CHUNK = 50
-    for i in range(0, len(tickers), CHUNK):
-        batch = tickers[i:i+CHUNK]
-        for t in batch:
-            sym = t.upper()
-            try:
-                _rate_limit("fmp")
-                url = f"https://financialmodelingprep.com/api/v3/income-statement/{sym}"
-                params = {"period": "quarter", "limit": 8, "apikey": FMP_API_KEY}
-                resp = requests.get(url, params=params, timeout=timeout)
-                if resp.status_code != 200:
-                    continue
-                rows = resp.json() or []
-                rev_yoy = None
+    # Build ordered provider list from Smart Router (fastest-first)
+    ranking = _get_provider_ranking()
+    tried: List[str] = []
+    providers_map = {
+        "FMP": fetch_fundamentals_fmp,
+        "Finnhub": fetch_fundamentals_finnhub,
+        "Tiingo": fetch_fundamentals_tiingo,
+        "AlphaVantage": fetch_fundamentals_alpha,
+    }
+
+    for p in ranking:
+        fn = providers_map.get(p)
+        if not fn:
+            continue
+        try:
+            d = fn(tkr)
+            if d:
+                ui = _map_to_ui(d)
+                if ui:
+                    logger.info(f"Smart Router: fundamentals for {tkr} from {p}")
+                    return ui
+        except Exception as e:
+            logger.debug(f"Smart Router: provider {p} failed for {tkr}: {e}")
+        finally:
+            tried.append(p)
+
+    logger.warning(f"Smart Router: no fundamentals for {tkr}; tried {tried}")
+    return None
                 if len(rows) >= 5:
                     last = rows[0].get("revenue")
                     last_y = rows[4].get("revenue")
@@ -401,6 +365,141 @@ def _put_in_cache(cache_key: str, data: Dict) -> None:
             "data": data,
             "timestamp": time.time()
         }
+
+
+# ============================================================================
+# SMART ROUTER FOR FUNDAMENTALS
+# ============================================================================
+
+def _has_key(provider: str) -> bool:
+    if provider == "FMP":
+        return bool(FMP_API_KEY or os.getenv("FMP_API_KEY") or os.getenv("FMP_KEY"))
+    if provider == "AlphaVantage":
+        return bool(ALPHA_VANTAGE_API_KEY or os.getenv("ALPHA_VANTAGE_API_KEY") or os.getenv("ALPHAVANTAGE_API_KEY"))
+    if provider == "Tiingo":
+        return bool(TIINGO_API_KEY or os.getenv("TIINGO_API_KEY"))
+    if provider == "Finnhub":
+        return bool(FINNHUB_API_KEY or os.getenv("FINNHUB_API_KEY"))
+    return False
+
+
+def _latency_probe(provider: str, timeout: float = 2.0) -> Tuple[bool, float, str]:
+    """Quick probe for provider health and latency. Returns (ok, latency_sec, note)."""
+    start = time.perf_counter()
+    try:
+        if provider == "FMP":
+            key = os.getenv("FMP_API_KEY") or os.getenv("FMP_KEY") or FMP_API_KEY
+            if not key:
+                return (False, float("inf"), "no_key")
+            url = f"https://financialmodelingprep.com/api/v3/profile/AAPL?apikey={key}"
+            resp = requests.get(url, timeout=timeout)
+            lat = time.perf_counter() - start
+            if resp.status_code == 200:
+                try:
+                    js = resp.json()
+                    ok = isinstance(js, list) and len(js) > 0
+                    return (ok, lat, "ok" if ok else "empty")
+                except Exception:
+                    return (False, lat, "bad_json")
+            return (False, lat, f"http_{resp.status_code}")
+
+        if provider == "AlphaVantage":
+            key = os.getenv("ALPHA_VANTAGE_API_KEY") or os.getenv("ALPHAVANTAGE_API_KEY") or ALPHA_VANTAGE_API_KEY
+            if not key:
+                return (False, float("inf"), "no_key")
+            url = f"https://www.alphavantage.co/query?function=OVERVIEW&symbol=AAPL&apikey={key}"
+            resp = requests.get(url, timeout=timeout)
+            lat = time.perf_counter() - start
+            if resp.status_code == 200:
+                try:
+                    js = resp.json()
+                    ok = isinstance(js, dict) and bool(js.get("Symbol"))
+                    return (ok, lat, "ok" if ok else "empty")
+                except Exception:
+                    return (False, lat, "bad_json")
+            return (False, lat, f"http_{resp.status_code}")
+
+        if provider == "Tiingo":
+            key = os.getenv("TIINGO_API_KEY") or TIINGO_API_KEY
+            if not key:
+                return (False, float("inf"), "no_key")
+            url = f"https://api.tiingo.com/tiingo/fundamentals/AAPL/statements?token={key}"
+            resp = requests.get(url, timeout=timeout)
+            lat = time.perf_counter() - start
+            if resp.status_code == 200:
+                try:
+                    js = resp.json()
+                    ok = isinstance(js, list) and len(js) > 0
+                    return (ok, lat, "ok" if ok else "empty")
+                except Exception:
+                    return (False, lat, "bad_json")
+            return (False, lat, f"http_{resp.status_code}")
+
+        if provider == "Finnhub":
+            key = os.getenv("FINNHUB_API_KEY") or FINNHUB_API_KEY
+            if not key:
+                return (False, float("inf"), "no_key")
+            url = f"https://finnhub.io/api/v1/stock/profile2?symbol=AAPL&token={key}"
+            resp = requests.get(url, timeout=timeout)
+            lat = time.perf_counter() - start
+            if resp.status_code == 200:
+                try:
+                    js = resp.json()
+                    ok = isinstance(js, dict) and len(js) > 0
+                    return (ok, lat, "ok" if ok else "empty")
+                except Exception:
+                    return (False, lat, "bad_json")
+            return (False, lat, f"http_{resp.status_code}")
+
+        return (False, float("inf"), "unknown_provider")
+    except requests.Timeout:
+        return (False, time.perf_counter() - start, "timeout")
+    except Exception as e:
+        return (False, time.perf_counter() - start, f"exception:{str(e)[:40]}")
+
+
+@lru_cache(maxsize=1)
+def get_optimal_fundamentals_provider() -> str:
+    """Run once: probe fundamentals providers and select fastest healthy one."""
+    global _SMART_ROUTER_STATE
+    providers = ["FMP", "AlphaVantage", "Tiingo", "Finnhub"]
+    results: List[Dict[str, Any]] = []
+    for p in providers:
+        if not _has_key(p):
+            results.append({"provider": p, "ok": False, "latency": float("inf"), "note": "no_key"})
+            continue
+        ok, lat, note = _latency_probe(p, timeout=2.0)
+        results.append({"provider": p, "ok": ok, "latency": lat, "note": note})
+
+    ok_results = [r for r in results if r["ok"]]
+    ok_results.sort(key=lambda r: r["latency"])  # fastest first
+    winner = ok_results[0]["provider"] if ok_results else "FMP"
+    ranking = [r["provider"] for r in ok_results] + [r["provider"] for r in results if not r["ok"]]
+
+    with _SMART_ROUTER_STATE_LOCK:
+        _SMART_ROUTER_STATE = {"winner": winner, "ranking": ranking, "results": results}
+
+    # Log summary
+    parts = []
+    for r in results:
+        if r["ok"]:
+            parts.append(f"{r['provider']}={r['latency']:.2f}s")
+        else:
+            parts.append(f"{r['provider']}={r['note']}")
+    logger.info(f"Smart Router: Selected {winner}. Details: " + ", ".join(parts))
+    return winner
+
+
+def _get_provider_ranking() -> List[str]:
+    with _SMART_ROUTER_STATE_LOCK:
+        if _SMART_ROUTER_STATE and _SMART_ROUTER_STATE.get("ranking"):
+            return list(_SMART_ROUTER_STATE["ranking"])  # copy
+    # Ensure router ran at least once
+    get_optimal_fundamentals_provider()
+    with _SMART_ROUTER_STATE_LOCK:
+        if _SMART_ROUTER_STATE and _SMART_ROUTER_STATE.get("ranking"):
+            return list(_SMART_ROUTER_STATE["ranking"])  # copy
+    return ["FMP", "Finnhub", "Tiingo", "AlphaVantage"]
 
 
 # ============================================================================
@@ -955,7 +1054,12 @@ def fetch_fundamentals_alpha(ticker: str, provider_status: Dict | None = None) -
         # Additional fields
         "peg": _f("PEGRatio"),
         "sector": data.get("Sector"),
-        "timestamp": time.time()
+        "timestamp": time.time(),
+        # Standard UI aliases to ensure consistent mapping downstream
+        "PE_Ratio": _f("PERatio"),
+        "Market_Cap": _f("MarketCapitalization"),
+        "PEG_Ratio": _f("PEGRatio"),
+        "PB_Ratio": _f("PriceToBookRatio"),
     }
     _put_in_cache(cache_key, result)
     return result
