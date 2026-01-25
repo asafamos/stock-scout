@@ -5,7 +5,6 @@ All configurable parameters in one place.
 from dataclasses import dataclass, field
 from typing import Dict, Optional, Any
 import os
-import streamlit as st
 
 # Load .env early for Config defaults
 try:
@@ -25,31 +24,11 @@ def _clean_key(val: Optional[str]) -> Optional[str]:
 
 
 def get_secret(key: str, default: Optional[str] = None, nested_sections: Optional[list[str]] = None) -> Optional[str]:
-    """Unified secret loader with precedence: Streamlit secrets -> env -> .env.
+    """Unified secret loader without Streamlit dependency.
 
-    - Checks Streamlit `st.secrets` top-level and common nested sections.
-    - Falls back to `os.getenv`, with `.env` already loaded at import time.
-    - Returns `default` if nothing is found.
+    Precedence: environment variables (with `.env` loaded) only.
+    Returns `default` if nothing is found.
     """
-    # Streamlit secrets (top-level and nested)
-    try:
-        if hasattr(st, 'secrets') and st.secrets:
-            sec: Any = st.secrets
-            # Direct top-level
-            if isinstance(sec, dict) and key in sec:
-                return _clean_key(str(sec[key]))
-            # Common nested containers
-            sections = nested_sections or ["api_keys", "keys", "secrets", "tokens"]
-            for section in sections:
-                try:
-                    container = sec.get(section) if hasattr(sec, 'get') else sec[section]
-                    if isinstance(container, dict) and key in container:
-                        return _clean_key(str(container[key]))
-                except Exception:
-                    continue
-    except Exception:
-        pass
-    # Environment variable (includes .env loaded via load_dotenv())
     val = os.getenv(key)
     if val is not None:
         return _clean_key(val)

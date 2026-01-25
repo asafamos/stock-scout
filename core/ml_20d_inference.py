@@ -3,8 +3,9 @@ import os
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, List, Optional
 import logging
+import warnings
 
 logger = logging.getLogger(__name__)
 
@@ -14,12 +15,10 @@ BUNDLE_MODEL: Any = None
 FEATURE_COLS_20D: list[str] = []
 PREFERRED_SCORING_MODE_20D: str = "hybrid"  # Default fallback
 
-# Try Streamlit caching if available; otherwise use functools.lru_cache
-try:
-    import streamlit as st
-    _STREAMLIT_AVAILABLE = True
-except ImportError:
-    _STREAMLIT_AVAILABLE = False
+# ML health meta (global)
+ML_VERSION_WARNING: bool = False
+ML_VERSION_WARNING_REASON: Optional[str] = None
+ML_MISSING_FEATURES: List[str] = []
 
 
 def _load_bundle_impl() -> tuple[bool, Any, list[str], str]:
@@ -30,104 +29,114 @@ def _load_bundle_impl() -> tuple[bool, Any, list[str], str]:
     of the `models/` directory to aid debugging.
     """
     try:
+        global ML_VERSION_WARNING, ML_VERSION_WARNING_REASON
         # Use absolute path relative to this file's location
         module_dir = Path(__file__).resolve().parent.parent  # stock-scout-2 root
-        models_dir = module_dir / "models"
-        env_model = os.getenv("ML_MODEL_PATH")
-        if env_model:
-            model_path = Path(env_model)
-        else:
-            model_path = models_dir / "model_20d_v3.pkl"
-        # Log absolute path being attempted
+        # Prefer new bundle location with metadata
+        bundle_dir = Path(os.getenv("ML_BUNDLE_DIR", str(module_dir / "ml" / "bundles" / "latest")))
+        model_path = bundle_dir / "model.joblib"
+        meta_path = bundle_dir / "metadata.json"
+        if not model_path.exists():
+            # Fallback to legacy model path
+            models_dir = module_dir / "models"
+            legacy_path = models_dir / "model_20d_v3.pkl"
+            if legacy_path.exists():
+                logger.warning("Using legacy model bundle (no metadata)")
+                with warnings.catch_warnings(record=True) as wlist:
+                    warnings.simplefilter("always")
+                    bundle = joblib.load(legacy_path)
+                # Inspect warnings for version mismatch
+                try:
+                    for w in wlist or []:
+                        name = getattr(w.category, "__name__", "")
+                        msg = str(getattr(w, "message", ""))
+                        if "InconsistentVersionWarning" in name or "InconsistentVersionWarning" in msg:
+                            ML_VERSION_WARNING = True
+                            ML_VERSION_WARNING_REASON = msg
+                            logger.warning(f"ML bundle version warning: {msg}")
+                except Exception:
+                    pass
+                # Legacy bundle may be dict or a bare estimator
+                if isinstance(bundle, dict):
+                    model = bundle.get("model")
+                    feature_names = list(bundle.get("feature_names", []))
+                else:
+                    model = bundle
+                    feature_names = []
+                if model is None:
+                    return False, None, [], "hybrid"
+                return True, model, feature_names, "hybrid"
+            else:
+                logger.error(f"No model found at {model_path} and no legacy path available")
+                return False, None, [], "hybrid"
+
+        # Load new bundle with metadata
+        with warnings.catch_warnings(record=True) as wlist:
+            warnings.simplefilter("always")
+            model = joblib.load(model_path)
+        # Inspect warnings for version mismatch
         try:
-            logger.info(f"Attempting to load ML model from: {model_path.resolve()}")
+            for w in wlist or []:
+                name = getattr(w.category, "__name__", "")
+                msg = str(getattr(w, "message", ""))
+                if "InconsistentVersionWarning" in name or "InconsistentVersionWarning" in msg:
+                    ML_VERSION_WARNING = True
+                    ML_VERSION_WARNING_REASON = msg
+                    logger.warning(f"ML bundle version warning: {msg}")
         except Exception:
-            logger.info(f"Attempting to load ML model from: {model_path}")
-        if not model_path.exists():
-            # Print directory contents to help diagnose path issues
+            pass
+        # Read metadata feature list
+        feature_names: List[str] = []
+        preferred_scoring_mode = "hybrid"
+        try:
+            import json
+            with open(meta_path, "r", encoding="utf-8") as f:
+                meta_obj = json.load(f)
+            fl = meta_obj.get("feature_list") or []
+            if isinstance(fl, list):
+                feature_names = list(fl)
+            # Compare sklearn version from metadata vs runtime
             try:
-                candidates = list(models_dir.glob("*.pkl"))
-                logger.warning(
-                    "Model file not found. models/ contains: %s",
-                    [str(p.resolve()) for p in candidates]
-                )
+                import sklearn  # type: ignore
+                meta_ver = str(meta_obj.get("sklearn_version") or "").strip()
+                rt_ver = str(getattr(sklearn, "__version__", "")).strip()
+                if meta_ver and rt_ver and meta_ver != rt_ver:
+                    ML_VERSION_WARNING = True
+                    ML_VERSION_WARNING_REASON = f"Bundle sklearn_version={meta_ver} but runtime={rt_ver}"
+                    logger.warning(ML_VERSION_WARNING_REASON)
             except Exception:
-                logger.warning("Model file not found and could not list models directory")
-            return False, None, [], "hybrid"
-        
-        if not model_path.exists():
-            logger.warning(f"Model file not found at {model_path}")
-            return False, None, [], "hybrid"
-        
-        # Load bundle using joblib (compatible with sklearn models)
-        bundle = joblib.load(model_path)
-        
-        # Validate bundle structure
-        if not isinstance(bundle, dict):
-            logger.error(f"Model bundle is not a dict, got {type(bundle)}")
-            return False, None, [], "hybrid"
-        
-        model = bundle.get("model")
-        feature_names = bundle.get("feature_names", [])
-        preferred_scoring_mode = bundle.get("preferred_scoring_mode_20d", "hybrid")
-        
-        # Validate model has predict_proba
+                pass
+        except Exception as e:
+            logger.warning(f"Failed to read bundle metadata: {e}")
+            feature_names = []
+
+        # Validate model
         if model is None or not hasattr(model, "predict_proba"):
             logger.error("Model missing or lacks predict_proba method")
             return False, None, [], "hybrid"
-        
-        # Validate feature names
-        if not isinstance(feature_names, (list, tuple)):
-            logger.error(f"feature_names is not a list, got {type(feature_names)}")
-            return False, None, [], "hybrid"
-        
-        feature_names = list(feature_names)
-        if len(feature_names) == 0:
-            logger.error("feature_names is empty")
-            return False, None, [], "hybrid"
-        
-        logger.info(f"✓ Loaded ML 20d model with {len(feature_names)} features")
-        logger.info(f"✓ Preferred scoring mode: {preferred_scoring_mode}")
 
-        # Verify expected Meteor features present in bundle
-        expected = {"ADR_Pct", "Dist_52w_High", "Volume_Surge_Ratio"}
-        missing_expected = [f for f in expected if f not in feature_names]
-        if missing_expected:
-            logger.warning(
-                "ML bundle missing expected Meteor features: %s", missing_expected
-            )
-            # Signal upstream to mark ML features fallback in outputs
+        if not feature_names:
+            logger.warning("Bundle metadata missing feature_list; treating as degraded")
             global BUNDLE_HAS_MISSING_METEOR_FEATURES
             BUNDLE_HAS_MISSING_METEOR_FEATURES = True
+
+        logger.info(f"✓ Loaded ML model (new bundle) with {len(feature_names)} features")
         return True, model, feature_names, preferred_scoring_mode
     except Exception as e:
         logger.error(f"Failed to load ML bundle: {e}", exc_info=True)
         return False, None, [], "hybrid"
 
 
-# Conditional caching based on Streamlit availability
-if _STREAMLIT_AVAILABLE:
-    # Add version key to bust cache when return signature changes
-    @st.cache_resource(hash_funcs={type: id})
-    def _load_bundle_cached(cache_version: int = 2):
-        """Cache version 2: returns (success, model, features, scoring_mode)."""
-        return _load_bundle_impl()
-    
-    _success, BUNDLE_MODEL, FEATURE_COLS_20D, PREFERRED_SCORING_MODE_20D = _load_bundle_cached()
-    # Force hybrid mode globally regardless of bundle preference
-    PREFERRED_SCORING_MODE_20D = "hybrid"
-    ML_20D_AVAILABLE = _success
-else:
-    from functools import lru_cache
-    
-    @lru_cache(maxsize=1)
-    def _load_bundle_cached():
-        return _load_bundle_impl()
-    
-    _success, BUNDLE_MODEL, FEATURE_COLS_20D, PREFERRED_SCORING_MODE_20D = _load_bundle_cached()
-    # Force hybrid mode globally regardless of bundle preference
-    PREFERRED_SCORING_MODE_20D = "hybrid"
-    ML_20D_AVAILABLE = _success
+from functools import lru_cache
+
+@lru_cache(maxsize=1)
+def _load_bundle_cached():
+    return _load_bundle_impl()
+
+_success, BUNDLE_MODEL, FEATURE_COLS_20D, PREFERRED_SCORING_MODE_20D = _load_bundle_cached()
+# Force hybrid mode globally regardless of bundle preference
+PREFERRED_SCORING_MODE_20D = "hybrid"
+ML_20D_AVAILABLE = _success
 
 def compute_ml_20d_probabilities_raw(row: pd.Series) -> float:
     """
@@ -163,9 +172,20 @@ def compute_ml_20d_probabilities_raw(row: pd.Series) -> float:
                 val = np.nan
             feature_dict[col] = val
         
-        # Log missing features for debugging
+        # Enforce strict feature contract: if any required features missing, mark degraded and return NaN
         if missing_features:
-            logger.info(f"ML 20d: missing features {missing_features} (fillna=0.0)")
+            try:
+                # Update global health flags
+                global ML_MISSING_FEATURES, BUNDLE_HAS_MISSING_METEOR_FEATURES
+                # Merge unique missing features across rows
+                current = set(ML_MISSING_FEATURES or [])
+                current.update(missing_features)
+                ML_MISSING_FEATURES = list(sorted(current))
+                BUNDLE_HAS_MISSING_METEOR_FEATURES = True
+            except Exception:
+                pass
+            logger.info(f"ML 20d: missing required features {missing_features}; returning NaN")
+            return np.nan
         
         # Build DataFrame in exact feature order
         X = pd.DataFrame([feature_dict])
@@ -173,7 +193,7 @@ def compute_ml_20d_probabilities_raw(row: pd.Series) -> float:
         # Reorder columns to match training order (just in case)
         X = X[FEATURE_COLS_20D]
         
-        # Fill NaN with 0.0
+        # Defensive: fill any residual NaN with 0.0 (should be none after strict check)
         X = X.fillna(0.0)
         
         # Replace inf/-inf with 0.0 BEFORE clipping
@@ -452,3 +472,31 @@ def choose_rank_col_20d(df: pd.DataFrame) -> str:
         "TechScore_20d_v2",
         "TechScore_20d",
     ])
+
+
+def get_ml_health_meta() -> Dict[str, Any]:
+    """Return ML health meta fields for pipeline.
+
+    Fields:
+      - ml_bundle_version_warning: bool
+      - ml_bundle_warning_reason: Optional[str]
+      - ml_degraded: bool (true if bundle missing features or unavailable)
+      - ml_missing_features: List[str]
+    """
+    try:
+        degraded = (not ML_20D_AVAILABLE) or BUNDLE_HAS_MISSING_METEOR_FEATURES or bool(ML_VERSION_WARNING)
+        return {
+            "ml_bundle_version_warning": bool(ML_VERSION_WARNING),
+            "ml_bundle_warning_reason": ML_VERSION_WARNING_REASON,
+            "ml_degraded": bool(degraded),
+            "ml_missing_features": list(ML_MISSING_FEATURES or []),
+            "ml_required_features_count": int(len(FEATURE_COLS_20D or [])),
+        }
+    except Exception:
+        return {
+            "ml_bundle_version_warning": False,
+            "ml_bundle_warning_reason": None,
+            "ml_degraded": not ML_20D_AVAILABLE,
+            "ml_missing_features": [],
+            "ml_required_features_count": 0,
+        }

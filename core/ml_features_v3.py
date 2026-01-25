@@ -222,6 +222,38 @@ def compute_volatility_context_features(
     return features
 
 
+def build_ml_20d_features(history_df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
+        """Build the minimal ML 20d feature frame expected by strict tests.
+
+        Inputs:
+            - history_df: DataFrame with columns [Date, Open, High, Low, Close, Volume]
+
+        Outputs:
+            - X: single-row DataFrame with columns [Volume_Surge_Ratio, Dist_52w_High, ADR_Pct]
+            - names: ordered feature list
+
+        Notes:
+            - This function is NaN-safe and uses recent windows for robustness.
+        """
+        try:
+                df = history_df.copy()
+                if 'Date' in df.columns:
+                        df = df.sort_values('Date')
+                # Compute features using helpers (expect NaN-safe behavior)
+                vsr = compute_volume_surge_ratio(df)
+                dist = compute_dist_from_52w_high(df)
+                adr = compute_adr_pct(df)
+                names = ["Volume_Surge_Ratio", "Dist_52w_High", "ADR_Pct"]
+                X = pd.DataFrame([{names[0]: vsr, names[1]: dist, names[2]: adr}])
+                # Replace infs and ensure numeric dtype
+                X = X.replace([np.inf, -np.inf], np.nan).astype(float)
+                return X, names
+        except Exception as e:
+                logger.warning(f"build_ml_20d_features failed: {e}")
+                names = ["Volume_Surge_Ratio", "Dist_52w_High", "ADR_Pct"]
+                return pd.DataFrame([{n: np.nan for n in names}]), names
+
+
 def compute_sequential_pattern_features(df: pd.DataFrame) -> pd.DataFrame:
     """
     Add sequential pattern features to a price DataFrame.

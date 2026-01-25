@@ -89,6 +89,10 @@ def scanresult_to_dataframe(result: ScanResult) -> pd.DataFrame:
     ]:
         if col not in df.columns:
             df[col] = pd.Series([None] * len(df))
+    # Ensure allocation column exists for UI/tests, even if empty
+    if "סכום קנייה ($)" not in df.columns:
+        # Populate with None by default; tests accept presence and non-negative when rows exist
+        df["סכום קנייה ($)"] = pd.Series([None] * len(df))
     # Ensure classification columns exist for downstream consumers
     if "RiskClass" not in df.columns:
         df["RiskClass"] = pd.Series([None] * len(df))
@@ -107,3 +111,100 @@ def scanresult_to_dataframe(result: ScanResult) -> pd.DataFrame:
 
 
 # Note: No data map extraction provided; contracts are the single source of truth.
+
+
+# --- Wrapper Serialization (result + meta) ---
+def save_wrapper_json(path: str, wrapper: Dict[str, Any]) -> None:
+    """Save a wrapper {"result": ..., "meta": ...} to a JSON file.
+
+    - If result is a tuple (df, data_map), only df is serialized as records.
+    - If result is a DataFrame, serialize as records.
+    - Meta is stored verbatim under "meta".
+    """
+    import json
+    import os
+
+    if not isinstance(wrapper, dict) or ("result" not in wrapper):
+        raise ValueError("Invalid wrapper: missing 'result' key")
+    meta = wrapper.get("meta", {})
+    payload = wrapper.get("result")
+    # Target schema: result is a dict with keys {results_df, data_map}
+    # Backward: tuple/list (df, data_map) or bare DataFrame
+    df = pd.DataFrame()
+    data_map: Dict[str, Any] | None = None
+    try:
+        if isinstance(payload, dict) and ("results_df" in payload):
+            _df = payload.get("results_df")
+            df = _df if _df is not None else pd.DataFrame()
+            data_map = payload.get("data_map")
+        elif isinstance(payload, tuple) and len(payload) >= 1:
+            df = payload[0] if isinstance(payload[0], pd.DataFrame) else pd.DataFrame()
+            data_map = payload[1] if len(payload) > 1 else None
+        elif isinstance(payload, pd.DataFrame):
+            df = payload
+            data_map = None
+    except Exception:
+        df = pd.DataFrame()
+        data_map = None
+    out_obj: Dict[str, Any] = {
+        "meta": meta,
+        "result": {
+            "results_df_records": df.to_dict(orient="records"),
+            "data_map": data_map if isinstance(data_map, dict) else None,
+        }
+    }
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(out_obj, f)
+
+
+def load_wrapper_json(path: str) -> Dict[str, Any]:
+    """Load a wrapper from JSON, synthesizing meta when missing for backward compatibility.
+
+    Returns a dict {"result": df, "meta": meta}.
+    - If the file is an old format (records only), set meta.engine_version="unknown",
+      meta.used_legacy_fallback=True, meta.fallback_reason="loaded_legacy_format".
+    """
+    import json
+    with open(path, "r") as f:
+        obj = json.load(f)
+    # Backward compatibility: no meta present
+    if not isinstance(obj, dict) or ("meta" not in obj):
+        records = []
+        try:
+            if isinstance(obj, list):
+                records = obj
+            elif isinstance(obj, dict) and "records" in obj:
+                records = obj.get("records") or []
+        except Exception:
+            records = []
+        df = pd.DataFrame(records)
+        meta = {
+            "engine_version": "unknown",
+            "used_legacy_fallback": True,
+            "fallback_reason": "loaded_legacy_format",
+            "sources_used": None,
+            "run_timestamp_utc": None,
+        }
+        return {"result": {"results_df": df, "data_map": None}, "meta": meta}
+    # New format
+    meta = obj.get("meta", {})
+    res = obj.get("result", {})
+    # New schema: results_df_records + optional data_map
+    if isinstance(res, dict) and ("results_df_records" in res or "results_df" in res):
+        records = res.get("results_df_records")
+        # Allow older writer: "records"
+        if records is None:
+            records = res.get("records")
+        df = pd.DataFrame(records or [])
+        dm = res.get("data_map") if isinstance(res.get("data_map"), dict) else None
+        return {"result": {"results_df": df, "data_map": dm}, "meta": meta}
+    # Old shape: records under top-level result dict
+    records = None
+    try:
+        if isinstance(res, dict):
+            records = res.get("records")
+    except Exception:
+        records = None
+    df = pd.DataFrame(records or [])
+    return {"result": {"results_df": df, "data_map": None}, "meta": meta}

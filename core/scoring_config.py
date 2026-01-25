@@ -32,6 +32,21 @@ FINAL_SCORE_WEIGHTS: Dict[str, float] = {
     "ml": 0.20,
 }
 
+# ML gate thresholds and multipliers (single source of truth)
+ML_GATES: Dict[str, float] = {
+    "penalty_lt": 0.15,
+    "bonus_gt": 0.62,
+    "penalty_mult": 0.60,
+    "bonus_mult": 1.15,
+}
+
+# Market regime multipliers
+REGIME_MULTIPLIERS: Dict[str, float] = {
+    "TREND_UP": 1.10,
+    "PANIC": 0.70,
+    "CORRECTION": 0.70,
+}
+
 # ATR-based volatility rules used to adjust technical score and RR
 ATR_RULES = {
     "extreme_high": {"min": 0.06, "factor": 0.5, "penalty": 0.15},
@@ -92,6 +107,16 @@ BIG_WINNER_THRESHOLDS = {
     "rr_max": 3.0,
     "signal_threshold": 60,  # Flag = 1 if score >= this
 }
+
+# --- Signal Engine (Allocation-Free) Thresholds ---
+# Minimum final score (0-100 scale) to consider as a signal candidate
+SIGNAL_MIN_SCORE: float = 55.0
+# ML probability threshold to qualify as a candidate even if final score is lower
+ML_PROB_THRESHOLD: float = 0.62
+# Default top-K limit for ranked signal output
+TOP_SIGNAL_K: int = 30
+# Technical score threshold indicating strong momentum
+TECH_STRONG_THRESHOLD: float = 65.0
 
 
 @dataclass

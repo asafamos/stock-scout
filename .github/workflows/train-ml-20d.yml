@@ -1,0 +1,33 @@
+name: Train ML 20d Bundle
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * 1'
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Train rolling ML 20d
+        env:
+          POLYGON_API_KEY: ${{ secrets.POLYGON_API_KEY }}
+        run: |
+          python -c "from scripts.train_rolling_ml_20d import train_and_save_bundle; train_and_save_bundle()"
+      - name: Archive latest bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml-bundle-latest
+          path: |
+            ml/bundles/latest/model.joblib
+            ml/bundles/latest/metadata.json

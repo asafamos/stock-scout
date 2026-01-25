@@ -19,6 +19,8 @@ from core.scoring_config import (
     ADVANCED_FILTER_DEFAULTS,
     ATR_RULES,
     FINAL_SCORE_WEIGHTS,
+    REGIME_MULTIPLIERS,
+    ML_GATES,
     TECH_WEIGHTS,
     REQUIRED_TECH_COLS,
     MultiSourceData,
@@ -419,6 +421,55 @@ def compute_recommendation_scores(
     except Exception:
         rec_row["Pattern_Score"] = rec_row.get("Pattern_Score", np.nan)
         rec_row["Pattern_Count"] = rec_row.get("Pattern_Count", np.nan)
+    
+    # --- Signal Reasons & Quality ---
+    try:
+        from core.scoring_config import ML_PROB_THRESHOLD, TECH_STRONG_THRESHOLD
+        reasons = []
+        # Strong technical momentum
+        try:
+            ts = float(tech_score)
+            if np.isfinite(ts) and ts >= float(TECH_STRONG_THRESHOLD):
+                reasons.append("Strong technical momentum")
+        except Exception:
+            pass
+        # High ML breakout probability
+        try:
+            mp = float(ml_prob) if ml_prob is not None else np.nan
+            if np.isfinite(mp) and mp >= float(ML_PROB_THRESHOLD):
+                reasons.append("High ML breakout probability")
+        except Exception:
+            pass
+        # Bullish pattern detected
+        try:
+            ps = float(rec_row.get("Pattern_Score", 0.0) or 0.0)
+            if np.isfinite(ps) and ps > 0.0:
+                reasons.append("Bullish pattern detected")
+        except Exception:
+            pass
+        # Supportive market regime
+        try:
+            reg = str(market_regime or "").upper()
+            if reg in ("TREND_UP", "BULLISH", "NEUTRAL", "SIDEWAYS"):
+                reasons.append("Supportive market regime")
+        except Exception:
+            pass
+        # Quality label
+        cnt = len(reasons)
+        if cnt >= 3:
+            quality = "High"
+        elif cnt == 2:
+            quality = "Medium"
+        else:
+            quality = "Speculative"
+        rec_row["SignalReasons"] = "; ".join(reasons)
+        rec_row["SignalReasons_Count"] = cnt
+        rec_row["SignalQuality"] = quality
+    except Exception:
+        # In case thresholds are unavailable, keep defaults
+        rec_row["SignalReasons"] = rec_row.get("SignalReasons", "")
+        rec_row["SignalReasons_Count"] = rec_row.get("SignalReasons_Count", 0)
+        rec_row["SignalQuality"] = rec_row.get("SignalQuality", "Speculative")
     
     # STRICT RULE: Score must always equal FinalScore_20d (set in to_series above)
     # Never override Score here - it's already set correctly
@@ -844,15 +895,15 @@ def build_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     
     # Extract series (handle multi-level columns from yfinance)
     if isinstance(df.columns, pd.MultiIndex):
-        close = df['Close'].iloc[:, 0] if isinstance(df['Close'], pd.DataFrame) else df['Close']
-        high = df['High'].iloc[:, 0] if isinstance(df['High'], pd.DataFrame) else df['High']
-        low = df['Low'].iloc[:, 0] if isinstance(df['Low'], pd.DataFrame) else df['Low']
-        volume = df['Volume'].iloc[:, 0] if isinstance(df['Volume'], pd.DataFrame) else df['Volume']
+        # Flatten to second level (field names) to simplify downstream logic
+        dff = df.copy()
+        dff.columns = dff.columns.get_level_values(-1)
     else:
-        close = df['Close']
-        high = df['High']
-        low = df['Low']
-        volume = df['Volume']
+        dff = df
+    close = dff['Close']
+    high = dff['High']
+    low = dff['Low']
+    volume = dff['Volume']
     
     # Moving averages
     result['MA20'] = close.rolling(window=20).mean()
@@ -861,15 +912,15 @@ def build_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     
     # Technical indicators
     result['RSI'] = compute_rsi(close, period=14)
-    result['ATR'] = compute_atr(df, period=14)
+    result['ATR'] = compute_atr(dff, period=14)
     result['ATR_Pct'] = result['ATR'] / close
     # ADR_Pct alias for ML features (using ATR_Pct)
     result['ADR_Pct'] = result['ATR_Pct']
 
     # Tightness metric: Range Ratio (ATR_5 / ATR_20)
     try:
-        atr_5 = compute_atr(df, period=5)
-        atr_20 = compute_atr(df, period=20)
+        atr_5 = compute_atr(dff, period=5)
+        atr_20 = compute_atr(dff, period=20)
         range_ratio = atr_5 / atr_20
         result['RangeRatio_5_20'] = range_ratio.replace([np.inf, -np.inf], np.nan)
     except Exception:
@@ -886,8 +937,8 @@ def build_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
     # Volatility Contraction Pattern (VCP) score
     # Compare short-term ATR (10d) vs long-term ATR (30d) to detect contraction
-    atr_10 = compute_atr(df, period=10)
-    atr_30 = compute_atr(df, period=30)
+    atr_10 = compute_atr(dff, period=10)
+    atr_30 = compute_atr(dff, period=30)
     ratio = (atr_10 / atr_30)
     # Base VCP: contraction yields positive score, else 0
     vcp_raw = (1.0 - ratio.clip(lower=0.0)).where((atr_10 < atr_30) & ratio.notna(), 0.0)
@@ -1305,10 +1356,14 @@ def compute_final_score(
         ml_val = np.nan
 
     if pd.notna(ml_val):
-        if ml_val < 0.15:
-            multiplier = 0.6  # 40% penalty
-        elif ml_val > 0.62:
-            multiplier = 1.15  # 15% bonus
+        thr_pen = float(ML_GATES.get("penalty_lt", 0.15))
+        thr_bonus = float(ML_GATES.get("bonus_gt", 0.62))
+        mult_pen = float(ML_GATES.get("penalty_mult", 0.60))
+        mult_bonus = float(ML_GATES.get("bonus_mult", 1.15))
+        if ml_val < thr_pen:
+            multiplier = mult_pen
+        elif ml_val > thr_bonus:
+            multiplier = mult_bonus
         else:
             multiplier = 1.0
 
@@ -1316,10 +1371,7 @@ def compute_final_score(
     regime_mult = 1.0
     if isinstance(market_regime, str):
         reg = market_regime.upper()
-        if reg == 'TREND_UP':
-            regime_mult = 1.1
-        elif reg in ('PANIC', 'CORRECTION'):
-            regime_mult = 0.7
+        regime_mult = float(REGIME_MULTIPLIERS.get(reg, 1.0))
 
     final = final * multiplier * regime_mult
 
@@ -1396,10 +1448,14 @@ def compute_final_score_with_patterns(
         ml_val = np.nan
 
     if pd.notna(ml_val):
-        if ml_val < 0.15:
-            multiplier = 0.6
-        elif ml_val > 0.62:
-            multiplier = 1.15
+        thr_pen = float(ML_GATES.get("penalty_lt", 0.15))
+        thr_bonus = float(ML_GATES.get("bonus_gt", 0.62))
+        mult_pen = float(ML_GATES.get("penalty_mult", 0.60))
+        mult_bonus = float(ML_GATES.get("bonus_mult", 1.15))
+        if ml_val < thr_pen:
+            multiplier = mult_pen
+        elif ml_val > thr_bonus:
+            multiplier = mult_bonus
         else:
             multiplier = 1.0
 
@@ -1407,10 +1463,7 @@ def compute_final_score_with_patterns(
     regime_mult = 1.0
     if isinstance(market_regime, str):
         reg = market_regime.upper()
-        if reg == 'TREND_UP':
-            regime_mult = 1.1
-        elif reg in ('PANIC', 'CORRECTION'):
-            regime_mult = 0.7
+        regime_mult = float(REGIME_MULTIPLIERS.get(reg, 1.0))
 
     final = float(np.clip(final * multiplier * regime_mult, 0.0, 100.0))
     

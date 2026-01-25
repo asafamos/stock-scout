@@ -195,7 +195,23 @@ def run_preflight(timeout: float = 3.0) -> Dict[str, Dict[str, any]]:
     active_price = [p for p in price_priority if status.get(p, {}).get("status") not in ("auth_error", "no_key") and status.get(p, {}).get("can_price", False)]
     status["PRICE_ACTIVE"] = active_price
 
+    # Structured scan status per policy
+    counts = {
+        "price_active": len(active_price),
+        "fund_active": len(active_fundamentals),
+        "total_providers": 11,
+    }
+    if counts["price_active"] == 0:
+        scan_status = "BLOCKED"
+    elif counts["fund_active"] == 0:
+        scan_status = "DEGRADED_TECH_ONLY"
+    else:
+        scan_status = "OK"
+
+    status["ACTIVE_COUNTS"] = counts
+    status["SCAN_STATUS"] = scan_status
+
     logger.info(
-        f"[Preflight] Providers OK; Fundamentals Active: {active_fundamentals}; Price Active: {active_price}"
+        f"[Preflight] Status={scan_status}; Fundamentals Active: {active_fundamentals}; Price Active: {active_price}"
     )
     return status

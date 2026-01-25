@@ -1,0 +1,1 @@
+{"sklearn_version": "1.8.0", "feature_list": ["RSI", "ATR_Pct", "Return_20d", "Return_10d", "Return_5d"], "training_timestamp_utc": "2026-01-24T09:21:29.559174", "label_spec": {"horizon_days": 20, "threshold_return": 0.2, "label_name": "Forward_Return_20d>threshold"}, "model_type": "GradientBoostingClassifier", "model_name": "ml_20d_v3_gb"}

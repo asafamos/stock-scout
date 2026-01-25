@@ -29,17 +29,22 @@ def compute_smart_targets(df: pd.DataFrame, horizon: int = 20) -> pd.DataFrame:
     # Future log return over the horizon
     out["target_log_return"] = np.log(out["Close"].shift(-horizon) / out["Close"])  # ln(C_{t+h}/C_t)
 
-    # Realized future volatility during the forward window
-    # First compute contemporaneous log returns r_t = ln(C_t / C_{t-1})
-    log_returns = np.log(out["Close"]).diff()
-    # Rolling std over 'horizon' and then shift to align the forward window to current t
-    out["future_volatility"] = (
-        log_returns.rolling(window=horizon).std().shift(-horizon)
-    )
+    # Realized future volatility during the forward window (true forward window)
+    # r_t = ln(C_t / C_{t-1})
+    r = np.log(out["Close"]).diff()
+    # Build forward window matrix: columns are r.shift(-1), ..., r.shift(-H)
+    fw = pd.concat([r.shift(-k) for k in range(1, horizon + 1)], axis=1)
+    # Std across the forward horizon at each t (population std, ddof=0)
+    out["future_volatility"] = fw.std(axis=1, ddof=0)
+    # Enforce NaN for the last H rows (incomplete forward windows)
+    if horizon > 0:
+        out.loc[out.index[-horizon:], "future_volatility"] = np.nan
 
     # Risk-adjusted target via forward Sharpe
     eps = 1e-6
-    out["forward_sharpe"] = out["target_log_return"] / (out["future_volatility"] + eps)
+    # Forward Sharpe defined using raw forward return over H divided by forward volatility
+    # Keep small epsilon to avoid division by zero in perfectly constant-growth windows
+    out["forward_sharpe"] = (out["Close"].shift(-horizon) / out["Close"] - 1.0) / (out["future_volatility"] + eps)
 
     # Raw forward return (not log), for Silver class rule
     out["raw_forward_return"] = out["Close"].shift(-horizon) / out["Close"] - 1.0

@@ -157,7 +157,39 @@ def train_and_save_bundle():
     
     path = MODELS_DIR / "model_20d_v3.pkl"
     joblib.dump(bundle, path)
+    # Write metadata.json next to model and to canonical latest path
+    meta = {
+        "sklearn_version": __import__("sklearn").__version__,
+        "feature_list": features,
+        "training_timestamp_utc": datetime.utcnow().isoformat(),
+        "label_spec": {
+            "horizon_days": 20,
+            "threshold_return": threshold,
+            "label_name": "Forward_Return_20d>threshold",
+        },
+        "model_type": "GradientBoostingClassifier",
+        "model_name": "ml_20d_v3_gb",
+    }
+    try:
+        with open(path.with_suffix(".metadata.json"), "w", encoding="utf-8") as f:
+            import json
+            json.dump(meta, f)
+    except Exception:
+        pass
+
+    # Also publish to canonical latest path for inference determinism
+    latest_dir = Path("ml/bundles/latest")
+    latest_dir.mkdir(parents=True, exist_ok=True)
+    joblib.dump(model, latest_dir / "model.joblib")
+    try:
+        with open(latest_dir / "metadata.json", "w", encoding="utf-8") as f:
+            import json
+            json.dump(meta, f)
+    except Exception:
+        pass
+
     print(f"✅ Model saved to: {path}")
+    print(f"🗂️  Latest bundle written to: {latest_dir}")
     print(f"🏆 Final AUC: {bundle['metrics']['auc']:.4f}")
     
     return path, bundle

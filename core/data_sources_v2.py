@@ -38,13 +38,86 @@ from datetime import datetime, timedelta
 from functools import lru_cache
 import logging
 from core.api_monitor import record_api_call
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 from core.fundamental import DataMode
 from core.fundamental_store import init_fundamentals_store, save_fundamentals_snapshot, load_fundamentals_as_of
 from core.config import get_secret
 from datetime import date
+from core.provider_guard import get_provider_guard
 
 logger = logging.getLogger(__name__)
+def normalize_ohlcv(df: Optional[pd.DataFrame]) -> pd.DataFrame:
+    """
+    Normalize an OHLCV DataFrame to a canonical schema:
+    - Lowercase columns: open, high, low, close, volume
+    - Accept common variants: 'Open','High','Low','Close','Adj Close','Volume','o','h','l','c','v'
+    - If only 'Adj Close' exists, map it to 'close' (prefer explicit 'Close' if both exist)
+    - Ensure sorted by datetime ascending (use index if DatetimeIndex, else 'date'/'Date' columns)
+    - Drop rows where all OHLCV are NaN
+    - Ensure numeric types; keep NaN as NaN (do NOT fill with 0)
+
+    Returns the normalized DataFrame containing available columns among
+    ['open','high','low','close','volume'] and preserves any 'date' column if present.
+    """
+    try:
+        if df is None:
+            return pd.DataFrame()
+        if not isinstance(df, pd.DataFrame) or df.empty:
+            return df if isinstance(df, pd.DataFrame) else pd.DataFrame()
+
+        dfn = df.copy()
+        # Normalize column names to lowercase for mapping
+        rename_map = {}
+        for col in dfn.columns:
+            lc = str(col).strip().lower()
+            if lc in {"open", "o"}:
+                rename_map[col] = "open"
+            elif lc in {"high", "h"}:
+                rename_map[col] = "high"
+            elif lc in {"low", "l"}:
+                rename_map[col] = "low"
+            elif lc in {"close", "c"}:
+                rename_map[col] = "close"
+            elif lc in {"adj close", "adj_close", "adjusted close"}:
+                rename_map[col] = "adj_close"
+            elif lc in {"volume", "v"}:
+                rename_map[col] = "volume"
+            elif lc in {"date", "datetime"}:
+                rename_map[col] = "date"
+        if rename_map:
+            dfn = dfn.rename(columns=rename_map)
+
+        # If close missing but adj_close exists, use adj_close as close
+        if ("close" not in dfn.columns) and ("adj_close" in dfn.columns):
+            dfn["close"] = dfn["adj_close"]
+
+        # Ensure datetime sorted ascending
+        try:
+            if isinstance(dfn.index, pd.DatetimeIndex):
+                dfn = dfn.sort_index()
+            elif "date" in dfn.columns:
+                dfn["date"] = pd.to_datetime(dfn["date"])
+                dfn = dfn.sort_values("date")
+        except Exception:
+            pass
+
+        # Enforce numeric types without coercing NaN to 0
+        for col in ["open", "high", "low", "close", "volume"]:
+            if col in dfn.columns:
+                dfn[col] = pd.to_numeric(dfn[col], errors="coerce")
+
+        # Drop rows where all OHLCV are NaN
+        subset_cols = [c for c in ["open","high","low","close","volume"] if c in dfn.columns]
+        if subset_cols:
+            dfn = dfn.dropna(how="all", subset=subset_cols)
+
+        # Keep only canonical columns + date if present
+        keep = [c for c in ["date","open","high","low","close","volume"] if c in dfn.columns]
+        return dfn[keep] if keep else dfn
+    except Exception:
+        # On failure, return empty to allow diagnostics to mark missing
+        return pd.DataFrame()
 
 # Initialize fundamentals store at import time so DB/table exist for live snapshots
 try:
@@ -316,8 +389,9 @@ def _http_get_with_retry(
     params: Optional[Dict] = None,
     headers: Optional[Dict] = None,
     timeout: int = 3,
-    max_retries: int = 3,
-    on_429_sleep: Optional[float] = None,
+    max_retries: int = 1,
+    provider: Optional[str] = None,
+    capability: Optional[str] = None,
 ) -> Optional[Dict]:
     """
     HTTP GET with retry logic and exponential backoff.
@@ -325,40 +399,116 @@ def _http_get_with_retry(
     Returns:
         Parsed JSON dict or None on failure
     """
-    for attempt in range(max_retries):
-        try:
-            response = requests.get(
-                url,
-                params=params,
-                headers=headers,
-                timeout=timeout
-            )
-            
-            if response.status_code == 200:
-                return response.json()
-            elif response.status_code == 429:  # Rate limited
-                # Provider-specific backoff if requested (e.g., Tiingo bucket reset)
-                if on_429_sleep is not None:
-                    wait_time = float(on_429_sleep)
-                else:
-                    # Exponential backoff capped to 3s to keep runs fast
-                    wait_time = min((2 ** attempt) * 2, 3)
-                logger.warning(f"Rate limited ({response.status_code}) on {url}, waiting {wait_time}s")
-                time.sleep(wait_time)
-                continue
-            else:
-                logger.warning(f"HTTP {response.status_code} for {url}")
-                return None
-                
-        except requests.Timeout:
-            logger.warning(f"Timeout on attempt {attempt+1}/{max_retries} for {url}")
-            if attempt < max_retries - 1:
-                time.sleep(2 ** attempt)
-        except Exception as e:
-            logger.error(f"Error fetching {url}: {e}", exc_info=True)
+    prov_name = str(provider).upper() if provider else None
+    # ProviderGuard pre-check: skip immediately if not allowed (cooldown or permanent)
+    try:
+        if provider and capability:
+            guard = get_provider_guard()
+            allowed, reason, decision = guard.allow(prov_name, str(capability))
+            if not allowed:
+                # Return a sentinel to signal an upstream fast-fail without raw request
+                return {"__blocked__": True, "reason": reason, "decision": decision}
+    except Exception:
+        pass
+    start_time = time.time()
+    try:
+        response = requests.get(
+            url,
+            params=params,
+            headers=headers,
+            timeout=timeout
+        )
+        if response.status_code == 200:
+            # Success: record and reset guard state
+            try:
+                if prov_name:
+                    get_provider_guard().record_success(prov_name)
+                record_api_call(
+                    provider=(prov_name or "UNKNOWN"),
+                    endpoint=(capability or "unknown"),
+                    status="ok",
+                    latency_sec=time.time() - start_time,
+                    extra={"url": url}
+                )
+            except Exception:
+                pass
+            return response.json()
+        # Handle structured failures
+        status_code = response.status_code
+        if status_code == 429:
+            # Rate limit: cooldown via guard, no sleep/backoff, immediate None
+            try:
+                get_provider_guard().record_failure(prov_name, status_code=status_code, capability=str(capability or ""), reason="rate_limited")
+                record_api_call(
+                    provider=(prov_name or "UNKNOWN"),
+                    endpoint=(capability or "unknown"),
+                    status="rate_limited_429",
+                    latency_sec=time.time() - start_time,
+                    extra={"url": url}
+                )
+            except Exception:
+                pass
             return None
-    
-    return None
+        if status_code in (401, 403):
+            # Auth failure: permanent disable via guard and session set
+            try:
+                get_provider_guard().record_failure(prov_name, status_code=status_code, capability=str(capability or ""), reason="auth_error")
+                if provider and capability:
+                    disable_provider_category(str(provider).lower(), str(capability).lower())
+                record_api_call(
+                    provider=(prov_name or "UNKNOWN"),
+                    endpoint=(capability or "unknown"),
+                    status="http_forbidden",
+                    latency_sec=time.time() - start_time,
+                    extra={"url": url}
+                )
+            except Exception:
+                pass
+            return None
+        # Other errors: record failure with short cooldown for 5xx; no retry loops
+        try:
+            if status_code and 500 <= status_code < 600:
+                get_provider_guard().record_failure(prov_name, status_code=status_code, capability=str(capability or ""), reason="server_error")
+            else:
+                get_provider_guard().record_failure(prov_name, status_code=status_code, capability=str(capability or ""), reason="http_error")
+            record_api_call(
+                provider=(prov_name or "UNKNOWN"),
+                endpoint=(capability or "unknown"),
+                status=f"http_{status_code}",
+                latency_sec=time.time() - start_time,
+                extra={"url": url}
+            )
+        except Exception:
+            pass
+        return None
+    except requests.Timeout:
+        logger.warning(f"Timeout for {url}")
+        try:
+            get_provider_guard().record_failure(prov_name, status_code=None, capability=str(capability or ""), reason="timeout")
+            record_api_call(
+                provider=(prov_name or "UNKNOWN"),
+                endpoint=(capability or "unknown"),
+                status="timeout",
+                latency_sec=time.time() - start_time,
+                extra={"url": url}
+            )
+        except Exception:
+            pass
+        return None
+    except Exception as e:
+        logger.error(f"Error fetching {url}: {e}", exc_info=True)
+        try:
+            get_provider_guard().record_failure(prov_name, status_code=None, capability=str(capability or ""), reason="exception")
+            record_api_call(
+                provider=(prov_name or "UNKNOWN"),
+                endpoint=(capability or "unknown"),
+                status="exception",
+                latency_sec=time.time() - start_time,
+                extra={"url": url, "error": str(e)[:200]}
+            )
+        except Exception:
+            pass
+        return None
 
 
 def _get_from_cache(cache_key: str, ttl: int = CACHE_TTL_SECONDS) -> Optional[Dict]:
@@ -628,7 +778,7 @@ def get_fundamentals_safe(ticker: str) -> Optional[Dict]:
                 _rate_limit("alpha")
                 url = "https://www.alphavantage.co/query"
                 params = {"function": "OVERVIEW", "symbol": tkr, "apikey": (ALPHA_KEY_RUNTIME or ALPHA_VANTAGE_API_KEY)}
-                data = _http_get_with_retry(url, params=params, timeout=4)
+                data = _http_get_with_retry(url, params=params, timeout=4, provider="ALPHAVANTAGE", capability="fundamentals")
             except Exception:
                 data = None
             if data and isinstance(data, dict):
@@ -705,9 +855,8 @@ def fetch_fundamentals_fmp(ticker: str, provider_status: Dict | None = None) -> 
     params = {"symbol": ticker, "apikey": (FMP_KEY_RUNTIME or FMP_API_KEY)}
     start = time.time()
     try:
-        resp = requests.get(url, params=params, timeout=3)
-        data = resp.json() if resp.status_code == 200 else None
-        status = "ok" if isinstance(data, list) and len(data) > 0 else (f"http_{resp.status_code}" if resp is not None else "empty")
+        data = _http_get_with_retry(url, params=params, timeout=3, provider="FMP", capability="fundamentals")
+        status = "ok" if isinstance(data, list) and len(data) > 0 else ("empty" if data else "empty")
         record_api_call(
             provider="FMP",
             endpoint="company-screener",
@@ -790,7 +939,7 @@ def fetch_fundamentals_finnhub(ticker: str, provider_status: Dict | None = None)
     
     start = time.time()
     try:
-        data = _http_get_with_retry(url, params=params, timeout=3)
+        data = _http_get_with_retry(url, params=params, timeout=3, provider="FINNHUB", capability="fundamentals")
         status = "ok" if data and "metric" in data else "empty"
         record_api_call(
             provider="Finnhub",
@@ -859,7 +1008,7 @@ def fetch_fundamentals_tiingo(ticker: str, provider_status: Dict | None = None) 
     
     start = time.time()
     try:
-        data = _http_get_with_retry(url, headers=headers, timeout=3, on_429_sleep=5)
+        data = _http_get_with_retry(url, headers=headers, timeout=3, provider="TIINGO", capability="fundamentals")
         status = "ok" if data and isinstance(data, list) and len(data) > 0 else "empty"
         record_api_call(
             provider="Tiingo",
@@ -926,7 +1075,7 @@ def fetch_fundamentals_alpha(ticker: str, provider_status: Dict | None = None) -
     
     start = time.time()
     try:
-        data = _http_get_with_retry(url, params=params, timeout=3)
+        data = _http_get_with_retry(url, params=params, timeout=3, provider="ALPHAVANTAGE", capability="fundamentals")
         status = "ok" if data and "Symbol" in data else "empty"
         record_api_call(
             provider="AlphaVantage",
@@ -1063,15 +1212,11 @@ def fetch_fundamentals_simfin(ticker: str, provider_status: Dict | None = None) 
     }
     start = time.time()
     try:
-        resp = requests.get(url, params=params, timeout=5)
-        if resp.status_code in (401, 403):
-            disable_provider_category("simfin", "fundamentals")
-            record_api_call("SimFin", "statements", "http_forbidden", time.time()-start, {"ticker": ticker})
+        data = _http_get_with_retry(url, params=params, timeout=5, provider="SIMFIN", capability="fundamentals")
+        status = "ok" if isinstance(data, dict) else ("empty" if data is None else "empty")
+        record_api_call("SimFin", "statements", status, time.time()-start, {"ticker": ticker})
+        if not data:
             return None
-        if resp.status_code != 200:
-            record_api_call("SimFin", "statements", f"http_{resp.status_code}", time.time()-start, {"ticker": ticker})
-            return None
-        data = resp.json()
     except Exception as e:
         record_api_call("SimFin", "statements", "exception", time.time()-start, {"ticker": ticker, "error": str(e)[:200]})
         return None
@@ -1097,12 +1242,62 @@ def fetch_fundamentals_simfin(ticker: str, provider_status: Dict | None = None) 
     except Exception:
         return None
 
+def get_prioritized_fetch_funcs(provider_status: Dict | None = None) -> List[Tuple[str, Any]]:
+    """
+    Build a prioritized list of fundamentals fetch functions respecting
+    preflight capabilities and session-level disables.
+
+    Priority: FMP → Finnhub → Tiingo → Alpha → (EODHD, SimFin optional)
+    """
+    funcs: List[Tuple[str, Any]] = []
+
+    def _can(upper: str, lower: str) -> bool:
+        try:
+            if _PROVIDER_DISABLED.get(lower, False):
+                return False
+            if f"{lower}:fundamentals" in DISABLED_PROVIDERS:
+                return False
+            s = (provider_status or {}).get(upper)
+            if s:
+                if s.get("status") in ("auth_error", "no_key"):
+                    return False
+                if s.get("can_fund", True) is False:
+                    return False
+            # ProviderGuard runtime check (cooldowns, etc.)
+            try:
+                guard = get_provider_guard()
+                allowed, _rsn, _dec = guard.allow(upper, "fundamentals")
+                if not allowed:
+                    return False
+            except Exception:
+                pass
+            return True
+        except Exception:
+            return True
+
+    if _can("FMP", "fmp"):
+        funcs.append(("fmp", fetch_fundamentals_fmp))
+    if _can("FINNHUB", "finnhub"):
+        funcs.append(("finnhub", fetch_fundamentals_finnhub))
+    if _can("TIINGO", "tiingo"):
+        funcs.append(("tiingo", fetch_fundamentals_tiingo))
+    if _can("ALPHAVANTAGE", "alpha"):
+        funcs.append(("alpha", fetch_fundamentals_alpha))
+    # Secondary group (optional enrichers if available)
+    if _can("EODHD", "eodhd"):
+        funcs.append(("eodhd", fetch_fundamentals_eodhd))
+    if _can("SIMFIN", "simfin"):
+        funcs.append(("simfin", fetch_fundamentals_simfin))
+
+    return funcs
+
 def aggregate_fundamentals(
     ticker: str,
     prefer_source: str = "fmp",
     provider_status: Dict | None = None,
     mode: DataMode = DataMode.LIVE,
     as_of_date: Optional[date] = None,
+    telemetry: Optional[Any] = None,
 ) -> Dict:
     """
     Fetch and aggregate fundamentals from ALL available sources.
@@ -1180,6 +1375,7 @@ def aggregate_fundamentals(
 
     # Determine fundamentals priority using dynamic latency-based routing
     fetch_funcs = get_prioritized_fetch_funcs(provider_status)
+    first_attempted: Optional[str] = fetch_funcs[0][0] if fetch_funcs else None
 
     for source_name, fetch_func in fetch_funcs:
         # Respect preflight minimally: skip only when auth/no_key or cannot serve fundamentals
@@ -1205,6 +1401,31 @@ def aggregate_fundamentals(
                 except Exception:
                     pass
                 continue
+        # ProviderGuard runtime block (cooldown/permanent)
+        try:
+            upper = {
+                "fmp": "FMP",
+                "finnhub": "FINNHUB",
+                "tiingo": "TIINGO",
+                "alpha": "ALPHAVANTAGE",
+                "eodhd": "EODHD",
+                "simfin": "SIMFIN",
+            }.get(source_name, source_name.upper())
+            allowed, reason, decision = get_provider_guard().allow(upper, "fundamentals")
+            if not allowed:
+                try:
+                    record_api_call(
+                        provider=upper,
+                        endpoint="fundamentals",
+                        status="skipped_guard",
+                        latency_sec=0.0,
+                        extra={"ticker": ticker, "reason": reason, "decision": decision},
+                    )
+                except Exception:
+                    pass
+                continue
+        except Exception:
+            pass
         # Skip category-level blacklists for the session
         if source_name == "fmp" and ("fmp:fundamentals" in DISABLED_PROVIDERS):
             try:
@@ -1329,6 +1550,17 @@ def aggregate_fundamentals(
     aggregated["coverage"] = coverage
     aggregated["timestamp"] = time.time()
 
+    # Record fallback if initial preferred/attempted provider yielded no data but others did
+    try:
+        if telemetry is not None and sources_data:
+            first_success = next(iter(sources_data.keys()))
+            # Mark only the first successful provider as the one used
+            telemetry.mark_used("fundamentals", first_success)
+            if first_attempted and first_attempted not in sources_data:
+                telemetry.record_fallback("fundamentals", first_attempted, first_success, "no usable data")
+    except Exception:
+        pass
+
     # Add explicit per-source flags
     aggregated["Fund_from_FMP"] = "fmp" in sources_data
     aggregated["Fund_from_Finnhub"] = "finnhub" in sources_data
@@ -1421,7 +1653,7 @@ def aggregate_fundamentals(
 # MULTI-SOURCE PRICE VERIFICATION (EXISTING + ENHANCED)
 # ============================================================================
 
-def fetch_price_multi_source(ticker: str, provider_status: Dict | None = None) -> Dict[str, Optional[float]]:
+def fetch_price_multi_source(ticker: str, provider_status: Dict | None = None, telemetry: Optional[Any] = None) -> Dict[str, Optional[float]]:
     """
     Fetch current price from multiple sources for verification.
 
@@ -1457,20 +1689,32 @@ def fetch_price_multi_source(ticker: str, provider_status: Dict | None = None) -
         except Exception:
             return True
 
+    # Track attempted primary provider for fallback recording
+    attempted_primary: Optional[str] = None
+
     # Polygon price (PRIMARY)
     if _can_price("POLYGON") and (POLYGON_KEY_RUNTIME or POLYGON_API_KEY):
         try:
             _rate_limit("polygon")
             url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/prev"
             params = {"apiKey": (POLYGON_KEY_RUNTIME or POLYGON_API_KEY)}
-            # Prefer shorter fixed sleep on 429 to reduce burst retries in tests
-            data = _http_get_with_retry(url, params=params, timeout=3, on_429_sleep=1)
+            # Fast-fail on 429 via session disable; no sleeps/backoff here
+            data = _http_get_with_retry(url, params=params, timeout=3, provider="POLYGON", capability="price")
             if data and "results" in data and len(data["results"]) > 0:
                 prices["polygon"] = data["results"][0].get("c")
                 prices["primary_source"] = "polygon"
+                try:
+                    if telemetry is not None:
+                        telemetry.mark_used("price", "POLYGON")
+                        telemetry.set_value(f"price_provider:{ticker}", "POLYGON")
+                except Exception:
+                    pass
+            else:
+                attempted_primary = "POLYGON"
         except Exception as e:
             logger.warning(f"Polygon price fetch failed: {e}", exc_info=True)
             prices["polygon"] = None
+            attempted_primary = "POLYGON"
 
     # EODHD price (alternative PRIMARY if Polygon absent)
     if _can_price("EODHD") and ("primary_source" not in prices) and (EODHD_KEY_RUNTIME or EODHD_API_KEY) and ("eodhd:price" not in DISABLED_PROVIDERS):
@@ -1478,7 +1722,12 @@ def fetch_price_multi_source(ticker: str, provider_status: Dict | None = None) -
             _rate_limit("eodhd")
             url = f"https://eodhd.com/api/real-time/{ticker}"
             params = {"api_token": (EODHD_KEY_RUNTIME or EODHD_API_KEY), "fmt": "json"}
-            resp = requests.get(url, params=params, timeout=3)
+            resp_block = _http_get_with_retry(url, params=params, timeout=3, provider="EODHD", capability="price")
+            if isinstance(resp_block, dict) and resp_block.get("__blocked__"):
+                pass
+            else:
+                # Fallback to raw resp parsing if not blocked
+                resp = requests.get(url, params=params, timeout=3)
             if resp.status_code in (401, 403):
                 disable_provider_category("eodhd", "price")
             elif resp.status_code == 200:
@@ -1490,6 +1739,14 @@ def fetch_price_multi_source(ticker: str, provider_status: Dict | None = None) -
                 prices["eodhd"] = close_val
                 if close_val is not None:
                     prices["primary_source"] = "eodhd"
+                    try:
+                        if telemetry is not None:
+                            telemetry.mark_used("price", "EODHD")
+                            telemetry.set_value(f"price_provider:{ticker}", "EODHD")
+                            if attempted_primary and attempted_primary != "EODHD":
+                                telemetry.record_fallback("price", attempted_primary, "EODHD", "primary provider returned no data")
+                    except Exception:
+                        pass
         except Exception as e:
             logger.warning(f"EODHD price fetch failed: {e}")
 
@@ -1500,7 +1757,11 @@ def fetch_price_multi_source(ticker: str, provider_status: Dict | None = None) -
             url = f"https://financialmodelingprep.com/api/v3/quote/{ticker}"
             params = {"apikey": (FMP_KEY_RUNTIME or FMP_API_KEY)}
             # Use raw request to catch 403 and blacklist
-            resp = requests.get(url, params=params, timeout=3)
+            resp_block = _http_get_with_retry(url, params=params, timeout=3, provider="FMP", capability="price")
+            if isinstance(resp_block, dict) and resp_block.get("__blocked__"):
+                pass
+            else:
+                resp = requests.get(url, params=params, timeout=3)
             if resp.status_code == 403:
                 disable_provider_category("fmp", "price")
                 record_api_call(
@@ -1514,6 +1775,16 @@ def fetch_price_multi_source(ticker: str, provider_status: Dict | None = None) -
                 data = resp.json()
                 if data and isinstance(data, list) and len(data) > 0:
                     prices["fmp"] = data[0].get("price")
+                    if prices.get("primary_source") is None and prices["fmp"] is not None:
+                        prices["primary_source"] = "fmp"
+                        try:
+                            if telemetry is not None:
+                                telemetry.mark_used("price", "FMP")
+                                telemetry.set_value(f"price_provider:{ticker}", "FMP")
+                                if attempted_primary and attempted_primary != "FMP":
+                                    telemetry.record_fallback("price", attempted_primary, "FMP", "primary provider returned no data")
+                        except Exception:
+                            pass
             else:
                 record_api_call(
                     provider="FMP",
@@ -1532,22 +1803,42 @@ def fetch_price_multi_source(ticker: str, provider_status: Dict | None = None) -
             _rate_limit("finnhub")
             url = "https://finnhub.io/api/v1/quote"
             params = {"symbol": ticker, "token": (FINNHUB_KEY_RUNTIME or FINNHUB_API_KEY)}
-            data = _http_get_with_retry(url, params=params, timeout=3)
+            data = _http_get_with_retry(url, params=params, timeout=3, provider="FINNHUB", capability="price")
             if data:
                 prices["finnhub"] = data.get("c")
+                if prices.get("primary_source") is None and prices["finnhub"] is not None:
+                    prices["primary_source"] = "finnhub"
+                    try:
+                        if telemetry is not None:
+                            telemetry.mark_used("price", "FINNHUB")
+                            telemetry.set_value(f"price_provider:{ticker}", "FINNHUB")
+                            if attempted_primary and attempted_primary != "FINNHUB":
+                                telemetry.record_fallback("price", attempted_primary, "FINNHUB", "primary provider returned no data")
+                    except Exception:
+                        pass
         except Exception as e:
             logger.warning(f"Finnhub price fetch failed: {e}", exc_info=True)
             prices["finnhub"] = None
 
     # Tiingo price (secondary)
-    if _can_price("TIINGO") and (TIINGO_KEY_RUNTIME or TIINGO_API_KEY):
+    if _can_price("TIINGO") and (TIINGO_KEY_RUNTIME or TIINGO_API_KEY) and ("tiingo:price" not in DISABLED_PROVIDERS):
         try:
             _rate_limit("tiingo")
             url = f"https://api.tiingo.com/tiingo/daily/{ticker}/prices"
             headers = {"Content-Type": "application/json", "Authorization": f"Token {TIINGO_KEY_RUNTIME or TIINGO_API_KEY}"}
-            data = _http_get_with_retry(url, headers=headers, timeout=3, on_429_sleep=5)
+            data = _http_get_with_retry(url, headers=headers, timeout=3, provider="TIINGO", capability="price")
             if data and isinstance(data, list) and len(data) > 0:
                 prices["tiingo"] = data[0].get("close")
+                if prices.get("primary_source") is None and prices["tiingo"] is not None:
+                    prices["primary_source"] = "tiingo"
+                    try:
+                        if telemetry is not None:
+                            telemetry.mark_used("price", "TIINGO")
+                            telemetry.set_value(f"price_provider:{ticker}", "TIINGO")
+                            if attempted_primary and attempted_primary != "TIINGO":
+                                telemetry.record_fallback("price", attempted_primary, "TIINGO", "primary provider returned no data")
+                    except Exception:
+                        pass
         except Exception as e:
             logger.warning(f"Tiingo price fetch failed: {e}", exc_info=True)
             prices["tiingo"] = None
@@ -1562,10 +1853,20 @@ def fetch_price_multi_source(ticker: str, provider_status: Dict | None = None) -
                 "symbol": ticker,
                 "apikey": (ALPHA_KEY_RUNTIME or ALPHA_VANTAGE_API_KEY)
             }
-            data = _http_get_with_retry(url, params=params, timeout=3)
+            data = _http_get_with_retry(url, params=params, timeout=3, provider="ALPHAVANTAGE", capability="price")
             if data and "Global Quote" in data:
                 price_str = data["Global Quote"].get("05. price")
                 prices["alpha"] = float(price_str) if price_str else None
+                if prices.get("primary_source") is None and prices["alpha"] is not None:
+                    prices["primary_source"] = "alpha"
+                    try:
+                        if telemetry is not None:
+                            telemetry.mark_used("price", "ALPHAVANTAGE")
+                            telemetry.set_value(f"price_provider:{ticker}", "ALPHAVANTAGE")
+                            if attempted_primary and attempted_primary != "ALPHAVANTAGE":
+                                telemetry.record_fallback("price", attempted_primary, "ALPHAVANTAGE", "primary provider returned no data")
+                    except Exception:
+                        pass
         except Exception as e:
             logger.warning(f"Alpha price fetch failed: {e}", exc_info=True)
             prices["alpha"] = None
@@ -1576,7 +1877,11 @@ def fetch_price_multi_source(ticker: str, provider_status: Dict | None = None) -
             _rate_limit("marketstack")
             url = "http://api.marketstack.com/v1/eod/latest"
             params = {"access_key": (MARKETSTACK_KEY_RUNTIME or MARKETSTACK_API_KEY), "symbols": ticker}
-            resp = requests.get(url, params=params, timeout=4)
+            resp_block = _http_get_with_retry(url, params=params, timeout=4, provider="MARKETSTACK", capability="price")
+            if isinstance(resp_block, dict) and resp_block.get("__blocked__"):
+                pass
+            else:
+                resp = requests.get(url, params=params, timeout=4)
             if resp.status_code in (401, 403):
                 disable_provider_category("marketstack", "price")
             elif resp.status_code == 200:
@@ -1587,6 +1892,14 @@ def fetch_price_multi_source(ticker: str, provider_status: Dict | None = None) -
                 prices["marketstack"] = close_val
                 if close_val is not None:
                     prices["primary_source"] = "marketstack"
+                    try:
+                        if telemetry is not None:
+                            telemetry.mark_used("price", "MARKETSTACK")
+                            telemetry.set_value(f"price_provider:{ticker}", "MARKETSTACK")
+                            if attempted_primary and attempted_primary != "MARKETSTACK":
+                                telemetry.record_fallback("price", attempted_primary, "MARKETSTACK", "primary provider returned no data")
+                    except Exception:
+                        pass
         except Exception as e:
             logger.warning(f"MarketStack price fetch failed: {e}")
 
@@ -1642,7 +1955,7 @@ def get_next_earnings_date(ticker: str) -> Optional[str]:
             url = "https://finnhub.io/api/v1/calendar/earnings"
             # Finnhub requires 'symbol' and supports 'from'/'to'; use a 1y window
             params = {"symbol": ticker, "token": FINNHUB_API_KEY}
-            data = _http_get_with_retry(url, params=params, timeout=3)
+            data = _http_get_with_retry(url, params=params, timeout=3, provider="FINNHUB", capability="earnings")
             if data is not None:
                 items = data.get("earningsCalendar") or data.get("result") or []
                 # Find nearest future date
@@ -1665,7 +1978,7 @@ def get_next_earnings_date(ticker: str) -> Optional[str]:
             _rate_limit("fmp")
             url = f"https://financialmodelingprep.com/api/v3/earning_calendar"
             params = {"symbol": ticker, "apikey": FMP_API_KEY}
-            data = _http_get_with_retry(url, params=params, timeout=3)
+            data = _http_get_with_retry(url, params=params, timeout=3, provider="FMP", capability="earnings")
             if data and isinstance(data, list) and len(data) > 0:
                 # FMP returns list of entries; pick the next upcoming
                 dates = [it.get("date") for it in data if it.get("date")]
@@ -1680,7 +1993,7 @@ def get_next_earnings_date(ticker: str) -> Optional[str]:
 # PUBLIC API
 # ============================================================================
 
-def fetch_multi_source_data(ticker: str, provider_status: Dict | None = None, mode: DataMode = DataMode.LIVE, as_of_date: Optional[date] = None) -> Dict:
+def fetch_multi_source_data(ticker: str, provider_status: Dict | None = None, mode: DataMode = DataMode.LIVE, as_of_date: Optional[date] = None, telemetry: Optional[Any] = None) -> Dict:
     """
     Main entry point: fetch fundamentals and price from all sources.
     
@@ -1691,10 +2004,10 @@ def fetch_multi_source_data(ticker: str, provider_status: Dict | None = None, mo
     - Individual source prices for verification
     """
     # Get fundamentals
-    fundamentals = aggregate_fundamentals(ticker, provider_status=provider_status, mode=mode, as_of_date=as_of_date)
+    fundamentals = aggregate_fundamentals(ticker, provider_status=provider_status, mode=mode, as_of_date=as_of_date, telemetry=telemetry)
     
     # Get prices
-    prices = fetch_price_multi_source(ticker, provider_status=provider_status)
+    prices = fetch_price_multi_source(ticker, provider_status=provider_status, telemetry=telemetry)
     price_mean, price_std, price_count = aggregate_price(prices)
     
     # Merge everything
@@ -1737,7 +2050,8 @@ def get_index_series(
     symbol: str,
     start_date: str,
     end_date: str,
-    provider_status: Optional[Dict[str, bool]] = None
+    provider_status: Optional[Dict[str, bool]] = None,
+    telemetry: Optional[Any] = None
 ) -> Optional[pd.DataFrame]:
     """
     Fetch daily OHLCV series for market indices (SPY, QQQ, ^VIX, etc.).
@@ -1821,6 +2135,11 @@ def get_index_series(
                 df_result = df[["date", "open", "high", "low", "close", "volume"]]
                 logger.info(f"✓ FMP: Fetched {len(df_result)} days for {symbol}")
                 _LAST_INDEX_SOURCE[symbol] = "FMP"
+                try:
+                    if telemetry is not None:
+                        telemetry.mark_index(symbol, "FMP")
+                except Exception:
+                    pass
                 _put_in_cache(cache_key, df_result)
                 return df_result
             elif data is not None:
@@ -1857,7 +2176,15 @@ def get_index_series(
                     ["date", "open", "high", "low", "close", "volume"]
                 ].sort_values("date").reset_index(drop=True)
                 logger.info(f"✓ Polygon: Fetched {len(df_result)} days for {symbol}")
-                _LAST_INDEX_SOURCE[symbol] = "Polygon"
+                _LAST_INDEX_SOURCE[symbol] = "POLYGON"
+                try:
+                    if telemetry is not None:
+                        telemetry.mark_index(symbol, "POLYGON")
+                        # Minimal price domain mark when SPY fetched via Polygon
+                        if str(symbol).upper() == "SPY":
+                            telemetry.mark_used("price", "POLYGON")
+                except Exception:
+                    pass
                 _put_in_cache(cache_key, df_result)
                 return df_result
         except Exception as e:
@@ -1906,7 +2233,12 @@ def get_index_series(
                 df = df.sort_values("date").reset_index(drop=True)
                 df_result = df[["date", "open", "high", "low", "close", "volume"]]
                 logger.info(f"✓ Tiingo: Fetched {len(df_result)} days for {symbol}")
-                _LAST_INDEX_SOURCE[symbol] = "Tiingo"
+                _LAST_INDEX_SOURCE[symbol] = "TIINGO"
+                try:
+                    if telemetry is not None:
+                        telemetry.mark_index(symbol, "TIINGO")
+                except Exception:
+                    pass
                 
         except Exception as e:
             logger.warning(f"Tiingo index series failed for {symbol}: {e}")
@@ -1944,7 +2276,12 @@ def get_index_series(
                 if records:
                     df_result = pd.DataFrame(records).sort_values("date").reset_index(drop=True)
                     logger.info(f"✓ Alpha: Fetched {len(df_result)} days for {symbol}")
-                    _LAST_INDEX_SOURCE[symbol] = "AlphaVantage"
+                    _LAST_INDEX_SOURCE[symbol] = "ALPHAVANTAGE"
+                    try:
+                        if telemetry is not None:
+                            telemetry.mark_index(symbol, "ALPHAVANTAGE")
+                    except Exception:
+                        pass
                     
         except Exception as e:
             logger.warning(f"Alpha Vantage index series failed for {symbol}: {e}")
@@ -1974,7 +2311,13 @@ def get_index_series(
                 proxy = proxy[(proxy["date"] >= pd.to_datetime(start_date)) & (proxy["date"] <= pd.to_datetime(end_date))]
                 if not proxy.empty:
                     df_result = proxy[["date", "open", "high", "low", "close", "volume"]].copy()
-                    _LAST_INDEX_SOURCE[symbol] = "SyntheticVIX(SPY)"
+                    _LAST_INDEX_SOURCE[symbol] = "SYNTHETIC_VIX_PROXY"
+                    try:
+                        if telemetry is not None:
+                            telemetry.mark_index(symbol, "SYNTHETIC_VIX_PROXY")
+                            telemetry.record_fallback("index", "provider_chain", "SYNTHETIC_VIX_PROXY", "constructed proxy from SPY realized volatility")
+                    except Exception:
+                        pass
                     logger.warning("Using synthetic VIX proxy derived from SPY realized volatility")
         except Exception as e:
             logger.warning(f"Synthetic VIX proxy construction failed: {e}")
@@ -1992,7 +2335,12 @@ def get_index_series(
                 cols = ['date', 'open', 'high', 'low', 'close', 'volume']
                 if all(c in yf_df.columns for c in cols):
                     df_result = yf_df[cols].copy()
-                    _LAST_INDEX_SOURCE[symbol] = 'YFinance'
+                    _LAST_INDEX_SOURCE[symbol] = 'YFINANCE'
+                    try:
+                        if telemetry is not None:
+                            telemetry.mark_index(symbol, "YFINANCE")
+                    except Exception:
+                        pass
                     logger.warning(f"Using yfinance fallback for {symbol}")
         except Exception as e:
             logger.warning(f"yfinance fallback failed for {symbol}: {e}")
@@ -2006,7 +2354,7 @@ def get_index_series(
     return df_result
 
 
-def fetch_fundamentals_batch(tickers: List[str], provider_status: Dict | None = None, mode: DataMode = DataMode.LIVE, as_of_date: Optional[date] = None) -> pd.DataFrame:
+def fetch_fundamentals_batch(tickers: List[str], provider_status: Dict | None = None, mode: DataMode = DataMode.LIVE, as_of_date: Optional[date] = None, telemetry: Optional[Any] = None) -> pd.DataFrame:
     """
     Batch fetch fundamentals for multiple tickers using aggregate_fundamentals.
     Runs serially to avoid thread deadlocks / DB contention.
@@ -2016,6 +2364,14 @@ def fetch_fundamentals_batch(tickers: List[str], provider_status: Dict | None = 
         return pd.DataFrame()
 
     rows = []
+    # Build prioritized provider list once per batch
+    try:
+        prioritized_fetch = get_prioritized_fetch_funcs(provider_status)
+    except Exception:
+        prioritized_fetch = []
+    if not prioritized_fetch:
+        # No providers available per preflight/disable — return neutral DataFrame indexed by tickers
+        return pd.DataFrame(index=pd.Index([t for t in tickers], name="Ticker"))
     # Throttled submissions to reduce burst rate limits (tuned for stability)
     # If FMP and FINNHUB are both unavailable, we likely fall back to Tiingo
     # which rejects high concurrency. In that case, cap workers at 2.
@@ -2031,9 +2387,38 @@ def fetch_fundamentals_batch(tickers: List[str], provider_status: Dict | None = 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_ticker = {}
         for t in tickers:
-            future = executor.submit(aggregate_fundamentals, t, "finnhub", provider_status, mode, as_of_date)
+            # Choose first currently allowed provider per ticker
+            chosen = None
+            for name, _func in prioritized_fetch:
+                upper = {
+                    "fmp": "FMP",
+                    "finnhub": "FINNHUB",
+                    "tiingo": "TIINGO",
+                    "alpha": "ALPHAVANTAGE",
+                    "eodhd": "EODHD",
+                    "simfin": "SIMFIN",
+                }.get(name, name.upper())
+                try:
+                    allowed, _rsn, _dec = get_provider_guard().allow(upper, "fundamentals")
+                except Exception:
+                    allowed = True
+                if allowed:
+                    chosen = name
+                    break
+            if not chosen:
+                try:
+                    record_api_call(
+                        provider="MULTI",
+                        endpoint="fundamentals",
+                        status="fundamentals_unavailable",
+                        latency_sec=0.0,
+                        extra={"ticker": t}
+                    )
+                except Exception:
+                    pass
+                continue
+            future = executor.submit(aggregate_fundamentals, t, chosen, provider_status, mode, as_of_date, telemetry)
             future_to_ticker[future] = t
-            time.sleep(0.3)
         for future in as_completed(future_to_ticker):
             tkr = future_to_ticker[future]
             try:
@@ -2043,7 +2428,8 @@ def fetch_fundamentals_batch(tickers: List[str], provider_status: Dict | None = 
                 logger.error(f"Batch fetch failed for {tkr}: {e}")
                 
     if not rows:
-        return pd.DataFrame()
+        # Return neutral DataFrame with index tickers when batch yielded no rows
+        return pd.DataFrame(index=pd.Index([t for t in tickers], name="Ticker"))
 
     df = pd.DataFrame(rows)
     if "ticker" in df.columns:

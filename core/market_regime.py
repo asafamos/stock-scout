@@ -33,7 +33,8 @@ def detect_market_regime(
         "spy_trend": 0.0,
         "qqq_trend": 0.0,
         "vix_level": "unknown",
-        "details": "neutral fallback"
+        "details": "Benchmark unavailable; neutral fallback",
+        "benchmark_status": "UNAVAILABLE",
     }
     try:
         end_dt = datetime.now()
@@ -56,11 +57,20 @@ def detect_market_regime(
         # Force a 1-D Series (avoid DataFrame or multi-column edgecases)
         spy_close = pd.Series(spy_close.values.ravel(), index=spy_close.index)
         ma20 = spy_close.rolling(20).mean(); ma50 = spy_close.rolling(50).mean()
+        # Strict validity: require non-NaN MA values and sufficient history
+        if pd.isna(ma20.iloc[-1]) or pd.isna(ma50.iloc[-1]) or len(spy_close) < 50:
+            return fallback
         last = float(spy_close.iloc[-1])
-        vs20 = float(last / ma20.iloc[-1] - 1) if pd.notna(ma20.iloc[-1]) else 0.0
-        vs50 = float(last / ma50.iloc[-1] - 1) if pd.notna(ma50.iloc[-1]) else 0.0
+        vs20 = float(last / ma20.iloc[-1] - 1)
+        vs50 = float(last / ma50.iloc[-1] - 1)
         momentum = float(last / spy_close.iloc[-20] - 1) if len(spy_close) >= 21 else 0.0
         spy_trend = float(np.clip((vs20 * 2 + vs50 + momentum) / 4.0, -1, 1))
+        # Defensive: if SPY appears flat (no variance) and trend computes to 0.0, treat as unavailable
+        try:
+            if float(np.nanstd(spy_close.tail(50))) == 0.0 and abs(spy_trend) < 1e-12:
+                return fallback
+        except Exception:
+            pass
         if qqq_data is not None and len(qqq_data.index) >= 40:
             if isinstance(qqq_data, pd.Series):
                 qqq_df = qqq_data.to_frame()
@@ -72,11 +82,21 @@ def detect_market_regime(
                 qqq_close = qqq_df.iloc[:, 0].astype(float)
             qqq_close = pd.Series(qqq_close.values.ravel(), index=qqq_close.index)
             qma20 = qqq_close.rolling(20).mean(); qma50 = qqq_close.rolling(50).mean()
-            qlast = float(qqq_close.iloc[-1])
-            qvs20 = float(qlast / qma20.iloc[-1] - 1) if pd.notna(qma20.iloc[-1]) else 0.0
-            qvs50 = float(qlast / qma50.iloc[-1] - 1) if pd.notna(qma50.iloc[-1]) else 0.0
-            qmom = float(qlast / qqq_close.iloc[-20] - 1) if len(qqq_close) >= 21 else 0.0
-            qqq_trend = float(np.clip((qvs20 * 2 + qvs50 + qmom) / 4.0, -1, 1))
+            if pd.isna(qma20.iloc[-1]) or pd.isna(qma50.iloc[-1]) or len(qqq_close) < 50:
+                # Keep SPY trend, but mark benchmark unavailable in details later
+                qqq_trend = spy_trend
+            else:
+                qlast = float(qqq_close.iloc[-1])
+                qvs20 = float(qlast / qma20.iloc[-1] - 1)
+                qvs50 = float(qlast / qma50.iloc[-1] - 1)
+                qmom = float(qlast / qqq_close.iloc[-20] - 1) if len(qqq_close) >= 21 else 0.0
+                qqq_trend = float(np.clip((qvs20 * 2 + qvs50 + qmom) / 4.0, -1, 1))
+                try:
+                    if float(np.nanstd(qqq_close.tail(50))) == 0.0 and abs(qqq_trend) < 1e-12:
+                        # Keep SPY trend; mark unavailability later
+                        qqq_trend = spy_trend
+                except Exception:
+                    pass
         else:
             qqq_trend = spy_trend
         try:
@@ -106,14 +126,23 @@ def detect_market_regime(
         else:
             regime = "neutral"; confidence = int((0.5-abs(composite))*100)
         details = f"SPY {spy_trend:.2f} | QQQ {qqq_trend:.2f} | VIX {vix_level} ({vix_val:.1f})"
-        return {
+        out = {
             "regime": regime,
             "confidence": confidence,
             "spy_trend": spy_trend,
             "qqq_trend": qqq_trend,
             "vix_level": vix_level,
-            "details": details
+            "details": details,
+            "benchmark_status": "OK",
         }
+        # Reflect unavailability if earlier checks triggered
+        try:
+            if not np.isfinite(spy_trend) or spy_trend == 0.0 and not (vs20 or vs50 or momentum):
+                out["benchmark_status"] = "UNAVAILABLE"
+                out["details"] = "Benchmark unavailable; neutral fallback"
+        except Exception:
+            pass
+        return out
     except Exception as exc:
         logger.exception("Regime detection failed, neutral fallback used")
         return fallback

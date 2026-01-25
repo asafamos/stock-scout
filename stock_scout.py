@@ -1,16 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-Asaf Stock Scout — 2026 (Auto Mode, Zero-Input) — FMP-free
------------------------------------------------------------
-• Technical score: MA, Momentum(1/3/6m), RSI band, Near-High bell, Overextension vs MA_L,
-  Pullback window, ATR/Price, Reward/Risk, MACD/ADX.
-• Fundamentals (Alpha OVERVIEW -> Finnhub fallback): Growth (Rev/EPS YoY), Quality (ROE/Margin),
-  Valuation (P/E,P/S), Debt/Equity penalty. (Surprise bonus off)
-• Risk rules: earnings blackout, sector cap, beta vs SPY/QQQ, min dollar-volume, hard caps.
-• External price verification: Alpha/Finnhub/Polygon/Tiingo (mean/std).
-• Allocation: min position + max position % of budget.
-• LTR English UI, recommendation cards, CSV export, quick chart.
-Note: This is not investment advice.
+Stock Scout — Streamlit app for building a US equities universe,
+computing indicators and scores, optional fundamentals, and presenting
+an RTL/English UI with CSV export and quick charts.
 """
 
 from __future__ import annotations
@@ -111,7 +103,7 @@ from core.filters import (
     should_reject_ticker,
     fetch_benchmark_data,
 )
-from core.allocation import allocate_budget, _normalize_weights
+# Allocation is computed by the pipeline; UI should not recompute
 from core.classifier import apply_classification, filter_core_recommendations
 
 # ============================================================================
@@ -361,11 +353,7 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
     coil_badge = "<span class='badge coil'>🎯 COILED</span>" if is_coiled else ""
     growth_badge = "<span class='badge growth'>🚀 GROWTH BOOST</span>" if is_growth else ""
 
-    # Allocation note when buy amount is zero or missing
-    buy_amt = _num(row.get("buy_amount_v2", row.get("סכום קנייה ($)", np.nan)))
-    allocation_note = ""
-    if not np.isfinite(buy_amt) or buy_amt <= 0:
-        allocation_note = "<div class='allocation-note'>Insufficient confidence for allocation</div>"
+    # UI no longer displays allocation notes; pipeline controls allocation logic
 
     # Build explanation bullets (top-level quick rationale) only when warning
     bullets = []
@@ -401,7 +389,7 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
     </div>
     <div class='entry-target-line'>Entry <b class='ltr'>{entry_fmt}</b> -> Target <b class='ltr'>{target_fmt}</b> {target_badge} <span class='potential ltr'>{potential_fmt}</span></div>
     {bullet_html}
-    {allocation_note}
+    
     <div class='top-grid'>
         <div class='field'><span class='label'>R/R</span><span class='value tabular ltr'>{rr_ratio_fmt} <span class='band ltr'>{rr_band}</span></span></div>
         <div class='field'><span class='label'>Risk</span><span class='value tabular ltr'>{risk_fmt}</span></div>
@@ -2446,7 +2434,7 @@ elif not (alpha_ok or finn_ok):
     )
 elif not alpha_ok and finn_ok:
     st.warning(
-        "⚠️ Alpha Vantage unavailable (rate limits or config) - falling back to Finnhub and other providers. Recommendations will still be generated."
+        "⚠️ Alpha Vantage unavailable (rate limits or config) - falling back to Finnhub and other providers. Signals will still be generated."
     )
 
 # Store provider status in session state for connectivity checks
@@ -2466,7 +2454,7 @@ _stage_triggers = [
     ("Applying Beta filter", "Beta Filter"),
     ("Applying advanced filters", "Advanced Filters"),
     ("Fetching fundamentals", "Fundamentals Enrichment"),
-    ("Classifying & Allocating", "Risk Classification"),
+    ("Classifying & Allocating", "Signal Evaluation"),
 ]
 _completed_stages: Set[str] = set()
 
@@ -2853,23 +2841,124 @@ else:
         universe = fetch_top_us_tickers_by_market_cap(limit=CONFIG["UNIVERSE_LIMIT"])
         status.write(f"Fetched universe: {len(universe)} tickers")
         
-        # 2. Run Pipeline
-        results, data_map = run_scan_pipeline(
-            universe, 
-            CONFIG, 
+        # 2. Run Pipeline (now returns wrapper {result, meta})
+        wrapper = run_scan_pipeline(
+            universe,
+            CONFIG,
             status_callback=status.write
         )
+        meta = wrapper.get("meta", {}) if isinstance(wrapper, dict) else {}
+        payload = wrapper.get("result") if isinstance(wrapper, dict) else wrapper
+        # Prefer new dict schema
+        if isinstance(payload, dict) and ("results_df" in payload):
+            _results_df = payload.get("results_df")
+            results = _results_df if _results_df is not None else pd.DataFrame()
+            data_map = payload.get("data_map") or None
+        # Backward: tuple/list
+        elif isinstance(payload, tuple) and len(payload) >= 1:
+            results = payload[0]
+            data_map = payload[1] if len(payload) > 1 else None
+        # Backward: bare DataFrame
+        elif isinstance(payload, pd.DataFrame):
+            results = payload
+            data_map = None
+        else:
+            results = pd.DataFrame()
+            data_map = None
+        # Pull diagnostics (filter reasons) if available
+        diagnostics = {}
+        try:
+            diagnostics = (payload.get("diagnostics") if isinstance(payload, dict) else {}) or {}
+        except Exception:
+            diagnostics = {}
+
+        # Display meta prominently
+        try:
+            engine_version = meta.get("engine_version", "unknown")
+            engine_mode = meta.get("engine_mode")
+            used_fb = bool(meta.get("used_legacy_fallback", False))
+            fb_reason = meta.get("fallback_reason")
+            sources_used = meta.get("sources_used")
+            run_ts = meta.get("run_timestamp_utc")
+            # Top banner
+            st.caption(f"Engine: {engine_version} · Run: {run_ts or 'n/a'}")
+            if engine_mode == "SIGNAL_ONLY":
+                st.caption("Signal-based scan (no allocation, no position sizing)")
+            # Save mode for later UI decisions
+            st.session_state["engine_mode"] = engine_mode
+            if sources_used:
+                try:
+                    # Universe provider
+                    src_line = sources_used.get("universe_provider") or sources_used
+                    st.caption(f"Universe Source: {src_line}")
+                    # Compact telemetry summary
+                    price_used = sorted(list((sources_used.get("price") or {}).keys()))
+                    fund_used = sorted(list((sources_used.get("fundamentals") or {}).keys()))
+                    fb_count = len(sources_used.get("fallback_events") or [])
+                    if price_used:
+                        st.caption(f"Price Providers: {', '.join(price_used)}")
+                    if fund_used:
+                        st.caption(f"Fund Providers: {', '.join(fund_used)}")
+                    if fb_count:
+                        st.caption(f"Fallback Events: {fb_count}")
+                except Exception:
+                    pass
+                    # Show Tier 1 filtered reasons (diagnostics)
+                    try:
+                        if diagnostics:
+                            filtered_rows = []
+                            for tkr, rec in diagnostics.items():
+                                tier1 = rec.get("tier1_reasons") or []
+                                if tier1:
+                                    def _fmt_reason(r: dict) -> str:
+                                        try:
+                                            base = f"{r.get('rule')}: {r.get('message')}"
+                                            val = r.get('value')
+                                            thr = r.get('threshold')
+                                            if val is not None or thr is not None:
+                                                return f"{base} (val={val}, thr={thr})"
+                                            return base
+                                        except Exception:
+                                            return str(r)
+                                    joined = "; ".join([_fmt_reason(r) for r in tier1])
+                                    filtered_rows.append({
+                                        "Ticker": tkr,
+                                        "Reasons": joined,
+                                        "last_price": rec.get("last_price"),
+                                        "last_volume": rec.get("last_volume"),
+                                    })
+                            if filtered_rows:
+                                with st.expander("Filtered Out (Tier 1)", expanded=False):
+                                    st.dataframe(pd.DataFrame(filtered_rows), use_container_width=True)
+                    except Exception:
+                        pass
+            if used_fb:
+                st.warning(f"Legacy fallback engaged — {fb_reason or 'reason unavailable'}")
+            # ML health warnings
+            if bool(meta.get("ml_bundle_version_warning")):
+                st.warning(f"ML version mismatch — {meta.get('ml_bundle_warning_reason')}")
+            if bool(meta.get("ml_degraded")):
+                missing = meta.get("ml_missing_features") or []
+                if missing:
+                    st.warning(f"ML degraded — missing features: {', '.join(missing)}")
+                else:
+                    st.warning("ML degraded — limited features or model unavailable")
+        except Exception:
+            pass
         
         # 3. Save Results
         if not results.empty:
             try:
                 # Ensure metadata includes timestamp and type
-                meta = {
+                meta_save = {
                     "universe_count": len(universe),
                     "timestamp": datetime.utcnow().isoformat(),
-                    "scan_type": "live_streamlit"
+                    "scan_type": "live_streamlit",
+                    "engine_version": meta.get("engine_version", "unknown"),
+                    "used_legacy_fallback": bool(meta.get("used_legacy_fallback", False)),
+                    "fallback_reason": meta.get("fallback_reason"),
                 }
-                save_latest_scan_from_results(results, metadata=meta)
+                save_latest_scan_from_results(results, metadata=meta_save)
                 st.session_state["precomputed_results"] = results
                 st.success(f"✅ Scan complete: {len(results)} results found")
             except Exception as e:
@@ -3334,34 +3423,7 @@ results["Unit_Price"] = pd.to_numeric(results["Unit_Price"], errors="coerce")
 # Show ALL stocks that passed filters (no limit)
 TOPN = len(results)
 
-# Apply ML confidence threshold (support multiple column aliases)
-ml_threshold_value = float(st.session_state.get("ml_threshold", 0)) / 100.0
-ml_col = None
-for cand in ("ML_Prob", "ML_20d_Prob", "ML_Probability"):
-    if cand in results.columns:
-        ml_col = cand
-        break
-if ml_threshold_value > 0 and ml_col is not None:
-    before_ml = len(results)
-    results = results[pd.to_numeric(results[ml_col], errors="coerce") >= ml_threshold_value].copy()
-    after_ml = len(results)
-    logger.info(
-        f"ML confidence filter: {before_ml} -> {after_ml} stocks (threshold={ml_threshold_value:.0%}, col={ml_col})"
-    )
-    TOPN = len(results)  # Update TOPN after filtering
-
-# === ALLOCATE BUDGET (must happen before using 'סכום קנייה ($)') ===
-total_budget = float(st.session_state.get("total_budget", CONFIG["BUDGET_TOTAL"]))
-min_position = float(st.session_state.get("min_position", 50.0))
-max_position_pct = float(st.session_state.get("max_position_pct", 15.0))
-results = allocate_budget(
-    results,
-    total=total_budget,
-    min_pos=min_position,
-    max_pos_pct=max_position_pct,
-    score_col="Score" if "Score" in results.columns else "conviction_v2_final",
-    dynamic_sizing=True
-)
+# UI does not apply ML confidence thresholds or perform allocation; pipeline output is authoritative
 
 alloc_df = results.reset_index(drop=True).copy()
 
@@ -3390,45 +3452,7 @@ results["עודף ($)"] = np.round(
     2,
 )
 
-# === Global budget cap enforcement (scaling if needed) ===
-total_budget_value = float(st.session_state.get("total_budget", CONFIG["BUDGET_TOTAL"]))
-results["position_value"] = results["Unit_Price"].fillna(0) * results["מניות לקנייה"]
-total_alloc = float(results["position_value"].sum())
-if total_alloc > total_budget_value and total_alloc > 0:
-    scale = total_budget_value / total_alloc
-    scaled_shares = (results["מניות לקנייה"] * scale).apply(
-        lambda x: max(int(round(x)), 0)
-    )
-    results["מניות לקנייה"] = scaled_shares
-    results["position_value"] = (
-        results["Unit_Price"].fillna(0) * results["מניות לקנייה"]
-    )
-    # Recompute leftover and purchase amount columns to reflect scaled allocation
-    results["סכום קנייה ($)"] = results["position_value"].round(2)
-    results["עודף ($)"] = 0.0  # leftover per row not tracked post-scale
-
-    # KPI
-    budget_used = float(
-        results["מניות לקנייה"].to_numpy() @ results["Unit_Price"].fillna(0).to_numpy()
-    )
-    k0, k1, k2, k3 = st.columns(4)
-    k0.metric("Universe size after history filtering", len(data_map))
-    k1.metric("Results after filtering", len(results))
-    total_budget_value = float(st.session_state.get("total_budget", CONFIG["BUDGET_TOTAL"]))
-    budget_used = min(budget_used, total_budget_value)  # safety clamp
-    k2.metric("Budget used (≈$)", f"{budget_used:,.0f}")
-    k3.metric("Remaining budget (≈$)", f"{max(0.0, total_budget_value - budget_used):,.0f}")
-
-    # Timings
-    st.subheader("⏱️ Execution Times")
-    times_df = pd.DataFrame(
-        [{"Phase": k, "Duration (s)": round(v, 2)} for k, v in phase_times.items()]
-    )
-    st.table(times_df.style.set_properties(**{"text-align": "center"}))
-    if alpha_ok:
-        st.caption(
-            f"Alpha Vantage — calls this session: {int(st.session_state.get('av_calls', 0))} (respect rate limits)."
-        )
+# Timings and provider call count are displayed elsewhere; skip budget enforcement KPIs
     
 # Live-mode-only: offer saving this run as latest precomputed scan
 # If a precomputed scan was loaded earlier, prefer it for rendering instead of re-running the pipeline.
@@ -3474,7 +3498,7 @@ if st.session_state.get("precomputed_results") is not None and st.session_state.
 
 # Mark pipeline completion at UI level
 try:
-    status_manager.advance("Recommendations & Allocation")
+    status_manager.advance("Signal Evaluation")
     status_manager.complete("✅ Pipeline complete")
 except Exception:
     pass
@@ -3488,8 +3512,8 @@ except Exception:
 
 
 
-st.subheader("🤖 Recommendations Now")
-st.caption("These cards are buy recommendations only. This is not investment advice.")
+st.subheader("📊 Market Scan Results")
+st.caption("Signal candidates shown. This is not investment advice.")
 
 # Sidebar filters
 # Sidebar removed - all controls moved to top bar above
@@ -3524,124 +3548,27 @@ st.markdown("---")
 show_debug_attr = False
 compact_mode = False
 
-# Prepare recommendations view: sort by FinalScore_20d (primary) and show all
 initial_rec_count = len(results)
 rec_df = results.copy()
-# Prefer FinalScore_20d for ranking; fallback if missing
-score_col = "FinalScore_20d" if "FinalScore_20d" in rec_df.columns else (
-    "Score" if "Score" in rec_df.columns else (
-        "overall_score_20d" if "overall_score_20d" in rec_df.columns else (
-            "overall_score" if "overall_score" in rec_df.columns else None
-        )
-    )
-)
-if score_col:
-    rec_df = (
-        rec_df.assign(_score_numeric=pd.to_numeric(rec_df[score_col], errors="coerce"))
-        .sort_values(by=["_score_numeric"], ascending=[False])
-        .drop(columns=["_score_numeric"])
-        .copy()
-    )
-else:
-    logger.warning("[DISPLAY] No score column found for ranking; preserving source order")
-    # No TOPN cap — show all viable candidates
 
-# Apply display threshold: show candidates with FinalScore_20d (or fallback score) >= 30, regardless of allocation
-if not rec_df.empty:
-    threshold_col = None
-    for c in ["FinalScore_20d", "Score", "overall_score_20d", "overall_score"]:
-        if c in rec_df.columns:
-            threshold_col = c
-            break
-    if threshold_col is not None:
-        rec_df = rec_df[pd.to_numeric(rec_df[threshold_col], errors="coerce") >= 30].copy()
+## Do not apply local thresholds or filters; pipeline output is authoritative
 
-if not rec_df.empty:
-    # Apply risk filter (inclusive defaults)
-    if risk_filter and "Risk_Level" in rec_df.columns:
-        rec_df = rec_df[rec_df["Risk_Level"].isin(risk_filter)]
+## Skip risk/quality/sector/action filtering in UI
 
-    # Apply quality filter
-    if quality_filter and "Data_Quality" in rec_df.columns:
-        rec_df = rec_df[rec_df["Data_Quality"].isin(quality_filter)]
+logger.info(f"[FILTER] Final candidates after pipeline: {len(rec_df)} stocks (started with {initial_rec_count})")
 
-    # Apply sector filter
-    if sector_filter and "Sector" in rec_df.columns:
-        rec_df = rec_df[rec_df["Sector"].isin(sector_filter)]
+## Do not reshuffle candidates; display pipeline order and content only
 
-    # Drop any explicit REJECT decisions if present
-    for _col in ["Decision", "Recommendation", "Status"]:
-        if _col in rec_df.columns:
-            rec_df = rec_df[rec_df[_col].astype(str).str.upper() != "REJECT"]
+## Remove pass/fail metrics derived from local thresholds
 
-    # Score-only mode: show technically valid actions regardless of allocation
-    if "Action" in rec_df.columns:
-        rec_df = rec_df[rec_df["Action"].astype(str).str.upper().isin(["BUY", "ACCUMULATE", "HOLD"])]
-
-    # Removed UI market cap filter: the UI now mirrors the pipeline output without local cap constraints
-
-    # Removed Coiled/Growth hard filters — handled as scoring bonuses in backend
-
-logger.info(f"[FILTER] Final recommendations after all filters: {len(rec_df)} stocks (started with {initial_rec_count})")
-
-# Hunter display logic: if no CORE, show top SPEC by VCP
-core_count = 0
-if "Risk_Level" in rec_df.columns:
-    try:
-        core_count = int((rec_df["Risk_Level"].astype(str) == "core").sum())
-    except Exception:
-        core_count = 0
-
-    if core_count == 0 and not rec_df.empty:
-        spec_df = rec_df[rec_df["Risk_Level"].astype(str) == "speculative"].copy() if "Risk_Level" in rec_df.columns else rec_df.copy()
-        sort_col = "Volatility_Contraction_Score" if "Volatility_Contraction_Score" in spec_df.columns else ("FinalScore_20d" if "FinalScore_20d" in spec_df.columns else None)
-        if sort_col:
-            spec_df = (
-                spec_df.assign(_sort_val=pd.to_numeric(spec_df[sort_col], errors="coerce"))
-                .sort_values(by=["_sort_val"], ascending=[False])
-                .drop(columns=["_sort_val"])
-            )
-        if spec_df.empty:
-            st.warning("🔍 No high-conviction setups found. Check back after the next automated scan.")
-        else:
-            st.info(f"🟠 Showing {len(spec_df)} recommendations (no CORE found)")
-            rec_df = spec_df
-else:
-    if rec_df.empty:
-        st.warning("🔍 No high-conviction setups found. Check back after the next automated scan.")
-    else:
-        st.info(f"📊 **{len(rec_df)} מניות** עברו את כל המסננים (מתוך {initial_rec_count} שנבדקו)")
-
-# KPI: Totals and pass-through
-try:
-    total_candidates = int(st.session_state.get("pre_scan_universe_count", 0))
-    # Count stocks with FinalScore_20d > 10 from the full results (not only top-15)
-    sc_full = None
-    for c in ["FinalScore_20d", "conviction_v2_final", "overall_score_20d", "overall_score", "Score"]:
-        if c in results.columns:
-            sc_full = c
-            break
-    passed_count = 0
-    if sc_full is not None and not results.empty:
-        passed_count = int(pd.to_numeric(results[sc_full], errors="coerce").gt(10).sum())
-    k1, k2 = st.columns(2)
-    with k1:
-        st.metric("Total Candidates", f"{total_candidates}")
-    with k2:
-        st.metric("Stocks Passed", f"{passed_count}")
-except Exception:
-    pass
-
-if initial_rec_count > 0 and len(rec_df) < initial_rec_count:
-    removed = initial_rec_count - len(rec_df)
-    st.caption(f"🔍 {removed} מניות סוננו על ידי: Risk management, Buy amount allocation, Quality filters")
+## Do not display local filtering removal captions
 
 # --- DEBUG: Show top 5 with canonical 20d ML columns ---
 if not rec_df.empty and "FinalScore_20d" in rec_df.columns:
     debug_cols = ["Ticker", "TechScore_20d", "ML_20d_Prob", "FinalScore_20d", "FinalScore"]
     available_debug_cols = [c for c in debug_cols if c in rec_df.columns]
     if available_debug_cols:
-        st.info("🔍 Top 5 recommendations (20d ML scoring):")
+        st.info("🔍 Top 5 signal candidates (20d ML scoring):")
         top5_debug = rec_df.head(5)[available_debug_cols].copy()
         st.dataframe(top5_debug, width='stretch', hide_index=True)
 
@@ -3651,25 +3578,11 @@ rec_df = rec_df.copy()
 # Responsive recommendation grid + card styles (full-width cards, auto-fit columns)
 # (CSS and markdown blocks should be inside st.markdown or string, not as stray lines)
 
-# Deterministic ranking pre Core/Spec split
-if "Score" in rec_df.columns and "Ticker" in rec_df.columns:
-    rec_df = apply_deterministic_ranking(rec_df)
-    # Maintain legacy Overall_Rank for compatibility, guard if Rank missing
-    if "Overall_Rank" not in rec_df.columns:
-        if "Rank" in rec_df.columns:
-            rec_df["Overall_Rank"] = rec_df["Rank"]
-        else:
-            # Fallback: sequential rank if helper failed to produce Rank
-            rec_df["Overall_Rank"] = np.arange(1, len(rec_df) + 1)
+## Do not reorder; preserve pipeline ranking
 
-# --- Fallback Logic: if no stocks have positive allocation, show top technical candidates ---
+# Empty-state messaging based solely on pipeline results
 if rec_df.empty:
-    st.warning(
-        "No stocks passed allocation filters (all buy amounts zero or blocked). Showing top technical candidates (fallback mode)."
-    )
-    fallback_n = min(10, len(results))
-    rec_df = results.head(fallback_n).copy()
-    rec_df["Fallback_Display"] = True
+    st.info("No strong signals found in this scan.")
 else:
     rec_df["Fallback_Display"] = False
 
@@ -4278,7 +4191,7 @@ def format_rel(val) -> str:
 
 
 if rec_df.empty:
-    st.info("No stocks currently pass the threshold with a positive buy amount.")
+    st.info("No strong signals found in this scan.")
 else:
     # Split into Core and Speculative
     if "Risk_Level" in rec_df.columns:
@@ -4291,23 +4204,10 @@ else:
 
     # Summary info
     total_candidates = len(core_df) + len(spec_df)
-    funded_count = 0
-    try:
-        if 'buy_amount_v2' in rec_df.columns:
-            funded_count = int((rec_df['buy_amount_v2'].fillna(0) > 0).sum())
-        elif 'סכום קנייה ($)' in rec_df.columns:
-            funded_count = int((rec_df['סכום קנייה ($)'].fillna(0) > 0).sum())
-    except Exception:
-        funded_count = total_candidates
-    
-    if funded_count and funded_count != total_candidates:
-        st.info(
-            f"📊 Showing {funded_count} funded positions (out of {total_candidates} candidates) — {len(core_df)} Core, {len(spec_df)} Speculative"
-        )
-    else:
-        st.info(
-            f"📊 Showing {total_candidates} stocks after filters ({len(core_df)} Core, {len(spec_df)} Speculative)"
-        )
+    # UI does not compute or display allocation-based funding metrics
+    st.info(
+        f"📊 Showing {total_candidates} candidates — {len(core_df)} Core, {len(spec_df)} Speculative"
+    )
 
     # Legend for ML badge thresholds
     st.caption("ML badge legend: 🟢 >60% · 🟡 40–60% · 🔴 <40%")
@@ -4400,12 +4300,12 @@ else:
             return na
 
     # UI displays exactly what the pipeline provided (no extra slicing)
-    st.write(f"Showing {len(rec_df)} recommendations")
+    st.write(f"Showing {len(rec_df)} candidates")
 
     # Core recommendations
     if not core_df.empty:
         st.markdown("### 🛡️ Core Stocks — Lower Relative Risk")
-        st.caption(f"Showing {len(core_df)} recommendations")
+        st.caption(f"Showing {len(core_df)} candidates")
         
         @st.cache_data(ttl=3600)
         def _fallback_sector_yf(ticker: str) -> str:
@@ -4503,10 +4403,10 @@ else:
                         st.text("Price STD")
                         st.code(f"{r.get('Price_STD', r.get('price_std', np.nan))}")
 
-    # Speculative recommendations
+    # Speculative candidates
     if not spec_df.empty:
         st.markdown("### ⚡ Speculative Stocks — High Upside, High Risk")
-        st.caption(f"Showing {len(spec_df)} recommendations")
+        st.caption(f"Showing {len(spec_df)} candidates")
         st.warning("🔔 Warning: These stocks are classified as speculative due to partial data or elevated risk factors. Suitable for experienced investors only.")
         
         @st.cache_data(ttl=3600)
@@ -4838,7 +4738,7 @@ else:
             elif gate_status == "reduced" or gate_status == "severely_reduced":
                 badge_html = "<span style='background:#f59e0b;color:black;padding:4px 8px;border-radius:6px;font-weight:700;margin-left:8px'>⚠️ Reduced (Strict Risk Gate)</span>"
             elif gate_status == "full":
-                badge_html = "<span style='background:#16a34a;color:white;padding:4px 8px;border-radius:6px;font-weight:700;margin-left:8px'>✅ Full Allocation Allowed (Strict Mode)</span>"
+                badge_html = "<span style='background:#16a34a;color:white;padding:4px 8px;border-radius:6px;font-weight:700;margin-left:8px'>✅ Passed Strict Risk Gate</span>"
 
             # Format V2 scores for inline display
             conv_v2_fmt = f"{conv_v2:.0f}" if np.isfinite(conv_v2) else "N/A"
