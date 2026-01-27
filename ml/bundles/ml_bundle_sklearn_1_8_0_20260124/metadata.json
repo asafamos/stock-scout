@@ -1,1 +1,0 @@
-{"sklearn_version": "1.8.0", "feature_list": ["RSI", "ATR_Pct"], "training_date_utc": "2026-01-24T09:16:55.648706", "label_summary": {"type": "binary_sharpe_threshold", "horizon_days": 20, "sharpe_threshold": 1.5}}
