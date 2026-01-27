@@ -64,3 +64,7 @@ backup_*/
 .vscode/
 .idea/
 *.code-workspace
+
+# ML artifacts
+ml/
+models/*.joblib
