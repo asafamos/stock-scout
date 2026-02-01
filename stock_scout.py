@@ -78,6 +78,17 @@ _inject_api_keys_early()
 
 # ============================================================================
 # NEW UNIFIED API - Use wrapper modules
+
+# Minimal NullStatus for import-time safety when context is missing
+class NullStatus:
+    def write(self, *args, **kwargs):
+        pass
+    def update(self, *args, **kwargs):
+        pass
+    def __enter__(self):
+        return self
+    def __exit__(self, exc_type, exc, tb):
+        return False
 # ============================================================================
 from core.data import (
     fetch_price_multi_source,
@@ -910,6 +921,9 @@ def fetch_history_bulk(
         try:
             df = yf.download(tkr, start=start, end=end, progress=False)
             if df is not None and len(df) >= min_rows:
+                # Handle MultiIndex columns from newer yfinance versions
+                if isinstance(df.columns, pd.MultiIndex):
+                    df.columns = df.columns.get_level_values(0)
                 data_map[tkr] = df
         except Exception as exc:  # best-effort fetch per ticker
             logger.warning(f"Historical fetch failed for {tkr}: {exc}")
@@ -2836,6 +2850,7 @@ if skip_pipeline:
 else:
     # Live scan execution fallback
     with st.status("🚀 Running Live Scan...", expanded=True) as status:
+        status = status or NullStatus()
         status.write("Initializing pipeline...")
         # 1. Fetch Universe
         universe = fetch_top_us_tickers_by_market_cap(limit=CONFIG["UNIVERSE_LIMIT"])
@@ -2845,7 +2860,7 @@ else:
         wrapper = run_scan_pipeline(
             universe,
             CONFIG,
-            status_callback=status.write
+            status_callback=status.write if status else None
         )
         meta = wrapper.get("meta", {}) if isinstance(wrapper, dict) else {}
         payload = wrapper.get("result") if isinstance(wrapper, dict) else wrapper

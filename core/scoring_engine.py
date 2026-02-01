@@ -44,10 +44,10 @@ def compute_final_score_20d(row: pd.Series) -> float:
     """Compute the 20d final score from canonical components (0-100 scale).
 
     Expects canonical fields when available (neutrals used otherwise):
-    - FundamentalScore (0-100)
+    - FundamentalScore or Fundamental_S (0-100)
     - MomentumScore (0-100) or fallback to TechScore_20d (0-100)
     - RR (ratio, converts to 0-100 via evaluate_rr_unified)
-    - ReliabilityScore (0-100)
+    - ReliabilityScore or Reliability_Score (0-100)
     - ML_20d_Prob (0-1) optional adjustment via ml_boost_component
 
     Weights (explicit):
@@ -57,7 +57,8 @@ def compute_final_score_20d(row: pd.Series) -> float:
     - Reliability: 15%
     """
     try:
-        fund = float(row.get("FundamentalScore", 50.0))
+        # Try multiple field names for fundamentals
+        fund = float(row.get("FundamentalScore", row.get("Fundamental_S", row.get("Fundamental_Score", 50.0))))
         mom = float(row.get("MomentumScore", row.get("TechScore_20d", 50.0)))
         # Hunter amplification: if Coil_Bonus is active, amplify technical/momentum
         try:
@@ -66,7 +67,8 @@ def compute_final_score_20d(row: pd.Series) -> float:
                 mom = float(mom) * 1.5
         except Exception:
             pass
-        rel = float(row.get("ReliabilityScore", 50.0))
+        # Try multiple field names for reliability
+        rel = float(row.get("ReliabilityScore", row.get("Reliability_Score", 50.0)))
 
         # RR ratio → score (0-100)
         rr_ratio = row.get("RR", None)

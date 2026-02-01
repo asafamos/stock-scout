@@ -86,10 +86,10 @@ def run_preflight(timeout: float = 3.0) -> Dict[str, Dict[str, any]]:
     """
     status: Dict[str, Dict[str, Any]] = {}
 
-    # FMP profile endpoint (lightweight & stable)
+    # FMP profile endpoint (stable API)
     fmp = _check_provider(
         "FMP",
-        "https://financialmodelingprep.com/api/v3/profile/AAPL",
+        "https://financialmodelingprep.com/stable/profile?symbol=AAPL",
         params={"apikey": os.getenv("FMP_API_KEY") or os.getenv("FMP_KEY")},
         timeout=timeout,
         key_envs=("FMP_API_KEY", "FMP_KEY"),

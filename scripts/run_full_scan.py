@@ -3,9 +3,10 @@ import os
 import sys
 import json
 import time
+import requests
 from datetime import datetime
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 # Ensure project root is on sys.path for absolute imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -42,6 +43,97 @@ def to_pct(val):
     except Exception:
         return np.nan
     return x * 100.0 if abs(x) <= 2 else x
+
+
+def send_high_confidence_alerts(df: pd.DataFrame, ml_threshold: float = 0.7, max_alerts: int = 10) -> None:
+    """Send alerts for high-confidence ML signals.
+    
+    If ALERT_WEBHOOK env var is set, sends POST request with top signals.
+    Otherwise, just logs the signals to stdout.
+    
+    Args:
+        df: Scan results DataFrame
+        ml_threshold: Minimum ML_20d_Prob to trigger alert (default 0.7)
+        max_alerts: Maximum number of alerts to send (default 10)
+    """
+    # Find ML probability column
+    ml_col = None
+    for col in ["ML_20d_Prob", "ml_20d_prob", "ML_Prob"]:
+        if col in df.columns:
+            ml_col = col
+            break
+    
+    if ml_col is None:
+        print(json.dumps({"alert_status": "skipped", "reason": "no_ml_column"}))
+        return
+    
+    # Filter for high-confidence signals
+    df_copy = df.copy()
+    df_copy["_ml_prob"] = pd.to_numeric(df_copy[ml_col], errors="coerce")
+    high_conf = df_copy[df_copy["_ml_prob"] >= ml_threshold].copy()
+    
+    if high_conf.empty:
+        print(json.dumps({"alert_status": "no_signals", "threshold": ml_threshold}))
+        return
+    
+    # Sort by ML probability and take top N
+    high_conf = high_conf.sort_values("_ml_prob", ascending=False).head(max_alerts)
+    
+    # Build alert payload
+    timestamp = datetime.utcnow().isoformat() + "Z"
+    score_col = "FinalScore_20d" if "FinalScore_20d" in high_conf.columns else "Score"
+    
+    signals = []
+    for _, row in high_conf.iterrows():
+        signal = {
+            "ticker": str(row.get("Ticker", "UNKNOWN")),
+            "score": round(float(row.get(score_col, 0)), 2) if pd.notna(row.get(score_col)) else None,
+            "ml_probability": round(float(row["_ml_prob"]), 4),
+            "timestamp": timestamp,
+        }
+        signals.append(signal)
+    
+    alert_payload = {
+        "event": "high_confidence_signals",
+        "timestamp": timestamp,
+        "signal_count": len(signals),
+        "ml_threshold": ml_threshold,
+        "signals": signals,
+    }
+    
+    # Check for webhook
+    webhook_url = os.environ.get("ALERT_WEBHOOK")
+    
+    if webhook_url:
+        try:
+            resp = requests.post(
+                webhook_url,
+                json=alert_payload,
+                headers={"Content-Type": "application/json"},
+                timeout=10,
+            )
+            print(json.dumps({
+                "alert_status": "sent",
+                "webhook_response": resp.status_code,
+                "signal_count": len(signals),
+            }))
+        except Exception as e:
+            print(json.dumps({
+                "alert_status": "webhook_failed",
+                "error": str(e),
+                "signal_count": len(signals),
+            }))
+            # Still log the signals on webhook failure
+            print(json.dumps({"alert_payload": alert_payload}))
+    else:
+        # No webhook - just log the signals
+        print(json.dumps({
+            "alert_status": "logged",
+            "note": "Set ALERT_WEBHOOK env var to enable webhook alerts",
+            "signal_count": len(signals),
+        }))
+        for sig in signals:
+            print(json.dumps({"high_confidence_signal": sig}))
 
 
 def run_pipeline_full(universe: List[str], cfg: dict, batch_size: int = 200) -> Tuple[pd.DataFrame, int]:
@@ -132,6 +224,13 @@ def main():
         meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
     except Exception as e:
         print(json.dumps({"warning": f"meta_save_failed: {e}"}))
+
+    # Send alerts for high-confidence ML signals
+    if results is not None and not results.empty:
+        try:
+            send_high_confidence_alerts(results, ml_threshold=0.7, max_alerts=10)
+        except Exception as e:
+            print(json.dumps({"warning": f"alert_failed: {e}"}))
 
     # Build terminal report (JSON) with flags and FinalScore_20d
     df = results.copy() if results is not None else pd.DataFrame()

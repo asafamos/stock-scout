@@ -121,25 +121,28 @@ def fetch_top_us_tickers_by_market_cap(limit: int = 2000) -> List[str]:
     """
     global LAST_UNIVERSE_PROVIDER
 
-    # --- Primary: FMP stock screener (more permissive) ---
+    # --- Primary: FMP company screener (stable API) ---
     try:
         from core.config import get_secret
         api_key = get_secret("FMP_API_KEY", "")
         if api_key:
-            url = "https://financialmodelingprep.com/api/v3/stock-screener"
+            url = "https://financialmodelingprep.com/stable/company-screener"
             try:
-                min_cap = int(os.getenv("MIN_MCAP", "300000000"))
+                min_cap = int(os.getenv("MIN_MCAP", "300000000"))  # $300M minimum
             except Exception:
                 min_cap = 300_000_000
             try:
-                # Target pre-jump candidates: cap upper bound at ~$10B by default
-                max_cap = int(os.getenv("MAX_MCAP", "10000000000"))
+                # Allow full range up to mega-caps for comprehensive scanning
+                max_cap = int(os.getenv("MAX_MCAP", "10000000000000"))  # $10T (effectively no limit)
             except Exception:
-                max_cap = 10_000_000_000
+                max_cap = 10_000_000_000_000
             params = {
                 "marketCapMoreThan": max(min_cap, 0),
                 "marketCapLowerThan": max_cap,
-                "limit": 2000,
+                "isActivelyTrading": True,
+                "isEtf": False,
+                "isFund": False,
+                "limit": min(limit * 2, 3000),  # Request extra to filter
                 "apikey": api_key,
             }
             resp = requests.get(url, params=params, timeout=8)
@@ -167,57 +170,32 @@ def fetch_top_us_tickers_by_market_cap(limit: int = 2000) -> List[str]:
         logger.warning(f"FMP universe fetch errored: {e}")
 
     # --- Fallback 1: Polygon v3/reference/tickers ---
-    try:
-        poly_key = os.getenv("POLYGON_API_KEY", "")
-        if poly_key:
-            url = "https://api.polygon.io/v3/reference/tickers"
-            base_params = {
-                "market": "stocks",
-                "type": "CS",
-                "active": "true",
-                "limit": 1000,
-                "apiKey": poly_key,
-            }
-            tickers: List[str] = []
-            next_url: Optional[str] = None
-            attempts = 0
-            while len(tickers) < limit and attempts < 15:
-                if next_url:
-                    # Ensure apiKey present on next_url
-                    if "apiKey=" not in next_url:
-                        sep = '&' if '?' in next_url else '?'
-                        next_url = f"{next_url}{sep}apiKey={poly_key}"
-                    r = requests.get(next_url, timeout=10)
-                else:
-                    r = requests.get(url, params=base_params, timeout=10)
-                if r.status_code == 429:
-                    time.sleep(1.0)
-                    attempts += 1
-                    continue
-                if r.status_code != 200:
-                    logger.warning(f"Polygon reference/tickers failed: HTTP {r.status_code}")
-                    break
-                payload = r.json() or {}
-                results = payload.get("results") or []
-                for it in results:
-                    sym = it.get("ticker")
-                    if sym:
-                        tickers.append(sym)
-                next_url = payload.get("next_url")
-                attempts += 1
-                if not next_url:
-                    break
-            out = _normalize_symbols(tickers[:limit])
-            if out:
-                logger.info(f"✓ Universe from Polygon: {len(out)} tickers")
-                LAST_UNIVERSE_PROVIDER = "Polygon"
-                return out
-        else:
-            logger.warning("POLYGON_API_KEY missing; skipping Polygon universe fetch")
-    except Exception as e:
-        logger.warning(f"Polygon universe fetch errored: {e}")
+    # NOTE: Polygon returns alphabetical unsorted list, skip it and go to local fallback
+    # which is sorted by market cap for better stock selection
+    logger.info("Skipping Polygon (returns alphabetical list); using local market-cap-sorted fallback")
 
-    # --- Fallback 2: EODHD or Nasdaq ---
+
+    # --- Fallback 2: Local S&P 500 (sorted by market cap) - PREFERRED ---
+    try:
+        base_dir = os.path.dirname(os.path.dirname(__file__))
+        # Prefer sorted file (by market cap), then fall back to alphabetical
+        candidates = [
+            os.path.join(base_dir, "sp500_tickers_sorted.txt"),  # Sorted by market cap
+            os.path.join(base_dir, "sp500_tickers.txt"),
+            os.path.join(base_dir, "data", "sp500_tickers.txt"),
+        ]
+        for local_path in candidates:
+            if os.path.exists(local_path):
+                with open(local_path, "r") as f:
+                    syms = [ln.strip() for ln in f if ln.strip() and not ln.strip().startswith("#")]
+                if syms:
+                    logger.info(f"✓ Using local S&P 500 fallback: {len(syms)} tickers from {os.path.relpath(local_path, base_dir)}")
+                    LAST_UNIVERSE_PROVIDER = "Local_SP500"
+                    return syms[:min(limit, len(syms))]
+    except Exception as e:
+        logger.debug(f"Local S&P 500 read failed: {e}")
+
+    # --- Fallback 3: EODHD or Nasdaq (API fallback) ---
     try:
         from core.config import get_secret
         eod_key = get_secret("EODHD_API_KEY", "")
@@ -247,37 +225,28 @@ def fetch_top_us_tickers_by_market_cap(limit: int = 2000) -> List[str]:
     except Exception as e:
         logger.warning(f"EODHD/Nasdaq universe fetch errored: {e}")
 
-    # --- Fallback 3: Local/Gist S&P 500 ---
+    # --- Fallback 4: Hardcoded Top 100 US stocks by market cap (Jan 2026 approx, for API fallback)
     try:
-        base_dir = os.path.dirname(os.path.dirname(__file__))
-        # Prefer root-level file if present (typically contains full 500 list),
-        # then fall back to data/sp500_tickers.txt
-        candidates = [
-            os.path.join(base_dir, "sp500_tickers.txt"),
-            os.path.join(base_dir, "data", "sp500_tickers.txt"),
+        top100_by_mcap = [
+            # Mega-cap (>$500B)
+            "AAPL","MSFT","NVDA","AMZN","GOOG","GOOGL","META","BRK-B","TSLA","AVGO",
+            "LLY","V","JPM","UNH","XOM","MA","COST","WMT","JNJ","HD",
+            # Large-cap ($100B-$500B)
+            "ORCL","PG","MRK","ABBV","CVX","BAC","CRM","AMD","KO","NFLX",
+            "PEP","TMO","CSCO","ACN","MCD","ABT","LIN","ADBE","DIS","WFC",
+            "PM","INTC","INTU","TXN","QCOM","CMCSA","VZ","NEE","DHR","RTX",
+            "AMGN","NKE","HON","SPGI","LOW","PFE","IBM","UNP","COP","BA",
+            "CAT","GS","AMAT","BKNG","AXP","BLK","ELV","ISRG","SYK","MS",
+            "DE","MDLZ","T","GILD","VRTX","NOW","MMC","REGN","ADI","LRCX",
+            "C","SBUX","PANW","MU","BMY","PGR","TJX","CI","CB","SO",
+            "ADP","SCHW","BSX","KLAC","DUK","MO","ZTS","SNPS","PLD","FI",
         ]
-        for local_path in candidates:
-            if os.path.exists(local_path):
-                with open(local_path, "r") as f:
-                    syms = [ln.strip() for ln in f if ln.strip() and not ln.strip().startswith("#")]
-                logger.warning(f"Using local S&P 500 fallback: {len(syms)} tickers from {os.path.relpath(local_path, base_dir)}")
-                LAST_UNIVERSE_PROVIDER = "Local_SP500"
-                return syms[:min(limit, len(syms))]
-    except Exception as e:
-        logger.debug(f"Local S&P 500 read failed: {e}")
-
-    # Hardcoded minimal subset to ensure progress if file missing
-    try:
-        minimal = [
-            "AAPL","MSFT","NVDA","AMZN","GOOG","META","TSLA","AVGO","BRK-B","UNH",
-            "V","JPM","WMT","XOM","LLY","MA","HD","PG","COST","ORCL",
-        ]
-        out = _normalize_symbols(minimal)
-        logger.warning(f"Using hardcoded minimal universe: {len(out)} tickers")
-        LAST_UNIVERSE_PROVIDER = "Hardcoded_Minimal"
+        out = _normalize_symbols(top100_by_mcap)
+        logger.warning(f"Using hardcoded top-100 by market cap fallback: {len(out)} tickers")
+        LAST_UNIVERSE_PROVIDER = "Hardcoded_Top100"
         return out[:min(limit, len(out))]
     except Exception:
-        return minimal
+        return top100_by_mcap
 
 def _normalize_symbols(symbols: List[str]) -> List[str]:
     """Normalize ticker symbols for consistency across providers/yfinance.
@@ -464,7 +433,16 @@ def fetch_history_bulk(tickers: List[str], period_days: int, ma_long: int) -> Di
             )
             if len(chunk) == 1:
                 tkr = chunk[0]
-                df = df_all
+                # For single ticker, yfinance with group_by='ticker' still returns MultiIndex
+                # Access via ticker key to get flat columns
+                try:
+                    df = df_all[tkr].dropna(how='all')
+                except (KeyError, TypeError):
+                    # Fallback: flatten MultiIndex columns if direct access fails
+                    df = df_all.copy()
+                    if isinstance(df.columns, pd.MultiIndex):
+                        df.columns = df.columns.get_level_values(-1)
+                    df = df.dropna(how='all')
                 if not df.empty and len(df) >= min_rows:
                     data_map[tkr] = df
                     logger.info(f"Fetched {len(df)} rows for {tkr}")
@@ -495,6 +473,12 @@ def fetch_beta_vs_benchmark(ticker: str, bench: str = "SPY", days: int = 252) ->
         df_b = yf.download(bench, start=start, end=end, progress=False, auto_adjust=True)
         
         if df_t.empty or df_b.empty: return np.nan
+        
+        # Handle MultiIndex columns from newer yfinance versions
+        if isinstance(df_t.columns, pd.MultiIndex):
+            df_t.columns = df_t.columns.get_level_values(0)
+        if isinstance(df_b.columns, pd.MultiIndex):
+            df_b.columns = df_b.columns.get_level_values(0)
         
         j = pd.concat([df_t["Close"].pct_change(), df_b["Close"].pct_change()], axis=1).dropna()
         j.columns = ["rt", "rb"]
@@ -1404,7 +1388,8 @@ def run_scan_pipeline(
     logger.info(f"[PIPELINE] Advanced filters applied without score-zeroing; total stocks: {len(results)}")
     
     # Optional: Meteor Mode filter (VCP + RS + Pocket Pivots)
-    meteor_mode = bool(config.get("meteor_mode", bool(os.getenv("METEOR_MODE", "1") == "1")))
+    # NOTE: Default to OFF - Meteor filters are very strict and may filter all stocks
+    meteor_mode = bool(config.get("meteor_mode", bool(os.getenv("METEOR_MODE", "0") == "1")))
     if meteor_mode and not results.empty:
         if status_callback: status_callback("Applying Meteor filters (VCP + RS + Pocket Pivots)...")
         try:
@@ -1468,12 +1453,18 @@ def run_scan_pipeline(
 
         # IMPORTANT: Only fetch fundamentals for high-Score candidates with an optional Top-N cap
         try:
-            score_thr = float(config.get("fundamentals_score_threshold", float(os.getenv("FUNDAMENTALS_SCORE_THRESHOLD", "65"))))
+            score_thr = float(config.get("fundamentals_score_threshold", float(os.getenv("FUNDAMENTALS_SCORE_THRESHOLD", "60"))))
         except Exception:
-            score_thr = 65.0
-        # PERFORMANCE FIX: Force strict cap to prevent API throttling hanging the system
-        top_n_cap = 10
-        logger.info(f"⚡ Enforcing strict Top-{top_n_cap} limit for fundamentals fetch to prevent timeouts.")
+            score_thr = 60.0
+        # Top-N cap from config/env - default 50 for wide scans; set 0 to disable cap
+        try:
+            top_n_cap = int(config.get("fundamentals_top_n_cap", int(os.getenv("FUNDAMENTALS_TOP_N_CAP", "50"))))
+        except Exception:
+            top_n_cap = 50
+        if top_n_cap > 0:
+            logger.info(f"⚡ Fetching fundamentals for Top-{top_n_cap} stocks (score > {score_thr})")
+        else:
+            logger.info(f"⚡ Fetching fundamentals for ALL stocks with score > {score_thr} (no cap)")
 
         # Filter and cap by top-N, prioritizing highest technical scores
         # Ensure scoring columns exist to avoid KeyError in edge cases
@@ -1661,12 +1652,16 @@ def run_scan_pipeline(
         except Exception as e:
             logger.debug(f"Valuation/Quality column creation skipped: {e}")
         
-        # Compute fundamental scores only if missing to avoid double-calculation
+        # Compute fundamental scores - always recalculate based on merged fund_df data
+        # The default 50.0 from fetch_fundamentals_batch needs to be replaced with actual calculation
         for idx, row in results.iterrows():
-            if pd.notna(row.get("Fundamental_S")):
-                continue
             try:
                 fund_data = row.to_dict()
+                # Only calculate if we have actual fundamental data (pe, roe, etc.)
+                has_fund_data = any(pd.notna(fund_data.get(f)) for f in ['pe', 'roe', 'pb', 'margin', 'debt_equity'])
+                if not has_fund_data:
+                    results.at[idx, "Fundamental_S"] = 50.0
+                    continue
                 fund_score_obj = compute_fundamental_score_with_breakdown(fund_data)
                 results.at[idx, "Fundamental_S"] = fund_score_obj.total
                 results.at[idx, "Quality_Score_F"] = fund_score_obj.breakdown.quality_score
@@ -1689,6 +1684,21 @@ def run_scan_pipeline(
             fundamentals_status_local = "not_requested"
         except Exception:
             pass
+    
+    # CRITICAL: Recalculate FinalScore_20d with fundamentals NOW integrated
+    # The scoring engine needs the Fundamental_S field which was just added
+    try:
+        from core.scoring_engine import compute_final_score_20d
+        for idx, row in results.iterrows():
+            try:
+                new_score = compute_final_score_20d(row)
+                results.at[idx, "FinalScore_20d"] = float(new_score)
+                results.at[idx, "Score"] = float(new_score)
+            except Exception as e:
+                logger.debug(f"FinalScore recalc failed for {row.get('Ticker')}: {e}")
+        logger.info(f"[PIPELINE] Recalculated FinalScore_20d with fundamentals for {len(results)} stocks")
+    except Exception as e:
+        logger.warning(f"FinalScore recalc skipped: {e}")
     
     # Preserve and map source metadata to canonical UI columns
     try:

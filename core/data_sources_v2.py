@@ -702,9 +702,9 @@ def get_fundamentals_safe(ticker: str) -> Optional[Dict]:
     if cached:
         return cached
 
-    # Profile (best-effort; do not early-return on failure)
+    # Profile (best-effort; do not early-return on failure) - using stable API
     _rate_limit("fmp")
-    prof_url = f"https://financialmodelingprep.com/api/v3/profile/{tkr}"
+    prof_url = f"https://financialmodelingprep.com/stable/profile?symbol={tkr}"
     prof_params = {"apikey": (FMP_KEY_RUNTIME or FMP_API_KEY), "limit": 1}
     prof = None
     try:
@@ -721,9 +721,9 @@ def get_fundamentals_safe(ticker: str) -> Optional[Dict]:
     except Exception as e:
         record_api_call("FMP", "profile", "exception", 0.0, {"ticker": tkr, "error": str(e)[:200]})
 
-    # Ratios TTM (best-effort)
+    # Ratios TTM (best-effort) - using stable API
     _rate_limit("fmp")
-    ratios_url = f"https://financialmodelingprep.com/api/v3/ratios-ttm/{tkr}"
+    ratios_url = f"https://financialmodelingprep.com/stable/ratios-ttm?symbol={tkr}"
     ratios_params = {"apikey": (FMP_KEY_RUNTIME or FMP_API_KEY)}
     ratios = None
     try:
@@ -1750,11 +1750,11 @@ def fetch_price_multi_source(ticker: str, provider_status: Dict | None = None, t
         except Exception as e:
             logger.warning(f"EODHD price fetch failed: {e}")
 
-    # FMP price (secondary)
+    # FMP price (secondary) - using stable API
     if _can_price("FMP") and (FMP_KEY_RUNTIME or FMP_API_KEY) and ("fmp:price" not in DISABLED_PROVIDERS):
         try:
             _rate_limit("fmp")
-            url = f"https://financialmodelingprep.com/api/v3/quote/{ticker}"
+            url = f"https://financialmodelingprep.com/stable/quote?symbol={ticker}"
             params = {"apikey": (FMP_KEY_RUNTIME or FMP_API_KEY)}
             # Use raw request to catch 403 and blacklist
             resp_block = _http_get_with_retry(url, params=params, timeout=3, provider="FMP", capability="price")
@@ -1976,7 +1976,7 @@ def get_next_earnings_date(ticker: str) -> Optional[str]:
     if FMP_API_KEY:
         try:
             _rate_limit("fmp")
-            url = f"https://financialmodelingprep.com/api/v3/earning_calendar"
+            url = f"https://financialmodelingprep.com/stable/earning-calendar-confirmed"
             params = {"symbol": ticker, "apikey": FMP_API_KEY}
             data = _http_get_with_retry(url, params=params, timeout=3, provider="FMP", capability="earnings")
             if data and isinstance(data, list) and len(data) > 0:
@@ -2089,8 +2089,8 @@ def get_index_series(
     if (not prefer_polygon) and provider_status.get("fmp", True) and FMP_API_KEY and not _PROVIDER_DISABLED.get("fmp", False):
         try:
             _rate_limit("fmp")
-            # Modern endpoint for chart data (1-day granularity)
-            url = f"https://financialmodelingprep.com/api/v3/historical-chart/1day/{fmp_symbol}"
+            # Modern stable endpoint for historical price data
+            url = f"https://financialmodelingprep.com/stable/historical-price-eod/light?symbol={fmp_symbol}"
             params = {
                 "apikey": FMP_API_KEY,
                 "from": start_date,

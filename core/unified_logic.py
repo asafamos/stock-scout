@@ -29,6 +29,51 @@ from core.scoring_config import (
 logger = logging.getLogger(__name__)
 
 
+def score_with_ml_model(row: pd.Series | dict, model_data: Optional[dict] = None) -> float:
+    """
+    Backward-compatible wrapper used by unified_backtest.py.
+    Returns ML_20d probability (0..1). If unavailable, return 0.5.
+    """
+    try:
+        # Accept dicts for flexibility
+        s = row if isinstance(row, pd.Series) else pd.Series(dict(row or {}))
+        try:
+            from core.ml_20d_inference import (
+                ML_20D_AVAILABLE,
+                compute_ml_20d_probabilities_raw,
+                calibrate_ml_20d_prob,
+            )
+        except Exception:
+            return 0.5
+
+        if not ML_20D_AVAILABLE:
+            return 0.5
+
+        prob_raw = compute_ml_20d_probabilities_raw(s)
+        # Calibrate with whatever fields are present; tolerate missing values
+        atr_pct_pct = s.get("ATR_Pct_percentile", None)
+        price_as_of = s.get("Price_As_Of_Date", None)
+        reliability = s.get("ReliabilityFactor", None)
+        rsi_val = s.get("RSI", None)
+        prob = calibrate_ml_20d_prob(
+            prob_raw,
+            atr_pct_percentile=float(atr_pct_pct) if pd.notna(atr_pct_pct) else None,
+            price_as_of=float(price_as_of) if pd.notna(price_as_of) else None,
+            reliability_factor=float(reliability) if pd.notna(reliability) else None,
+            market_regime=None,
+            rsi=float(rsi_val) if pd.notna(rsi_val) else None,
+        )
+        try:
+            p = float(prob)
+            if not (0.0 <= p <= 1.0):
+                return 0.5
+            return p
+        except Exception:
+            return 0.5
+    except Exception:
+        return 0.5
+
+
 def apply_technical_filters(row: pd.Series, strict: bool = True, relaxed: bool = False) -> bool:
     """Apply basic technical filters to determine if a stock passes initial screening.
     
@@ -1507,6 +1552,9 @@ def fetch_stock_data(ticker: str, start_date: str, end_date: str) -> Optional[pd
         df = yf.download(ticker, start=start_date, end=end_date, auto_adjust=True, progress=False)
         if df.empty:
             return None
+        # Flatten MultiIndex columns returned by newer yfinance versions
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
         return df
     except Exception:
         return None

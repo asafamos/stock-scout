@@ -121,9 +121,12 @@ def assign_risk_class(row: pd.Series) -> str:
     beta_ok = (beta is None) or (isinstance(beta, (int, float)) and np.isfinite(beta) and beta <= 1.6)
 
     # Clear thresholds; adjust as needed based on backtests
-    if np.isfinite(score_val) and score_val >= 70 and vol_ok and beta_ok:
+    # CORE: High quality stocks with strong scores
+    # SPEC: Speculative but promising stocks 
+    # REJECT: Below threshold or blocked by safety filters
+    if np.isfinite(score_val) and score_val >= 65 and vol_ok and beta_ok:
         return "CORE"
-    if np.isfinite(score_val) and score_val >= 50:
+    if np.isfinite(score_val) and score_val >= 40:
         return "SPEC"
     return "REJECT"
 

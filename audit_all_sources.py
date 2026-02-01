@@ -28,15 +28,15 @@ except Exception:
 
 TICKER = "AAPL"
 sources = [
-    # --- FMP ---
+    # --- FMP (Stable API - migrated from deprecated v3) ---
     {
         'name': '1. FMP (Profile)',
-        'url': f'https://financialmodelingprep.com/api/v3/profile/{TICKER}?apikey={keys.fmp}',
+        'url': f'https://financialmodelingprep.com/stable/profile?symbol={TICKER}&apikey={keys.fmp}',
         'key': getattr(keys, 'fmp', None)
     },
     {
         'name': '2. FMP (Metrics)',
-        'url': f'https://financialmodelingprep.com/api/v3/key-metrics-ttm/{TICKER}?limit=1&apikey={keys.fmp}',
+        'url': f'https://financialmodelingprep.com/stable/key-metrics-ttm?symbol={TICKER}&apikey={keys.fmp}',
         'key': getattr(keys, 'fmp', None)
     },
     # --- FINNHUB ---
