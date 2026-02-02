@@ -3,6 +3,23 @@
 
 ---
 
+## ✅ בעיות שתוקנו
+
+### תאריך: 2 בפברואר 2026
+
+| בעיה | סטטוס | פתרון |
+|------|-------|-------|
+| מודל ML עם 5 features בלבד | ✅ תוקן | המודל v3 משתמש ב-34 features (core/feature_registry.py) |
+| חסר Cross-Validation | ✅ תוקן | TimeSeriesSplit עם 5 folds |
+| API Key חשוף | ✅ תוקן | נוסף APIKeyManager ב-core/api_keys.py |
+| Calibration Hack | ✅ תוקן | Isotonic Regression בזמן training |
+| נתיב מודל שגוי | ✅ תוקן | _find_model_path() עם fallbacks ב-ml_integration.py |
+| Feature mismatch | ✅ תוקן | Feature Registry כ-Single Source of Truth |
+| Scoring inconsistency | ✅ תוקן | UnifiedScorer ב-core/scoring/unified_scorer.py |
+| GitHub Actions בזמנים לא רלוונטיים | ✅ תוקן | תזמון לפי שעות NYSE + בדיקת חגים |
+
+---
+
 ## 📋 תקציר מנהלים
 
 המערכת **Stock Scout** היא מערכת מתקדמת לזיהוי מניות לפני עליות משמעותיות, המשלבת ניתוח טכני, פונדמנטלי ו-ML. המערכת מבוססת על ארכיטקטורה מודולרית עם ריצות אוטומטיות ב-GitHub Actions.
@@ -111,16 +128,15 @@ if 0.7 <= prob_win <= 0.9:
 
 **הבעיה**:
 ```python
-POLYGON_KEY = os.environ.get("POLYGON_API_KEY", "2kjHdOxfjiw3d9Q9slH871KSQQPgf4nh")
+POLYGON_KEY = os.environ.get("POLYGON_API_KEY", "HARDCODED_KEY_REMOVED")
 ```
 
 **סיכון אבטחה**: API key חשוף בקוד פתוח!
 
 **תיקון מיידי**:
 ```python
-POLYGON_KEY = os.environ.get("POLYGON_API_KEY")
-if not POLYGON_KEY:
-    raise EnvironmentError("POLYGON_API_KEY not set")
+from core.api_keys import get_api_key
+POLYGON_KEY = get_api_key("POLYGON_API_KEY", required=True)
 ```
 
 ---

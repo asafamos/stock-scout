@@ -12,99 +12,207 @@ import pickle
 from pathlib import Path
 import numpy as np
 import pandas as pd
-from typing import Optional, Tuple, Dict, List
+from typing import Optional, Tuple, Dict, List, Any
 import logging
+import joblib
+
+# Import from feature registry - Single Source of Truth for features
+from core.feature_registry import (
+    get_feature_names,
+    get_feature_defaults,
+    get_feature_ranges,
+    FEATURE_COUNT_V3,
+)
 
 logger = logging.getLogger(__name__)
 
 # ============================================================================
-# EXPECTED_FEATURES - Must match training script (scripts/train_rolling_ml_20d.py)
-# The model was trained with exactly these 34 features in this exact order.
-# DO NOT change this list without retraining the model!
+# EXPECTED_FEATURES - Single Source of Truth from feature_registry
+# The registry defines the canonical 34-feature set (v3).
+# Model bundles may use a subset; we load from bundle if available.
 # ============================================================================
-EXPECTED_FEATURES: List[str] = [
-    'RSI',                  # Relative Strength Index (0-100)
-    'ATR_Pct',              # Average True Range as % of price (0.01-0.10 typical)
-    'Return_20d',           # 20-day price return (-0.5 to +0.5 typical)
-    'Return_10d',           # 10-day price return (-0.3 to +0.3 typical)
-    'Return_5d',            # 5-day price return (-0.2 to +0.2 typical)
-    'VCP_Ratio',            # Volatility Contraction Pattern: ATR(10)/ATR(30) (0.5-2.0)
-    'Tightness_Ratio',      # Range contraction: range_5d/range_20d (0.1-1.0)
-    'Dist_From_52w_High',   # Distance from 52-week high: (Close/High)-1 (-0.5 to 0)
-    'MA_Alignment',         # 1 if Close>MA20>MA50>MA200, else 0
-    'Volume_Surge',         # vol_5d_avg / vol_20d_avg (0.5-3.0 typical)
-    'Up_Down_Volume_Ratio', # avg up-day volume / avg down-day volume (0.5-2.0)
-    'Momentum_Consistency', # % of positive days in last 20 (0-1)
-    'RS_vs_SPY_20d',        # stock_return_20d - spy_return_20d (-0.3 to +0.3)
-    # Market regime features (4)
-    'Market_Regime',        # -1=Bear, 0=Sideways, 1=Bull
-    'Market_Volatility',    # SPY 20d volatility annualized (0.10-0.50 typical)
-    'Market_Trend',         # SPY 50d return (-0.2 to +0.2 typical)
-    'High_Volatility',      # 1 if volatility > 75th percentile, else 0
-    # Sector-relative features (3)
-    'Sector_RS',            # stock_return_20d - sector_etf_return_20d (-0.3 to +0.3)
-    'Sector_Momentum',      # sector_etf_return_20d (absolute sector strength)
-    'Sector_Rank',          # 1 if stock beats sector in 5d return, else 0
-    # Institutional accumulation volume features (5)
-    'Volume_Ratio_20d',     # current volume / 20d avg volume (spike detection)
-    'Volume_Trend',         # linear regression slope of volume (accumulation trend)
-    'Up_Volume_Ratio',      # up-day volume / total volume (buying pressure)
-    'Volume_Price_Confirm', # price up AND volume up confirmation (0-1)
-    'Relative_Volume_Rank', # percentile rank of volume vs 60 days (0-1)
-    # Price action pattern features (9)
-    'Distance_From_52w_Low',    # (close - 52w_low) / 52w_low (distance from bottom)
-    'Consolidation_Tightness',  # (20d_high - 20d_low) / 20d_avg (tight = ready)
-    'Days_Since_52w_High',      # normalized 0-1 (0 = just hit high)
-    'Price_vs_SMA50',           # (close - sma50) / sma50 (trend position)
-    'Price_vs_SMA200',          # (close - sma200) / sma200 (long-term trend)
-    'SMA50_vs_SMA200',          # (sma50 - sma200) / sma200 (golden/death cross)
-    'MA_Slope_20d',             # slope of 20d MA (trend strength)
-    'Distance_To_Resistance',   # (20d_high - close) / close
-    'Support_Strength',         # fraction of days near 20d support (0-1)
-]
+# Default features from registry (used if model bundle doesn't specify)
+DEFAULT_FEATURES: List[str] = get_feature_names("v3")
+
+# This will be populated when the model is loaded (from bundle or defaults)
+EXPECTED_FEATURES: List[str] = []
 
 # Global model cache
 _ML_MODEL = None
 _MODEL_LOADED = False
-_MODEL_PATH = str(Path(__file__).resolve().parents[1] / "model_xgboost_5d.pkl")
+_MODEL_BUNDLE = None  # Store full bundle for metadata access
+
+
+# Model path priority (first found is used):
+# 1. models/model_20d_v3.pkl (latest trained model)
+# 2. ml/bundles/latest/model.joblib (production bundle)
+# 3. model_xgboost_5d.pkl (legacy fallback)
+
+def _find_model_path() -> Optional[str]:
+    """Find the best available model file."""
+    project_root = Path(__file__).resolve().parents[1]
+
+    candidates = [
+        project_root / "models" / "model_20d_v3.pkl",
+        project_root / "ml" / "bundles" / "latest" / "model.joblib",
+        project_root / "model_xgboost_5d.pkl",  # Legacy
+    ]
+
+    for path in candidates:
+        if path.exists():
+            logger.info(f"Found ML model at: {path}")
+            return str(path)
+
+    logger.warning("No ML model found in any expected location")
+    return None
+
+
+_MODEL_PATH = _find_model_path()
+
+
+def validate_model_features(model, expected_features: List[str]) -> bool:
+    """
+    Validate that loaded model matches expected features.
+    
+    Args:
+        model: Loaded model object
+        expected_features: List of feature names the model should accept
+    
+    Returns:
+        True if model accepts the expected features, False otherwise
+    """
+    try:
+        # Create dummy input with expected features
+        dummy_input = pd.DataFrame([{f: 0.0 for f in expected_features}])
+
+        # Try to predict - will fail if features don't match
+        model.predict_proba(dummy_input)
+        return True
+    except Exception as e:
+        logger.error(f"Model validation failed: {e}")
+        return False
 
 
 def load_ml_model(model_path: Optional[str] = None) -> bool:
     """
-    Load the XGBoost model from disk.
+    Load the ML model from disk with validation.
+    
+    Supports multiple model formats:
+    - joblib (preferred, newer format)
+    - pickle (legacy format)
+    - bundled models (dict with 'model' and 'feature_names' keys)
     
     Args:
-        model_path: Path to model file (default: model_xgboost_5d.pkl)
+        model_path: Path to model file (default: auto-discovered)
     
     Returns:
         True if loaded successfully, False otherwise
     """
-    global _ML_MODEL, _MODEL_LOADED, _MODEL_PATH
-    
+    global _ML_MODEL, _MODEL_LOADED, _MODEL_PATH, _MODEL_BUNDLE, EXPECTED_FEATURES
+
     if model_path:
         _MODEL_PATH = model_path
-    
+    elif _MODEL_PATH is None:
+        _MODEL_PATH = _find_model_path()
+
     if _MODEL_LOADED:
         return _ML_MODEL is not None
-    
+
+    if _MODEL_PATH is None:
+        logger.warning("No ML model file found in any expected location")
+        _MODEL_LOADED = True
+        return False
+
     try:
-        if not os.path.exists(_MODEL_PATH):
-            logger.warning(f"ML model not found at {_MODEL_PATH}")
+        # Try joblib first (newer format), fall back to pickle
+        try:
+            loaded = joblib.load(_MODEL_PATH)
+            logger.debug(f"Loaded model using joblib from {_MODEL_PATH}")
+        except Exception:
+            with open(_MODEL_PATH, "rb") as f:
+                loaded = pickle.load(f)
+            logger.debug(f"Loaded model using pickle from {_MODEL_PATH}")
+
+        # Handle bundled models (dict with 'model' key)
+        if isinstance(loaded, dict) and 'model' in loaded:
+            logger.info(f"Loaded model bundle with keys: {list(loaded.keys())}")
+            _MODEL_BUNDLE = loaded
+            _ML_MODEL = loaded['model']
+            
+            # Extract feature names from bundle
+            if 'feature_names' in loaded:
+                EXPECTED_FEATURES = list(loaded['feature_names'])
+                logger.info(f"Loaded {len(EXPECTED_FEATURES)} features from model bundle")
+            elif hasattr(_ML_MODEL, 'feature_names_in_'):
+                EXPECTED_FEATURES = list(_ML_MODEL.feature_names_in_)
+                logger.info(f"Loaded {len(EXPECTED_FEATURES)} features from model attribute")
+            else:
+                EXPECTED_FEATURES = DEFAULT_FEATURES.copy()
+                logger.warning(f"No feature names in bundle, using defaults: {len(EXPECTED_FEATURES)} features")
+        else:
+            # Plain model (not bundled)
+            _ML_MODEL = loaded
+            _MODEL_BUNDLE = None
+            if hasattr(_ML_MODEL, 'feature_names_in_'):
+                EXPECTED_FEATURES = list(_ML_MODEL.feature_names_in_)
+            else:
+                EXPECTED_FEATURES = DEFAULT_FEATURES.copy()
+                logger.warning("Model has no feature_names_in_, using defaults")
+
+        # Validate the model against expected features
+        if not validate_model_features(_ML_MODEL, EXPECTED_FEATURES):
+            logger.error("Model features don't match expected features!")
+            logger.error(f"Expected {len(EXPECTED_FEATURES)} features: {EXPECTED_FEATURES[:5]}...")
+            _ML_MODEL = None
             _MODEL_LOADED = True
             return False
-        
-        with open(_MODEL_PATH, "rb") as f:
-            _ML_MODEL = pickle.load(f)
-        
+
         logger.info(f"✓ ML model loaded from {_MODEL_PATH}")
+        logger.info(f"  Model type: {type(_ML_MODEL).__name__}")
+        logger.info(f"  Features: {len(EXPECTED_FEATURES)}")
         _MODEL_LOADED = True
         return True
-        
+
     except Exception as e:
         logger.error(f"Failed to load ML model: {e}")
         _ML_MODEL = None
         _MODEL_LOADED = True
         return False
+
+
+def get_model_info() -> Dict[str, Any]:
+    """
+    Get information about the currently loaded model.
+    
+    Returns:
+        Dict with model status, path, feature count, type, and features
+    """
+    if not _MODEL_LOADED:
+        load_ml_model()
+
+    return {
+        "loaded": _ML_MODEL is not None,
+        "path": _MODEL_PATH,
+        "feature_count": len(EXPECTED_FEATURES) if _ML_MODEL else 0,
+        "model_type": type(_ML_MODEL).__name__ if _ML_MODEL else None,
+        "features": EXPECTED_FEATURES if _ML_MODEL else [],
+        "metrics": _MODEL_BUNDLE.get("metrics") if _MODEL_BUNDLE else None,
+        "trained_at": _MODEL_BUNDLE.get("trained_at") if _MODEL_BUNDLE else None,
+    }
+
+
+def get_expected_features() -> List[str]:
+    """
+    Get the list of expected features for ML predictions.
+    
+    Ensures model is loaded first so feature list is populated from bundle.
+    
+    Returns:
+        List of feature names the model expects
+    """
+    if not _MODEL_LOADED:
+        load_ml_model()
+    return EXPECTED_FEATURES.copy() if EXPECTED_FEATURES else DEFAULT_FEATURES.copy()
 
 
 def get_ml_prediction(features: Dict[str, float]) -> Optional[float]:

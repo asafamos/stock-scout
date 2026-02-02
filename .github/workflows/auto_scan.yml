@@ -1,4 +1,4 @@
-name: Automated Full Scan
+name: Auto Stock Scan
 
 permissions:
   contents: write  # allow the workflow's GITHUB_TOKEN to push scan artifacts
@@ -6,12 +6,19 @@ permissions:
 
 on:
   schedule:
-    # Aligned with NYSE hours (9:30-16:00 ET)
-    # Winter: ET = UTC-5, Summer: ET = UTC-4
-    - cron: '30 13 * * 1-5'  # 13:30 UTC Mon-Fri: Pre-market scan (~1hr before NYSE open)
-    - cron: '30 20 * * 1-5'  # 20:30 UTC Mon-Fri: End-of-day scan (after NYSE close)
-    - cron: '0 6 * * 1-5'    # 06:00 UTC Mon-Fri: Overnight analysis
-  workflow_dispatch:
+    # Pre-market scan (1 hour before NYSE open)
+    - cron: '30 13 * * 1-5'  # 13:30 UTC = 8:30 AM ET
+
+    # Early session scan (30 min after open)
+    - cron: '0 15 * * 1-5'   # 15:00 UTC = 10:00 AM ET
+
+    # Late session scan (1 hour before close)
+    - cron: '0 19 * * 1-5'   # 19:00 UTC = 2:00 PM ET
+
+    # End of day scan (30 min after close)
+    - cron: '30 20 * * 1-5'  # 20:30 UTC = 3:30 PM ET
+
+  workflow_dispatch:  # Allow manual trigger
 
 jobs:
   scan:
@@ -24,44 +31,78 @@ jobs:
       ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
       TIINGO_API_KEY: ${{ secrets.TIINGO_API_KEY }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Set up Python 3.10
+      - name: Check if market is open
+        id: market_check
+        run: |
+          # Simple holiday check (expand this list as needed)
+          TODAY=$(date +%Y-%m-%d)
+          HOLIDAYS="2026-01-01 2026-01-19 2026-02-16 2026-04-03 2026-05-25 2026-07-03 2026-09-07 2026-11-26 2026-12-25"
+
+          if echo "$HOLIDAYS" | grep -q "$TODAY"; then
+            echo "market_closed=true" >> $GITHUB_OUTPUT
+            echo "Today is a US market holiday - skipping scan"
+          else
+            echo "market_closed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set up Python 3.11
+        if: steps.market_check.outputs.market_closed != 'true'
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.11'
           cache: 'pip'
 
       - name: Install dependencies
+        if: steps.market_check.outputs.market_closed != 'true'
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
       - name: Prepare directories
+        if: steps.market_check.outputs.market_closed != 'true'
         run: |
           mkdir -p data/scans
           mkdir -p logs
 
       - name: Run full scan
+        if: steps.market_check.outputs.market_closed != 'true'
         id: scan
         run: |
           export PYTHONPATH=$PYTHONPATH:..
           python scripts/run_full_scan.py
+        continue-on-error: true
+
+      - name: Send alert on failure
+        if: failure() && env.ALERT_WEBHOOK_URL != ''
+        env:
+          ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
+        run: |
+          curl -X POST "$ALERT_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "workflow": "auto_scan",
+              "status": "failed",
+              "run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            }'
 
       - name: Commit and push updated scan artifacts
+        if: steps.market_check.outputs.market_closed != 'true'
         run: |
           set -e
-          git config user.name "GitHub Action Bot"
-          git config user.email "actions@github.com"
-          git add data/scans/latest_scan.parquet data/scans/latest_scan.meta.json || true
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/scans/ reports/ || true
           if git diff --cached --quiet; then
             echo "No changes to commit."
           else
-            git commit -m "Automated scan: update latest_scan artifacts [skip ci]"
+            git commit -m "Auto scan results $(date +%Y-%m-%d) [skip ci]"
             git push
           fi
 

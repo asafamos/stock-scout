@@ -1,6 +1,12 @@
 # Environment and secrets
 .env
 *.nev
+.env.*
+!.env.example
+secrets.*
+credentials.*
+*_key.txt
+*_token.txt
 
 # Python virtual environment
 .venv/

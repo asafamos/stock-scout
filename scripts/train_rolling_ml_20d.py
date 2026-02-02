@@ -20,12 +20,22 @@ from sklearn.calibration import CalibratedClassifierCV
 
 # Sector mapping for sector-relative features
 from core.sector_mapping import get_stock_sector, get_sector_etf, get_all_sector_etfs
+from core.api_keys import get_api_key
+# Feature registry - Single Source of Truth for ML features
+from core.feature_registry import get_feature_names, FEATURE_COUNT_V3
 
 # --- CONFIG ---
-POLYGON_KEY = os.environ.get("POLYGON_API_KEY")
+# API key is lazily loaded when needed (not at import time) to allow tests to import this module
+def _get_polygon_key() -> str:
+    """Get Polygon API key - raises if not set."""
+    return get_api_key("POLYGON_API_KEY", required=True)
+
 MODELS_DIR = Path("models")
 REPORTS_DIR = Path("reports")
 DATA_DIR = Path("data")
+
+# Get canonical feature list from registry
+FEATURE_NAMES_V3 = get_feature_names("v3")
 
 
 def precision_at_k(y_true, y_pred_proba, k=20):
@@ -281,7 +291,9 @@ def save_feature_importance_report(report_lines, importance_df, output_path):
 
 def _check_api_key():
     """Verify POLYGON_API_KEY is set before proceeding."""
-    if not POLYGON_KEY:
+    try:
+        _get_polygon_key()
+    except EnvironmentError:
         print("❌ ERROR: POLYGON_API_KEY environment variable is required but not set.")
         print("   Please set it before running this script:")
         print("   export POLYGON_API_KEY=your_api_key_here")
@@ -296,7 +308,7 @@ def fetch_polygon_history(ticker, start_str, end_str):
         "adjusted": "true",
         "sort": "asc",
         "limit": 50000,
-        "apiKey": POLYGON_KEY
+        "apiKey": _get_polygon_key()
     }
     try:
         r = requests.get(url, params=params, timeout=10)

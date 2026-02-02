@@ -25,13 +25,14 @@ SMART_SCAN = "true"
 TOPK_RECOMMEND = "5"
 TOPN_RESULTS = "15"
 
-# API Keys - אלו כבר אמורים להיות אצלך
-ALPHA_VANTAGE_API_KEY = "SIOBC3WPPAXX7P25"
-FINNHUB_API_KEY = "d3eri7pr01qh40ffn43gd3eri7pr01qh40ffn440"
-POLYGON_API_KEY = "2kjHdOxfjiw3d9Q9slH871KSQQPgf4nh"
-TIINGO_API_KEY = "e5204e021ce85208573faf4a4bad5c2688af21c4"
-FMP_API_KEY = "cEARp4dZ2jU2Ksfggl85sqpdTStTFXTT"
-OPENAI_API_KEY = "sk-proj-..."  # המפתח שלך
+# API Keys - הזן את המפתחות שלך (אין להשתמש בערכים לדוגמה!)
+# ⚠️ SECURITY WARNING: Never commit real API keys to git!
+ALPHA_VANTAGE_API_KEY = "your_alpha_vantage_key_here"
+FINNHUB_API_KEY = "your_finnhub_key_here"
+POLYGON_API_KEY = "your_polygon_key_here"
+TIINGO_API_KEY = "your_tiingo_key_here"
+FMP_API_KEY = "your_fmp_key_here"
+OPENAI_API_KEY = "your_openai_key_here"
 ```
 
 **⚠️ חשוב מאוד:**
@@ -70,8 +71,8 @@ OPENAI_API_KEY = "sk-proj-..."  # המפתח שלך
 גלול למטה ולחץ על **"Check Secrets 🔐"**
 תראה:
 ```
-Alpha: SI***25 ✓
-Finnhub: d3***40 ✓
+Alpha: ***xxxx ✓
+Finnhub: ***xxxx ✓
 ...
 ```
 

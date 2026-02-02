@@ -2,12 +2,29 @@
 Unified Scoring Module
 
 This module aggregates all scoring functions from across the codebase:
+- **UnifiedScorer** - The primary entry point for all scoring (NEW, preferred)
 - Technical scoring (V2)
 - ML scoring (V3)
 - Fundamental scoring
 - Risk scoring (V2)
 - Final score computation
+
+Recommended Usage:
+    from core.scoring import UnifiedScorer, score_ticker
+    
+    scorer = UnifiedScorer(config={"enable_ml": True})
+    result = scorer.score(ticker_data, indicators, fundamentals)
 """
+
+# ============================================================================
+# UNIFIED SCORER (NEW - Preferred Entry Point)
+# ============================================================================
+from core.scoring.unified_scorer import (
+    UnifiedScorer,
+    ScoringResult,
+    score_ticker,
+    score_dataframe,
+)
 
 # ============================================================================
 # TECHNICAL SCORING 
@@ -70,6 +87,12 @@ from core.scoring_engine import (
 # ============================================================================
 
 __all__ = [
+    # Unified Scorer (NEW - Preferred)
+    "UnifiedScorer",
+    "ScoringResult",
+    "score_ticker",
+    "score_dataframe",
+    
     # Technical Scoring V2
     "build_technical_indicators",
     "compute_tech_score_20d_v2",

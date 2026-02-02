@@ -101,34 +101,33 @@ Open browser at: http://localhost:8501
 
 ## 📊 ML Model Performance
 
-### Backtest Results (Jan-Nov 2024, 231 signals)
+### Model Architecture (v3)
+- **Ensemble**: HistGradientBoosting (45%) + RandomForest (35%) + LogisticRegression (20%)
+- **Features**: 34 engineered features across 7 categories
+- **Calibration**: Isotonic regression for reliable probabilities
+- **Validation**: Time-Series Cross-Validation (5 folds)
 
-| Metric | Value |
-|--------|-------|
-| **AUC** | 0.534 |
-| **Brier Score** | 0.207 |
-| **5-Day Hit Rate** | 47.3% |
-| **Outperform SPY** | 27.3% |
-| **Excess Return** | +0.94% |
+### Feature Categories (34 total)
+| Category | Count | Examples |
+|----------|-------|----------|
+| Technical | 5 | RSI, ATR_Pct, Returns (5d/10d/20d) |
+| Volatility | 4 | VCP_Ratio, Tightness, MA_Alignment |
+| Volume Basic | 3 | Volume_Surge, Up_Down_Ratio |
+| Market Regime | 4 | Market_Regime, Volatility, Trend |
+| Sector Relative | 3 | Sector_RS, Sector_Momentum |
+| Volume Advanced | 5 | Volume_Trend, Accumulation signals |
+| Price Action | 9 | 52w positioning, Support/Resistance |
 
-### Time-Test Validation (Known Stock Moves)
+### Validation Metrics
+- **Out-of-Sample AUC**: Check `models/model_20d_v3.pkl.metadata.json`
+- **Precision@20**: Top 20 predictions accuracy
+- **Lift**: Improvement over random baseline
 
-| Stock | Date | ML Probability | Filter Status | Actual Outcome |
-|-------|------|----------------|---------------|----------------|
-| **AAPL** | 2024-08-01 | **69.4%** ✅ | **PASSED** | Rose significantly |
-| NVDA | 2024-05-24 | 17.1% | FAILED (RSI high) | - |
-| MSFT | 2024-04-26 | 1.2% | FAILED (RSI low) | - |
-| AMD | 2024-07-31 | 15.3% | FAILED (RSI low) | - |
-
-**Key Insight**: Model correctly identified AAPL with high confidence before actual move.
-
-### Feature Importance (SHAP Values)
-
-1. **ATR_Pct** (13.6%) - Volatility is most predictive
-2. **RR_MomCons** (12.4%) - Interaction: Reward/Risk × Momentum
-3. **RSI** (11.4%) - Relative strength index
-4. **RSI_Neutral** (11.3%) - Distance from RSI 50
-5. **Overext** (10.4%) - Overextension ratio
+### Key Files
+- `core/feature_registry.py` - Single source of truth for 34 features
+- `core/ml_integration.py` - Model loading with validation
+- `scripts/train_rolling_ml_20d.py` - Training script
+- `models/model_20d_v3.pkl` - Latest trained model
 
 ---
 

@@ -1,21 +1,26 @@
 import requests
 import time
+import os
 import pandas as pd
 from datetime import datetime, timedelta
 
-# --- המפתחות שלך (עם ניקוי אוטומטי של רווחים ומירכאות) ---
-RAW_KEYS = {
-    "FMP": "cEARp4dZ2jU2Ksfggl85sqpdTStTFXTT",
-    "POLYGON": "2kjHdOxfjiw3d9Q9slH871KSQQPgf4nh",
-    "FINNHUB": "d3eri7pr01qh40ffn43gd3eri7pr01qh40ffn440",
-    "TIINGO": "e5204e021ce85208573faf4a4bad5c2688af21c4",
-    "ALPHA_VANTAGE": "SIOBC3WPPAXX7P25",
-    "EODHD": "69164399843785.85838780",
-    "MARKETSTACK": "23a92f90bebd559bf36f0e50ee104367"
+# --- API Keys - Load from environment variables (NEVER hardcode!) ---
+# ⚠️ SECURITY: All API keys must be set in environment or .env file
+KEYS = {
+    "FMP": os.environ.get("FMP_API_KEY", ""),
+    "POLYGON": os.environ.get("POLYGON_API_KEY", ""),
+    "FINNHUB": os.environ.get("FINNHUB_API_KEY", ""),
+    "TIINGO": os.environ.get("TIINGO_API_KEY", ""),
+    "ALPHA_VANTAGE": os.environ.get("ALPHA_VANTAGE_API_KEY", ""),
+    "EODHD": os.environ.get("EODHD_API_KEY", ""),
+    "MARKETSTACK": os.environ.get("MARKETSTACK_API_KEY", ""),
 }
 
-# ניקוי מפתחות
-KEYS = {k: v.strip().replace('"', '').replace("'", "") for k, v in RAW_KEYS.items()}
+# Validate that at least one key is set
+if not any(KEYS.values()):
+    print("⚠️ WARNING: No API keys found in environment!")
+    print("   Set keys in .env file or environment variables.")
+    print("   Example: export POLYGON_API_KEY=your_key_here")
 
 # הגדרות זמן
 end_date = datetime.now().strftime('%Y-%m-%d')

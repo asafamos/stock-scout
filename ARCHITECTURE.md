@@ -339,11 +339,93 @@ pytest tests/ -v
 
 **Status**: Phase 2 Complete ✅ | Production Ready 🚀
 
-**Last Updated**: November 13, 2025
+**Last Updated**: February 2, 2026
 
 **Key Achievements**:
 - ✅ Fundamental scoring with detailed breakdown
 - ✅ Color-coded UI labels (Quality, Growth, Valuation, Leverage)
 - ✅ Type hints for improved code quality
-- ✅ All 27 tests passing
+- ✅ All 90+ tests passing
 - ✅ Production deployment ready
+
+---
+
+## 🆕 New Modules (v3.0)
+
+### core/feature_registry.py
+Single source of truth for ML features. Both training and inference import feature definitions from here.
+
+```python
+from core.feature_registry import FEATURE_NAMES_V3, get_feature_names
+
+# Get all 34 feature names
+features = get_feature_names()
+
+# Validate features in a DataFrame
+from core.feature_registry import validate_features
+missing = validate_features(df)
+```
+
+**Key exports:**
+- `FEATURE_NAMES_V3` - List of 34 feature names
+- `FEATURE_SPECS` - Detailed feature specifications with defaults/ranges
+- `get_feature_names()`, `get_feature_defaults()`, `validate_features()`
+
+### core/api_keys.py
+Centralized API key management with validation and secure logging.
+
+```python
+from core.api_keys import get_api_key, validate_keys
+
+# Get a specific key (returns None if not set)
+polygon_key = get_api_key("POLYGON_API_KEY")
+
+# Validate all keys at startup
+status = validate_keys()
+# Returns: {"POLYGON_API_KEY": True, "FINNHUB_API_KEY": False, ...}
+```
+
+**Security features:**
+- Keys loaded from environment variables or `.env` file
+- Keys never logged in full (masked in output)
+- Validation function for startup health checks
+
+### core/scoring/unified_scorer.py
+Consolidated scoring entry point. All other scoring functions should delegate here.
+
+```python
+from core.scoring import UnifiedScorer, score_ticker
+
+# Create scorer with config
+scorer = UnifiedScorer(config={
+    "enable_ml": True,
+    "ml_max_boost_pct": 10.0,
+    "technical_weight": 0.60,
+    "fundamental_weight": 0.40,
+})
+
+# Score a ticker
+result = scorer.score(ticker_data, technical_indicators, fundamental_data)
+
+# Access results
+print(f"Final: {result.final_conviction}")  # 0-100
+print(f"Tech: {result.technical_score}, Fund: {result.fundamental_score}")
+print(f"ML Boost: {result.ml_boost} ({result.ml_status})")
+print(f"Reliability: {result.reliability_pct}%")
+```
+
+**Key classes:**
+- `ScoringResult` - Dataclass with complete score breakdown
+- `UnifiedScorer` - Main scoring class with configurable weights
+
+### scripts/market_calendar.py
+US market calendar utilities for holiday-aware scheduling.
+
+```python
+from scripts.market_calendar import is_market_open, get_market_status
+
+if is_market_open():
+    run_scan()
+
+print(get_market_status())  # "OPEN", "PRE-MARKET", "AFTER-HOURS", "CLOSED"
+```

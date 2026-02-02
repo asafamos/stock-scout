@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Any, Dict, Optional
+import warnings
 
 import logging
 import numpy as np
@@ -531,7 +532,16 @@ def compute_overall_score_20d(row):
     """
     Compute a 20-day technical score targeting big-winner setups, using only technical features.
     Returns a float in [0, 100].
+    
+    .. deprecated::
+        Use :class:`core.scoring.UnifiedScorer` instead for all scoring operations.
+        This function will be removed in a future version.
     """
+    warnings.warn(
+        "compute_overall_score_20d is deprecated. Use core.scoring.UnifiedScorer instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
     rsi = row.get("RSI", np.nan)
     atr = row.get("ATR_Pct", np.nan)
     rr = row.get("RR", np.nan)
@@ -766,6 +776,11 @@ def compute_tech_score_20d_v2(row: pd.Series) -> float:
     
     This is a more balanced technical score compared to the legacy TechScore_20d,
     based on empirical analysis in experiments/outputs/technical_logic/summary.txt
+    
+    Note:
+        For new code, consider using :class:`core.scoring.UnifiedScorer` which
+        consolidates all scoring logic (technical, fundamental, ML) into one place.
+        This function is still valid and will continue to be supported.
     """
     components = compute_tech_score_20d_v2_components(row)
     return components['TechScore_20d_v2_raw']
