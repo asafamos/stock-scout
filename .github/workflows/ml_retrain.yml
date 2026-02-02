@@ -30,6 +30,15 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
+      - name: Verify API keys are set
+        run: |
+          if [ -z "$FMP_API_KEY" ]; then
+            echo "⚠️ Warning: FMP_API_KEY not set"
+          fi
+          if [ -z "$POLYGON_API_KEY" ]; then
+            echo "⚠️ Warning: POLYGON_API_KEY not set"
+          fi
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
