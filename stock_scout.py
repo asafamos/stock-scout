@@ -156,6 +156,7 @@ from core.ui_helpers import (
     create_debug_expander,
 )
 from core.pipeline_runner import run_scan_pipeline, fetch_top_us_tickers_by_market_cap, LAST_UNIVERSE_PROVIDER
+from core.data_sources_v2 import clear_cache, reset_disabled_providers
 
 # Helper: build clean minimal card
 
@@ -2852,6 +2853,12 @@ else:
     with st.status("🚀 Running Live Scan...", expanded=True) as status:
         status = status or NullStatus()
         status.write("Initializing pipeline...")
+
+        # Clear cache and reset providers for consistent results
+        clear_cache()
+        reset_disabled_providers()
+        status.write("Cache cleared, providers reset")
+
         # 1. Fetch Universe
         universe = fetch_top_us_tickers_by_market_cap(limit=CONFIG["UNIVERSE_LIMIT"])
         status.write(f"Fetched universe: {len(universe)} tickers")

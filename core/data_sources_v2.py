@@ -2033,6 +2033,22 @@ def clear_cache() -> None:
     logger.info("Cache cleared")
 
 
+def reset_disabled_providers() -> None:
+    """Reset all disabled providers to their default state.
+
+    This is useful for ensuring consistent results between runs by
+    clearing any provider blacklists that may have accumulated due
+    to rate limits or temporary failures.
+    """
+    global _PROVIDER_DISABLED, DISABLED_PROVIDERS
+    _PROVIDER_DISABLED = {
+        "tiingo": False,
+        "fmp": False,
+    }
+    DISABLED_PROVIDERS.clear()
+    logger.info("Provider blacklists reset")
+
+
 def get_cache_stats() -> Dict:
     """Get cache statistics (thread-safe snapshot)."""
     with _CACHE_LOCK:

@@ -20,6 +20,7 @@ from core.pipeline_runner import (
     LAST_UNIVERSE_PROVIDER,
 )
 from core.config import get_config
+from core.data_sources_v2 import clear_cache, reset_disabled_providers
 
 
 def quality_label(score: float) -> str:
@@ -165,6 +166,12 @@ def run_pipeline_full(universe: List[str], cfg: dict, batch_size: int = 200) -> 
 
 def main():
     t0 = time.perf_counter()
+
+    # Clear cache and reset providers for consistent results between runs
+    print(json.dumps({"status": "clearing_cache_and_resetting_providers"}))
+    clear_cache()
+    reset_disabled_providers()
+
     # Universe
     universe = fetch_top_us_tickers_by_market_cap(limit=2000)
     if not universe:
