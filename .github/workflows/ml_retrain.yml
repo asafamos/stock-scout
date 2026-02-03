@@ -1,12 +1,17 @@
 name: Auto-Train ML Model (Weekly)
 
+# NOTE: This workflow is DISABLED because daily-training.yml already runs
+# the same script (run_daily_training) every day with more comprehensive
+# post-processing (backtest, drift monitoring).
+# Keep this file for manual runs only if needed.
+
 permissions:
   contents: write
 
 on:
-  schedule:
-    - cron: '0 0 * * 0'  # Sundays at 00:00 UTC
-  workflow_dispatch: {}
+  # schedule disabled - use daily-training.yml instead
+  # - cron: '0 0 * * 0'  # Sundays at 00:00 UTC
+  workflow_dispatch: {}  # Manual trigger only
 
 jobs:
   retrain:
