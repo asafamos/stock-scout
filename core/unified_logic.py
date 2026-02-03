@@ -995,19 +995,65 @@ def build_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     except Exception:
         result['Tightness_Ratio'] = np.nan
 
-    # Volatility Contraction Pattern (VCP) score
-    # Compare short-term ATR (10d) vs long-term ATR (30d) to detect contraction
+    # Volatility Contraction Pattern (VCP) score - ENHANCED
+    # Based on Mark Minervini's criteria:
+    # 1. Price consolidation with decreasing volatility
+    # 2. Price near 52-week high (within 25%)
+    # 3. Volume drying up (accumulation complete)
+    # 4. Tight price range (ready to break out)
     atr_10 = compute_atr(dff, period=10)
     atr_30 = compute_atr(dff, period=30)
     ratio = (atr_10 / atr_30)
-    # Base VCP: contraction yields positive score, else 0
-    vcp_raw = (1.0 - ratio.clip(lower=0.0)).where((atr_10 < atr_30) & ratio.notna(), 0.0)
-    vcp_raw = vcp_raw.astype(float)
+    
+    # 1. Volatility Contraction: ATR(10) < ATR(30)
+    volatility_score = (1.0 - ratio.clip(lower=0.0, upper=1.5)).where(
+        (atr_10 < atr_30) & ratio.notna(), 0.0
+    ).clip(lower=0.0, upper=1.0)
+    
+    # 2. Price near 52w high: current price within 25% of 52w high
+    try:
+        hi_52w_vcp = close.rolling(window=min(len(close), 252)).max()
+        price_position = close / hi_52w_vcp
+        price_score = (price_position - 0.75) / 0.25  # 0 at 75%, 1 at 100%
+        price_score = price_score.clip(lower=0.0, upper=1.0)
+    except Exception:
+        price_score = pd.Series(0.5, index=close.index)
+    
+    # 3. Volume drying up: recent volume < historical avg
+    try:
+        vol_recent_5 = volume.rolling(5).mean()
+        vol_old_20 = volume.rolling(20).mean()
+        vol_ratio = vol_recent_5 / vol_old_20
+        # Score higher when volume contracts (ratio < 1)
+        volume_dry_score = (1.0 - vol_ratio.clip(lower=0.5, upper=1.5))
+        volume_dry_score = volume_dry_score.clip(lower=0.0, upper=1.0)
+    except Exception:
+        volume_dry_score = pd.Series(0.5, index=close.index)
+    
+    # 4. Tightness: recent price range vs older range
+    try:
+        range_5d = close.rolling(5).max() - close.rolling(5).min()
+        range_20d = close.rolling(20).max() - close.rolling(20).min()
+        range_ratio = range_5d / range_20d.replace(0, np.nan)
+        tightness_score = (1.0 - range_ratio.clip(lower=0.0, upper=1.0))
+        tightness_score = tightness_score.clip(lower=0.0, upper=1.0).fillna(0.5)
+    except Exception:
+        tightness_score = pd.Series(0.5, index=close.index)
+    
     # Bonus: within 2% of MA20 while ATR is contracting
     near_ma20 = ((close / result['MA20']) - 1.0).abs() <= 0.02
-    bonus_mask = (atr_10 < atr_30) & near_ma20
-    vcp_bonus = vcp_raw.where(~bonus_mask, (vcp_raw * 1.2).clip(upper=1.0))
-    result['Volatility_Contraction_Score'] = vcp_bonus
+    ma20_bonus = near_ma20.astype(float) * 0.1  # +10% bonus
+    
+    # Weighted VCP score (Minervini-inspired)
+    vcp_composite = (
+        0.35 * volatility_score +     # Volatility contraction most important
+        0.25 * price_score +          # Near 52w high
+        0.20 * volume_dry_score +     # Volume drying up  
+        0.20 * tightness_score +      # Price consolidation
+        ma20_bonus                     # MA proximity bonus
+    ).clip(lower=0.0, upper=1.0)
+    
+    result['Volatility_Contraction_Score'] = vcp_composite.astype(float)
     
     # Price-based features
     result['Overext'] = (close / result['MA50']) - 1
@@ -1736,15 +1782,25 @@ def build_market_context_table(
     # Prepare VIX features
     vix_df = vix_df.sort_values('date').reset_index(drop=True)
     vix_df['VIX_close'] = vix_df['close']
-    # VIX percentile over 252 days (~1 year)
-    vix_df['VIX_pct'] = vix_df['VIX_close'].rolling(252, min_periods=60).apply(
+    
+    # VIX percentile - IMPROVED: Use shorter 63-day window (1 quarter) for responsiveness
+    # Also add 20-day short-term percentile for rapid regime detection
+    vix_df['VIX_pct'] = vix_df['VIX_close'].rolling(63, min_periods=20).apply(
         lambda x: (x.iloc[-1] <= x).sum() / len(x) if len(x) > 0 else 0.5
     )
+    vix_df['VIX_pct_20d'] = vix_df['VIX_close'].rolling(20, min_periods=10).apply(
+        lambda x: (x.iloc[-1] <= x).sum() / len(x) if len(x) > 0 else 0.5
+    )
+    # Use max of short and medium-term for faster panic detection
+    vix_df['VIX_pct_responsive'] = vix_df[['VIX_pct', 'VIX_pct_20d']].max(axis=1)
+    
+    # SPY 20-day momentum for faster trend detection
+    spy_df['SPY_momentum_20d'] = spy_df['close'].pct_change(5) * 4  # Annualized weekly momentum
     
     # Merge SPY and VIX
-    context_df = spy_df[['date', 'SPY_20d_ret', 'SPY_60d_ret', 'SPY_drawdown_60d']].copy()
+    context_df = spy_df[['date', 'SPY_20d_ret', 'SPY_60d_ret', 'SPY_drawdown_60d', 'SPY_momentum_20d']].copy()
     context_df = context_df.merge(
-        vix_df[['date', 'VIX_close', 'VIX_pct']],
+        vix_df[['date', 'VIX_close', 'VIX_pct', 'VIX_pct_responsive']],
         on='date',
         how='left'
     )
@@ -1752,16 +1808,23 @@ def build_market_context_table(
     # Fill any missing VIX values
     context_df['VIX_close'] = context_df['VIX_close'].fillna(20.0)
     context_df['VIX_pct'] = context_df['VIX_pct'].fillna(0.5)
+    context_df['VIX_pct_responsive'] = context_df['VIX_pct_responsive'].fillna(0.5)
+    context_df['SPY_momentum_20d'] = context_df['SPY_momentum_20d'].fillna(0.0)
     
-    # Classify market regime
+    # Classify market regime - IMPROVED with responsive VIX and momentum
     def classify_regime(row):
         """
         Classify market regime based on SPY performance, VIX, and breadth.
         
-        PANIC: SPY drawdown < -15% OR VIX percentile > 85%
+        IMPROVED (2026-02-03):
+        - Uses 63-day VIX percentile instead of 252-day for faster response
+        - Adds SPY momentum for trend detection
+        - Includes market breadth for participation check
+        
+        PANIC: SPY drawdown < -15% OR VIX percentile > 85% OR VIX > 30
         CORRECTION: SPY drawdown < -8% OR VIX percentile > 70%
-        TREND_UP: SPY 60d return > +8% AND drawdown > -5% AND market_breadth > 0.60
-        DISTRIBUTION: SPY ~flat (|60d return| <= 2%) AND market_breadth < 0.40
+        TREND_UP: SPY 60d return > +8% AND drawdown > -5% AND breadth > 0.60
+        DISTRIBUTION: SPY ~flat AND breadth < 0.40
         SIDEWAYS: everything else
         """
         # Fetch proxy breadth (STRICT: no neutral default)
@@ -1779,27 +1842,33 @@ def build_market_context_table(
 
             dd = row.get('SPY_drawdown_60d', 0)
             ret_60d = row.get('SPY_60d_ret', 0)
-            vix_pct = row.get('VIX_pct', 0.5)
+            vix_pct = row.get('VIX_pct_responsive', row.get('VIX_pct', 0.5))  # Use responsive VIX
+            vix_close = row.get('VIX_close', 20.0)  # Absolute VIX level
+            momentum = row.get('SPY_momentum_20d', 0.0)  # Short-term momentum
             
             # Inputs missing or invalid → fallback to SIDEWAYS
             if pd.isna(dd) or pd.isna(ret_60d) or pd.isna(vix_pct) or not np.isfinite(breadth):
                 logger.warning("Market regime inputs missing/invalid; defaulting to SIDEWAYS")
                 return 'SIDEWAYS'
             
-            # Panic conditions
-            if dd < -0.15 or vix_pct > 0.85:
+            # Panic conditions - IMPROVED: Also check absolute VIX > 30
+            if dd < -0.15 or vix_pct > 0.85 or vix_close > 30:
                 return 'PANIC'
             
             # Correction conditions
-            if dd < -0.08 or vix_pct > 0.70:
+            if dd < -0.08 or vix_pct > 0.70 or vix_close > 25:
                 return 'CORRECTION'
             
             # Distribution: market breadth weak while SPY is flat (~±2% in 60d)
             if abs(ret_60d) <= 0.02 and breadth < 0.40:
                 return 'DISTRIBUTION'
             
-            # Trend up conditions require broad participation
-            if ret_60d > 0.08 and dd > -0.05 and breadth > 0.60:
+            # Trend up conditions require broad participation and low VIX
+            if ret_60d > 0.08 and dd > -0.05 and breadth > 0.60 and vix_close < 20:
+                return 'TREND_UP'
+            
+            # Momentum-based early trend detection (new)
+            if momentum > 0.15 and breadth > 0.55 and vix_close < 22:
                 return 'TREND_UP'
             
             # Default classification when inputs are valid but no extreme conditions

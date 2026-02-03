@@ -85,6 +85,10 @@ def run_backtest():
     topk = order[:K_TOP]
     p_at_k = float(np.mean(y[topk]))
 
+    # Minimum precision threshold for CI validation (default 0.55)
+    min_precision = float(os.environ.get("MIN_PRECISION_THRESHOLD", "0.55"))
+    passed = p_at_k >= min_precision
+
     # Save report
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     out = {
@@ -92,12 +96,23 @@ def run_backtest():
         "csv": csv_path,
         "K": K_TOP,
         "precision_at_k": p_at_k,
+        "min_threshold": min_precision,
+        "passed": passed,
     }
     rep = REPORTS_DIR / f"backtest_precision_at_k.json"
     with open(rep, "w", encoding="utf-8") as f:
         json.dump(out, f, indent=2)
     print(json.dumps(out, indent=2))
 
+    # Return exit code based on threshold (for CI validation)
+    if not passed:
+        print(f"\n❌ VALIDATION FAILED: Precision@{K_TOP} = {p_at_k:.3f} < {min_precision}")
+        print("   Model does not meet minimum precision threshold.")
+        return 1
+    print(f"\n✓ VALIDATION PASSED: Precision@{K_TOP} = {p_at_k:.3f} >= {min_precision}")
+    return 0
+
 
 if __name__ == "__main__":
-    run_backtest()
+    import sys
+    sys.exit(run_backtest() or 0)

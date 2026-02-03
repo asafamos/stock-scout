@@ -268,22 +268,25 @@ def get_ml_prediction(features: Dict[str, float]) -> Optional[float]:
 def calculate_ml_boost(
     base_conviction: float,
     ml_probability: Optional[float],
-    max_boost_pct: float = 10.0
+    max_boost_pct: float = 20.0
 ) -> Tuple[float, float, str]:
     """
     Calculate bounded ML boost to base conviction.
     
     Rules:
-    - ML can adjust final conviction by at most ±max_boost_pct% of base
+    - ML can adjust final conviction by at most ±max_boost_pct points
     - If ML unavailable, boost = 0 (graceful fallback)
     - ML probability 0.5 = neutral (0 boost)
     - ML probability 1.0 = +max_boost_pct
     - ML probability 0.0 = -max_boost_pct
     
+    NOTE: max_boost_pct increased from 10 to 20 (2026-02-03) to give ML
+    predictions more meaningful impact on final rankings.
+    
     Args:
         base_conviction: Base conviction score (0-100)
         ml_probability: ML probability (0-1), or None if unavailable
-        max_boost_pct: Maximum boost as percentage of base (default 10%)
+        max_boost_pct: Maximum boost points (default 20)
     
     Returns:
         (final_conviction, ml_boost, status_msg)
@@ -315,15 +318,15 @@ def calculate_ml_boost(
     final_conviction = base_conviction + ml_boost
     final_conviction = float(np.clip(final_conviction, 0, 100))
     
-    # Status message
-    if ml_boost > 5:
+    # Status message (thresholds adjusted for ±20 scale)
+    if ml_boost > 10:
         status = f"ML boost: +{ml_boost:.1f} (high confidence)"
     elif ml_boost > 0:
-        status = f"ML boost: +{ml_boost:.1f} (slight positive)"
-    elif ml_boost < -5:
+        status = f"ML boost: +{ml_boost:.1f} (moderate positive)"
+    elif ml_boost < -10:
         status = f"ML penalty: {ml_boost:.1f} (low confidence)"
     elif ml_boost < 0:
-        status = f"ML penalty: {ml_boost:.1f} (slight negative)"
+        status = f"ML penalty: {ml_boost:.1f} (moderate negative)"
     else:
         status = "ML neutral (no adjustment)"
     

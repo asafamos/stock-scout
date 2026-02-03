@@ -85,6 +85,25 @@ class RiskEngine:
                 explain_id=None,
             )
 
+        # Earnings proximity penalty/boost (not just binary rejection)
+        # 0-3 days: Rejected above
+        # 3-7 days: High risk penalty (-15%)
+        # 7-14 days: Moderate risk penalty (-5%)
+        # 14+ days: No penalty, slight boost possible for pre-earnings run
+        earnings_adjustment = 0.0
+        if 3 <= dte_val < 7:
+            earnings_adjustment = -15.0
+            risk_penalties.append("Earnings Soon (3-7 days)")
+            active_filters.append("earnings_proximity")
+        elif 7 <= dte_val < 14:
+            earnings_adjustment = -5.0
+            risk_penalties.append("Earnings Approaching (7-14 days)")
+            active_filters.append("earnings_proximity")
+        elif 14 <= dte_val < 21:
+            # Pre-earnings run potential - slight boost
+            earnings_adjustment = 3.0
+            active_filters.append("pre_earnings_run")
+
         # Volatility penalty
         conviction_penalty = 0.0
         if atr_val > 0.05:
@@ -94,7 +113,8 @@ class RiskEngine:
 
         # Base conviction from model prediction probability
         base_conviction = float(model_output.prediction_prob) * 100.0
-        conviction = max(0.0, min(100.0, base_conviction - conviction_penalty))
+        # Apply volatility penalty and earnings adjustment
+        conviction = max(0.0, min(100.0, base_conviction - conviction_penalty + earnings_adjustment))
 
         # Simple sizing: quantity scaled by conviction
         quantity = max(1, int(conviction // 10))

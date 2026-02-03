@@ -46,8 +46,12 @@ jobs:
           python -m scripts.run_daily_training
 
       - name: Backtest Precision@K
+        env:
+          MIN_PRECISION_THRESHOLD: '0.55'
         run: |
-          python -m scripts.backtest_precision_at_k || true
+          # Validate model meets minimum precision threshold before deployment
+          python -m scripts.backtest_precision_at_k
+          echo "✓ Model validation passed"
 
       - name: Monitor Drift (PSI/KS)
         run: |

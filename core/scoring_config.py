@@ -9,27 +9,30 @@ from dataclasses import dataclass, field
 from typing import Dict
 
 # Technical scoring weights (must sum to ~1.0; normalized internally)
+# NOTE: VCP and RS weights increased (2026-02-03) to emphasize breakout patterns.
 TECH_WEIGHTS: Dict[str, float] = {
-    "ma": 0.14,
-    "mom": 0.14,
-    "rsi": 0.12,
-    "near_high_bell": 0.06,
+    "ma": 0.12,
+    "mom": 0.12,
+    "rsi": 0.08,          # Decreased - RSI less predictive for breakouts
+    "near_high_bell": 0.05,
     "vol": 0.05,
-    "overext": 0.04,
+    "overext": 0.03,
     "pullback": 0.03,
     "risk_reward": 0.04,
     "macd": 0.03,
     "adx": 0.04,
-    # Emphasize VCP and RS (normalized downstream)
-    "vcp": 0.20,
-    "relative_strength": 0.17,
+    # VCP and RS emphasized for breakout detection (normalized downstream)
+    "vcp": 0.25,           # Increased from 0.20 - VCP is key for breakouts
+    "relative_strength": 0.20,  # Increased from 0.17
 }
 
 # Final score combination weights
+# NOTE: ML weight increased from 0.20 to 0.35 (2026-02-03) to give ML
+# predictions more meaningful impact on final rankings.
 FINAL_SCORE_WEIGHTS: Dict[str, float] = {
-    "technical": 0.55,
-    "fundamental": 0.25,
-    "ml": 0.20,
+    "technical": 0.45,
+    "fundamental": 0.20,
+    "ml": 0.35,
 }
 
 # ML gate thresholds and multipliers (single source of truth)
