@@ -59,6 +59,16 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
+      - name: Verify API keys are set
+        if: steps.market_check.outputs.market_closed != 'true'
+        run: |
+          if [ -z "$FMP_API_KEY" ]; then
+            echo "⚠️ Warning: FMP_API_KEY not set"
+          fi
+          if [ -z "$POLYGON_API_KEY" ]; then
+            echo "⚠️ Warning: POLYGON_API_KEY not set"
+          fi
+
       - name: Install dependencies
         if: steps.market_check.outputs.market_closed != 'true'
         run: |
@@ -75,7 +85,6 @@ jobs:
         if: steps.market_check.outputs.market_closed != 'true'
         id: scan
         run: |
-          export PYTHONPATH=$PYTHONPATH:..
           python scripts/run_full_scan.py
         continue-on-error: true
 
@@ -113,26 +122,26 @@ jobs:
           script: |
             const title = `🚨 Automated Scan Failed - ${new Date().toISOString().split('T')[0]}`;
             const body = `## Scan Failure Alert
-            
+
             **Workflow:** ${context.workflow}
             **Run ID:** ${context.runId}
             **Triggered by:** ${context.eventName}
             **Time:** ${new Date().toISOString()}
-            
+
             ### Details
             - [View failed run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})
-            
+
             ### Possible causes
             - API rate limits exceeded
             - Network connectivity issues
             - Data source unavailable
             - Code regression
-            
+
             Please investigate and resolve.
-            
+
             ---
             *This issue was automatically created by GitHub Actions.*`;
-            
+
             // Check for existing open issues with same title prefix
             const issues = await github.rest.issues.listForRepo({
               owner: context.repo.owner,
@@ -140,9 +149,9 @@ jobs:
               state: 'open',
               labels: 'scan-failure'
             });
-            
+
             const existingIssue = issues.data.find(i => i.title.startsWith('🚨 Automated Scan Failed'));
-            
+
             if (existingIssue) {
               // Add comment to existing issue instead of creating duplicate
               await github.rest.issues.createComment({
@@ -163,4 +172,3 @@ jobs:
               });
               console.log('Created new failure issue');
             }
-
