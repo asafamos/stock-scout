@@ -18,5 +18,6 @@ def test_telemetry_export_contains_expected_keys():
     assert out['universe_provider'] == 'FMP'
     assert out['price'].get('POLYGON') is True
     assert out['fundamentals'].get('FINNHUB') is True
-    assert out['index'].get('SPY') == 'Polygon'
+    # Telemetry normalizes provider names to uppercase
+    assert out['index'].get('SPY') == 'POLYGON'
     assert len(out['fallback_events']) == 1

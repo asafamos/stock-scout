@@ -7,6 +7,10 @@ from core.data_sources_v2 import fetch_price_multi_source
 
 
 def test_cooldown_on_429(monkeypatch):
+    # Reset guard state before test
+    guard = get_provider_guard()
+    guard.reset()
+    
     # Force TIINGO as the only candidate provider
     monkeypatch.setenv("TIINGO_API_KEY", "test_token")
     # Block other providers via provider_status
@@ -17,6 +21,9 @@ def test_cooldown_on_429(monkeypatch):
         "FINNHUB": {"can_price": False, "status": "disabled"},
         "MARKETSTACK": {"can_price": False, "status": "disabled"},
     }
+    
+    # Update guard with preflight info
+    guard.update_from_preflight(provider_status)
 
     # Prevent any sleeps from rate limiter
     import core.data_sources_v2 as dsv2
@@ -60,6 +67,7 @@ def test_cooldown_on_429(monkeypatch):
 
 def test_permanent_disable_on_401():
     guard = get_provider_guard()
+    guard.reset()  # Reset state before test
     # Record an auth failure (401)
     guard.record_failure("ALPHAVANTAGE", 401, "auth_error")
     allowed, reason, decision = guard.allow("ALPHAVANTAGE", "fundamentals")
@@ -70,6 +78,7 @@ def test_permanent_disable_on_401():
 
 def test_preflight_blocks_no_key():
     guard = get_provider_guard()
+    guard.reset()  # Reset state before test
     guard.update_from_preflight({"FINNHUB": {"status": "no_key"}})
     allowed, reason, decision = guard.allow("FINNHUB", "price")
     assert not allowed

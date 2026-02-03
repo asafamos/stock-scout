@@ -20,6 +20,10 @@ class DummyResponse:
 
 def test_http_429_no_sleep_and_cooldown(monkeypatch):
     calls = {"sleep": 0, "get": 0}
+    
+    # Reset guard state before test
+    guard = get_provider_guard()
+    guard.reset()
 
     def fake_sleep(seconds):
         calls["sleep"] += 1
@@ -33,7 +37,6 @@ def test_http_429_no_sleep_and_cooldown(monkeypatch):
     monkeypatch.setattr("core.data_sources_v2.time.sleep", fake_sleep)
     monkeypatch.setattr("core.data_sources_v2.requests.get", fake_get)
 
-    guard = get_provider_guard()
     # Ensure no prior cooldown
     allowed, _r, _d = guard.allow("TIINGO", "price")
     assert allowed

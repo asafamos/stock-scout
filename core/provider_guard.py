@@ -114,6 +114,10 @@ class ProviderGuard:
             }
         return out
 
+    def reset(self) -> None:
+        """Clear all provider states for testing purposes."""
+        self._states.clear()
+
 
 _GUARD_SINGLETON: Optional[ProviderGuard] = None
 
