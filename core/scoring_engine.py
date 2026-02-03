@@ -239,8 +239,8 @@ def evaluate_rr_unified(rr_ratio: Optional[float]) -> Tuple[float, float, str]:
     """
     if rr_ratio is None or not np.isfinite(rr_ratio) or rr_ratio < 0:
         return 0.0, 0.0, "N/A"
-    
-    ratio = float(np.clip(rr_ratio, 0, 10.0))
+
+    ratio = float(np.clip(rr_ratio, 0, 15.0))  # Increased cap from 10 to 15
     
     # Tiered scoring with strong penalties for poor RR
     if ratio < 1.0:

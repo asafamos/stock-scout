@@ -197,6 +197,9 @@ def disable_provider(provider: str) -> None:
 # Global default provider status (set via preflight)
 _DEFAULT_PROVIDER_STATUS: Dict[str, bool] = {}
 
+# Dynamic provider priority list for fundamentals (populated by preflight)
+_PROVIDER_PRIORITY: List[str] = []
+
 # Smart Router cache (singleton per process)
 _SMART_ROUTER_STATE_LOCK = threading.Lock()
 _SMART_ROUTER_STATE: Optional[Dict[str, Any]] = None

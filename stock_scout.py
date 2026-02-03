@@ -1161,7 +1161,7 @@ def calculate_rr(
 
         reward = max(0.0, float(target_price) - float(entry_price))
         rr = reward / max(risk, 1e-9)
-        rr = float(np.clip(rr, 0.0, 5.0))
+        rr = float(np.clip(rr, 0.0, 15.0))  # Increased cap from 5 to 15
         return rr
     except Exception:
         return 0.0
@@ -4035,7 +4035,7 @@ def calculate_rr(
         risk = max(atr * 2.0, float(entry_price) * 0.01)
         reward = float(target_price) - float(entry_price)
         rr = 0.0 if risk <= 0 else reward / risk
-        rr = float(np.clip(rr, 0.0, 5.0))
+        rr = float(np.clip(rr, 0.0, 15.0))  # Increased cap from 5 to 15
         return rr
     except Exception:
         return np.nan

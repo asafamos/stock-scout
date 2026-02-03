@@ -1684,7 +1684,22 @@ def run_scan_pipeline(
             fundamentals_status_local = "not_requested"
         except Exception:
             pass
-    
+
+    # Apply sector mapping fallback for unknown or potentially incorrect sectors
+    try:
+        from core.sector_mapping import get_stock_sector
+        for idx, row in results.iterrows():
+            ticker = row.get("Ticker", "")
+            current_sector = row.get("Sector", "Unknown")
+            # Apply mapping if sector is Unknown or if we have a known mapping
+            mapped_sector = get_stock_sector(ticker)
+            if mapped_sector != "Unknown":
+                # Use mapped sector (more reliable than API data)
+                results.at[idx, "Sector"] = mapped_sector
+            # Keep current sector if mapping returns Unknown and current is not Unknown
+    except Exception as e:
+        logger.debug(f"Sector mapping fallback failed: {e}")
+
     # CRITICAL: Recalculate FinalScore_20d with fundamentals NOW integrated
     # The scoring engine needs the Fundamental_S field which was just added
     try:
@@ -1845,7 +1860,7 @@ def run_scan_pipeline(
                 reward = float(target - entry)
                 rr = np.nan
                 if risk > 0 and reward > 0:
-                    rr = float(np.clip(reward / risk, 0.0, 10.0))
+                    rr = float(np.clip(reward / risk, 0.0, 15.0))  # Increased cap from 10 to 15
                 return {
                     "Entry_Price": entry,
                     "Target_Price": target,

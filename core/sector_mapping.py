@@ -132,6 +132,24 @@ STOCK_SECTOR_MAP: Dict[str, str] = {
     "VTR": "Real Estate", "SBAC": "Real Estate", "WY": "Real Estate",
     "ARE": "Real Estate", "MAA": "Real Estate", "UDR": "Real Estate",
     "ESS": "Real Estate", "INVH": "Real Estate", "EXR": "Real Estate",
+
+    # Additional stocks (from scan results)
+    "CALM": "Consumer Staples",  # Cal-Maine Foods (eggs)
+    "PFSI": "Financial",  # PennyMac Financial Services (mortgage)
+    "HQY": "Healthcare",  # HealthEquity (HSA administrator)
+    "SLM": "Financial",  # Sallie Mae (student loans)
+    "PLNT": "Consumer Discretionary",  # Planet Fitness (gyms)
+    "INFY": "Technology",  # Infosys (IT services)
+    "RARE": "Healthcare",  # Ultragenyx Pharmaceutical
+    "OS": "Technology",  # OneStream (enterprise software)
+    "SEE": "Industrials",  # Sealed Air (packaging)
+    "HL": "Materials",  # Hecla Mining (silver/gold)
+    "TMC": "Materials",  # TMC the metals company (deep sea mining)
+    "AG": "Materials",  # First Majestic Silver
+    "UUUU": "Energy",  # Energy Fuels (uranium)
+    "HYMC": "Materials",  # Hycroft Mining (gold/silver)
+    "UEC": "Energy",  # Uranium Energy Corp
+    "MP": "Materials",  # MP Materials (rare earth)
 }
 
 
