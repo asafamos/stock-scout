@@ -1,0 +1,4 @@
+Ticker,As_Of_Date,Score,Risk_Level,Data_Quality,Confidence_Level,Should_Display,Price_As_Of_Date,Score_fund_component,Score_tech_component,Score_rr_component,Score_reliability_component,Score_base_score,Score_ml_delta,Score_score_before_penalties,Score_penalty_total,Score_final_score,Score_penalty_rr_below_1,Score_penalty_low_reliability,Score_penalty_missing_data,Score_caps_applied,Return_5d,Return_10d,Return_20d
+AAPL,2023-12-01,20.0,speculative,low,none,False,189.45083618164062,17.5,17.5,7.5,7.5,50.0,0.0,50.0,30.0,20.0,15.0,5.0,10.0,[],0.023373913183551753,0.0330997877712762,
+MSFT,2023-12-01,20.0,speculative,low,medium,True,369.0081481933594,17.5,17.5,7.5,7.5,50.0,0.0,50.0,30.0,20.0,15.0,5.0,10.0,[],-0.0007476228034548615,-0.010093238653190562,
+GOOG,2023-12-01,35.0,speculative,low,medium,True,132.32752990722656,17.5,17.5,7.5,7.5,50.0,0.0,50.0,15.0,35.0,,5.0,10.0,[],0.024902282772675033,0.0039001560961862136,
