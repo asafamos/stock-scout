@@ -46,8 +46,17 @@ y/
 *.parquet
 *.joblib
 *.sqlite
-data/scans/
-data/latest_scan_live.json
+
+# Allow scan artifacts for auto-scan sync
+!data/scans/
+data/scans/*
+!data/scans/latest_scan.parquet
+!data/scans/latest_scan.json
+!data/scans/latest_scan.meta.json
+
+# Ignore live scan files (local only)
+data/scans/latest_scan_live.*
+data/latest_scan_live.*
 
 # Fundamentals SQLite store
 data/fundamentals_store.sqlite
