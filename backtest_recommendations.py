@@ -270,14 +270,35 @@ def load_ticker_list(args: argparse.Namespace) -> List[str]:
         with open(args.tickers_file) as f:
             tickers.extend([line.strip().upper() for line in f if line.strip()])
     if args.sp500 and not tickers:
+        # Try local file first
         try:
-            import pandas as pd
-            tables = pd.read_html('https://en.wikipedia.org/wiki/List_of_S%26P_500_companies')
-            sp = tables[0]
-            tickers = sp['Symbol'].astype(str).str.replace('.', '-', regex=False).tolist()
-            print(f"Fetched {len(tickers)} S&P500 tickers from Wikipedia.")
-        except Exception as e:
-            print(f"S&P500 fetch failed: {e}")
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            for local_path in [
+                os.path.join(base_dir, "sp500_tickers_sorted.txt"),
+                os.path.join(base_dir, "sp500_tickers.txt"),
+            ]:
+                if os.path.exists(local_path):
+                    with open(local_path, "r") as f:
+                        tickers = [ln.strip() for ln in f if ln.strip() and not ln.strip().startswith("#")]
+                    if tickers:
+                        print(f"Loaded {len(tickers)} S&P500 tickers from local file.")
+                        break
+        except Exception:
+            pass
+
+        # Fallback to Wikipedia if local file not found
+        if not tickers:
+            try:
+                import pandas as pd
+                tables = pd.read_html(
+                    'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies',
+                    storage_options={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
+                )
+                sp = tables[0]
+                tickers = sp['Symbol'].astype(str).str.replace('.', '-', regex=False).tolist()
+                print(f"Fetched {len(tickers)} S&P500 tickers from Wikipedia.")
+            except Exception as e:
+                print(f"S&P500 fetch failed: {e}")
     if args.use_finnhub and not tickers:
         try:
             from core.data_sources import FinnhubClient

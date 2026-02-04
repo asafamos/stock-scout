@@ -28,7 +28,8 @@ def initialize_market_context(symbols: Optional[list[str]] = None, period_days: 
     Fetches once at process start to avoid per-stock rate limits.
     Strictly uses primary provider via get_index_series.
     """
-    default_symbols = ["SPY", "^VIX", "XLK", "XLV", "XLF", "XLY", "XLP", "XLI", "XLU", "XLE", "XLB", "XLRE"]
+    # All sector ETFs + SPY + VIX for comprehensive market context
+    default_symbols = ["SPY", "^VIX", "XLK", "XLV", "XLF", "XLY", "XLP", "XLI", "XLU", "XLE", "XLB", "XLRE", "XLC"]
     # Avoid re-initialization to preserve cached results and reduce rate limits
     global _MARKET_CONTEXT_INITIALIZED
     if _MARKET_CONTEXT_INITIALIZED and all(sym in _GLOBAL_INDEX_CACHE for sym in ["SPY", "^VIX"]):
@@ -284,14 +285,106 @@ def compute_relative_strength_vs_spy(ticker_df: pd.DataFrame, spy_df: pd.DataFra
 
 def compute_sector_momentum(ticker: str) -> float:
     """
-    Sector momentum proxy: compare to sector ETF.
-    Returns percentile (0-1) of sector performance.
-    
-    Simplified: just return 0.5 for now (can enhance later with sector mapping).
+    Sector momentum: compute sector ETF 20d return.
+    Returns value between -0.5 and 0.5 (typically).
     """
-    # TODO: Map ticker → sector → sector ETF → compute relative strength
-    # For now return neutral
-    return 0.5
+    from core.sector_mapping import get_stock_sector, get_sector_etf
+
+    sector = get_stock_sector(ticker)
+    if sector == "Unknown":
+        return 0.0
+
+    etf = get_sector_etf(sector)
+    if not etf:
+        return 0.0
+
+    try:
+        # Use cached ETF data if available
+        if etf in _GLOBAL_INDEX_CACHE and not _GLOBAL_INDEX_CACHE[etf].empty:
+            etf_df = _GLOBAL_INDEX_CACHE[etf]
+        else:
+            etf_df = yf.download(etf, period="3mo", progress=False)
+            if etf_df.empty:
+                return 0.0
+            _GLOBAL_INDEX_CACHE[etf] = etf_df
+
+        close = etf_df['Close']
+        if len(close) < 20:
+            return 0.0
+
+        # 20-day return
+        ret_20d = (close.iloc[-1] / close.iloc[-20] - 1)
+        return float(np.clip(ret_20d, -0.5, 0.5))
+    except Exception as e:
+        logger.debug(f"Sector momentum calc failed for {ticker}: {e}")
+        return 0.0
+
+
+def compute_sector_features(ticker: str, stock_df: pd.DataFrame) -> dict:
+    """
+    Compute all sector-relative features for a stock.
+
+    Returns dict with:
+        - Sector_RS: stock 20d return - sector ETF 20d return
+        - Sector_Momentum: sector ETF 20d return (absolute)
+        - Sector_Rank: 1.0 if stock beats sector in 5d, else 0.0
+    """
+    from core.sector_mapping import get_stock_sector, get_sector_etf
+
+    defaults = {
+        'Sector_RS': 0.0,
+        'Sector_Momentum': 0.0,
+        'Sector_Rank': 0.5,
+    }
+
+    sector = get_stock_sector(ticker)
+    if sector == "Unknown":
+        return defaults
+
+    etf = get_sector_etf(sector)
+    if not etf:
+        return defaults
+
+    try:
+        # Get ETF data (cached or fresh)
+        if etf in _GLOBAL_INDEX_CACHE and not _GLOBAL_INDEX_CACHE[etf].empty:
+            etf_df = _GLOBAL_INDEX_CACHE[etf]
+        else:
+            etf_df = yf.download(etf, period="3mo", progress=False)
+            if etf_df.empty:
+                return defaults
+            _GLOBAL_INDEX_CACHE[etf] = etf_df
+
+        etf_close = etf_df['Close']
+        stock_close = stock_df['Close'] if 'Close' in stock_df.columns else stock_df['close']
+
+        if len(etf_close) < 20 or len(stock_close) < 20:
+            return defaults
+
+        # Compute returns
+        etf_ret_20d = float(etf_close.iloc[-1] / etf_close.iloc[-20] - 1)
+        etf_ret_5d = float(etf_close.iloc[-1] / etf_close.iloc[-5] - 1) if len(etf_close) >= 5 else 0.0
+
+        stock_ret_20d = float(stock_close.iloc[-1] / stock_close.iloc[-20] - 1)
+        stock_ret_5d = float(stock_close.iloc[-1] / stock_close.iloc[-5] - 1) if len(stock_close) >= 5 else 0.0
+
+        # Sector_RS: how much stock beats/lags sector
+        sector_rs = stock_ret_20d - etf_ret_20d
+
+        # Sector_Momentum: absolute sector strength
+        sector_momentum = etf_ret_20d
+
+        # Sector_Rank: binary - does stock beat sector in short term?
+        sector_rank = 1.0 if stock_ret_5d > etf_ret_5d else 0.0
+
+        return {
+            'Sector_RS': float(np.clip(sector_rs, -1.0, 1.0)),
+            'Sector_Momentum': float(np.clip(sector_momentum, -0.5, 0.5)),
+            'Sector_Rank': float(sector_rank),
+        }
+    except Exception as e:
+        logger.debug(f"Sector features calc failed for {ticker}: {e}")
+        return defaults
 
 
 def get_market_cap_decile(ticker: str) -> int:
@@ -359,17 +452,24 @@ def engineer_context_features(ticker: str, ticker_df: pd.DataFrame) -> dict:
     # Compute proxy market breadth (fraction of sector ETFs above MA20)
     market_breadth = get_market_breadth()
 
+    # Compute sector features (Sector_RS, Sector_Momentum, Sector_Rank)
+    sector_features = compute_sector_features(ticker, ticker_df)
+
     features = {
         'market_trend': spy_context.get('market_trend', 0.5),
         'market_volatility': spy_context.get('market_volatility', 0.2),
         'spy_rsi': spy_context.get('spy_rsi', 50.0),
         'relative_strength_20d': rel_strength,
-        'sector_momentum': compute_sector_momentum(ticker),
+        'sector_momentum': sector_features.get('Sector_Momentum', 0.0),
         'market_cap_decile': get_market_cap_decile(ticker),
         'dist_from_52w_high': compute_price_distance_from_52w_high(ticker_df),
         'market_breadth': float(market_breadth),
+        # Add full sector context
+        'Sector_RS': sector_features.get('Sector_RS', 0.0),
+        'Sector_Momentum': sector_features.get('Sector_Momentum', 0.0),
+        'Sector_Rank': sector_features.get('Sector_Rank', 0.5),
     }
-    
+
     return features
 
 

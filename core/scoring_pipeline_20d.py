@@ -229,6 +229,14 @@ def score_universe_20d(
             "Price_As_Of_Date": float(df_hist["Close"].iloc[-1]),
         }
 
+        # Compute sector context (Sector_RS, Sector_Momentum, Sector_Rank)
+        sector_ctx = None
+        try:
+            from core.market_context import compute_sector_features
+            sector_ctx = compute_sector_features(tkr, df_hist)
+        except Exception:
+            pass
+
         # Build ALL 34 ML features using the new feature builder
         # This ensures proper name mapping and complete feature set
         market_ctx = get_market_context_from_row(row) if benchmark_df is not None else None
@@ -236,7 +244,7 @@ def score_universe_20d(
             row=row,
             df_hist=df_hist,
             market_context=market_ctx,
-            sector_context=None,  # TODO: Add sector context when available
+            sector_context=sector_ctx,  # Now passing real sector context!
         )
 
         # Add all ML features to rec (these will be passed to compute_ml_20d_probabilities_raw)
