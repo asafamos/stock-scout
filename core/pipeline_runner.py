@@ -578,17 +578,6 @@ def _process_single_ticker(tkr: str, df: pd.DataFrame, skip_tech_filter: bool) -
     # Convert enriched single-row DataFrame back to Series for downstream logic
     row_indicators = row_df.reset_index(drop=False).iloc[0]
 
-    # Compute sector features (Sector_RS, Sector_Momentum, Sector_Rank)
-    sector_context = None
-    try:
-        from core.market_context import compute_sector_features
-        sector_context = compute_sector_features(tkr, df)
-        # Also add to row_indicators for downstream use
-        for k, v in sector_context.items():
-            row_indicators[k] = v
-    except Exception as exc:
-        logger.debug(f"Sector feature computation failed for {tkr}: {exc}")
-
     # Enrich with all 34 ML features using the feature builder
     try:
         from core.ml_feature_builder import build_all_ml_features_v3
@@ -596,7 +585,7 @@ def _process_single_ticker(tkr: str, df: pd.DataFrame, skip_tech_filter: bool) -
             row=row_indicators,
             df_hist=df,
             market_context=None,  # Will use defaults
-            sector_context=sector_context,  # Now passing real sector context!
+            sector_context=None,  # Will use defaults
         )
         # Add ML features to row_indicators
         for feat_name, feat_val in ml_features.items():
@@ -2052,19 +2041,6 @@ def run_scan_pipeline(
                 meta["ml_mode"] = "HYBRID"
         except Exception:
             pass
-    except Exception:
-        pass
-
-    # === PIPELINE COMPLETION SUMMARY (with fallback status) ===
-    try:
-        n_results = len(results) if results is not None else 0
-        fb_status = get_fallback_status()
-        if fb_status.get("fallback_used"):
-            fb_count = fb_status.get("fallback_count", 0)
-            logger.warning(f"⚠️ [PIPELINE COMPLETE] {n_results} stocks scored. FALLBACK USED: {fb_count} legacy scoring fallbacks occurred!")
-            logger.warning(f"   Fallback reasons: {', '.join(fb_status.get('reasons', [])[:5])}")
-        else:
-            logger.info(f"✓ [PIPELINE COMPLETE] {n_results} stocks scored successfully. No fallbacks needed.")
     except Exception:
         pass
 

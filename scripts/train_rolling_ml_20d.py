@@ -329,36 +329,16 @@ def fetch_polygon_history(ticker, start_str, end_str):
         return None
 
 def get_universe_tickers(limit=2000):
-    """Try to get full universe, fallback to S&P 500 (local file preferred)."""
+    """Try to get full universe, fallback to S&P 500."""
     try:
         from core.data import get_universe
         return get_universe(limit=limit)
     except:
-        pass
-
-    # Fallback to local S&P500 file
-    try:
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        for local_path in [
-            os.path.join(base_dir, "sp500_tickers_sorted.txt"),
-            os.path.join(base_dir, "sp500_tickers.txt"),
-        ]:
-            if os.path.exists(local_path):
-                with open(local_path, "r") as f:
-                    syms = [ln.strip() for ln in f if ln.strip() and not ln.strip().startswith("#")]
-                if syms:
-                    return syms[:limit]
-    except:
-        pass
-
-    # Fallback to Wikipedia
-    try:
-        return pd.read_html(
-            'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies',
-            storage_options={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
-        )[0]['Symbol'].tolist()
-    except:
-        return ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "TSLA", "META", "AMD", "NFLX", "INTC"]  # Minimal fallback
+        # Fallback to standard list if core fails
+        try:
+            return pd.read_html('https://en.wikipedia.org/wiki/List_of_S%26P_500_companies')[0]['Symbol'].tolist()
+        except:
+            return ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "TSLA", "META", "AMD", "NFLX", "INTC"] # Minimal fallback
 
 # --- FEATURE ENGINEERING ---
 def calculate_features(df, spy_returns: pd.Series = None, market_regime_df: pd.DataFrame = None,

@@ -40,29 +40,9 @@ from datetime import datetime as dt
 
 
 def build_universe(limit: int = 100) -> List[str]:
-    """Build stock universe from S&P 500 (local file preferred, Wikipedia fallback)."""
-    # Try local file first (no HTTP dependency)
+    """Build stock universe from S&P 500."""
     try:
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        for local_path in [
-            os.path.join(base_dir, "sp500_tickers_sorted.txt"),
-            os.path.join(base_dir, "sp500_tickers.txt"),
-        ]:
-            if os.path.exists(local_path):
-                with open(local_path, "r") as f:
-                    syms = [ln.strip() for ln in f if ln.strip() and not ln.strip().startswith("#")]
-                if syms:
-                    print(f"✓ Loaded {len(syms)} S&P500 symbols from local file")
-                    return syms[:limit]
-    except Exception:
-        pass
-
-    # Fallback to Wikipedia
-    try:
-        sp500_table = pd.read_html(
-            'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies',
-            storage_options={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
-        )
+        sp500_table = pd.read_html('https://en.wikipedia.org/wiki/List_of_S%26P_500_companies')
         sp500_df = sp500_table[0]
         tickers = sp500_df['Symbol'].str.replace('.', '-').tolist()
         return tickers[:limit]

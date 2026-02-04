@@ -24,52 +24,14 @@ def _clean_key(val: Optional[str]) -> Optional[str]:
 
 
 def get_secret(key: str, default: Optional[str] = None, nested_sections: Optional[list[str]] = None) -> Optional[str]:
-    """Unified secret loader with Streamlit Cloud support.
+    """Unified secret loader without Streamlit dependency.
 
-    Precedence:
-    1. Environment variables (with `.env` loaded) - for GitHub Actions & local
-    2. Streamlit secrets (st.secrets) - for Streamlit Cloud deployment
-    3. Default value if nothing found
-
-    Args:
-        key: The secret key to look up
-        default: Default value if not found
-        nested_sections: Optional list of nested sections to check in st.secrets
+    Precedence: environment variables (with `.env` loaded) only.
+    Returns `default` if nothing is found.
     """
-    # 1. Try environment variable first (GitHub Actions, local .env)
     val = os.getenv(key)
     if val is not None:
         return _clean_key(val)
-
-    # 2. Try Streamlit secrets (Cloud deployment)
-    try:
-        import streamlit as st
-        if hasattr(st, "secrets"):
-            # Try direct access (top-level key)
-            try:
-                val = st.secrets.get(key)
-                if val:
-                    return _clean_key(str(val))
-            except (KeyError, FileNotFoundError):
-                pass
-
-            # Try nested sections
-            sections_to_check = nested_sections or ["api_keys", "keys", "secrets", "tokens"]
-            for section in sections_to_check:
-                try:
-                    if section in st.secrets and key in st.secrets[section]:
-                        val = st.secrets[section][key]
-                        if val:
-                            return _clean_key(str(val))
-                except (KeyError, FileNotFoundError, AttributeError):
-                    continue
-    except ImportError:
-        # Streamlit not installed (e.g., in batch scripts)
-        pass
-    except Exception:
-        # Any other error - fail silently and use default
-        pass
-
     return default
 
 def _get_config_value(key: str, default: str) -> str:

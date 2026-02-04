@@ -889,35 +889,19 @@ def build_universe(limit: int) -> List[str]:
     except Exception as e:
         logger.warning(f"NASDAQ/OTHERLISTED fetch failed ({e}), falling back to S&P500")
 
-    # 3) Fallback to local S&P500 file (preferred - no HTTP dependency)
-    try:
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        for local_path in [
-            os.path.join(base_dir, "sp500_tickers_sorted.txt"),
-            os.path.join(base_dir, "sp500_tickers.txt"),
-            os.path.join(base_dir, "data", "sp500_tickers.txt"),
-        ]:
-            if os.path.exists(local_path):
-                with open(local_path, "r") as f:
-                    syms = [ln.strip() for ln in f if ln.strip() and not ln.strip().startswith("#")]
-                if syms:
-                    logger.info(f"✓ Loaded {len(syms)} S&P500 symbols from local file")
-                    return syms[:limit]
-    except Exception as e:
-        logger.debug(f"Local S&P500 read failed: {e}")
-
-    # 4) Fallback to Wikipedia S&P500 (last resort)
+    # 3) Fallback to S&P500 (previous behavior)
     try:
         tables = pd.read_html(
             "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies",
-            storage_options={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+            storage_options={"User-Agent": "Mozilla/5.0"},
         )
-        df_sp = tables[0]  # First table has the S&P500 constituents
+        df_sp = tables[1]
+        df_sp = df_sp.drop_duplicates(subset="Security", keep="first")
         tickers = df_sp["Symbol"].astype(str).str.replace(".", "-", regex=False).tolist()
-        logger.info(f"✓ Loaded {len(tickers)} S&P500 symbols from Wikipedia")
+        logger.info(f"✓ Loaded {len(tickers)} S&P500 symbols (fallback)")
         return tickers[:limit]
     except Exception as e:
-        logger.warning(f"Wikipedia S&P500 fetch failed ({e}), using tiny fallback list")
+        logger.warning(f"Fallback S&P500 fetch failed ({e}), using tiny fallback list")
         fallback = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "JPM", "V", "WMT", "UNH", "AVGO"]
         return fallback[:limit]
 
@@ -2922,10 +2906,6 @@ else:
             st.caption(f"Engine: {engine_version} · Run: {run_ts or 'n/a'}")
             if engine_mode == "SIGNAL_ONLY":
                 st.caption("Signal-based scan (no allocation, no position sizing)")
-            # IMPORTANT: Show fallback warning prominently if legacy scoring was used
-            if used_fb:
-                st.warning(f"⚠️ **Fallback to Legacy Scoring** - ML Bridge failed for some stocks. Reason: {fb_reason or 'Unknown'}")
-                st.caption("Results may differ from expected ML-enhanced scoring.")
             # Save mode for later UI decisions
             st.session_state["engine_mode"] = engine_mode
             if sources_used:

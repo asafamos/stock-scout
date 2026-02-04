@@ -1,7 +1,6 @@
 # Stock Scout - סקירה מקיפה ומלאה של המערכת
 
 **תאריך סקירה:** 3 בפברואר 2026
-**עדכון אחרון:** 4 בפברואר 2026
 **גרסה נבדקת:** v3.0 (ML 20d Model)
 
 ---
@@ -10,23 +9,15 @@
 
 Stock Scout היא מערכת מתוחכמת לזיהוי מניות לפני עלייה, המשלבת ניתוח טכני, פונדמנטלי ולמידת מכונה (ML). המערכת עובדת גם ב-Streamlit Online וגם מקומית, עם אוטומציות של GitHub Actions.
 
-### ✅ תיקונים שבוצעו (4 בפברואר 2026)
-
-| תיקון | סטטוס | פרטים |
-|-------|--------|--------|
-| **ML Features - 34 פיצ'רים** | ✅ תוקן | המודל מתאמן כעת על כל 34 הפיצ'רים |
-| **ML Boost - 20%** | ✅ תוקן | הועלה מ-±10 ל-±20 נקודות |
-| **get_secret - תמיכה ב-st.secrets** | ✅ תוקן | עכשיו בודק גם Streamlit Cloud secrets |
-| **Wikipedia S&P500 Fetch** | ✅ תוקן | מעדיף קבצים מקומיים, תיקון headers |
-| **Sector Features עובדים** | ✅ תוקן | `compute_sector_features()` מחשב Sector_RS, Sector_Momentum, Sector_Rank מ-ETF data |
-| **CI Validation Threshold** | ✅ קיים | `backtest_precision_at_k.py` בודק precision >= 0.55 לפני deploy |
-| **Fallback Visibility** | ✅ תוקן | הוספנו התראות UI + לוגים כשמתרחש fallback ללוגיקה ישנה |
-
-### ⚠️ בעיות שנותרו לטיפול
+### ⚠️ בעיות קריטיות שזוהו
 
 | בעיה | חומרה | השפעה |
 |------|-------|--------|
-| **Sector Mapping לא מלא** | 🟡 בינוני | ~150 מניות ממופות, שאר מקבלות Unknown |
+| **חוסר התאמה בין מטא-דאטה לפיצ'רים** | 🔴 קריטי | המודל מתאמן על 5 פיצ'רים בעוד המערכת מצפה ל-34 |
+| **ML Boost מקסימלי קטן מדי** | 🟡 בינוני | ±10 נקודות זה רק ~10% מהציון - ML לא משפיע מספיק |
+| **חוסר Backtesting אמיתי לפני Deploy** | 🔴 קריטי | אין validation אוטומטי של דיוק המודל |
+| **Fallback Logic מוסתר** | 🟡 בינוני | כשה-bridge נכשל, המערכת עוברת ללוגיקה ישנה בשקט |
+| **Feature Staleness** | 🟡 בינוני | פיצ'רים כמו Sector_RS תמיד 0 כי אין ETF mapping |
 
 ---
 
@@ -64,7 +55,7 @@ build_technical_indicators() - חישוב 40+ אינדיקטורים טכניי�
     ↓
 compute_recommendation_scores() - ציון טכני + פונדמנטלי
     ↓
-ML 20d Model - Boost של ±20 נקודות (תוקן!)
+ML 20d Model - Boost של ±10 נקודות
     ↓
 apply_classification() - סיווג סיכון
     ↓
@@ -77,22 +68,13 @@ allocate_budget() - הקצאת תקציב
 
 ## 🔴 בעיות קריטיות - ניתוח מעמיק
 
-### 1. ✅ **חוסר התאמה קריטי בין המודל לפיצ'רים - תוקן!**
+### 1. **חוסר התאמה קריטי בין המודל לפיצ'רים**
 
-**הבעיה המקורית:**
-הקובץ `models/model_20d_v3.metadata.json` הראה:
+**הבעיה:**
+הקובץ `models/model_20d_v3.metadata.json` מראה:
 ```json
 {
   "feature_list": ["RSI", "ATR_Pct", "Return_20d", "Return_10d", "Return_5d"]
-}
-```
-
-**✅ מצב נוכחי (אחרי תיקון):**
-```json
-{
-  "feature_list": ["RSI", "ATR_Pct", "Return_20d", "Return_10d", "Return_5d",
-                   "VCP_Ratio", "Tightness_Ratio", "Dist_From_52w_High", ...],
-  "note": "Updated feature list to 34 features as defined in core/feature_registry.py"
 }
 ```
 
@@ -110,9 +92,9 @@ from core.feature_registry import get_feature_names
 features_to_use = get_feature_names("v3")  # 34 features
 ```
 
-### 2. ✅ **ML Boost מוגבל מדי - תוקן!**
+### 2. **ML Boost מוגבל מדי**
 
-**הבעיה המקורית:**
+**הבעיה:**
 בקובץ `ml_integration.py`:
 ```python
 def calculate_ml_boost(base_conviction, ml_probability, max_boost_pct=10.0):
@@ -120,13 +102,7 @@ def calculate_ml_boost(base_conviction, ml_probability, max_boost_pct=10.0):
     ml_boost = boost_fraction * max_boost_pct  # Max ±10 points
 ```
 
-**✅ מצב נוכחי (אחרי תיקון):**
-```python
-def calculate_ml_boost(base_conviction, ml_probability, max_boost_pct=20.0):  # הועלה מ-10 ל-20!
-    # NOTE: max_boost_pct increased from 10 to 20 (2026-02-03)
-```
-
-**השפעה המקורית (כבר לא רלוונטית):**
+**השפעה:**
 - מניה עם ML prob של 0.9 מקבלת רק +8 נקודות
 - מניה עם ML prob של 0.1 מקבלת רק -8 נקודות
 - **זה לא מספיק להבדיל בין מניות "חמות" באמת**
@@ -582,37 +558,27 @@ TECH_WEIGHTS_V2 = {
 
 ## 📊 סיכום מספרי
 
-| מדד | ערך קודם | ערך נוכחי | סטטוס |
-|-----|----------|----------|--------|
-| פיצ'רים ב-ML | 5 | **34** | ✅ תוקן |
-| ML Boost מקסימלי | ±10 pts | **±20 pts** | ✅ תוקן |
-| get_secret תמיכה ב-st.secrets | ❌ | **✅** | ✅ תוקן |
-| Wikipedia S&P500 fallback | שבור | **עובד (local first)** | ✅ תוקן |
-| Sector features עובדים | 0/3 | **3/3** | ✅ תוקן |
-| Validation threshold | אין | **0.55 precision** | ✅ קיים |
-| Fallback visibility | מוסתר | **מוצג ב-UI + logs** | ✅ תוקן |
-| משקל ML בציון סופי | 20% | 20% | ⚠️ לשיקול |
-| VCP weight | 20% | 20% | ⚠️ לשיקול |
+| מדד | ערך נוכחי | ערך מומלץ |
+|-----|----------|----------|
+| פיצ'רים ב-ML | 5 | 34 |
+| ML Boost מקסימלי | ±10 pts | ±20 pts |
+| משקל ML בציון סופי | 20% | 35% |
+| VCP weight | 20% | 25% |
+| Sector features עובדים | 0/3 | 3/3 |
+| Validation threshold | אין | AUC > 0.55 |
 
 ---
 
 ## 🏁 סיכום
 
-המערכת בנויה טוב מבחינת ארכיטקטורה. **תוקנו מספר בעיות קריטיות:**
+המערכת בנויה טוב מבחינת ארכיטקטורה אבל יש כמה בעיות לוגיות קריטיות שפוגעות ביכולת שלה לזהות מניות לפני עלייה:
 
-### ✅ תוקן (4 בפברואר 2026):
-1. **ML עובד עם 34 פיצ'רים** - במקום 5 בלבד
-2. **ML Boost הועלה ל-±20 נקודות** - במקום ±10
-3. **get_secret תומך ב-Streamlit Cloud** - secrets נטענים גם מ-st.secrets
-4. **Wikipedia S&P500 fetch תוקן** - מעדיף קבצים מקומיים, headers מתוקנים
-5. **Sector Features עובדים!** - `compute_sector_features()` מחשב Sector_RS, Sector_Momentum, Sector_Rank
-6. **CI Validation קיים** - `backtest_precision_at_k.py` בודק threshold 0.55 לפני deploy
-7. **Fallback Visibility** - המשתמש רואה התראה ב-UI + לוגים מפורטים כשמתרחש fallback
+1. **ML לא עובד כמו שצריך** - מתאמן על 5 פיצ'רים במקום 34
+2. **ML לא משפיע מספיק** - boost מוגבל ל-±10 נקודות
+3. **Sector features לא מחושבים** - תמיד ערכי ברירת מחדל
+4. **אין validation אוטומטי** - מודל גרוע יכול להיכנס לפרודקשן
 
-### ⚠️ נותר לטיפול:
-1. **Sector Mapping לא מלא** - ~150 מניות ממופות, שאר מקבלות Unknown (ניתן להרחיב)
-
-**המערכת כעת במצב מצוין!** 🎉
+אם תתקן את 4 הבעיות האלה, המערכת תשתפר משמעותית ביכולת לזהות מניות לפני עלייה.
 
 ---
 
