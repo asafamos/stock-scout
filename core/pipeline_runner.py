@@ -578,6 +578,21 @@ def _process_single_ticker(tkr: str, df: pd.DataFrame, skip_tech_filter: bool) -
     # Convert enriched single-row DataFrame back to Series for downstream logic
     row_indicators = row_df.reset_index(drop=False).iloc[0]
 
+    # Enrich with all 34 ML features using the feature builder
+    try:
+        from core.ml_feature_builder import build_all_ml_features_v3
+        ml_features = build_all_ml_features_v3(
+            row=row_indicators,
+            df_hist=df,
+            market_context=None,  # Will use defaults
+            sector_context=None,  # Will use defaults
+        )
+        # Add ML features to row_indicators
+        for feat_name, feat_val in ml_features.items():
+            row_indicators[feat_name] = feat_val
+    except Exception as exc:
+        logger.debug(f"ML feature building failed for {tkr}: {exc}")
+
     # Tier 2 may skip this filter because Tier 1 already applied OHLCV checks
     if not skip_tech_filter:
         if not apply_technical_filters(row_indicators, strict=False):
