@@ -29,6 +29,8 @@ import pandas as pd
 import logging
 import warnings
 
+from core.scoring_config import BASE_SCORE_WEIGHTS
+
 logger = logging.getLogger(__name__)
 
 
@@ -122,9 +124,9 @@ class UnifiedScorer:
         self.ml_enabled = self.config.get("enable_ml", True)
         self.ml_max_boost = self.config.get("ml_max_boost_pct", 10.0)
         
-        # Weight configuration
-        self.technical_weight = self.config.get("technical_weight", 0.60)
-        self.fundamental_weight = self.config.get("fundamental_weight", 0.40)
+        # Weight configuration - defaults from centralized scoring_config
+        self.technical_weight = self.config.get("technical_weight", BASE_SCORE_WEIGHTS.get("technical", 0.69))
+        self.fundamental_weight = self.config.get("fundamental_weight", BASE_SCORE_WEIGHTS.get("fundamental", 0.31))
         
         # Algorithm version
         self.use_v2_scoring = self.config.get("use_v2_scoring", True)

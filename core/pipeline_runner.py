@@ -515,7 +515,8 @@ def calculate_rr(entry_price: float, target_price: float, atr_value: float, hist
                 last = history_df.tail(14)
                 est_atr = (last["High"] - last["Low"]).abs().mean()
                 if np.isfinite(est_atr): atr = float(est_atr)
-            except: pass
+            except Exception as e:
+                logger.debug(f"ATR estimation failed: {e}")
             
         risk = max(atr * 2.0, entry_price * 0.01) if np.isfinite(atr) else max(entry_price * 0.01, 0.01)
         reward = max(0.0, float(target_price) - float(entry_price))
@@ -1767,7 +1768,8 @@ def run_scan_pipeline(
                             next_date = pd.to_datetime(earnings_dates[0])
                             days_until = (next_date - datetime.now()).days
                             return 0 <= days_until <= days
-                except: pass
+                except Exception as e:
+                    logger.debug(f"Earnings check failed for {ticker}: {e}")
                 return False
             
             # Check top K stocks only (performance optimization)

@@ -142,15 +142,26 @@ def compute_ml_20d_probabilities_raw(row: pd.Series) -> float:
     """
     Compute RAW ML 20d probability from GradientBoosting model.
     This is the base signal before any live adjustments.
-    
+
     Returns:
         - float in [0, 1]: raw positive-class probability if model available
-        - np.nan: if model unavailable, missing features, or prediction fails
+        - np.nan: if model unavailable or prediction fails
+
+    Note: Missing features are now filled with sensible defaults from the feature
+    registry instead of failing completely. This allows ML to work even when some
+    features cannot be computed (e.g., missing market/sector context).
     """
     if not ML_20D_AVAILABLE or BUNDLE_MODEL is None or not FEATURE_COLS_20D:
         return np.nan
-    
+
     try:
+        # Load feature defaults from registry (with fallback to neutral values)
+        try:
+            from core.feature_registry import get_feature_defaults
+            defaults = get_feature_defaults("v3")
+        except Exception:
+            defaults = {}
+
         # Map Return_1m → Return_20d when training expects 20d but row provides 1m
         try:
             if ("Return_20d" in FEATURE_COLS_20D) and ("Return_20d" not in row) and ("Return_1m" in row):
@@ -160,7 +171,7 @@ def compute_ml_20d_probabilities_raw(row: pd.Series) -> float:
         # Build feature dict with exact columns from training, in exact order
         feature_dict = {}
         missing_features = []
-        
+
         for col in FEATURE_COLS_20D:
             # Apply aliases/fallbacks for known features
             if col == "ADR_Pct":
@@ -169,10 +180,11 @@ def compute_ml_20d_probabilities_raw(row: pd.Series) -> float:
                 val = row.get(col, np.nan)
             if not isinstance(val, (int, float)) or np.isnan(val):
                 missing_features.append(col)
-                val = np.nan
+                # Use default from registry, or neutral value if not found
+                val = defaults.get(col, 0.0)
             feature_dict[col] = val
-        
-        # Enforce strict feature contract: if any required features missing, mark degraded and return NaN
+
+        # Track missing features for health reporting, but continue with defaults
         if missing_features:
             try:
                 # Update global health flags
@@ -184,8 +196,9 @@ def compute_ml_20d_probabilities_raw(row: pd.Series) -> float:
                 BUNDLE_HAS_MISSING_METEOR_FEATURES = True
             except Exception:
                 pass
-            logger.info(f"ML 20d: missing required features {missing_features}; returning NaN")
-            return np.nan
+            # Log only once per batch (first occurrence)
+            if len(missing_features) > 10:
+                logger.debug(f"ML 20d: filled {len(missing_features)} missing features with defaults")
         
         # Build DataFrame in exact feature order
         X = pd.DataFrame([feature_dict])

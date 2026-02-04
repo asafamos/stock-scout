@@ -1,11 +1,10 @@
 """
 Unified Scoring Engine for Stock Scout.
 
-This module implements the final conviction score calculation with strict requirements:
-- Fundamentals: 35%
-- Momentum: 35%
-- Risk/Reward: 15%
-- Reliability: 15%
+This module implements the final conviction score calculation.
+Weights are loaded from scoring_config.py for consistency:
+- See CONVICTION_WEIGHTS for fund/momentum/rr/reliability blend
+- See FINAL_SCORE_WEIGHTS for tech/fund/ml blend
 
 All scores are normalized 0-100 and monotonic (never negative).
 Deterministic sorting ensures reproducibility.
@@ -15,6 +14,8 @@ import numpy as np
 import pandas as pd
 from typing import Dict, Tuple, Optional
 import logging
+
+from core.scoring_config import CONVICTION_WEIGHTS, FINAL_SCORE_WEIGHTS
 
 logger = logging.getLogger(__name__)
 
@@ -963,8 +964,11 @@ def calculate_conviction_score(
     r = conf_blend(rr_score, rr_confidence)
     rel = reliability_score
 
-    # Proportional weights, sum to 1.0
-    w_f, w_m, w_r, w_rel = 0.35, 0.35, 0.15, 0.15
+    # Use centralized weights from scoring_config.py
+    w_f = CONVICTION_WEIGHTS.get("fundamental", 0.30)
+    w_m = CONVICTION_WEIGHTS.get("momentum", 0.30)
+    w_r = CONVICTION_WEIGHTS.get("risk_reward", 0.20)
+    w_rel = CONVICTION_WEIGHTS.get("reliability", 0.20)
     base = f * w_f + m * w_m + r * w_r + rel * w_rel
 
     # ML adjustment: proportional, up to +/-10, but only if reliability and confidence are decent

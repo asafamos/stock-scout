@@ -23,6 +23,8 @@ import numpy as np
 import pandas as pd
 import logging
 
+from core.scoring_config import CONVICTION_WEIGHTS
+
 logger = logging.getLogger(__name__)
 
 
@@ -687,8 +689,13 @@ def score_ticker_v2_enhanced(
             rr_ratio = 0.0
         rr_norm = (min(max(float(rr_ratio), 0.0), 5.0) / 5.0) * 100.0
 
+        # Use centralized weights from scoring_config.py
+        w_fund = CONVICTION_WEIGHTS.get("fundamental", 0.30)
+        w_tech = CONVICTION_WEIGHTS.get("momentum", 0.30)  # tech score maps to momentum weight
+        w_rr = CONVICTION_WEIGHTS.get("risk_reward", 0.20)
+        w_rel = CONVICTION_WEIGHTS.get("reliability", 0.20)
         base_conviction = (
-            0.35 * fund_score + 0.35 * tech_score + 0.15 * rr_norm + 0.15 * float(reliability_v2)
+            w_fund * fund_score + w_tech * tech_score + w_rr * rr_norm + w_rel * float(reliability_v2)
         )
         result["conviction_v2_base"] = float(np.clip(base_conviction, 0.0, 100.0))
         

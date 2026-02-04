@@ -9,6 +9,7 @@ from core.ml_20d_inference import (
     apply_live_v3_adjustments,
     PREFERRED_SCORING_MODE_20D,
 )
+from core.ml_feature_builder import build_all_ml_features_v3, get_market_context_from_row
 
 
 def normalize_schema(df: pd.DataFrame) -> pd.DataFrame:
@@ -221,17 +222,30 @@ def score_universe_20d(
         except Exception:
             row = indicators.iloc[-1]
 
-        # Base row
+        # Base row with identifiers
         rec = {
             "Ticker": tkr,
             "As_Of_Date": df_hist.index[-1],
             "Price_As_Of_Date": float(df_hist["Close"].iloc[-1]),
-            "RSI": float(row.get("RSI", np.nan)),
-            "ATR_Pct": float(row.get("ATR_Pct", np.nan)),
-            "RR": float(row.get("RR", np.nan)),
-            "MomCons": float(row.get("MomCons", np.nan)),
-            "VolSurge": float(row.get("VolSurge", np.nan)),
         }
+
+        # Build ALL 34 ML features using the new feature builder
+        # This ensures proper name mapping and complete feature set
+        market_ctx = get_market_context_from_row(row) if benchmark_df is not None else None
+        ml_features = build_all_ml_features_v3(
+            row=row,
+            df_hist=df_hist,
+            market_context=market_ctx,
+            sector_context=None,  # TODO: Add sector context when available
+        )
+
+        # Add all ML features to rec (these will be passed to compute_ml_20d_probabilities_raw)
+        rec.update(ml_features)
+
+        # Also keep legacy column names for backward compatibility with scoring/UI
+        rec["RR"] = float(row.get("RR", np.nan))
+        rec["MomCons"] = float(row.get("MomCons", np.nan))
+        rec["VolSurge"] = float(row.get("VolSurge", np.nan))
 
         # Big winner features
         from core.unified_logic import compute_big_winner_signal_20d
@@ -247,11 +261,13 @@ def score_universe_20d(
             tech_raw = 0.5
         rec["TechScore_20d_v2_raw"] = float(tech_raw)
 
-        # ML probability
+        # ML probability - now using the complete feature dict
         if include_ml and ML_20D_AVAILABLE:
             try:
-                ml_prob_raw = compute_ml_20d_probabilities_raw(row)
-            except Exception:
+                # Pass the rec dict which now contains all 34 ML features
+                ml_prob_raw = compute_ml_20d_probabilities_raw(rec)
+            except Exception as e:
+                log(f"ML inference failed for {tkr}: {e}")
                 ml_prob_raw = np.nan
         else:
             ml_prob_raw = np.nan

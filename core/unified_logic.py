@@ -1054,7 +1054,10 @@ def build_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     ).clip(lower=0.0, upper=1.0)
     
     result['Volatility_Contraction_Score'] = vcp_composite.astype(float)
-    
+
+    # Coil_Bonus flag: activated when VCP score > 0.6 (indicating strong coil pattern)
+    result['Coil_Bonus'] = (vcp_composite > 0.6).astype(int)
+
     # Price-based features
     result['Overext'] = (close / result['MA50']) - 1
     result['Near52w'] = (close / close.rolling(window=252).max()) * 100

@@ -831,8 +831,8 @@ def auto_load_model() -> None:
     """Attempt to auto-load model on module import."""
     try:
         load_ml_model()
-    except:
-        pass
+    except Exception as e:
+        logger.debug(f"Auto-load model skipped: {e}")
 
 # Uncomment to auto-load:
 # auto_load_model()

@@ -35,6 +35,24 @@ FINAL_SCORE_WEIGHTS: Dict[str, float] = {
     "ml": 0.35,
 }
 
+# Conviction score weights (used by compute_conviction_score_v2)
+# These are different from final score - conviction focuses on reliability
+CONVICTION_WEIGHTS: Dict[str, float] = {
+    "fundamental": 0.30,
+    "momentum": 0.30,
+    "risk_reward": 0.20,
+    "reliability": 0.20,
+}
+
+# Base score weights (tech/fund only, before ML boost is applied)
+# Used by UnifiedScorer and similar 2-component scoring
+# Derived from FINAL_SCORE_WEIGHTS by removing ML and renormalizing:
+# tech=0.45/(0.45+0.20)=0.69, fund=0.20/(0.45+0.20)=0.31
+BASE_SCORE_WEIGHTS: Dict[str, float] = {
+    "technical": 0.69,
+    "fundamental": 0.31,
+}
+
 # ML gate thresholds and multipliers (single source of truth)
 ML_GATES: Dict[str, float] = {
     "penalty_lt": 0.15,

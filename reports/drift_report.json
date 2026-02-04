@@ -1,7 +1,8 @@
 {
   "model": "models/model_20d_v3.pkl",
-  "live_csv": "data/training_dataset_20d_v3_with_live_v3.csv",
-  "training_csv": null,
+  "live_csv": "data/test_20d_v3_mini.csv",
+  "training_csv": "data/training_dataset_20d_v3_with_overlay_v2_with_meta.csv",
+  "note": "Drift metrics are null because model bundle is missing feature_bins and training_bin_pct. Run train_rolling_ml_20d.py to regenerate model with drift support.",
   "results": {
     "TechScore_20d": {
       "PSI": null,

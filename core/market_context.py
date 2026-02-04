@@ -9,10 +9,13 @@ import numpy as np
 from datetime import datetime, timedelta
 import functools
 from typing import Optional
+import logging
 
 from core.data_sources_v2 import get_index_series, get_last_index_source
 from core.config import get_secret
 import requests
+
+logger = logging.getLogger(__name__)
 
 # Global cache for per-date market breadth
 _MARKET_BREADTH_CACHE = {}
@@ -311,7 +314,8 @@ def get_market_cap_decile(ticker: str) -> int:
             return 5  # Small cap
         else:
             return 8  # Micro cap
-    except:
+    except Exception as e:
+        logger.debug(f"Failed to get market cap for {ticker}: {e}")
         return 5  # Default to mid
 
 
