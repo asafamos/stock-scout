@@ -3323,6 +3323,27 @@ phase_times["price_verification"] = t_end(t0)
 status_manager.update_detail(f"Price verification: {len(results)} validated")
 status_manager.advance("Price Verification")
 
+# Update ReliabilityScore in results (sync with Reliability_Score if computed)
+if "Reliability_Score" in results.columns and results["Reliability_Score"].notna().any():
+    # Convert from 0-1 to 0-100 scale and update ReliabilityScore
+    results["ReliabilityScore"] = (results["Reliability_Score"].fillna(0.5) * 100).round(2)
+elif "Price_Reliability" in results.columns:
+    # Fallback: use price reliability alone if fundamental not available
+    results["ReliabilityScore"] = (results["Price_Reliability"].fillna(0.5) * 100).round(2)
+
+# Save updated results with price verification data
+if not results.empty:
+    try:
+        meta_updated = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "scan_type": "live_streamlit_verified",
+            "includes_price_verification": True,
+        }
+        save_latest_scan_from_results(results, metadata=meta_updated)
+        logger.info("Saved updated scan with price verification data")
+    except Exception as e:
+        logger.warning(f"Failed to save price-verified scan: {e}")
+
 
 # Horizon heuristic
 def infer_horizon(row: pd.Series) -> str:

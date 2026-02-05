@@ -776,8 +776,27 @@ def _step_compute_scores_with_unified_logic(
         and ("reliability_v2" not in results.columns)
         and ("Reliability_v2" not in results.columns)
     ):
-        # Create a conservative default reliability metric when missing
-        results["ReliabilityScore"] = 50.0
+        # Compute ReliabilityScore based on available data quality indicators
+        # Uses Fundamental_Sources_Count (0-4) and available price validation
+        def _calc_reliability(row):
+            # Base score from fundamental sources (0-4 sources -> 20-80 points)
+            fund_sources = row.get("Fundamental_Sources_Count", 0)
+            if pd.isna(fund_sources):
+                fund_sources = 0
+            fund_score = min(fund_sources, 4) * 15 + 20  # 20, 35, 50, 65, 80
+
+            # Bonus for price data availability (up to 20 points)
+            price_bonus = 0
+            if pd.notna(row.get("Price_Yahoo", row.get("Close"))):
+                price_bonus += 10
+            if pd.notna(row.get("ATR")):
+                price_bonus += 5
+            if pd.notna(row.get("RSI")):
+                price_bonus += 5
+
+            return min(fund_score + price_bonus, 100)
+
+        results["ReliabilityScore"] = results.apply(_calc_reliability, axis=1)
     else:
         # Provide legacy alias if canonical underscore variant exists
         if ("Reliability_Score" in results.columns) and ("ReliabilityScore" not in results.columns):

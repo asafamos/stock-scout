@@ -853,16 +853,22 @@ def fetch_fundamentals_fmp(ticker: str, provider_status: Dict | None = None) -> 
         return cached
     
     _rate_limit("fmp")
-    # Query stable Screener endpoint
-    url = f"https://financialmodelingprep.com/stable/company-screener"
+    # Query stable profile endpoint (not company-screener which returns wrong tickers)
+    url = f"https://financialmodelingprep.com/stable/profile"
     params = {"symbol": ticker, "apikey": (FMP_KEY_RUNTIME or FMP_API_KEY)}
     start = time.time()
     try:
         data = _http_get_with_retry(url, params=params, timeout=3, provider="FMP", capability="fundamentals")
+        # Validate ticker match to avoid returning wrong company data
+        if isinstance(data, list) and len(data) > 0:
+            returned_ticker = data[0].get("symbol", "").upper()
+            if returned_ticker != ticker.upper():
+                logger.warning(f"FMP returned wrong ticker: requested {ticker}, got {returned_ticker}")
+                data = None
         status = "ok" if isinstance(data, list) and len(data) > 0 else ("empty" if data else "empty")
         record_api_call(
             provider="FMP",
-            endpoint="company-screener",
+            endpoint="profile",
             status=status,
             latency_sec=time.time() - start,
             extra={"ticker": ticker}
@@ -870,7 +876,7 @@ def fetch_fundamentals_fmp(ticker: str, provider_status: Dict | None = None) -> 
     except Exception as e:
         record_api_call(
             provider="FMP",
-            endpoint="company-screener",
+            endpoint="profile",
             status="exception",
             latency_sec=time.time() - start,
             extra={"ticker": ticker, "error": str(e)[:200]}
