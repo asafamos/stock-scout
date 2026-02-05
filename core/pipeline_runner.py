@@ -1623,24 +1623,32 @@ def run_scan_pipeline(
                     results[col] = pd.to_numeric(results[col], errors="coerce")
 
             # Fill missing via get_fundamentals_safe per ticker
+            # OPTIMIZATION: Only fill for the top-N winners we already fetched fundamentals for
+            # This avoids API calls for 2000+ tickers when only top 50 need enrichment
             ui_cols = [
                 "Market_Cap", "PE_Ratio", "PEG_Ratio", "PB_Ratio",
                 "Beta", "Sector", "Industry", "Debt_to_Equity",
                 "ROE", "Vol_Avg", "Dividend", "Price"
             ]
+            # Only process tickers that were in the winners list (already fetched)
+            winners_set = set(winners) if winners else set()
+            fill_count = 0
             for idx, row in results.iterrows():
                 tkr = row.get("Ticker")
-                if not tkr:
-                    continue
+                if not tkr or tkr not in winners_set:
+                    continue  # Skip tickers not in winners - no API call
                 need_fill = any(pd.isna(row.get(c)) for c in ui_cols)
                 if not need_fill:
                     continue
                 safe = get_fundamentals_safe(str(tkr))
                 if not safe:
                     continue
+                fill_count += 1
                 for c in ui_cols:
                     if pd.isna(row.get(c)) and (c in safe):
                         results.at[idx, c] = safe.get(c)
+            if fill_count > 0:
+                logger.debug(f"Filled missing fundamentals for {fill_count} winners")
 
             # Add explicit Valuation, Quality, and Leverage for UI
             # Valuation: use PE_Ratio directly per spec
