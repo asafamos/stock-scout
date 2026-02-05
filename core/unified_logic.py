@@ -528,6 +528,33 @@ def compute_recommendation_scores(
 
     return rec_row
 
+
+def score_with_ml_model(row: pd.Series, model_data: Optional[Dict] = None) -> float:
+    """Compatibility helper used by backtests/time-validation.
+
+    Returns ML probability for 20d horizon using, in order of preference:
+    - Existing probability on the row ("ML_20d_Prob_raw"/"ML_20d_Prob"/"ML_Probability")
+    - Live model prediction via core.ml_20d_inference
+    - Neutral default 0.5 if unavailable
+    """
+    try:
+        val = row.get("ML_20d_Prob_raw") or row.get("ML_20d_Prob") or row.get("ML_Probability")
+        if isinstance(val, (int, float)) and np.isfinite(val):
+            return float(val)
+    except Exception:
+        pass
+
+    try:
+        from core.ml_20d_inference import ML_20D_AVAILABLE, predict_20d_prob_from_row
+        if ML_20D_AVAILABLE:
+            prob = predict_20d_prob_from_row(row)
+            if isinstance(prob, (int, float)) and np.isfinite(prob):
+                return float(prob)
+    except Exception:
+        pass
+
+    return 0.5
+
 def compute_overall_score_20d(row):
     """
     Compute a 20-day technical score targeting big-winner setups, using only technical features.
