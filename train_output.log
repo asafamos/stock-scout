@@ -1,4 +1,0 @@
-Traceback (most recent call last):
-  File "/workspaces/stock-scout-2/train_recommender.py", line 28, in <module>
-    from sklearn.linear_model import LogisticRegression
-ModuleNotFoundError: No module named 'sklearn'

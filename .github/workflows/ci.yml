@@ -41,3 +41,14 @@ jobs:
         run: |
           # Run scoped tests under ./tests to avoid vendored folders
           pytest -q tests
+
+      - name: Verify core imports
+        run: |
+          python -c "
+from core.config import get_config
+from core.data import fetch_price_multi_source
+from core.scoring import compute_technical_score
+from core.price_verify import fetch_prices_for_ticker
+from app_config import CONFIG
+print('✓ All core imports verified')
+          "

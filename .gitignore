@@ -70,10 +70,19 @@ calibration_curve.csv
 feature_importance.csv
 shap_values*.csv
 
-# Old archives
+# Old archives and historical data
+archive/
 archive_*/
 old_*/
 backup_*/
+
+# Tools debug output (keep tools scripts, ignore output)
+tools/debug/*.csv
+tools/debug/*.log
+tools/benchmarks/*.csv
+tools/benchmarks/*.log
+tools/audit/*.csv
+tools/audit/*.log
 
 # IDE files
 .vscode/

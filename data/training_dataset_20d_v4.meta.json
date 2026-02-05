@@ -1,0 +1,14 @@
+{
+  "generated_at": "2026-02-05T14:29:19.817272",
+  "rows": 16741,
+  "context_features": [
+    "Market_Regime",
+    "Market_Volatility",
+    "Market_Trend",
+    "Sector_RS",
+    "Sector_Momentum",
+    "Sector_Rank",
+    "RS_vs_SPY_20d"
+  ],
+  "method": "synthetic_with_correlations"
+}

@@ -93,8 +93,9 @@ class TestUnifiedScorerInit:
         
         assert scorer.ml_enabled is True
         assert scorer.ml_max_boost == 10.0
-        assert scorer.technical_weight == 0.60
-        assert scorer.fundamental_weight == 0.40
+        # Weights derived from scoring_config: tech=0.45/(0.45+0.20)=0.69
+        assert scorer.technical_weight == pytest.approx(0.69, rel=0.01)
+        assert scorer.fundamental_weight == pytest.approx(0.31, rel=0.01)
         assert scorer.use_v2_scoring is True
 
     def test_custom_config(self):
@@ -173,8 +174,8 @@ class TestUnifiedScorerScoring:
             fundamental_data={"roe": 0.20}
         )
         
-        # With 60% tech (70) + 40% fund (60) = 42 + 24 = 66
-        assert result.final_conviction == pytest.approx(66.0, rel=0.01)
+        # With 69% tech (70) + 31% fund (60) = 48.3 + 18.6 = 66.9
+        assert result.final_conviction == pytest.approx(66.9, rel=0.01)
         assert result.technical_score == 70.0
         assert result.fundamental_score == 60.0
         assert result.ml_boost == 0.0
@@ -192,8 +193,8 @@ class TestUnifiedScorerScoring:
             fundamental_data={"roe": 0.20}
         )
         
-        # Base: 66.0 + ML boost 2.0 = 68.0
-        assert result.final_conviction == pytest.approx(68.0, rel=0.01)
+        # Base: 66.9 + ML boost 2.0 = 68.9
+        assert result.final_conviction == pytest.approx(68.9, rel=0.01)
         assert result.ml_boost == 2.0
         assert result.ml_status == "enabled"
         assert result.ml_probability == 0.65

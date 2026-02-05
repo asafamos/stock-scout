@@ -280,12 +280,11 @@ def load_ticker_list(args: argparse.Namespace) -> List[str]:
             print(f"S&P500 fetch failed: {e}")
     if args.use_finnhub and not tickers:
         try:
-            from core.data_sources import FinnhubClient
-            fc = FinnhubClient()
-            tickers = fc.get_universe(limit=args.limit)
-            print(f"Fetched {len(tickers)} tickers from Finnhub universe.")
+            from core.pipeline_runner import fetch_top_us_tickers_by_market_cap
+            tickers = fetch_top_us_tickers_by_market_cap(limit=args.limit)
+            print(f"Fetched {len(tickers)} tickers from universe.")
         except Exception as e:
-            print(f"Finnhub universe fetch failed: {e}. Falling back to manual list if provided.")
+            print(f"Universe fetch failed: {e}. Falling back to manual list if provided.")
     # Deduplicate
     tickers = sorted(set(tickers))
     if not tickers:

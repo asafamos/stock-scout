@@ -139,18 +139,16 @@ stock-scout-2/
 ├── models/model_20d_v3.pkl     # Latest ML model bundle (sklearn)
 ├── backtest_recommendations.py # Historical signal generator
 ├── train_recommender.py        # Model training script
-├── time_test_validation.py     # Time-travel validation
 ├── core/                       # Business logic
 │   ├── config.py               # Configuration management
-│   ├── data_sources.py         # Multi-provider data fetching
+│   ├── data_sources_v2.py      # Multi-provider data fetching (canonical)
+│   ├── data/                   # Unified data API
 │   ├── classification.py       # Risk classification (Core/Speculative)
 │   ├── portfolio.py            # Position sizing & allocation
-│   └── scoring/                # Scoring modules
-│       └── fundamental.py      # Fundamental analysis
+│   ├── scoring/                # Scoring modules
+│   └── legacy/                 # Deprecated modules (do not use)
+├── tools/                      # Debug, audit, benchmark scripts
 └── tests/                      # Unit tests
-    ├── test_indicators_scoring.py
-    ├── test_allocate.py
-    └── ...
 ```
 
 ---
