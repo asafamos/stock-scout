@@ -11,6 +11,10 @@ from pathlib import Path
 from threading import Lock
 
 from core.config import get_config
+from core.exceptions import (
+    DataFetchError, DataValidationError, PipelineError, 
+    ScoringError, InsufficientDataError
+)
 from core.scoring import build_technical_indicators, compute_fundamental_score_with_breakdown
 from core.filters import (
     apply_technical_filters,
@@ -88,9 +92,9 @@ def _record_legacy_fallback(reason: str) -> None:
         # Log prominently so it's not hidden
         logger.warning(f"⚠️ FALLBACK TO LEGACY SCORING: {reason}")
         logger.warning("   ML/Risk Bridge failed - using older scoring logic. Results may differ.")
-    except Exception:
+    except (RuntimeError, TypeError) as lock_exc:
         # Best-effort; do not raise
-        pass
+        logger.debug(f"Fallback marking failed: {lock_exc}")
 
 
 def get_fallback_status() -> dict:
@@ -146,12 +150,12 @@ def fetch_top_us_tickers_by_market_cap(limit: int = 2000) -> List[str]:
             url = "https://financialmodelingprep.com/stable/company-screener"
             try:
                 min_cap = int(os.getenv("MIN_MCAP", "300000000"))  # $300M minimum
-            except Exception:
+            except (TypeError, ValueError):
                 min_cap = 300_000_000
             try:
                 # Allow full range up to mega-caps for comprehensive scanning
                 max_cap = int(os.getenv("MAX_MCAP", "10000000000000"))  # $10T (effectively no limit)
-            except Exception:
+            except (TypeError, ValueError):
                 max_cap = 10_000_000_000_000
             params = {
                 "marketCapMoreThan": max(min_cap, 0),
@@ -262,7 +266,8 @@ def fetch_top_us_tickers_by_market_cap(limit: int = 2000) -> List[str]:
         logger.warning(f"Using hardcoded top-100 by market cap fallback: {len(out)} tickers")
         LAST_UNIVERSE_PROVIDER = "Hardcoded_Top100"
         return out[:min(limit, len(out))]
-    except Exception:
+    except (TypeError, ValueError, KeyError) as fallback_exc:
+        logger.debug(f"Top-100 fallback normalization failed: {fallback_exc}")
         return top100_by_mcap
 
 def _normalize_symbols(symbols: List[str]) -> List[str]:
@@ -306,7 +311,8 @@ def fetch_latest_company_news(symbol: str, count: int = 5) -> List[Dict[str, Any
         # Sort by datetime descending and take top count
         items.sort(key=lambda x: x.get("datetime", 0), reverse=True)
         return items[:count]
-    except Exception:
+    except (requests.RequestException, ValueError, KeyError) as exc:
+        logger.debug(f"Finnhub news fetch failed: {exc}")
         return []
 
 def analyze_sentiment_openai(headlines: List[str]) -> Dict[str, Any]:
@@ -342,9 +348,10 @@ def analyze_sentiment_openai(headlines: List[str]) -> Dict[str, Any]:
         try:
             import json
             return json.loads(content)
-        except Exception:
+        except (ValueError, TypeError, KeyError):
             return {"overall": "NEUTRAL", "confidence": 0.0, "details": [{"raw": content}]}
-    except Exception:
+    except (requests.RequestException, KeyError, TypeError) as api_exc:
+        logger.debug(f"OpenAI regime analysis failed: {api_exc}")
         return {"overall": "NEUTRAL", "confidence": 0.0, "details": []}
 
 def _normalize_config(config: Any) -> Dict[str, Any]:
@@ -373,7 +380,7 @@ def _normalize_config(config: Any) -> Dict[str, Any]:
                 normalized = dataclasses.asdict(config)
             else:
                 raise TypeError(f"Unsupported config type: {type(config).__name__}. Provide dict or dataclass/Config.")
-        except Exception:
+        except (AttributeError, TypeError):
             raise
     key_map = {
         "FUNDAMENTAL_ENABLED": "fundamental_enabled",
@@ -392,7 +399,8 @@ def _normalize_config(config: Any) -> Dict[str, Any]:
         else:
             if float(normalized.get("min_avg_volume", 100_000)) > 100_000:
                 normalized["min_avg_volume"] = 100_000
-    except Exception:
+    except (TypeError, ValueError) as exc:
+        logger.debug(f"min_avg_volume enforcement fallback: {exc}")
         normalized["min_avg_volume"] = 100_000
 
     # Environment overrides (post-normalization). Only apply to expected keys.
@@ -420,8 +428,8 @@ def _normalize_config(config: Any) -> Dict[str, Any]:
         epv = _env_bool("EXTERNAL_PRICE_VERIFY")
         if epv is not None:
             normalized["external_price_verify"] = bool(epv)
-    except Exception:
-        pass
+    except (TypeError, ValueError, OSError) as exc:
+        logger.debug(f"Environment override parsing skipped: {exc}")
 
     return normalized
 
@@ -503,7 +511,9 @@ def fetch_beta_vs_benchmark(ticker: str, bench: str = "SPY", days: int = 252) ->
         
         slope = np.polyfit(j["rb"].to_numpy(), j["rt"].to_numpy(), 1)[0]
         return float(slope)
-    except: return np.nan
+    except (KeyError, TypeError, ValueError) as exc:
+        logger.debug(f"Beta calculation failed: {exc}")
+        return np.nan
 
 def calculate_rr(entry_price: float, target_price: float, atr_value: float, history_df: pd.DataFrame = None) -> float:
     try:
@@ -521,7 +531,9 @@ def calculate_rr(entry_price: float, target_price: float, atr_value: float, hist
         risk = max(atr * 2.0, entry_price * 0.01) if np.isfinite(atr) else max(entry_price * 0.01, 0.01)
         reward = max(0.0, float(target_price) - float(entry_price))
         return float(np.clip(reward / max(risk, 1e-9), 0.0, 5.0))
-    except: return 0.0
+    except (TypeError, ValueError, ZeroDivisionError) as exc:
+        logger.debug(f"R/R calculation failed: {exc}")
+        return 0.0
 
 
 # --- Pipeline Steps ---
@@ -571,7 +583,7 @@ def _process_single_ticker(tkr: str, df: pd.DataFrame, skip_tech_filter: bool) -
         # Use .loc with 'Ticker' index to avoid SettingWithCopyWarning
         row_df = row_df.set_index("Ticker")
         row_df.loc[tkr, "relative_strength_20d"] = float(rs_val)
-    except Exception:
+    except (KeyError, TypeError, ValueError, IndexError):
         # Ensure the column exists even on failure
         row_df = row_df.set_index("Ticker")
         row_df.loc[tkr, "relative_strength_20d"] = np.nan
@@ -601,7 +613,7 @@ def _process_single_ticker(tkr: str, df: pd.DataFrame, skip_tech_filter: bool) -
     # Use the last bar's date as the signal date
     try:
         as_of_dt = pd.to_datetime(df.index[-1])
-    except Exception:
+    except (IndexError, TypeError, ValueError):
         as_of_dt = None
 
     used_v2 = False
@@ -628,7 +640,7 @@ def _process_single_ticker(tkr: str, df: pd.DataFrame, skip_tech_filter: bool) -
         try:
             ml_meta = get_ml_health_meta()
             ml_enable = bool(ML_20D_AVAILABLE) and not bool(ml_meta.get("ml_bundle_version_warning"))
-        except Exception:
+        except (AttributeError, KeyError, TypeError):
             ml_enable = bool(ML_20D_AVAILABLE)
         rec_series = compute_recommendation_scores(
             row=row_indicators,
@@ -641,7 +653,7 @@ def _process_single_ticker(tkr: str, df: pd.DataFrame, skip_tech_filter: bool) -
     if ("ReliabilityScore" not in rec_series) and ("Reliability_Score" in rec_series):
         try:
             rec_series["ReliabilityScore"] = rec_series["Reliability_Score"]
-        except Exception:
+        except (KeyError, TypeError):
             pass
 
     # Enhance with Big Winner signal + historical pattern matching
@@ -676,25 +688,25 @@ def _process_single_ticker(tkr: str, df: pd.DataFrame, skip_tech_filter: bool) -
             ts_val = float(rec_series.get("TechScore_20d", np.nan))
             if np.isfinite(ts_val) and ts_val >= float(TECH_STRONG_THRESHOLD):
                 reasons.append("Strong technical momentum")
-        except Exception:
+        except (TypeError, ValueError):
             pass
         try:
             mlp_val = float(rec_series.get("ML_20d_Prob", np.nan))
             if np.isfinite(mlp_val) and mlp_val >= float(ML_PROB_THRESHOLD):
                 reasons.append("High ML breakout probability")
-        except Exception:
+        except (TypeError, ValueError):
             pass
         try:
             ps_val = float(rec_series.get("Pattern_Score", 0.0) or 0.0)
             if np.isfinite(ps_val) and ps_val > 0.0:
                 reasons.append("Bullish pattern detected")
-        except Exception:
+        except (TypeError, ValueError):
             pass
         try:
             reg_val = str(rec_series.get("Market_Regime") or "").upper()
             if reg_val in ("TREND_UP", "BULLISH", "NEUTRAL", "SIDEWAYS"):
                 reasons.append("Supportive market regime")
-        except Exception:
+        except (TypeError, ValueError, AttributeError):
             pass
         cnt = len(reasons)
         quality = "High" if cnt >= 3 else ("Medium" if cnt == 2 else "Speculative")
@@ -704,7 +716,8 @@ def _process_single_ticker(tkr: str, df: pd.DataFrame, skip_tech_filter: bool) -
             rec_series["SignalReasons_Count"] = cnt
         if "SignalQuality" not in rec_series:
             rec_series["SignalQuality"] = quality
-    except Exception:
+    except (ImportError, KeyError, TypeError) as exc:
+        logger.debug(f"SignalReasons computation fallback: {exc}")
         # Default-safe: create columns if missing
         if "SignalReasons" not in rec_series:
             rec_series["SignalReasons"] = ""
@@ -716,7 +729,7 @@ def _process_single_ticker(tkr: str, df: pd.DataFrame, skip_tech_filter: bool) -
     # Ensure Ticker column is present for downstream merges/filters
     try:
         rec_series["Ticker"] = tkr
-    except Exception:
+    except (TypeError, KeyError):
         pass
     return rec_series
 
@@ -765,8 +778,8 @@ def _step_compute_scores_with_unified_logic(
                 results = results.rename(columns={"ticker": "Ticker"})
             elif results.index.name == "Ticker":
                 results = results.reset_index()
-    except Exception:
-        pass
+    except (KeyError, AttributeError) as exc:
+        logger.debug(f"Ticker column normalization skipped: {exc}")
     if "Score" not in results.columns and "FinalScore_20d" in results.columns:
         results["Score"] = results["FinalScore_20d"]
     # Ensure reliability column compatibility for downstream consumers/tests
@@ -864,7 +877,7 @@ def run_scan_pipeline(
     # Log scope at entry
     try:
         logger.info(f"🌌 Starting pipeline with universe size: {len(universe)} tickers")
-    except Exception:
+    except (TypeError, ValueError):
         pass
 
     # Normalize config keys (support legacy uppercase keys)
@@ -880,7 +893,7 @@ def run_scan_pipeline(
     telemetry = Telemetry()
     try:
         telemetry.set_value("universe_provider", LAST_UNIVERSE_PROVIDER)
-    except Exception:
+    except (AttributeError, TypeError):
         pass
 
     # Initialize global market context caches (SPY + VIX) to avoid repeated provider hits
@@ -901,14 +914,14 @@ def run_scan_pipeline(
                 try:
                     if str(spy_src).upper() == 'POLYGON':
                         telemetry.mark_used('price', 'POLYGON')
-                except Exception:
+                except (AttributeError, TypeError):
                     pass
             if vix_src:
                 idx_map['VIX'] = vix_src
             telemetry.set_value('index', idx_map)
             if vix_src and 'Synthetic' in vix_src:
                 telemetry.record_fallback('index', 'provider_chain', 'SYNTHETIC_VIX_PROXY', 'constructed proxy from SPY volatility')
-        except Exception:
+        except (AttributeError, TypeError, KeyError):
             pass
     except Exception as e:
         logger.debug(f"[PIPELINE] Market context init skipped: {e}")
@@ -920,7 +933,7 @@ def run_scan_pipeline(
         run_mode = provider_status.get("SCAN_STATUS", "OK")
         try:
             telemetry.set_value("preflight_status", provider_status.get("ACTIVE_COUNTS", {}))
-        except Exception:
+        except (AttributeError, TypeError):
             pass
         # Apply global default provider status to v2 data layer
         try:
@@ -933,7 +946,7 @@ def run_scan_pipeline(
                 guard.update_from_preflight(provider_status)
                 # Snapshot into telemetry for meta visibility
                 telemetry.set_value("provider_states", guard.snapshot())
-            except Exception:
+            except (ImportError, AttributeError, TypeError):
                 pass
             # If FMP index endpoint is not OK, disable for session
             if not provider_status.get("FMP_INDEX", {"ok": True}).get("ok", True):
@@ -961,11 +974,12 @@ def run_scan_pipeline(
                         parts.append(f"{up} (n/a)")
                 if parts:
                     logger.info("Smart Routing: " + " -> ".join(parts))
-            except Exception:
+            except (ImportError, KeyError, TypeError, AttributeError):
                 pass
-        except Exception:
+        except (ImportError, AttributeError):
             pass
-    except Exception:
+    except (ImportError, KeyError) as exc:
+        logger.debug(f"API preflight skipped: {exc}")
         provider_status = {}
         run_mode = "OK"
 
@@ -975,7 +989,7 @@ def run_scan_pipeline(
             global _LEGACY_FALLBACK_USED, _LEGACY_FALLBACK_REASONS
             _LEGACY_FALLBACK_USED = False
             _LEGACY_FALLBACK_REASONS = []
-    except Exception:
+    except (RuntimeError, NameError):
         pass
 
     # Enforce preflight gating policy
@@ -990,14 +1004,14 @@ def run_scan_pipeline(
             }
             try:
                 meta.update(get_ml_health_meta())
-            except Exception:
+            except (ImportError, AttributeError, TypeError):
                 pass
             logger.error("[PIPELINE] Preflight BLOCKED: no active price providers; aborting scan")
             return {"result": {"results_df": pd.DataFrame(), "data_map": {}, "diagnostics": {}}, "meta": meta}
         elif run_mode == "DEGRADED_TECH_ONLY":
             config["fundamental_enabled"] = False
             logger.warning("[PIPELINE] Preflight DEGRADED_TECH_ONLY: fundamentals disabled for this run")
-    except Exception:
+    except (KeyError, TypeError):
         pass
 
     start_universe = len(universe)
@@ -1008,13 +1022,13 @@ def run_scan_pipeline(
         if benchmark_df is None or (hasattr(benchmark_df, "empty") and benchmark_df.empty):
             benchmark_status = "UNAVAILABLE"
             logger.warning("[PIPELINE] Benchmark unavailable; skipping RS/Beta dependent steps")
-    except Exception:
+    except (AttributeError, TypeError):
         benchmark_status = "UNAVAILABLE"
 
     # Decide postfilter mode early and keep it consistent across all exits
     try:
         small_universe_lenient = bool(start_universe < 50 or bool(config.get("smoke_mode", False)))
-    except Exception:
+    except (TypeError, AttributeError):
         small_universe_lenient = bool(start_universe < 50)
     postfilter_mode_global = "lenient_small_universe" if small_universe_lenient else "strict"
 
@@ -1024,8 +1038,8 @@ def run_scan_pipeline(
             tkr0 = str(universe[0])
             from core.data import fetch_price_multi_source
             _ = fetch_price_multi_source(tkr0, provider_status=provider_status, telemetry=telemetry)
-    except Exception:
-        pass
+    except (ImportError, IndexError, TypeError) as exc:
+        logger.debug(f"Price telemetry sample skipped: {exc}")
 
     # Early RS percentile ranking on full universe (Weighted RS = 0.7*RS_63d + 0.3*RS_21d)
     # Controlled by env RS_RANKING/RS_RANKING_ENABLED and sample size (>100)
@@ -1054,7 +1068,7 @@ def run_scan_pipeline(
                     else:
                         rs_blend = rs63 if pd.notna(rs63) else rs21
                     rs_records.append({"Ticker": tkr, "RS_blend": rs_blend})
-                except Exception:
+                except (KeyError, TypeError, ValueError):
                     rs_records.append({"Ticker": tkr, "RS_blend": np.nan})
             if rs_records:
                 # Compute RS percentiles for diagnostics/sorting only; do NOT filter out names
@@ -1102,10 +1116,10 @@ def run_scan_pipeline(
                         if isinstance(c, tuple) and len(c) >= 2:
                             return str(c[1]).lower()
                         return str(c).lower()
-                    except Exception:
+                    except (TypeError, AttributeError):
                         return str(c)
                 cols_lower = {_canon(c): c for c in df.columns}
-            except Exception:
+            except (AttributeError, TypeError):
                 cols_lower = {}
             close_series = None
             vol_series = None
@@ -1176,7 +1190,7 @@ def run_scan_pipeline(
                 diagnostics[tkr]["last_volume"] = float(volume) if pd.notna(volume) else np.nan
                 try:
                     joined = ";".join([str(r.get("rule")) for r in reasons])
-                except Exception:
+                except (TypeError, AttributeError, KeyError):
                     joined = ";".join([str(r) for r in reasons])
                 filtered_rows.append({
                     "Ticker": tkr,
@@ -1209,7 +1223,7 @@ def run_scan_pipeline(
     # Build a separate small DataFrame for Tier 1 filtered tickers
     try:
         filtered_df = pd.DataFrame(filtered_rows)
-    except Exception:
+    except (TypeError, ValueError):
         filtered_df = pd.DataFrame()
 
     # Build Tier 2 input map strictly from Tier 1 output
@@ -1238,7 +1252,7 @@ def run_scan_pipeline(
                 tier2_output_set = set()
         else:
             tier2_output_set = set()
-    except Exception:
+    except (KeyError, AttributeError, TypeError):
         tier2_output_set = set()
     if tier2_input_set == tier2_output_set:
         logger.info(
@@ -1256,7 +1270,7 @@ def run_scan_pipeline(
         # Return wrapped structure even on empty results, with meta
         try:
             telemetry.set_value("fundamentals_status", "not_requested")
-        except Exception:
+        except (AttributeError, TypeError):
             pass
         meta = {
             "engine_version": "pipeline_v2",
@@ -1277,16 +1291,16 @@ def run_scan_pipeline(
                     meta["ml_mode"] = "DISABLED_NO_MODEL"
                 else:
                     meta["ml_mode"] = "HYBRID"
-            except Exception:
+            except (KeyError, TypeError):
                 pass
-        except Exception:
+        except (ImportError, AttributeError, TypeError):
             pass
         # Include filtered_df summary in data_map
         try:
             if isinstance(data_map, dict):
                 data_map = dict(data_map)
                 data_map["filtered_tier1_df"] = filtered_df
-        except Exception:
+        except (TypeError, KeyError):
             pass
         return {"result": {"results_df": results, "data_map": data_map, "diagnostics": diagnostics}, "meta": meta}
     
@@ -1325,7 +1339,7 @@ def run_scan_pipeline(
                         # Fallback: rename first column to Date
                         first = df_title.columns[0]
                         df_title = df_title.rename(columns={first: "Date"})
-                except Exception:
+                except (KeyError, IndexError, AttributeError):
                     pass
             bench_title = benchmark_df.rename(columns=str.title)
             enhanced, sig = compute_advanced_score(
@@ -1385,7 +1399,7 @@ def run_scan_pipeline(
                         "rule": "ADVANCED_REJECT",
                         "message": str(reason) if reason else "Advanced filters rejection",
                     })
-            except Exception:
+            except (KeyError, TypeError, AttributeError):
                 pass
         else:
             # Penalties are in [0, 4.5] scale (0-100 range), normalize to [0, 0.045]
@@ -1425,7 +1439,7 @@ def run_scan_pipeline(
                             "value": float(sig.get("risk_reward_ratio")),
                             "threshold": float(rr_thresh),
                         })
-            except Exception:
+            except (KeyError, TypeError, AttributeError):
                 pass
 
     # Scale FinalScore_20d back to 0-100 for consistency with rest of system
@@ -1496,22 +1510,22 @@ def run_scan_pipeline(
                     if df is not None and not df.empty:
                         try:
                             dates.append(pd.to_datetime(df.index[-1]).date())
-                        except Exception:
+                        except (IndexError, TypeError, ValueError):
                             pass
                 if dates:
                     fund_as_of = max(dates)
-        except Exception:
+        except (KeyError, TypeError, ValueError):
             fund_as_of = None
 
         # IMPORTANT: Only fetch fundamentals for high-Score candidates with an optional Top-N cap
         try:
             score_thr = float(config.get("fundamentals_score_threshold", float(os.getenv("FUNDAMENTALS_SCORE_THRESHOLD", "60"))))
-        except Exception:
+        except (TypeError, ValueError):
             score_thr = 60.0
         # Top-N cap from config/env - default 50 for wide scans; set 0 to disable cap
         try:
             top_n_cap = int(config.get("fundamentals_top_n_cap", int(os.getenv("FUNDAMENTALS_TOP_N_CAP", "50"))))
-        except Exception:
+        except (TypeError, ValueError):
             top_n_cap = 50
         if top_n_cap > 0:
             logger.info(f"⚡ Fetching fundamentals for Top-{top_n_cap} stocks (score > {score_thr})")
@@ -1528,7 +1542,7 @@ def run_scan_pipeline(
                     results["TechScore_20d"] = results["Score"]
                 elif "FinalScore_20d" in results.columns:
                     results["TechScore_20d"] = results["FinalScore_20d"]
-        except Exception:
+        except (KeyError, TypeError):
             pass
         # Pick safest available score column
         score_col = "TechScore_20d" if "TechScore_20d" in results.columns else ("Score" if "Score" in results.columns else None)
@@ -1547,7 +1561,7 @@ def run_scan_pipeline(
                 winners = [str(x).upper().replace('.', '-').replace('/', '-') for x in eligible["ticker"].tolist()]
             else:
                 winners = []
-        except Exception:
+        except (KeyError, AttributeError, TypeError):
             winners = []
 
         if not winners:
@@ -1556,7 +1570,7 @@ def run_scan_pipeline(
             try:
                 telemetry.set_value("fundamentals_status", "requested_empty")
                 fundamentals_status_local = "requested_empty"
-            except Exception:
+            except (AttributeError, TypeError):
                 pass
         else:
             logger.info(f"Fetching fundamentals for {len(winners)} winners ({score_col} > {score_thr:.0f}, TopN={top_n_cap})")
@@ -1568,7 +1582,7 @@ def run_scan_pipeline(
                 status_val = "used" if (isinstance(fund_df, pd.DataFrame) and not fund_df.empty) else "requested_empty"
                 telemetry.set_value("fundamentals_status", status_val)
                 fundamentals_status_local = status_val
-            except Exception:
+            except (AttributeError, TypeError):
                 pass
         
         # Properly handle index/column ambiguity
@@ -1597,7 +1611,7 @@ def run_scan_pipeline(
             try:
                 telemetry.set_value("fundamentals_status", "requested_empty")
                 fundamentals_status_local = "requested_empty"
-            except Exception:
+            except (AttributeError, TypeError):
                 pass
         
         # Map to UI-expected keys and fill missing via safe FMP fetch
@@ -1694,7 +1708,7 @@ def run_scan_pipeline(
                         return float(pe)
                     else:
                         return 0.0
-                except Exception:
+                except (TypeError, ValueError, ZeroDivisionError):
                     return 0.0
 
             # Compute Quality: emphasize ROE vs Debt/Equity
@@ -1705,7 +1719,7 @@ def run_scan_pipeline(
                     base_roe = float(roe) if pd.notna(roe) else 0.0
                     base_de = float(de) if (pd.notna(de) and float(de) > 0) else 1.0
                     return float(base_roe) / float(base_de)
-                except Exception:
+                except (TypeError, ValueError, ZeroDivisionError):
                     return 0.0
 
             # Legacy Quality helper no longer used here; Quality set from ROE above
@@ -1742,7 +1756,7 @@ def run_scan_pipeline(
         try:
             telemetry.set_value("fundamentals_status", "not_requested")
             fundamentals_status_local = "not_requested"
-        except Exception:
+        except (AttributeError, TypeError):
             pass
 
     # Apply sector mapping fallback for unknown or potentially incorrect sectors
@@ -1931,7 +1945,7 @@ def run_scan_pipeline(
                     "RR": rr,
                     "Target_Source": "Resistance/Bollinger",
                 }
-            except Exception:
+            except (KeyError, TypeError, ValueError, ZeroDivisionError):
                 return {
                     "Entry_Price": np.nan,
                     "Target_Price": np.nan,
@@ -2040,7 +2054,7 @@ def run_scan_pipeline(
         if isinstance(data_map, dict):
             data_map = dict(data_map)
             data_map["filtered_tier1_df"] = filtered_df
-    except Exception:
+    except (TypeError, KeyError):
         pass
 
     # --- Build meta wrapper ---
@@ -2066,9 +2080,9 @@ def run_scan_pipeline(
                 meta["ml_mode"] = "DISABLED_NO_MODEL"
             else:
                 meta["ml_mode"] = "HYBRID"
-        except Exception:
+        except (KeyError, TypeError):
             pass
-    except Exception:
+    except (ImportError, AttributeError, TypeError):
         pass
 
     return {"result": {"results_df": results, "data_map": data_map, "diagnostics": diagnostics}, "meta": meta}
@@ -2098,7 +2112,7 @@ def run_scan(*args, **kwargs):
             # Backward: tuple/list
             try:
                 results_df, data_map = payload
-            except Exception:
+            except (TypeError, ValueError):
                 results_df = payload if isinstance(payload, pd.DataFrame) else pd.DataFrame()
                 data_map = {}
     elif isinstance(out, ScanResult):
@@ -2110,7 +2124,7 @@ def run_scan(*args, **kwargs):
     # Build minimal metadata/diagnostics placeholders (not asserted in tests)
     try:
         now = datetime.utcnow()
-    except Exception:
+    except (TypeError, ValueError):
         now = None
     metadata = ScanMetadata(
         scan_id=f"scan-{int(time.time())}",
@@ -2196,7 +2210,7 @@ def run_scan(*args, **kwargs):
             if row.get("RejectionReason"):
                 try:
                     reasons.append(str(row.get("RejectionReason")))
-                except Exception:
+                except (TypeError, ValueError):
                     pass
             # Classification fields
             risk_class = row.get("RiskClass") if "RiskClass" in results_df.columns else None
@@ -2238,7 +2252,7 @@ def run_scan_smoke() -> Dict[str, Any]:
     try:
         global LAST_UNIVERSE_PROVIDER
         LAST_UNIVERSE_PROVIDER = "smoke/manual"
-    except Exception:
+    except NameError:
         pass
     try:
         cfg = _normalize_config(get_config())
@@ -2247,7 +2261,7 @@ def run_scan_smoke() -> Dict[str, Any]:
         # Force deterministic smoke: Meteor off, and mark smoke_mode
         cfg["meteor_mode"] = False
         cfg["smoke_mode"] = True
-    except Exception:
+    except (ImportError, TypeError, KeyError):
         cfg = {"fundamental_enabled": False, "beta_filter_enabled": False}
     out = run_scan_pipeline(["AAPL"], cfg, status_callback=None)
     try:
@@ -2255,10 +2269,10 @@ def run_scan_smoke() -> Dict[str, Any]:
         # Record smoke overrides in meta for visibility
         try:
             meta["smoke_overrides"] = {"meteor_mode_forced_off": True}
-        except Exception:
+        except (TypeError, KeyError):
             pass
         print("Smoke Meta:", meta)
-    except Exception:
+    except (AttributeError, TypeError):
         pass
     return out
 
@@ -2271,7 +2285,7 @@ def _to_float(x: Any) -> Optional[float]:
         if np.isfinite(val):
             return val
         return None
-    except Exception:
+    except (TypeError, ValueError):
         return None
 
 
@@ -2298,7 +2312,7 @@ def main():
         from core.data_sources_v2 import get_last_index_source
         src = get_last_index_source('SPY') or 'Unknown'
         logger.info(f"[SUCCESS via {src}] Market context initialized")
-    except Exception:
+    except (ImportError, AttributeError):
         logger.info("[SUCCESS] Market context initialized")
 
     # Universe (use configured limit)

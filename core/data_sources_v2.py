@@ -38,6 +38,10 @@ from datetime import datetime, timedelta
 from functools import lru_cache
 import logging
 from core.api_monitor import record_api_call
+from core.exceptions import (
+    DataFetchError, RateLimitError, AuthenticationError, 
+    ProviderUnavailableError, DataValidationError, classify_http_error
+)
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 from core.fundamental import DataMode
@@ -99,8 +103,8 @@ def normalize_ohlcv(df: Optional[pd.DataFrame]) -> pd.DataFrame:
             elif "date" in dfn.columns:
                 dfn["date"] = pd.to_datetime(dfn["date"])
                 dfn = dfn.sort_values("date")
-        except Exception:
-            pass
+        except (TypeError, ValueError, KeyError) as exc:
+            logger.debug(f"Date sorting failed in normalize_ohlcv: {exc}")
 
         # Enforce numeric types without coercing NaN to 0
         for col in ["open", "high", "low", "close", "volume"]:
@@ -115,16 +119,17 @@ def normalize_ohlcv(df: Optional[pd.DataFrame]) -> pd.DataFrame:
         # Keep only canonical columns + date if present
         keep = [c for c in ["date","open","high","low","close","volume"] if c in dfn.columns]
         return dfn[keep] if keep else dfn
-    except Exception:
+    except (TypeError, ValueError, KeyError, AttributeError) as exc:
         # On failure, return empty to allow diagnostics to mark missing
+        logger.debug(f"normalize_ohlcv failed: {exc}")
         return pd.DataFrame()
 
 # Initialize fundamentals store at import time so DB/table exist for live snapshots
 try:
     init_fundamentals_store()
-except Exception:
+except (IOError, OSError, RuntimeError) as exc:
     # Non-fatal; live snapshot persistence will simply be skipped if init fails
-    logger.warning("Failed to initialize fundamentals store (SQLite)")
+    logger.warning(f"Failed to initialize fundamentals store (SQLite): {exc}")
 
 # API Keys via unified secret loader
 FMP_API_KEY = get_secret("FMP_API_KEY", "")
@@ -273,7 +278,7 @@ def set_default_provider_status(preflight_status: Dict[str, Dict[str, Any]] | No
                 if lat is None:
                     return float("inf")
                 return float(lat)
-            except Exception:
+            except (TypeError, ValueError, KeyError):
                 return float("inf")
         sorted_providers = sorted(fundamentals_providers, key=_lat)
         # Filter out those not active for fundamentals
@@ -287,7 +292,8 @@ def set_default_provider_status(preflight_status: Dict[str, Dict[str, Any]] | No
             # Fallback to static default ordering
             _PROVIDER_PRIORITY.extend(["FMP", "FINNHUB", "TIINGO", "ALPHAVANTAGE", "EODHD", "SIMFIN"])
         logger.info(f"[Preflight] Dynamic fundamentals priority: {_PROVIDER_PRIORITY}")
-    except Exception:
+    except (TypeError, KeyError, AttributeError) as exc:
+        logger.debug(f"Preflight provider status parse failed: {exc}")
         _DEFAULT_PROVIDER_STATUS = {}
 
 def get_fundamentals_safe(ticker: str) -> Optional[Dict]:
@@ -311,7 +317,7 @@ def get_fundamentals_safe(ticker: str) -> Optional[Dict]:
         def _f(v):
             try:
                 return float(v) if v is not None else None
-            except Exception:
+            except (TypeError, ValueError):
                 return None
         out = {
             "Market_Cap": _f(d.get("market_cap")) or _f(d.get("Market_Cap")),
@@ -411,8 +417,8 @@ def _http_get_with_retry(
             if not allowed:
                 # Return a sentinel to signal an upstream fast-fail without raw request
                 return {"__blocked__": True, "reason": reason, "decision": decision}
-    except Exception:
-        pass
+    except (AttributeError, TypeError) as guard_exc:
+        logger.debug(f"Provider guard check failed: {guard_exc}")
     start_time = time.time()
     try:
         response = requests.get(
@@ -433,8 +439,8 @@ def _http_get_with_retry(
                     latency_sec=time.time() - start_time,
                     extra={"url": url}
                 )
-            except Exception:
-                pass
+            except Exception as monitoring_exc:
+                logger.debug(f"Monitoring record failed: {monitoring_exc}")
             return response.json()
         # Handle structured failures
         status_code = response.status_code
@@ -449,8 +455,8 @@ def _http_get_with_retry(
                     latency_sec=time.time() - start_time,
                     extra={"url": url}
                 )
-            except Exception:
-                pass
+            except Exception as monitoring_exc:
+                logger.debug(f"Rate limit monitoring failed: {monitoring_exc}")
             return None
         if status_code in (401, 403):
             # Auth failure: permanent disable via guard and session set
@@ -465,8 +471,8 @@ def _http_get_with_retry(
                     latency_sec=time.time() - start_time,
                     extra={"url": url}
                 )
-            except Exception:
-                pass
+            except Exception as monitoring_exc:
+                logger.debug(f"Auth failure monitoring failed: {monitoring_exc}")
             return None
         # Other errors: record failure with short cooldown for 5xx; no retry loops
         try:
@@ -481,8 +487,8 @@ def _http_get_with_retry(
                 latency_sec=time.time() - start_time,
                 extra={"url": url}
             )
-        except Exception:
-            pass
+        except Exception as monitoring_exc:
+            logger.debug(f"HTTP error monitoring failed: {monitoring_exc}")
         return None
     except requests.Timeout:
         logger.warning(f"Timeout for {url}")
@@ -495,8 +501,8 @@ def _http_get_with_retry(
                 latency_sec=time.time() - start_time,
                 extra={"url": url}
             )
-        except Exception:
-            pass
+        except Exception as monitoring_exc:
+            logger.debug(f"Timeout monitoring failed: {monitoring_exc}")
         return None
     except Exception as e:
         logger.error(f"Error fetching {url}: {e}", exc_info=True)
@@ -509,8 +515,8 @@ def _http_get_with_retry(
                 latency_sec=time.time() - start_time,
                 extra={"url": url, "error": str(e)[:200]}
             )
-        except Exception:
-            pass
+        except Exception as monitoring_exc:
+            logger.debug(f"Exception monitoring failed: {monitoring_exc}")
         return None
 
 
@@ -569,7 +575,8 @@ def _latency_probe(provider: str, timeout: float = 2.0) -> Tuple[bool, float, st
                     js = resp.json()
                     ok = isinstance(js, list) and len(js) > 0
                     return (ok, lat, "ok" if ok else "empty")
-                except Exception:
+                except (ValueError, KeyError) as json_exc:
+                    logger.debug(f"FMP JSON parse failed: {json_exc}")
                     return (False, lat, "bad_json")
             return (False, lat, f"http_{resp.status_code}")
 
@@ -585,7 +592,8 @@ def _latency_probe(provider: str, timeout: float = 2.0) -> Tuple[bool, float, st
                     js = resp.json()
                     ok = isinstance(js, dict) and bool(js.get("Symbol"))
                     return (ok, lat, "ok" if ok else "empty")
-                except Exception:
+                except (ValueError, KeyError) as json_exc:
+                    logger.debug(f"AlphaVantage JSON parse failed: {json_exc}")
                     return (False, lat, "bad_json")
             return (False, lat, f"http_{resp.status_code}")
 
@@ -601,7 +609,8 @@ def _latency_probe(provider: str, timeout: float = 2.0) -> Tuple[bool, float, st
                     js = resp.json()
                     ok = isinstance(js, list) and len(js) > 0
                     return (ok, lat, "ok" if ok else "empty")
-                except Exception:
+                except (ValueError, KeyError) as json_exc:
+                    logger.debug(f"Tiingo JSON parse failed: {json_exc}")
                     return (False, lat, "bad_json")
             return (False, lat, f"http_{resp.status_code}")
 
@@ -617,7 +626,8 @@ def _latency_probe(provider: str, timeout: float = 2.0) -> Tuple[bool, float, st
                     js = resp.json()
                     ok = isinstance(js, dict) and len(js) > 0
                     return (ok, lat, "ok" if ok else "empty")
-                except Exception:
+                except (ValueError, KeyError) as json_exc:
+                    logger.debug(f"Finnhub JSON parse failed: {json_exc}")
                     return (False, lat, "bad_json")
             return (False, lat, f"http_{resp.status_code}")
 
@@ -691,7 +701,7 @@ def get_fundamentals_safe(ticker: str) -> Optional[Dict]:
     """
     try:
         tkr = str(ticker).upper()
-    except Exception:
+    except (TypeError, AttributeError):
         tkr = ticker
 
     # Key resolution
@@ -749,7 +759,7 @@ def get_fundamentals_safe(ticker: str) -> Optional[Dict]:
             if v in (None, "None", "-", "N/A", "null"):
                 return None
             return float(v)
-        except Exception:
+        except (TypeError, ValueError):
             return None
 
     # Build output using whichever sources succeeded
@@ -782,7 +792,7 @@ def get_fundamentals_safe(ticker: str) -> Optional[Dict]:
                 url = "https://www.alphavantage.co/query"
                 params = {"function": "OVERVIEW", "symbol": tkr, "apikey": (ALPHA_KEY_RUNTIME or ALPHA_VANTAGE_API_KEY)}
                 data = _http_get_with_retry(url, params=params, timeout=4, provider="ALPHAVANTAGE", capability="fundamentals")
-            except Exception:
+            except (requests.RequestException, ValueError, KeyError):
                 data = None
             if data and isinstance(data, dict):
                 def _fa(key: str) -> Optional[float]:
@@ -791,7 +801,7 @@ def get_fundamentals_safe(ticker: str) -> Optional[Dict]:
                         if v in (None, "None", "-", "N/A", "null"):
                             return None
                         return float(v)
-                    except Exception:
+                    except (TypeError, ValueError, KeyError):
                         return None
                 out = {
                     "Market_Cap": _fa("MarketCapitalization"),
@@ -843,7 +853,7 @@ def fetch_fundamentals_fmp(ticker: str, provider_status: Dict | None = None) -> 
                 latency_sec=0.0,
                 extra={"ticker": ticker, "reason": "session_blacklist"},
             )
-        except Exception:
+        except (TypeError, AttributeError):
             pass
         return None
     
@@ -892,7 +902,7 @@ def fetch_fundamentals_fmp(ticker: str, provider_status: Dict | None = None) -> 
             if v in (None, "None", "-", "N/A", "null"):
                 return None
             return float(v)
-        except Exception:
+        except (TypeError, ValueError):
             return None
 
     # Map screener fields
@@ -1008,7 +1018,7 @@ def fetch_fundamentals_tiingo(ticker: str, provider_status: Dict | None = None) 
     # Explicit pacer to avoid 429s even across processes
     try:
         time.sleep(1.2)
-    except Exception:
+    except (ValueError, OSError):
         pass
     
     # Tiingo fundamentals endpoint
@@ -1111,7 +1121,7 @@ def fetch_fundamentals_alpha(ticker: str, provider_status: Dict | None = None) -
             if v is None or v == "None":
                 return None
             return float(v)
-        except Exception:
+        except (TypeError, ValueError):
             return None
 
     result = {
@@ -1248,7 +1258,7 @@ def fetch_fundamentals_simfin(ticker: str, provider_status: Dict | None = None) 
         }
         _put_in_cache(cache_key, result)
         return result
-    except Exception:
+    except (requests.RequestException, ValueError, KeyError):
         return None
 
 def get_prioritized_fetch_funcs(provider_status: Dict | None = None) -> List[Tuple[str, Any]]:
@@ -1278,10 +1288,10 @@ def get_prioritized_fetch_funcs(provider_status: Dict | None = None) -> List[Tup
                 allowed, _rsn, _dec = guard.allow(upper, "fundamentals")
                 if not allowed:
                     return False
-            except Exception:
+            except (ImportError, AttributeError, TypeError):
                 pass
             return True
-        except Exception:
+        except (KeyError, TypeError, AttributeError):
             return True
 
     if _can("FMP", "fmp"):
@@ -1334,7 +1344,7 @@ def aggregate_fundamentals(
     if mode == DataMode.BACKTEST and as_of_date is not None:
         try:
             snapshot = load_fundamentals_as_of(ticker, as_of_date)
-        except Exception:
+        except (IOError, OSError, RuntimeError):
             snapshot = None
         if snapshot:
             # Ensure flags and minimal fields
@@ -1355,7 +1365,7 @@ def aggregate_fundamentals(
         fmp_ok = (provider_status or {}).get("FMP", {"ok": True}).get("ok", True)
         finnhub_ok = (provider_status or {}).get("FINNHUB", {"ok": True}).get("ok", True)
         fast_needed = (not fmp_ok) and (not finnhub_ok)
-    except Exception:
+    except (KeyError, TypeError, AttributeError):
         fast_needed = False
 
     if fast_needed:
@@ -1365,7 +1375,7 @@ def aggregate_fundamentals(
             snapshot = load_fundamentals_as_of(ticker, today)
             if not snapshot:
                 snapshot = load_fundamentals_as_of(ticker, today - timedelta(days=1))
-        except Exception:
+        except (IOError, OSError, RuntimeError):
             snapshot = None
         if snapshot:
             snap = dict(snapshot)
@@ -1407,7 +1417,7 @@ def aggregate_fundamentals(
                         latency_sec=0.0,
                         extra={"ticker": ticker, "reason": s.get("status", "capability_off")},
                     )
-                except Exception:
+                except (TypeError, AttributeError):
                     pass
                 continue
         # ProviderGuard runtime block (cooldown/permanent)
@@ -1430,10 +1440,10 @@ def aggregate_fundamentals(
                         latency_sec=0.0,
                         extra={"ticker": ticker, "reason": reason, "decision": decision},
                     )
-                except Exception:
+                except (TypeError, AttributeError):
                     pass
                 continue
-        except Exception:
+        except (ImportError, AttributeError, TypeError):
             pass
         # Skip category-level blacklists for the session
         if source_name == "fmp" and ("fmp:fundamentals" in DISABLED_PROVIDERS):
@@ -1445,7 +1455,7 @@ def aggregate_fundamentals(
                     latency_sec=0.0,
                     extra={"ticker": ticker, "reason": "session_blacklist"},
                 )
-            except Exception:
+            except (TypeError, AttributeError):
                 pass
             continue
         if source_name == "eodhd" and ("eodhd:fundamentals" in DISABLED_PROVIDERS):
@@ -1528,7 +1538,7 @@ def aggregate_fundamentals(
                 if np.isfinite(v):
                     values.append(v)
                     contributing_sources.append(source_name)
-            except Exception:
+            except (TypeError, ValueError):
                 # Non-numeric values should not block aggregation
                 continue
         
@@ -1567,7 +1577,7 @@ def aggregate_fundamentals(
             telemetry.mark_used("fundamentals", first_success)
             if first_attempted and first_attempted not in sources_data:
                 telemetry.record_fallback("fundamentals", first_attempted, first_success, "no usable data")
-    except Exception:
+    except (StopIteration, AttributeError, TypeError):
         pass
 
     # Add explicit per-source flags
@@ -1596,7 +1606,7 @@ def aggregate_fundamentals(
             aggregated["MarketCap_Defaulted"] = True
         else:
             aggregated["MarketCap_Defaulted"] = False
-    except Exception:
+    except (TypeError, ValueError):
         aggregated["market_cap"] = float(500000001)
         aggregated["MarketCap_Defaulted"] = True
 
@@ -1637,7 +1647,7 @@ def aggregate_fundamentals(
         if mc_final is None or (isinstance(mc_final, float) and (not np.isfinite(mc_final) or mc_final == 0.0)) or mc_final == 0:
             aggregated["market_cap"] = float(500000005)
             aggregated["MarketCap_Defaulted_Final"] = True
-    except Exception:
+    except (TypeError, ValueError):
         aggregated["market_cap"] = float(500000005)
         aggregated["MarketCap_Defaulted_Final"] = True
     logger.info(f"Aggregated fundamentals for {ticker} from {len(sources_data)} sources")
@@ -1652,7 +1662,7 @@ def aggregate_fundamentals(
             sector = sources_data.get("alpha", {}).get("sector")
         if sector:
             aggregated["sector"] = sector
-    except Exception:
+    except (KeyError, TypeError, AttributeError):
         pass
 
     return aggregated
@@ -1695,7 +1705,7 @@ def fetch_price_multi_source(ticker: str, provider_status: Dict | None = None, t
             if s.get("status") in ("auth_error", "no_key"):
                 return False
             return s.get("can_price", True)
-        except Exception:
+        except (KeyError, TypeError, AttributeError):
             return True
 
     # Track attempted primary provider for fallback recording
@@ -1716,7 +1726,7 @@ def fetch_price_multi_source(ticker: str, provider_status: Dict | None = None, t
                     if telemetry is not None:
                         telemetry.mark_used("price", "POLYGON")
                         telemetry.set_value(f"price_provider:{ticker}", "POLYGON")
-                except Exception:
+                except (AttributeError, TypeError):
                     pass
             else:
                 attempted_primary = "POLYGON"
@@ -1754,7 +1764,7 @@ def fetch_price_multi_source(ticker: str, provider_status: Dict | None = None, t
                             telemetry.set_value(f"price_provider:{ticker}", "EODHD")
                             if attempted_primary and attempted_primary != "EODHD":
                                 telemetry.record_fallback("price", attempted_primary, "EODHD", "primary provider returned no data")
-                    except Exception:
+                    except (AttributeError, TypeError):
                         pass
         except Exception as e:
             logger.warning(f"EODHD price fetch failed: {e}")
@@ -1792,7 +1802,7 @@ def fetch_price_multi_source(ticker: str, provider_status: Dict | None = None, t
                                 telemetry.set_value(f"price_provider:{ticker}", "FMP")
                                 if attempted_primary and attempted_primary != "FMP":
                                     telemetry.record_fallback("price", attempted_primary, "FMP", "primary provider returned no data")
-                        except Exception:
+                        except (AttributeError, TypeError):
                             pass
             else:
                 record_api_call(
@@ -1823,7 +1833,7 @@ def fetch_price_multi_source(ticker: str, provider_status: Dict | None = None, t
                             telemetry.set_value(f"price_provider:{ticker}", "FINNHUB")
                             if attempted_primary and attempted_primary != "FINNHUB":
                                 telemetry.record_fallback("price", attempted_primary, "FINNHUB", "primary provider returned no data")
-                    except Exception:
+                    except (AttributeError, TypeError):
                         pass
         except Exception as e:
             logger.warning(f"Finnhub price fetch failed: {e}", exc_info=True)
@@ -1846,7 +1856,7 @@ def fetch_price_multi_source(ticker: str, provider_status: Dict | None = None, t
                             telemetry.set_value(f"price_provider:{ticker}", "TIINGO")
                             if attempted_primary and attempted_primary != "TIINGO":
                                 telemetry.record_fallback("price", attempted_primary, "TIINGO", "primary provider returned no data")
-                    except Exception:
+                    except (AttributeError, TypeError):
                         pass
         except Exception as e:
             logger.warning(f"Tiingo price fetch failed: {e}", exc_info=True)
@@ -1874,7 +1884,7 @@ def fetch_price_multi_source(ticker: str, provider_status: Dict | None = None, t
                             telemetry.set_value(f"price_provider:{ticker}", "ALPHAVANTAGE")
                             if attempted_primary and attempted_primary != "ALPHAVANTAGE":
                                 telemetry.record_fallback("price", attempted_primary, "ALPHAVANTAGE", "primary provider returned no data")
-                    except Exception:
+                    except (AttributeError, TypeError):
                         pass
         except Exception as e:
             logger.warning(f"Alpha price fetch failed: {e}", exc_info=True)
@@ -1907,7 +1917,7 @@ def fetch_price_multi_source(ticker: str, provider_status: Dict | None = None, t
                             telemetry.set_value(f"price_provider:{ticker}", "MARKETSTACK")
                             if attempted_primary and attempted_primary != "MARKETSTACK":
                                 telemetry.record_fallback("price", attempted_primary, "MARKETSTACK", "primary provider returned no data")
-                    except Exception:
+                    except (AttributeError, TypeError):
                         pass
         except Exception as e:
             logger.warning(f"MarketStack price fetch failed: {e}")
@@ -1930,7 +1940,7 @@ def aggregate_price(prices: Dict[str, Optional[float]]) -> Tuple[float, float, i
         try:
             if v is not None and np.isfinite(float(v)) and float(v) > 0:
                 numeric_values.append(float(v))
-        except Exception:
+        except (TypeError, ValueError):
             # Ignore non-numeric values
             continue
 
@@ -2163,7 +2173,7 @@ def get_index_series(
                 try:
                     if telemetry is not None:
                         telemetry.mark_index(symbol, "FMP")
-                except Exception:
+                except (AttributeError, TypeError):
                     pass
                 _put_in_cache(cache_key, df_result)
                 return df_result
@@ -2208,7 +2218,7 @@ def get_index_series(
                         # Minimal price domain mark when SPY fetched via Polygon
                         if str(symbol).upper() == "SPY":
                             telemetry.mark_used("price", "POLYGON")
-                except Exception:
+                except (AttributeError, TypeError):
                     pass
                 _put_in_cache(cache_key, df_result)
                 return df_result
@@ -2262,7 +2272,7 @@ def get_index_series(
                 try:
                     if telemetry is not None:
                         telemetry.mark_index(symbol, "TIINGO")
-                except Exception:
+                except (AttributeError, TypeError):
                     pass
                 
         except Exception as e:
@@ -2305,7 +2315,7 @@ def get_index_series(
                     try:
                         if telemetry is not None:
                             telemetry.mark_index(symbol, "ALPHAVANTAGE")
-                    except Exception:
+                    except (AttributeError, TypeError):
                         pass
                     
         except Exception as e:
@@ -2392,7 +2402,7 @@ def fetch_fundamentals_batch(tickers: List[str], provider_status: Dict | None = 
     # Build prioritized provider list once per batch
     try:
         prioritized_fetch = get_prioritized_fetch_funcs(provider_status)
-    except Exception:
+    except (ImportError, AttributeError, TypeError):
         prioritized_fetch = []
     if not prioritized_fetch:
         # No providers available per preflight/disable — return neutral DataFrame indexed by tickers
@@ -2407,7 +2417,7 @@ def fetch_fundamentals_batch(tickers: List[str], provider_status: Dict | None = 
             max_workers = min(len(tickers), 2)
         else:
             max_workers = min(len(tickers), 12)
-    except Exception:
+    except (KeyError, TypeError, AttributeError):
         max_workers = min(len(tickers), 12)
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_ticker = {}
@@ -2425,7 +2435,7 @@ def fetch_fundamentals_batch(tickers: List[str], provider_status: Dict | None = 
                 }.get(name, name.upper())
                 try:
                     allowed, _rsn, _dec = get_provider_guard().allow(upper, "fundamentals")
-                except Exception:
+                except (ImportError, AttributeError, TypeError):
                     allowed = True
                 if allowed:
                     chosen = name
@@ -2439,7 +2449,7 @@ def fetch_fundamentals_batch(tickers: List[str], provider_status: Dict | None = 
                         latency_sec=0.0,
                         extra={"ticker": t}
                     )
-                except Exception:
+                except (TypeError, AttributeError):
                     pass
                 continue
             future = executor.submit(aggregate_fundamentals, t, chosen, provider_status, mode, as_of_date, telemetry)

@@ -44,7 +44,7 @@ def score_with_ml_model(row: pd.Series | dict, model_data: Optional[dict] = None
                 compute_ml_20d_probabilities_raw,
                 calibrate_ml_20d_prob,
             )
-        except Exception:
+        except ImportError:
             return 0.5
 
         if not ML_20D_AVAILABLE:
@@ -69,9 +69,9 @@ def score_with_ml_model(row: pd.Series | dict, model_data: Optional[dict] = None
             if not (0.0 <= p <= 1.0):
                 return 0.5
             return p
-        except Exception:
+        except (TypeError, ValueError):
             return 0.5
-    except Exception:
+    except (ImportError, TypeError, KeyError):
         return 0.5
 
 
@@ -204,7 +204,7 @@ def compute_big_winner_signal_20d(row: pd.Series) -> dict:
         score = float(np.clip(score, 0, 100))
         flag = 1 if score >= 60 else 0
         return {"BigWinnerScore_20d": score, "BigWinnerFlag_20d": flag}
-    except Exception:
+    except (TypeError, ValueError, KeyError):
         return {"BigWinnerScore_20d": 0.0, "BigWinnerFlag_20d": 0}
 
 
@@ -265,7 +265,7 @@ def compute_recommendation_scores(
             if as_of_date is not None:
                 try:
                     as_of_for_fund = pd.to_datetime(as_of_date).date()
-                except Exception:
+                except (TypeError, ValueError):
                     as_of_for_fund = None
 
             raw = data_sources_v2.fetch_multi_source_data(base_ticker, as_of_date=as_of_for_fund)
@@ -280,7 +280,7 @@ def compute_recommendation_scores(
     try:
         tech_raw = compute_tech_score_20d_v2(row)
         tech_score = float(np.clip(tech_raw * 100.0, 0.0, 100.0))
-    except Exception:
+    except (TypeError, ValueError, KeyError):
         tech_score = compute_technical_score(row)
 
     # --- Fundamental component ---
@@ -302,7 +302,7 @@ def compute_recommendation_scores(
                 market_regime = str(ctx['Market_Regime'].iloc[-1])
             else:
                 data_integrity = "DATA_INCOMPLETE"
-    except Exception:
+    except (TypeError, ValueError, KeyError, AttributeError):
         market_regime = None
         data_integrity = "DATA_INCOMPLETE"
 
@@ -315,7 +315,7 @@ def compute_recommendation_scores(
         if "ML_20d_Prob" in row.index and pd.notna(row.get("ML_20d_Prob")):
             try:
                 ml_prob = float(row.get("ML_20d_Prob"))
-            except Exception:
+            except (TypeError, ValueError):
                 ml_prob = None
         elif enable_ml:
             try:
@@ -338,13 +338,13 @@ def compute_recommendation_scores(
                         market_regime=market_regime,
                         rsi=float(rsi_val) if pd.notna(rsi_val) else None,
                     )
-            except Exception:
+            except (ImportError, TypeError, ValueError):
                 ml_prob = None
     # Coerce missing/invalid ML probability to neutral 0.5
     try:
         if ml_prob is None or not np.isfinite(float(ml_prob)):
             ml_prob = 0.5
-    except Exception:
+    except (TypeError, ValueError):
         ml_prob = 0.5
 
     # Pattern and Big Winner enhancements
@@ -362,7 +362,7 @@ def compute_recommendation_scores(
             market_regime=market_regime,
         )
         conviction_score = final_score
-    except Exception:
+    except (TypeError, ValueError, KeyError, AttributeError):
         final_score = compute_final_score(tech_score, fundamental_score, ml_prob, market_regime=market_regime)
         conviction_score = final_score
 
@@ -464,7 +464,7 @@ def compute_recommendation_scores(
         patt_eval = PatternMatcher.evaluate_stock(rec_row)
         rec_row["Pattern_Score"] = float(patt_eval.get("pattern_score", 0.0))
         rec_row["Pattern_Count"] = int(patt_eval.get("pattern_count", 0))
-    except Exception:
+    except (TypeError, ValueError, KeyError, AttributeError):
         rec_row["Pattern_Score"] = rec_row.get("Pattern_Score", np.nan)
         rec_row["Pattern_Count"] = rec_row.get("Pattern_Count", np.nan)
     
@@ -477,28 +477,28 @@ def compute_recommendation_scores(
             ts = float(tech_score)
             if np.isfinite(ts) and ts >= float(TECH_STRONG_THRESHOLD):
                 reasons.append("Strong technical momentum")
-        except Exception:
+        except (TypeError, ValueError):
             pass
         # High ML breakout probability
         try:
             mp = float(ml_prob) if ml_prob is not None else np.nan
             if np.isfinite(mp) and mp >= float(ML_PROB_THRESHOLD):
                 reasons.append("High ML breakout probability")
-        except Exception:
+        except (TypeError, ValueError):
             pass
         # Bullish pattern detected
         try:
             ps = float(rec_row.get("Pattern_Score", 0.0) or 0.0)
             if np.isfinite(ps) and ps > 0.0:
                 reasons.append("Bullish pattern detected")
-        except Exception:
+        except (TypeError, ValueError):
             pass
         # Supportive market regime
         try:
             reg = str(market_regime or "").upper()
             if reg in ("TREND_UP", "BULLISH", "NEUTRAL", "SIDEWAYS"):
                 reasons.append("Supportive market regime")
-        except Exception:
+        except (TypeError, ValueError, AttributeError):
             pass
         # Quality label
         cnt = len(reasons)
@@ -511,7 +511,7 @@ def compute_recommendation_scores(
         rec_row["SignalReasons"] = "; ".join(reasons)
         rec_row["SignalReasons_Count"] = cnt
         rec_row["SignalQuality"] = quality
-    except Exception:
+    except (ImportError, KeyError, TypeError):
         # In case thresholds are unavailable, keep defaults
         rec_row["SignalReasons"] = rec_row.get("SignalReasons", "")
         rec_row["SignalReasons_Count"] = rec_row.get("SignalReasons_Count", 0)
@@ -523,7 +523,7 @@ def compute_recommendation_scores(
     try:
         from core.ml_20d_inference import BUNDLE_HAS_MISSING_METEOR_FEATURES
         rec_row["ML_Features_Fallback"] = 1 if bool(BUNDLE_HAS_MISSING_METEOR_FEATURES) else 0
-    except Exception:
+    except (ImportError, AttributeError):
         rec_row["ML_Features_Fallback"] = 0
 
     return rec_row
@@ -1010,7 +1010,7 @@ def build_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
         atr_20 = compute_atr(dff, period=20)
         range_ratio = atr_5 / atr_20
         result['RangeRatio_5_20'] = range_ratio.replace([np.inf, -np.inf], np.nan)
-    except Exception:
+    except (TypeError, ValueError, ZeroDivisionError):
         result['RangeRatio_5_20'] = np.nan
 
     # Tightness_Ratio: stddev(5d Close) / stddev(20d Close)
@@ -1019,7 +1019,7 @@ def build_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
         std_20 = close.rolling(20).std()
         tight_ratio = (std_5 / std_20).replace([np.inf, -np.inf], np.nan)
         result['Tightness_Ratio'] = tight_ratio
-    except Exception:
+    except (TypeError, ValueError, ZeroDivisionError):
         result['Tightness_Ratio'] = np.nan
 
     # Volatility Contraction Pattern (VCP) score - ENHANCED
