@@ -412,9 +412,9 @@ def calibrate_ml_20d_prob(
             # When provided, retain multiplicative semantics
             adjusted *= float(reliability_factor)
         else:
-            # Missing reliability: move probability toward neutral (0.5)
-            # Blend current adjusted prob with 0.5 equally
-            adjusted = 0.5 * adjusted + 0.5 * 0.5
+            # Missing reliability: apply small conservative adjustment (5% toward neutral)
+            # instead of severe dampening to preserve model signal
+            adjusted = 0.95 * adjusted + 0.05 * 0.5
 
         # Regime Bonus/Penalty adjustments
         try:

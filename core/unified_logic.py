@@ -52,15 +52,17 @@ def score_with_ml_model(row: pd.Series | dict, model_data: Optional[dict] = None
 
         prob_raw = compute_ml_20d_probabilities_raw(s)
         # Calibrate with whatever fields are present; tolerate missing values
+        # Note: Do NOT use ReliabilityScore/ReliabilityFactor to dampen ML prob
+        # ReliabilityScore is a data quality metric, not a model confidence dampener
+        # Default to 1.0 to preserve model predictions
         atr_pct_pct = s.get("ATR_Pct_percentile", None)
         price_as_of = s.get("Price_As_Of_Date", None)
-        reliability = s.get("ReliabilityFactor", None)
         rsi_val = s.get("RSI", None)
         prob = calibrate_ml_20d_prob(
             prob_raw,
             atr_pct_percentile=float(atr_pct_pct) if pd.notna(atr_pct_pct) else None,
             price_as_of=float(price_as_of) if pd.notna(price_as_of) else None,
-            reliability_factor=float(reliability) if pd.notna(reliability) else None,
+            reliability_factor=1.0,
             market_regime=None,
             rsi=float(rsi_val) if pd.notna(rsi_val) else None,
         )
@@ -328,13 +330,13 @@ def compute_recommendation_scores(
                     prob_raw = compute_ml_20d_probabilities_raw(row)
                     atr_pct_pct = row.get("ATR_Pct_percentile", np.nan)
                     price_as_of = row.get("Price_As_Of_Date", np.nan)
-                    reliability_factor = row.get("ReliabilityFactor", np.nan)
                     rsi_val = row.get("RSI", np.nan)
+                    # Note: Default reliability_factor to 1.0 to preserve model predictions
                     ml_prob = calibrate_ml_20d_prob(
                         prob_raw,
                         atr_pct_percentile=float(atr_pct_pct) if pd.notna(atr_pct_pct) else None,
                         price_as_of=float(price_as_of) if pd.notna(price_as_of) else None,
-                        reliability_factor=float(reliability_factor) if pd.notna(reliability_factor) else None,
+                        reliability_factor=1.0,
                         market_regime=market_regime,
                         rsi=float(rsi_val) if pd.notna(rsi_val) else None,
                     )
