@@ -23,6 +23,8 @@ from core.sector_mapping import get_stock_sector, get_sector_etf, get_all_sector
 from core.api_keys import get_api_key
 # Feature registry - Single Source of Truth for ML features
 from core.feature_registry import get_feature_names, FEATURE_COUNT_V3
+# Shared EnsembleClassifier for pickle compatibility
+from core.ensemble import EnsembleClassifier
 
 # --- CONFIG ---
 # API key is lazily loaded when needed (not at import time) to allow tests to import this module
@@ -643,52 +645,6 @@ def calculate_market_regime(spy_df: pd.DataFrame) -> pd.DataFrame:
     return regime_df
 
 
-class EnsembleClassifier(BaseEstimator, ClassifierMixin):
-    """Ensemble of multiple classifiers with weighted averaging.
-    
-    Combines predictions from multiple models (HistGB, RF, LR) to reduce
-    variance and improve robustness across different market conditions.
-    """
-    
-    def __init__(self, models, weights=None, scaler=None):
-        self.models = models
-        self.weights = weights or [1/len(models)] * len(models)
-        self.scaler = scaler  # For models that need scaling (e.g., LogisticRegression)
-        self.classes_ = np.array([0, 1])
-    
-    def fit(self, X, y):
-        # Models should already be fitted externally
-        return self
-    
-    def predict_proba(self, X):
-        """Average probability predictions from all models."""
-        X_arr = np.array(X)
-        weighted_probas = np.zeros((len(X_arr), 2))
-        
-        for model, weight in zip(self.models, self.weights):
-            # Check if this model needs scaled input
-            if hasattr(model, '_needs_scaling') and model._needs_scaling and self.scaler:
-                X_input = self.scaler.transform(X_arr)
-            else:
-                X_input = X_arr
-            
-            proba = model.predict_proba(X_input)
-            weighted_probas += proba * weight
-        
-        return weighted_probas
-    
-    def predict(self, X):
-        proba = self.predict_proba(X)
-        return (proba[:, 1] >= 0.5).astype(int)
-    
-    @property
-    def n_iter_(self):
-        """Return n_iter_ from first model (HistGB) for metadata."""
-        if hasattr(self.models[0], 'n_iter_'):
-            return self.models[0].n_iter_
-        return None
-
-
 # --- MAIN PIPELINE ---
 def fetch_sector_etf_data(start_str: str, end_str: str) -> pd.DataFrame:
     """Fetch all sector ETF data and calculate 20d returns.
@@ -728,7 +684,7 @@ def train_and_save_bundle():
     
     # 2. Download Data (Parallel)
     end_date = datetime.now()
-    start_date = end_date - timedelta(days=365*2) # 2 Years history
+    start_date = end_date - timedelta(days=365*5)  # 5 years history for robust training
     start_str = start_date.strftime("%Y-%m-%d")
     end_str = end_date.strftime("%Y-%m-%d")
     

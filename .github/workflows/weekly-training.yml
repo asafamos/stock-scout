@@ -1,7 +1,7 @@
 name: Weekly ML Training (20d)
 
 # Single consolidated training workflow - runs weekly to retrain ML model
-# with 2000 tickers and 2 years of history from Polygon API.
+# with 2000 tickers and 5 years of history from Polygon API.
 
 permissions:
   contents: write  # allow committing trained model back to repo
@@ -15,7 +15,7 @@ on:
 jobs:
   train:
     runs-on: ubuntu-latest
-    timeout-minutes: 90  # Training 2000 tickers can take time
+    timeout-minutes: 180  # Training 2000 tickers with 5 years of data needs more time
     env:
       # REQUIRED: Polygon API key for historical data
       POLYGON_API_KEY: ${{ secrets.POLYGON_API_KEY }}
@@ -73,9 +73,9 @@ jobs:
 
       - name: Run rolling training
         env:
-          # Training configuration
+          # Training configuration (informational - actual values in Python code)
           UNIVERSE_SIZE: '2000'
-          LOOKBACK_YEARS: '2'
+          LOOKBACK_YEARS: '5'
           RELATIVE_LABEL_TAU: '0.03'
           ROLLING_MONTHS: '18'
           TS_SPLITS: '5'

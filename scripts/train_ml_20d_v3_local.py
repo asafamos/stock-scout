@@ -336,12 +336,12 @@ def train_and_save():
     print(f"📋 Target Features: {len(FEATURE_NAMES_V3)} (from feature_registry v3)")
     
     # 1. Get Tickers
-    tickers = get_sp500_tickers(limit=250)  # Start with 250 for reasonable training time
+    tickers = get_sp500_tickers(limit=500)  # S&P 500 full universe
     print(f"📊 Universe: {len(tickers)} tickers")
     
     # 2. Download Data
     end_date = datetime.now()
-    start_date = end_date - timedelta(days=365 * 3)  # 3 years
+    start_date = end_date - timedelta(days=365 * 5)  # 5 years history
     start_str = start_date.strftime("%Y-%m-%d")
     end_str = end_date.strftime("%Y-%m-%d")
     
