@@ -116,7 +116,7 @@ class Config:
     
     # External Verification
     external_price_verify: bool = True
-    top_validate_k: int = 12
+    top_validate_k: int = 50  # Verify prices for ALL displayed stocks (was 12)
     
     # Results
     topn_results: int = int(_get_config_value('TOPN_RESULTS', '15'))
