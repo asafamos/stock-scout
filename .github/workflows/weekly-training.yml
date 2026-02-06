@@ -24,6 +24,10 @@ jobs:
       FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
       ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
       TIINGO_API_KEY: ${{ secrets.TIINGO_API_KEY }}
+      EODHD_API_KEY: ${{ secrets.EODHD_API_KEY }}
+      SIMFIN_API_KEY: ${{ secrets.SIMFIN_API_KEY }}
+      MARKETSTACK_API_KEY: ${{ secrets.MARKETSTACK_API_KEY }}
+      NASDAQ_API_KEY: ${{ secrets.NASDAQ_API_KEY }}
 
     steps:
       - name: Checkout
@@ -42,13 +46,30 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Debug - List available API keys
+        run: |
+          echo "=== API Keys Status ==="
+          echo "POLYGON_API_KEY: ${POLYGON_API_KEY:+SET (${#POLYGON_API_KEY} chars)}${POLYGON_API_KEY:-NOT SET}"
+          echo "FMP_API_KEY: ${FMP_API_KEY:+SET}${FMP_API_KEY:-NOT SET}"
+          echo "FINNHUB_API_KEY: ${FINNHUB_API_KEY:+SET}${FINNHUB_API_KEY:-NOT SET}"
+          echo "ALPHA_VANTAGE_API_KEY: ${ALPHA_VANTAGE_API_KEY:+SET}${ALPHA_VANTAGE_API_KEY:-NOT SET}"
+          echo "TIINGO_API_KEY: ${TIINGO_API_KEY:+SET}${TIINGO_API_KEY:-NOT SET}"
+          echo "EODHD_API_KEY: ${EODHD_API_KEY:+SET}${EODHD_API_KEY:-NOT SET}"
+          echo "======================="
+
       - name: Verify API keys
         run: |
           if [ -z "$POLYGON_API_KEY" ]; then
             echo "❌ ERROR: POLYGON_API_KEY secret is required but not set"
+            echo ""
+            echo "Please add POLYGON_API_KEY to your repository secrets:"
+            echo "1. Go to Settings → Secrets and variables → Actions"
+            echo "2. Click 'New repository secret'"
+            echo "3. Name: POLYGON_API_KEY"
+            echo "4. Value: Your Polygon.io API key"
             exit 1
           fi
-          echo "✅ POLYGON_API_KEY is set"
+          echo "✅ POLYGON_API_KEY is set (${#POLYGON_API_KEY} characters)"
 
       - name: Run rolling training
         env:
@@ -60,6 +81,11 @@ jobs:
           TS_SPLITS: '5'
           PRECISION_AT_K: '20'
         run: |
+          echo "=== Starting ML Training ==="
+          echo "  Universe: $UNIVERSE_SIZE tickers"
+          echo "  Lookback: $LOOKBACK_YEARS years"
+          echo "  Rolling months: $ROLLING_MONTHS"
+          echo "============================="
           python -m scripts.run_daily_training
 
       - name: Backtest Precision@K
