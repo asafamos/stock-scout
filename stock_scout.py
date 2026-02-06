@@ -2577,6 +2577,15 @@ def _load_precomputed_scan_with_fallback(scan_dir: Path):
     """
     latest_candidates = sorted(scan_dir.glob("latest_scan*.parquet"))
 
+    def _to_naive_utc(dt: Optional[datetime]) -> Optional[datetime]:
+        """Convert datetime to naive UTC for consistent comparison."""
+        if dt is None:
+            return None
+        if dt.tzinfo is not None:
+            # Convert to UTC then strip timezone
+            return dt.astimezone(tz=None).replace(tzinfo=None)
+        return dt  # Already naive
+
     def _load(path: Path):
         df, meta = load_latest_scan(path)
         if df is None or meta is None:
@@ -2591,6 +2600,9 @@ def _load_precomputed_scan_with_fallback(scan_dir: Path):
             ts_file = datetime.fromtimestamp(path.stat().st_mtime)
         except Exception:
             ts_file = None
+        # Normalize to naive UTC for comparison
+        ts_parsed = _to_naive_utc(ts_parsed)
+        ts_file = _to_naive_utc(ts_file)
         ts_effective = max([t for t in [ts_parsed, ts_file] if t is not None], default=None)
         return df, meta, ts_effective
 
@@ -2691,6 +2703,9 @@ if precomputed_meta is not None:
     try:
         # Parse metadata timestamp (may be naive or UTC)
         scan_time_meta = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+        # Normalize to naive for comparison
+        if scan_time_meta.tzinfo is not None:
+            scan_time_meta = scan_time_meta.replace(tzinfo=None)
         
         # Also consider file modification time (parquet/json), use the freshest
         try:
@@ -2700,7 +2715,7 @@ if precomputed_meta is not None:
         except Exception:
             scan_time_file = scan_time_meta
 
-        # Prefer the most recent timestamp available
+        # Prefer the most recent timestamp available (both naive now)
         scan_time = max(scan_time_meta, scan_time_file)
         scan_age_hours = (datetime.now() - scan_time).total_seconds() / 3600
         scan_too_old = scan_age_hours > 12
@@ -3403,7 +3418,7 @@ is_live_scan = not st.session_state.get("skip_pipeline", False)
 if is_live_scan and not results.empty:
     try:
         meta_final = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.utcnow().isoformat() + "Z",  # UTC with Z suffix for consistency
             "scan_type": "live_streamlit_final",
             "total_tickers": len(results),  # Count AFTER sector cap
             "sector_cap_applied": True,

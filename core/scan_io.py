@@ -53,7 +53,7 @@ def save_scan(
         
         # Build metadata
         meta = {
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.utcnow().isoformat() + "Z",  # UTC with Z suffix for consistency
             "universe_size": len(results_df),
             "universe_name": config.get("UNIVERSE_NAME", "default"),
             "config_version": config.get("VERSION", "unknown"),

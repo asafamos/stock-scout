@@ -36,13 +36,13 @@
     "Distance_To_Resistance",
     "Support_Strength"
   ],
-  "training_timestamp_utc": "2026-02-06T22:49:57.031757",
+  "training_timestamp_utc": "2026-02-06T22:57:36.184736",
   "model_type": "CalibratedEnsemble(HistGB+RF+LR)",
   "metrics": {
-    "oos_auc": 0.5647425141989684,
-    "cv_auc_mean": 0.5647425141989684,
-    "cv_auc_std": 0.04342367275735945,
-    "precision_at_20": 0.31,
-    "note": "Trained on 34 features (156064 samples)"
+    "oos_auc": 0.5524723204717538,
+    "cv_auc_mean": 0.5524723204717538,
+    "cv_auc_std": 0.01840444452321415,
+    "precision_at_20": 0.45,
+    "note": "Trained on 34 features (113361 samples)"
   }
 }
