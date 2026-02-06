@@ -4411,13 +4411,15 @@ else:
                         st.code(_fmt_num(fsv, '.0f'))
                     with f2:
                         st.text("Quality/Growth")
-                        st.code(f"{r.get('Quality_Score_F', np.nan)} / {r.get('Growth_Score_F', np.nan)}")
+                        q_score = r.get('Quality_Score_F', np.nan)
+                        g_score = r.get('Growth_Score_F', np.nan)
+                        st.code(f"{_fmt_num(q_score, '.0f')} / {_fmt_num(g_score, '.0f')}")
                     with f3:
                         st.text("Valuation")
-                        st.code(f"{r.get('Valuation_Score_F', np.nan)}")
+                        st.code(_fmt_num(r.get('Valuation_Score_F', np.nan), '.0f'))
                     with f4:
                         st.text("Leverage (D/E)")
-                        st.code(f"{r.get('DE_f', r.get('debt_to_equity', np.nan))}")
+                        st.code(_fmt_num(r.get('DE_f', r.get('debt_to_equity', np.nan)), '.2f'))
 
                     # Reliability breakdown
                     rel1, rel2, rel3, rel4 = st.columns(4)
@@ -4426,13 +4428,13 @@ else:
                         st.code(_fmt_num(rel, '.0f'))
                     with rel2:
                         st.text("Fund sources")
-                        st.code(f"{r.get('Fundamental_Sources_Count', r.get('fund_sources_used_v2', np.nan))}")
+                        st.code(_fmt_num(r.get('Fundamental_Sources_Count', r.get('fund_sources_used_v2', np.nan)), '.0f'))
                     with rel3:
                         st.text("Price sources")
-                        st.code(f"{r.get('Price_Sources_Count', r.get('price_sources_used_v2', np.nan))}")
+                        st.code(_fmt_num(r.get('Price_Sources_Count', r.get('price_sources_used_v2', np.nan)), '.0f'))
                     with rel4:
                         st.text("Price STD")
-                        st.code(f"{r.get('Price_STD', r.get('price_std', np.nan))}")
+                        st.code(_fmt_num(r.get('Price_STD', r.get('price_std', np.nan)), '.2f'))
 
     # Speculative candidates
     if not spec_df.empty:
@@ -4508,13 +4510,15 @@ else:
                         st.code(_fmt_num(fsv, '.0f'))
                     with f2:
                         st.text("Quality/Growth")
-                        st.code(f"{r.get('Quality_Score_F', np.nan)} / {r.get('Growth_Score_F', np.nan)}")
+                        q_score = r.get('Quality_Score_F', np.nan)
+                        g_score = r.get('Growth_Score_F', np.nan)
+                        st.code(f"{_fmt_num(q_score, '.0f')} / {_fmt_num(g_score, '.0f')}")
                     with f3:
                         st.text("Valuation")
-                        st.code(f"{r.get('Valuation_Score_F', np.nan)}")
+                        st.code(_fmt_num(r.get('Valuation_Score_F', np.nan), '.0f'))
                     with f4:
                         st.text("Leverage (D/E)")
-                        st.code(f"{r.get('DE_f', r.get('debt_to_equity', np.nan))}")
+                        st.code(_fmt_num(r.get('DE_f', r.get('debt_to_equity', np.nan)), '.2f'))
 
                     rel1, rel2, rel3, rel4 = st.columns(4)
                     with rel1:
@@ -4522,13 +4526,13 @@ else:
                         st.code(_fmt_num(rel, '.0f'))
                     with rel2:
                         st.text("Fund sources")
-                        st.code(f"{r.get('Fundamental_Sources_Count', r.get('fund_sources_used_v2', np.nan))}")
+                        st.code(_fmt_num(r.get('Fundamental_Sources_Count', r.get('fund_sources_used_v2', np.nan)), '.0f'))
                     with rel3:
                         st.text("Price sources")
-                        st.code(f"{r.get('Price_Sources_Count', r.get('price_sources_used_v2', np.nan))}")
+                        st.code(_fmt_num(r.get('Price_Sources_Count', r.get('price_sources_used_v2', np.nan)), '.0f'))
                     with rel4:
                         st.text("Price STD")
-                        st.code(f"{r.get('Price_STD', r.get('price_std', np.nan))}")
+                        st.code(_fmt_num(r.get('Price_STD', r.get('price_std', np.nan)), '.2f'))
 
     # Export section (single, unified)
             mean = r.get("מחיר ממוצע", np.nan)
