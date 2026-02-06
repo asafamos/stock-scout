@@ -1,12 +1,8 @@
 {
-  "timestamp": "2026-02-06T23:05:59.025646Z",
-  "universe_count": 21,
-  "provider": "local_upload",
-  "results_count": 21,
+  "timestamp": "2026-02-06T23:29:18.044943Z",
+  "universe_count": 200,
+  "results_count": 28,
   "batches_ok": 1,
   "lookback_days": 120,
-  "beta_filter_enabled": false,
-  "fundamental_enabled": true,
-  "runtime_seconds": 0,
-  "total_tickers": 21
+  "total_tickers": 28
 }

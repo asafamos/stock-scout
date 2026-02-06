@@ -1,7 +1,6 @@
 {
-  "timestamp": "2026-02-06T23:05:59.025646Z",
-  "universe_size": 21,
-  "total_tickers": 21,
+  "timestamp": "2026-02-06T23:29:18.044943Z",
+  "total_tickers": 28,
   "columns": [
     "Ticker",
     "MA20",
@@ -96,7 +95,6 @@
     "SignalQuality",
     "ReliabilityScore",
     "TechScore_20d",
-    "Beta",
     "RS_63d",
     "MA_Aligned",
     "Quality_Score",
@@ -132,6 +130,7 @@
     "Fundamental_From_Store",
     "sector",
     "Market_Cap",
+    "Beta",
     "Sector",
     "PE_Ratio",
     "PEG_Ratio",
@@ -169,19 +168,7 @@
     "Stop_Loss",
     "RewardRisk",
     "Target_Source",
-    "FinalScore",
-    "Price_Alpha",
-    "Price_Finnhub",
-    "Price_Polygon",
-    "Price_Tiingo",
-    "Price_Marketstack",
-    "Price_NasdaqDL",
-    "Price_EODHD",
-    "Price_Mean",
-    "Price_STD",
-    "Source_List",
-    "Historical_StdDev",
-    "Holding_Horizon"
+    "FinalScore"
   ],
   "scan_type": "full_pipeline"
 }
