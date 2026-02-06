@@ -43,7 +43,7 @@ jobs:
       - name: Run contract tests (fast, no API calls)
         run: |
           # Run only tests that don't require external API calls
-          pytest -q -x --timeout=60 \
+          pytest -q -x \
             tests/test_feature_registry.py \
             tests/test_contracts.py \
             tests/test_ml_contract_latest.py \
