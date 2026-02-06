@@ -12,7 +12,7 @@ on:
 jobs:
   validate-ml-a2:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15  # Fast contract tests only
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -37,12 +37,21 @@ jobs:
         run: |
           pytest -q --collect-only tests > .pytest_collect.txt || true
           echo 'Collected:'
-          cat .pytest_collect.txt
+          head -50 .pytest_collect.txt
           grep -E "collected [1-9][0-9]* items" .pytest_collect.txt || (echo "No tests collected" && exit 1)
 
-      - name: Run contract and smoke tests
+      - name: Run contract tests (fast, no API calls)
         run: |
-          pytest -q tests
+          # Run only tests that don't require external API calls
+          pytest -q -x --timeout=60 \
+            tests/test_feature_registry.py \
+            tests/test_contracts.py \
+            tests/test_ml_contract_latest.py \
+            tests/test_pure_functions.py \
+            tests/test_allocate.py \
+            tests/test_edge_cases.py \
+            tests/integration/test_full_pipeline.py \
+            tests/integration/test_model_loading.py
 
       - name: Validate feature registry contract
         run: |

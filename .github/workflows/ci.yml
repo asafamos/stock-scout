@@ -9,7 +9,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15  # Tests should complete quickly
+    timeout-minutes: 10  # Fast tests only
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -24,7 +24,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest
+          pip install pytest pytest-timeout
 
       - name: Pytest sanity
         run: |
@@ -34,13 +34,19 @@ jobs:
         run: |
           pytest -q --collect-only tests > .pytest_collect.txt || true
           echo 'Collected:'
-          cat .pytest_collect.txt
+          head -50 .pytest_collect.txt
           grep -E "collected [1-9][0-9]* items" .pytest_collect.txt || (echo "No tests collected" && exit 1)
 
-      - name: Run tests
+      - name: Run fast unit tests (no API calls)
         run: |
-          # Run scoped tests under ./tests to avoid vendored folders
-          pytest -q tests
+          # Run only pure unit tests that don't require external API calls
+          pytest -q -x --timeout=30 \
+            tests/test_pure_functions.py \
+            tests/test_allocate.py \
+            tests/test_edge_cases.py \
+            tests/test_feature_registry.py \
+            tests/test_contracts.py \
+            tests/test_ml_contract_latest.py
 
       - name: Verify core imports
         run: |

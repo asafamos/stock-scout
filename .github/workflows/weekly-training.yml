@@ -1,24 +1,30 @@
-name: Daily Rolling Training (20d)
+name: Weekly ML Training (20d)
+
+# Single consolidated training workflow - runs weekly to retrain ML model
+# with 2000 tickers and 2 years of history from Polygon API.
 
 permissions:
   contents: write  # allow committing trained model back to repo
 
 on:
   schedule:
-    - cron: '15 3 * * *' # daily at 03:15 UTC
-  workflow_dispatch: {}
+    # Weekly on Sunday at 22:00 UTC (before Monday market open)
+    - cron: '0 22 * * 0'
+  workflow_dispatch: {}  # Manual trigger for testing
 
 jobs:
   train:
     runs-on: ubuntu-latest
-    timeout-minutes: 60  # Training can take time
+    timeout-minutes: 90  # Training 2000 tickers can take time
     env:
-      # Provider keys (optional for dataset refresh scripts)
-      FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+      # REQUIRED: Polygon API key for historical data
       POLYGON_API_KEY: ${{ secrets.POLYGON_API_KEY }}
+      # Optional: Additional providers for fallback/enrichment
+      FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
       FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
       ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
       TIINGO_API_KEY: ${{ secrets.TIINGO_API_KEY }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -36,8 +42,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Verify API keys
+        run: |
+          if [ -z "$POLYGON_API_KEY" ]; then
+            echo "❌ ERROR: POLYGON_API_KEY secret is required but not set"
+            exit 1
+          fi
+          echo "✅ POLYGON_API_KEY is set"
+
       - name: Run rolling training
         env:
+          # Training configuration
+          UNIVERSE_SIZE: '2000'
+          LOOKBACK_YEARS: '2'
           RELATIVE_LABEL_TAU: '0.03'
           ROLLING_MONTHS: '18'
           TS_SPLITS: '5'
@@ -57,24 +74,33 @@ jobs:
         run: |
           python -m scripts.monitor_drift || true
 
-      - name: Upload reports
+      - name: Upload model bundle artifact
         uses: actions/upload-artifact@v4
         with:
-          name: rolling-training-reports
+          name: ml-bundle-${{ github.run_number }}
+          path: |
+            models/model_20d_v3.pkl
+            models/model_20d_v3_*.pkl
+            reports/rolling_train_report_*.json
+
+      - name: Upload training reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: training-reports-${{ github.run_number }}
           path: reports/
 
       - name: Commit and push updated model bundle
         run: |
           set -e
-          git config user.name "GitHub Action Bot"
-          git config user.email "actions@github.com"
-          # Add canonical model and timestamped bundles if present
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Add canonical model and timestamped bundles
           git add models/model_20d_v3.pkl models/model_20d_v3_*.pkl || true
-          # Optionally include latest training report for traceability
+          # Include latest training report for traceability
           git add reports/rolling_train_report_*.json || true
           if git diff --cached --quiet; then
             echo "No model changes to commit."
           else
-            git commit -m "chore(ml): update 20d model bundle [skip ci]"
+            git commit -m "chore(ml): weekly training - update 20d model bundle [skip ci]"
             git push
           fi

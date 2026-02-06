@@ -106,6 +106,162 @@ def get_fallback_status() -> dict:
             "reasons": list(_LEGACY_FALLBACK_REASONS[-10:]),  # Last 10 reasons
         }
 
+
+# --- Global Market Context (computed once per pipeline run) ---
+_GLOBAL_MARKET_CONTEXT: Dict[str, float] = {}
+_SECTOR_ETF_RETURNS: Dict[str, float] = {}  # sector ETF -> 20d return
+_SECTOR_CONTEXT_CACHE: Dict[str, Dict[str, float]] = {}  # ticker -> sector context
+
+
+def _compute_global_market_context() -> Dict[str, float]:
+    """Compute global market context from SPY/VIX once per pipeline run.
+    
+    Returns dict with:
+        - Market_Regime: 1 (bull), 0 (neutral), -1 (bear)
+        - Market_Volatility: VIX-based volatility (0.0-0.5)
+        - Market_Trend: 1 if SPY > MA20 > MA50, else 0
+        - SPY_20d_ret: SPY 20-day return
+    """
+    context = {
+        'Market_Regime': 0.0,
+        'Market_Volatility': 0.15,
+        'Market_Trend': 0.0,
+        'SPY_20d_ret': 0.0,
+    }
+    try:
+        spy_df = get_benchmark_series("SPY", period="3mo")
+        if spy_df is None or len(spy_df) < 50:
+            return context
+        
+        close = spy_df["close"] if "close" in spy_df.columns else spy_df.get("Close", pd.Series())
+        if len(close) < 50:
+            return context
+        
+        # Compute SPY 20d return
+        if len(close) >= 20:
+            spy_ret = (close.iloc[-1] / close.iloc[-20] - 1.0)
+            context['SPY_20d_ret'] = float(spy_ret)
+        
+        # Market trend: SPY > MA20 > MA50
+        ma20 = close.rolling(20).mean().iloc[-1]
+        ma50 = close.rolling(50).mean().iloc[-1]
+        current = close.iloc[-1]
+        if current > ma20 > ma50:
+            context['Market_Trend'] = 1.0
+            context['Market_Regime'] = 1.0  # Bullish
+        elif current < ma20 < ma50:
+            context['Market_Trend'] = 0.0
+            context['Market_Regime'] = -1.0  # Bearish
+        else:
+            context['Market_Trend'] = 0.5
+            context['Market_Regime'] = 0.0  # Neutral
+            
+        # Market volatility from returns std
+        returns = close.pct_change().dropna()
+        if len(returns) >= 20:
+            vol_20d = returns.tail(20).std() * np.sqrt(252)
+            context['Market_Volatility'] = float(min(vol_20d, 0.5))
+        
+        logger.info(f"[ML] Market context: regime={context['Market_Regime']}, "
+                   f"trend={context['Market_Trend']:.2f}, vol={context['Market_Volatility']:.3f}")
+    except Exception as e:
+        logger.warning(f"Failed to compute market context: {e}")
+    
+    return context
+
+
+def _compute_sector_etf_returns() -> Dict[str, float]:
+    """Compute 20d returns for all sector ETFs once per pipeline run.
+    
+    Uses yfinance batch download to avoid rate limits.
+    """
+    from core.sector_mapping import SECTOR_ETFS
+    
+    etf_returns: Dict[str, float] = {}
+    etf_symbols = list(SECTOR_ETFS.values())
+    
+    try:
+        # Batch download all sector ETFs at once
+        df = yf.download(etf_symbols, period="2mo", progress=False, threads=False)
+        if df.empty:
+            logger.warning("[ML] Sector ETF batch download returned empty")
+            return etf_returns
+            
+        # Handle multi-index columns if multiple symbols
+        if isinstance(df.columns, pd.MultiIndex):
+            close_df = df['Close'] if 'Close' in df.columns.get_level_values(0) else df['Adj Close']
+        else:
+            close_df = df[['Close']] if 'Close' in df.columns else df
+        
+        for sector, etf in SECTOR_ETFS.items():
+            try:
+                if etf in close_df.columns:
+                    close = close_df[etf].dropna()
+                    if len(close) >= 20:
+                        ret = float(close.iloc[-1] / close.iloc[-20] - 1.0)
+                        etf_returns[sector] = ret
+                        etf_returns[etf] = ret  # Also store by ETF symbol
+            except Exception:
+                pass
+                
+        if etf_returns:
+            logger.info(f"[ML] Computed sector ETF returns for {len(etf_returns)//2} sectors")
+    except Exception as e:
+        logger.warning(f"[ML] Sector ETF batch download failed: {e}")
+    
+    return etf_returns
+
+
+def _get_sector_context_for_ticker(ticker: str, stock_20d_return: float) -> Dict[str, float]:
+    """Get sector context for a specific ticker.
+    
+    Returns dict with:
+        - Sector_RS: stock return - sector ETF return
+        - Sector_Momentum: sector ETF 20d return
+        - Sector_Rank: percentile of sector vs other sectors
+    """
+    global _SECTOR_ETF_RETURNS
+    from core.sector_mapping import get_stock_sector, get_sector_etf
+    
+    context = {
+        'Sector_RS': 0.0,
+        'Sector_Momentum': 0.0,
+        'Sector_Rank': 0.5,
+    }
+    
+    try:
+        sector = get_stock_sector(ticker)
+        if sector == "Unknown":
+            return context
+        
+        sector_etf = get_sector_etf(sector)
+        if not sector_etf or sector not in _SECTOR_ETF_RETURNS:
+            return context
+        
+        sector_ret = _SECTOR_ETF_RETURNS.get(sector, 0.0)
+        context['Sector_Momentum'] = float(sector_ret)
+        context['Sector_RS'] = float(stock_20d_return - sector_ret)
+        
+        # Compute sector rank (percentile of this sector vs others)
+        all_returns = [r for s, r in _SECTOR_ETF_RETURNS.items() if not s.startswith("XL")]
+        if all_returns and len(all_returns) >= 3:
+            rank = sum(1 for r in all_returns if r <= sector_ret) / len(all_returns)
+            context['Sector_Rank'] = float(rank)
+    except Exception as e:
+        logger.debug(f"Sector context computation failed for {ticker}: {e}")
+    
+    return context
+
+
+def _initialize_ml_context() -> None:
+    """Initialize global market and sector context for ML features."""
+    global _GLOBAL_MARKET_CONTEXT, _SECTOR_ETF_RETURNS, _SECTOR_CONTEXT_CACHE
+    
+    _GLOBAL_MARKET_CONTEXT = _compute_global_market_context()
+    _SECTOR_ETF_RETURNS = _compute_sector_etf_returns()
+    _SECTOR_CONTEXT_CACHE = {}  # Clear cache for new run
+
+
 # --- Helper Functions ---
 
 def preflight_check() -> None:
@@ -593,11 +749,24 @@ def _process_single_ticker(tkr: str, df: pd.DataFrame, skip_tech_filter: bool) -
     # Enrich with all 34 ML features using the feature builder
     try:
         from core.ml_feature_builder import build_all_ml_features_v3
+        
+        # Compute stock's 20d return for sector context
+        stock_20d_return = 0.0
+        try:
+            close = df["Close"] if "Close" in df.columns else df.get("close", pd.Series())
+            if len(close) >= 20:
+                stock_20d_return = float(close.iloc[-1] / close.iloc[-20] - 1.0)
+        except Exception:
+            pass
+        
+        # Get sector context for this ticker
+        sector_ctx = _get_sector_context_for_ticker(tkr, stock_20d_return)
+        
         ml_features = build_all_ml_features_v3(
             row=row_indicators,
             df_hist=df,
-            market_context=None,  # Will use defaults
-            sector_context=None,  # Will use defaults
+            market_context=_GLOBAL_MARKET_CONTEXT if _GLOBAL_MARKET_CONTEXT else None,
+            sector_context=sector_ctx if sector_ctx else None,
         )
         # Add ML features to row_indicators
         for feat_name, feat_val in ml_features.items():
@@ -925,6 +1094,12 @@ def run_scan_pipeline(
             pass
     except Exception as e:
         logger.debug(f"[PIPELINE] Market context init skipped: {e}")
+
+    # Initialize ML-specific market and sector context (for build_all_ml_features_v3)
+    try:
+        _initialize_ml_context()
+    except Exception as e:
+        logger.debug(f"[PIPELINE] ML context init skipped: {e}")
 
     # Run API preflight to determine active providers for this scan
     try:
