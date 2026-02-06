@@ -2968,23 +2968,11 @@ else:
         except Exception:
             pass
         
-        # 3. Save Results
+        # 3. Mark scan as ready (actual save happens AFTER sector cap is applied below)
         if not results.empty:
-            try:
-                # Ensure metadata includes timestamp and type
-                meta_save = {
-                    "universe_count": len(universe),
-                    "timestamp": datetime.utcnow().isoformat(),
-                    "scan_type": "live_streamlit",
-                    "engine_version": meta.get("engine_version", "unknown"),
-                    "used_legacy_fallback": bool(meta.get("used_legacy_fallback", False)),
-                    "fallback_reason": meta.get("fallback_reason"),
-                }
-                save_latest_scan_from_results(results, metadata=meta_save)
-                st.session_state["precomputed_results"] = results
-                st.success(f"✅ Scan complete: {len(results)} results found")
-            except Exception as e:
-                logger.warning(f"Failed to save live scan: {e}")
+            # Store in session state for sector cap processing, final save happens at line ~3435
+            st.session_state["precomputed_results"] = results
+            st.success(f"✅ Scan complete: {len(results)} results found (will apply sector cap)")
         else:
             st.error("❌ Live scan returned 0 results. Check logs/filtering.")
 
@@ -3331,18 +3319,7 @@ elif "Price_Reliability" in results.columns:
     # Fallback: use price reliability alone if fundamental not available
     results["ReliabilityScore"] = (results["Price_Reliability"].fillna(0.5) * 100).round(2)
 
-# Save updated results with price verification data
-if not results.empty:
-    try:
-        meta_updated = {
-            "timestamp": datetime.utcnow().isoformat(),
-            "scan_type": "live_streamlit_verified",
-            "includes_price_verification": True,
-        }
-        save_latest_scan_from_results(results, metadata=meta_updated)
-        logger.info("Saved updated scan with price verification data")
-    except Exception as e:
-        logger.warning(f"Failed to save price-verified scan: {e}")
+# NOTE: Save happens AFTER sector cap is applied (at line ~3435) to ensure consistent reload counts
 
 
 # Horizon heuristic
@@ -3419,6 +3396,24 @@ results = apply_sector_cap(
     sorted_results,
     int(CONFIG["SECTOR_CAP_MAX"]),
 )
+
+# Save FINAL filtered results (after sector cap) ONLY for live scans
+# Don't re-save on precomputed reloads to avoid compounding filters
+is_live_scan = not st.session_state.get("skip_pipeline", False)
+if is_live_scan and not results.empty:
+    try:
+        meta_final = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "scan_type": "live_streamlit_final",
+            "total_tickers": len(results),  # Count AFTER sector cap
+            "sector_cap_applied": True,
+        }
+        save_latest_scan_from_results(results, metadata=meta_final)
+        # Also update session state with the final filtered results
+        st.session_state["precomputed_results"] = results.copy()
+        logger.info(f"✅ Saved FINAL results after sector cap: {len(results)} tickers")
+    except Exception as e:
+        logger.warning(f"Failed to save final scan: {e}")
 
 
 # Source badges & unit price
@@ -3497,38 +3492,31 @@ results["עודף ($)"] = np.round(
 
 # Timings and provider call count are displayed elsewhere; skip budget enforcement KPIs
     
-# Live-mode-only: offer saving this run as latest precomputed scan
-# If a precomputed scan was loaded earlier, prefer it for rendering instead of re-running the pipeline.
-# NOTE: Use the already-filtered results from session state (updated in skip_pipeline block above)
+# For precomputed mode: results variable already went through sector cap and sorting above.
+# We just need to apply column renames for UI compatibility, but NOT reload from session state
+# (which would discard the sector cap filtering).
 if st.session_state.get("precomputed_results") is not None and st.session_state.get("skip_pipeline", False):
-    try:
-        # Use the filtered results from session state (already limited to top 15 by skip_pipeline block)
-        # The skip_pipeline block above already filtered and updated session state at line 2644
-        results = st.session_state.get("precomputed_results").copy()
-        
-        # Rename columns to match live pipeline naming
-        column_renames = {
-            'Close': 'Price_Yahoo',
-            'Technical_Score': 'Score_Tech',
-            'Fundamental_Score': 'Fundamental_S',
-            'Overall_Score': 'Score',
-            'Fund_Sources_Count': 'fund_sources_used_v2',
-        }
-        results = results.rename(columns=column_renames)
-        # Ensure both reliability aliases exist for UI fallbacks
-        if 'Reliability_v2' not in results.columns and 'reliability_v2' in results.columns:
-            results['Reliability_v2'] = results['reliability_v2']
-        if 'reliability_pct' not in results.columns and 'Reliability_v2' in results.columns:
-            results['reliability_pct'] = results['Reliability_v2']
-        # Sector alias
-        if 'Sector' not in results.columns and 'sector' in results.columns:
-            results['Sector'] = results['sector']
-    except Exception:
-        # Fallback to session state if rename fails
-        results = st.session_state.get("precomputed_results")
+    # Apply column renames for UI compatibility (in-place on the already-filtered results)
+    column_renames = {
+        'Close': 'Price_Yahoo',
+        'Technical_Score': 'Score_Tech',
+        'Fundamental_Score': 'Fundamental_S',
+        'Overall_Score': 'Score',
+        'Fund_Sources_Count': 'fund_sources_used_v2',
+    }
+    results = results.rename(columns=column_renames)
+    # Ensure both reliability aliases exist for UI fallbacks
+    if 'Reliability_v2' not in results.columns and 'reliability_v2' in results.columns:
+        results['Reliability_v2'] = results['reliability_v2']
+    if 'reliability_pct' not in results.columns and 'Reliability_v2' in results.columns:
+        results['reliability_pct'] = results['Reliability_v2']
+    # Sector alias
+    if 'Sector' not in results.columns and 'sector' in results.columns:
+        results['Sector'] = results['sector']
+    
     data_map = {}
     phase_times = phase_times if 'phase_times' in locals() else {}
-    logger.info(f"Rendering using precomputed scan with {len(results)} tickers (already filtered to top 15)")
+    logger.info(f"Rendering precomputed scan with {len(results)} tickers (after sector cap)")
     try:
         status_manager.update_detail("Precomputed scan loaded — using cached results")
         status_manager.set_progress(1.0)
