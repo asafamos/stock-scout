@@ -807,27 +807,17 @@ def train_and_save_bundle():
             print(f"   {regime_name:10s}: {mask.sum():6d} samples, {regime_winners:.1%} winners")
 
     # 4. Time-Series Cross-Validation (proper OOS evaluation)
-    features = [
-        # Original features (13)
-        'RSI', 'ATR_Pct', 'Return_20d', 'Return_10d', 'Return_5d',
-        # Technical - Volatility patterns
-        'VCP_Ratio', 'Tightness_Ratio', 'Dist_From_52w_High', 'MA_Alignment',
-        # Volume (basic)
-        'Volume_Surge', 'Up_Down_Volume_Ratio',
-        # Momentum
-        'Momentum_Consistency', 'RS_vs_SPY_20d',
-        # Market regime features (4)
-        'Market_Regime', 'Market_Volatility', 'Market_Trend', 'High_Volatility',
-        # Sector-relative features (3)
-        'Sector_RS', 'Sector_Momentum', 'Sector_Rank',
-        # Institutional accumulation volume features (5)
-        'Volume_Ratio_20d', 'Volume_Trend', 'Up_Volume_Ratio',
-        'Volume_Price_Confirm', 'Relative_Volume_Rank',
-        # Price action pattern features (10)
-        'Distance_From_52w_Low', 'Consolidation_Tightness', 'Days_Since_52w_High',
-        'Price_vs_SMA50', 'Price_vs_SMA200', 'SMA50_vs_SMA200', 'MA_Slope_20d',
-        'Distance_To_Resistance', 'Support_Strength',
-    ]
+    # Use feature registry as SINGLE SOURCE OF TRUTH to ensure alignment with inference
+    features = get_feature_names("v3")  # 34 features from feature_registry.py
+    
+    # Verify all features are present in training data
+    missing_features = [f for f in features if f not in full_df.columns]
+    if missing_features:
+        print(f"⚠️  Missing features in data: {missing_features}")
+        print("    This indicates a mismatch between feature calculation and registry.")
+        # Remove missing features from the list
+        features = [f for f in features if f in full_df.columns]
+        print(f"    Proceeding with {len(features)} available features.")
     
     # Sort by date for proper time-series split
     full_df = full_df.sort_index()

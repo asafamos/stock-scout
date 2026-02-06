@@ -7,6 +7,9 @@ from typing import Any, Dict, List, Optional
 import logging
 import warnings
 
+# Import EnsembleClassifier so pickle can find it when unpickling the model
+from core.ensemble import EnsembleClassifier  # noqa: F401 - needed for unpickling
+
 logger = logging.getLogger(__name__)
 
 ML_20D_AVAILABLE = True
