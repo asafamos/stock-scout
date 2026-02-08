@@ -1,0 +1,5 @@
+{"type": "api_call", "api": "failing_api", "success": false, "latency_ms": 5000.0, "error": "Connection timeout", "timestamp": "2026-02-08T09:03:06.584747"}
+{"type": "api_call", "api": "failing_api", "success": false, "latency_ms": 5000.0, "error": "Connection timeout", "timestamp": "2026-02-08T09:03:06.584752"}
+{"type": "api_call", "api": "failing_api", "success": false, "latency_ms": 5000.0, "error": "Connection timeout", "timestamp": "2026-02-08T09:03:06.585112"}
+{"type": "api_call", "api": "test_api", "success": true, "latency_ms": 100.0, "error": null, "timestamp": "2026-02-08T09:03:06.584138"}
+{"type": "api_call", "api": "test_api", "success": true, "latency_ms": 0.001430511474609375, "error": null, "timestamp": "2026-02-08T09:03:06.651752"}

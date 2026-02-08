@@ -1,0 +1,476 @@
+{"type": "api_call", "api": "failing_api", "success": false, "latency_ms": 5000.0, "error": "Connection timeout", "timestamp": "2026-02-07T07:58:58.571021"}
+{"type": "api_call", "api": "failing_api", "success": false, "latency_ms": 5000.0, "error": "Connection timeout", "timestamp": "2026-02-07T07:58:58.571025"}
+{"type": "api_call", "api": "failing_api", "success": false, "latency_ms": 5000.0, "error": "Connection timeout", "timestamp": "2026-02-07T07:58:58.571585"}
+{"type": "api_call", "api": "test_api", "success": true, "latency_ms": 100.0, "error": null, "timestamp": "2026-02-07T07:58:58.570666"}
+{"type": "api_call", "api": "test_api", "success": true, "latency_ms": 0.001430511474609375, "error": null, "timestamp": "2026-02-07T07:58:58.762953"}
+{"type": "api_call", "api": "failing_api", "success": false, "latency_ms": 5000.0, "error": "Connection timeout", "timestamp": "2026-02-07T07:59:16.277269"}
+{"type": "api_call", "api": "failing_api", "success": false, "latency_ms": 5000.0, "error": "Connection timeout", "timestamp": "2026-02-07T07:59:16.277273"}
+{"type": "api_call", "api": "failing_api", "success": false, "latency_ms": 5000.0, "error": "Connection timeout", "timestamp": "2026-02-07T07:59:16.277705"}
+{"type": "api_call", "api": "test_api", "success": true, "latency_ms": 100.0, "error": null, "timestamp": "2026-02-07T07:59:16.276923"}
+{"type": "api_call", "api": "test_api", "success": true, "latency_ms": 0.0019073486328125, "error": null, "timestamp": "2026-02-07T07:59:16.412885"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 474.3530750274658, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:40.752199"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 502.8984546661377, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:41.256768"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1025.8228778839111, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:42.296153"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1040.6711101531982, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:42.301515"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1039.00146484375, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:42.302241"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1029.9339294433594, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:42.309684"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1039.5166873931885, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:42.310506"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1044.2919731140137, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:42.316470"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1038.7725830078125, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:42.317385"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1044.3477630615234, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:42.321193"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1056.3161373138428, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:42.323425"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1049.6926307678223, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:42.324928"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 996.8867301940918, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:43.303383"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 988.4240627288818, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:43.307880"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 993.4742450714111, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:43.311675"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1000.9958744049072, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:43.312752"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 994.0521717071533, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:43.316020"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1024.2362022399902, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:43.322761"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1023.146390914917, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:43.326612"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1001.0290145874023, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:43.327120"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1018.3987617492676, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:43.332189"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1004.2448043823242, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:43.332522"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 758.0568790435791, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:44.091429"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 794.6915626525879, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:44.103988"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 813.2200241088867, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:44.130424"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 834.8507881164551, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:44.139627"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 861.5503311157227, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:44.175525"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 874.4659423828125, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:44.204711"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 883.8937282562256, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:44.212203"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 882.5407028198242, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:44.217547"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 902.0030498504639, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:44.221207"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 905.1158428192139, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:44.229155"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 469.7704315185547, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:44.561648"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 485.5353832244873, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:44.590011"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 471.3106155395508, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:44.611394"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 485.7220649719238, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:44.616588"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 672.3062992095947, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:44.848846"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 648.7033367156982, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:44.867830"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 639.8811340332031, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:44.872108"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 656.0907363891602, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:44.877800"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 646.4872360229492, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:44.881362"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 688.8399124145508, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:44.895759"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 482.8956127166748, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:45.045001"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 460.6771469116211, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:45.051182"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 481.90927505493164, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:45.093780"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 477.4308204650879, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:45.094511"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 468.4252738952637, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:45.317922"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 549.191951751709, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:45.417535"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 560.7559680938721, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:45.433371"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 563.4934902191162, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:45.441744"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 549.4186878204346, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:45.445837"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 564.7788047790527, "error": "HTTP 429", "timestamp": "2026-02-07T08:13:45.446643"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 913.4385585784912, "error": null, "timestamp": "2026-02-07T08:14:31.487040"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 627.3627281188965, "error": null, "timestamp": "2026-02-07T08:14:32.126013"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1075.4802227020264, "error": "HTTP 429", "timestamp": "2026-02-07T08:14:33.211940"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1067.251205444336, "error": "HTTP 429", "timestamp": "2026-02-07T08:14:33.213992"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1080.155372619629, "error": "HTTP 429", "timestamp": "2026-02-07T08:14:33.222808"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1082.8218460083008, "error": "HTTP 429", "timestamp": "2026-02-07T08:14:33.224340"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1088.1452560424805, "error": "HTTP 429", "timestamp": "2026-02-07T08:14:33.227601"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1075.2649307250977, "error": "HTTP 429", "timestamp": "2026-02-07T08:14:33.221695"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1084.2721462249756, "error": "HTTP 429", "timestamp": "2026-02-07T08:14:33.231283"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 1190.617561340332, "error": null, "timestamp": "2026-02-07T08:14:33.324597"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 1214.2126560211182, "error": null, "timestamp": "2026-02-07T08:14:33.358461"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 1243.7472343444824, "error": null, "timestamp": "2026-02-07T08:14:33.387601"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 475.73137283325195, "error": "HTTP 429", "timestamp": "2026-02-07T08:14:33.803257"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 473.54841232299805, "error": "HTTP 429", "timestamp": "2026-02-07T08:14:33.834333"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 478.3039093017578, "error": "HTTP 429", "timestamp": "2026-02-07T08:14:33.868008"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 1228.2352447509766, "error": null, "timestamp": "2026-02-07T08:14:34.576293"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 743.5111999511719, "error": null, "timestamp": "2026-02-07T08:14:34.579170"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 1235.3880405426025, "error": null, "timestamp": "2026-02-07T08:14:34.582752"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 715.7537937164307, "error": null, "timestamp": "2026-02-07T08:14:34.585756"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 1237.7355098724365, "error": null, "timestamp": "2026-02-07T08:14:34.588067"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 792.1333312988281, "error": null, "timestamp": "2026-02-07T08:14:34.597131"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 1252.3162364959717, "error": null, "timestamp": "2026-02-07T08:14:34.598725"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 1256.3762664794922, "error": null, "timestamp": "2026-02-07T08:14:34.605634"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 1261.362075805664, "error": null, "timestamp": "2026-02-07T08:14:34.608294"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 1259.584665298462, "error": null, "timestamp": "2026-02-07T08:14:34.608585"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 741.1704063415527, "error": "HTTP 429", "timestamp": "2026-02-07T08:14:35.324475"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 750.7503032684326, "error": "HTTP 429", "timestamp": "2026-02-07T08:14:35.330383"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 742.4604892730713, "error": "HTTP 429", "timestamp": "2026-02-07T08:14:35.330955"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 758.9809894561768, "error": "HTTP 429", "timestamp": "2026-02-07T08:14:35.335756"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 744.0085411071777, "error": "HTTP 429", "timestamp": "2026-02-07T08:14:35.341467"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 752.0966529846191, "error": "HTTP 429", "timestamp": "2026-02-07T08:14:35.344164"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 749.2711544036865, "error": "HTTP 429", "timestamp": "2026-02-07T08:14:35.348310"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 385.61129570007324, "error": null, "timestamp": "2026-02-07T08:14:35.735149"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 410.3233814239502, "error": null, "timestamp": "2026-02-07T08:14:35.737875"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 404.12259101867676, "error": null, "timestamp": "2026-02-07T08:14:35.741325"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 400.0890254974365, "error": null, "timestamp": "2026-02-07T08:14:35.742621"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 413.6674404144287, "error": null, "timestamp": "2026-02-07T08:14:35.747274"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 416.292667388916, "error": null, "timestamp": "2026-02-07T08:14:35.748297"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 405.37500381469727, "error": null, "timestamp": "2026-02-07T08:14:35.750433"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 833.8229656219482, "error": null, "timestamp": "2026-02-07T08:29:52.580876"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 625.5316734313965, "error": null, "timestamp": "2026-02-07T08:29:53.218323"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1014.0244960784912, "error": "HTTP 429", "timestamp": "2026-02-07T08:29:54.242332"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1013.4148597717285, "error": "HTTP 429", "timestamp": "2026-02-07T08:29:54.245774"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1024.6608257293701, "error": "HTTP 429", "timestamp": "2026-02-07T08:29:54.262320"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1029.968023300171, "error": "HTTP 429", "timestamp": "2026-02-07T08:29:54.263763"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1033.7886810302734, "error": "HTTP 429", "timestamp": "2026-02-07T08:29:54.265436"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1031.4302444458008, "error": "HTTP 429", "timestamp": "2026-02-07T08:29:54.266095"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1030.649185180664, "error": "HTTP 429", "timestamp": "2026-02-07T08:29:54.266310"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 1118.8509464263916, "error": null, "timestamp": "2026-02-07T08:29:54.343589"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 1136.9822025299072, "error": null, "timestamp": "2026-02-07T08:29:54.370469"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 1147.939682006836, "error": null, "timestamp": "2026-02-07T08:29:54.377809"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 487.0727062225342, "error": "HTTP 429", "timestamp": "2026-02-07T08:29:54.833301"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 463.731050491333, "error": "HTTP 429", "timestamp": "2026-02-07T08:29:54.836824"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 480.2510738372803, "error": "HTTP 429", "timestamp": "2026-02-07T08:29:54.860875"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 808.4838390350342, "error": null, "timestamp": "2026-02-07T08:29:55.172480"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 813.9810562133789, "error": null, "timestamp": "2026-02-07T08:29:55.181019"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 819.922685623169, "error": null, "timestamp": "2026-02-07T08:29:55.184589"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 824.4073390960693, "error": null, "timestamp": "2026-02-07T08:29:55.188322"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 329.24556732177734, "error": null, "timestamp": "2026-02-07T08:29:55.190690"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 353.41858863830566, "error": null, "timestamp": "2026-02-07T08:29:55.192744"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 830.2292823791504, "error": null, "timestamp": "2026-02-07T08:29:55.195257"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 830.3630352020264, "error": null, "timestamp": "2026-02-07T08:29:55.196272"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 372.5156784057617, "error": null, "timestamp": "2026-02-07T08:29:55.207104"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 843.78981590271, "error": null, "timestamp": "2026-02-07T08:29:55.210245"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 702.8818130493164, "error": "HTTP 429", "timestamp": "2026-02-07T08:29:55.875797"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 907.3619842529297, "error": "HTTP 429", "timestamp": "2026-02-07T08:29:56.088801"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 930.0363063812256, "error": "HTTP 429", "timestamp": "2026-02-07T08:29:56.121055"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 941.9450759887695, "error": "HTTP 429", "timestamp": "2026-02-07T08:29:56.130610"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 933.2680702209473, "error": "HTTP 429", "timestamp": "2026-02-07T08:29:56.140751"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 947.2384452819824, "error": "HTTP 429", "timestamp": "2026-02-07T08:29:56.144027"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 953.5131454467773, "error": "HTTP 429", "timestamp": "2026-02-07T08:29:56.146703"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 965.9762382507324, "error": "HTTP 429", "timestamp": "2026-02-07T08:29:56.150974"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 960.6664180755615, "error": "HTTP 429", "timestamp": "2026-02-07T08:29:56.156327"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 948.3628273010254, "error": "HTTP 429", "timestamp": "2026-02-07T08:29:56.159444"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 168.48492622375488, "error": null, "timestamp": "2026-02-07T08:29:56.325942"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 184.09490585327148, "error": null, "timestamp": "2026-02-07T08:29:56.331962"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 182.45220184326172, "error": null, "timestamp": "2026-02-07T08:29:56.334820"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 213.2101058959961, "error": null, "timestamp": "2026-02-07T08:29:56.335353"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 180.62925338745117, "error": null, "timestamp": "2026-02-07T08:29:56.341032"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 199.63812828063965, "error": null, "timestamp": "2026-02-07T08:29:56.341457"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 254.59051132202148, "error": null, "timestamp": "2026-02-07T08:29:56.344566"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 472.54371643066406, "error": null, "timestamp": "2026-02-07T08:29:56.348801"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 218.14250946044922, "error": null, "timestamp": "2026-02-07T08:29:56.350238"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 205.44791221618652, "error": null, "timestamp": "2026-02-07T08:29:56.350547"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 502.1674633026123, "error": "HTTP 429", "timestamp": "2026-02-07T08:29:56.828527"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 672.8107929229736, "error": "HTTP 429", "timestamp": "2026-02-07T08:29:57.017762"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 687.2117519378662, "error": "HTTP 429", "timestamp": "2026-02-07T08:29:57.028546"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 681.856632232666, "error": "HTTP 429", "timestamp": "2026-02-07T08:29:57.029096"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 692.4540996551514, "error": "HTTP 429", "timestamp": "2026-02-07T08:29:57.034236"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 701.6053199768066, "error": "HTTP 429", "timestamp": "2026-02-07T08:29:57.037246"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 709.6409797668457, "error": "HTTP 429", "timestamp": "2026-02-07T08:29:57.042020"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 106.6749095916748, "error": null, "timestamp": "2026-02-07T08:29:57.136737"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 119.60434913635254, "error": null, "timestamp": "2026-02-07T08:29:57.138742"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 107.8648567199707, "error": null, "timestamp": "2026-02-07T08:29:57.143493"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 104.17795181274414, "error": null, "timestamp": "2026-02-07T08:29:57.147209"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 318.85623931884766, "error": null, "timestamp": "2026-02-07T08:29:57.147925"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 118.16215515136719, "error": null, "timestamp": "2026-02-07T08:29:57.149450"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 111.40751838684082, "error": null, "timestamp": "2026-02-07T08:29:57.150982"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 810.5106353759766, "error": null, "timestamp": "2026-02-07T08:31:53.382868"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 613.5115623474121, "error": null, "timestamp": "2026-02-07T08:31:54.005502"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 889.4243240356445, "error": "HTTP 429", "timestamp": "2026-02-07T08:31:54.906341"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 897.0780372619629, "error": "HTTP 429", "timestamp": "2026-02-07T08:31:54.907579"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 891.3414478302002, "error": "HTTP 429", "timestamp": "2026-02-07T08:31:54.911864"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 897.6316452026367, "error": "HTTP 429", "timestamp": "2026-02-07T08:31:54.911995"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 909.4698429107666, "error": "HTTP 429", "timestamp": "2026-02-07T08:31:54.925434"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 918.1675910949707, "error": "HTTP 429", "timestamp": "2026-02-07T08:31:54.930060"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 912.0187759399414, "error": "HTTP 429", "timestamp": "2026-02-07T08:31:54.931037"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 1015.0763988494873, "error": null, "timestamp": "2026-02-07T08:31:55.030486"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 1019.813060760498, "error": null, "timestamp": "2026-02-07T08:31:55.040176"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 1037.2428894042969, "error": null, "timestamp": "2026-02-07T08:31:55.050562"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 467.72313117980957, "error": "HTTP 429", "timestamp": "2026-02-07T08:31:55.501416"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 488.80910873413086, "error": "HTTP 429", "timestamp": "2026-02-07T08:31:55.531456"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 482.4845790863037, "error": "HTTP 429", "timestamp": "2026-02-07T08:31:55.537334"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 621.7188835144043, "error": null, "timestamp": "2026-02-07T08:31:56.153831"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 1113.8477325439453, "error": null, "timestamp": "2026-02-07T08:31:56.158253"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 1118.3478832244873, "error": null, "timestamp": "2026-02-07T08:31:56.163827"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 1123.6679553985596, "error": null, "timestamp": "2026-02-07T08:31:56.170230"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 1136.1150741577148, "error": null, "timestamp": "2026-02-07T08:31:56.180135"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 1134.8876953125, "error": null, "timestamp": "2026-02-07T08:31:56.181026"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 682.581901550293, "error": null, "timestamp": "2026-02-07T08:31:56.184491"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 1140.9590244293213, "error": null, "timestamp": "2026-02-07T08:31:56.189467"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 674.5986938476562, "error": null, "timestamp": "2026-02-07T08:31:56.212349"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 1166.7535305023193, "error": null, "timestamp": "2026-02-07T08:31:56.214671"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 742.4037456512451, "error": "HTTP 429", "timestamp": "2026-02-07T08:31:56.900989"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 819.9024200439453, "error": "HTTP 429", "timestamp": "2026-02-07T08:31:56.974079"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 851.5799045562744, "error": "HTTP 429", "timestamp": "2026-02-07T08:31:57.015756"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 860.9147071838379, "error": "HTTP 429", "timestamp": "2026-02-07T08:31:57.041397"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 854.6228408813477, "error": "HTTP 429", "timestamp": "2026-02-07T08:31:57.044458"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 866.1050796508789, "error": "HTTP 429", "timestamp": "2026-02-07T08:31:57.050937"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 883.1803798675537, "error": "HTTP 429", "timestamp": "2026-02-07T08:31:57.053852"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 844.062089920044, "error": "HTTP 429", "timestamp": "2026-02-07T08:31:57.059291"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 850.0330448150635, "error": "HTTP 429", "timestamp": "2026-02-07T08:31:57.062908"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 883.30078125, "error": "HTTP 429", "timestamp": "2026-02-07T08:31:57.066589"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 308.6228370666504, "error": null, "timestamp": "2026-02-07T08:31:57.325712"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 291.9731140136719, "error": null, "timestamp": "2026-02-07T08:31:57.337528"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 298.2511520385742, "error": null, "timestamp": "2026-02-07T08:31:57.340745"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 441.12181663513184, "error": null, "timestamp": "2026-02-07T08:31:57.342821"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 295.20368576049805, "error": null, "timestamp": "2026-02-07T08:31:57.346955"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 374.2556571960449, "error": null, "timestamp": "2026-02-07T08:31:57.349439"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 288.9089584350586, "error": null, "timestamp": "2026-02-07T08:31:57.352353"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 293.36047172546387, "error": null, "timestamp": "2026-02-07T08:31:57.353961"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 288.546085357666, "error": null, "timestamp": "2026-02-07T08:31:57.355634"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 302.4709224700928, "error": null, "timestamp": "2026-02-07T08:31:57.357373"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 527.4412631988525, "error": "HTTP 429", "timestamp": "2026-02-07T08:31:57.865355"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 636.0530853271484, "error": "HTTP 429", "timestamp": "2026-02-07T08:31:57.962224"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 647.3598480224609, "error": "HTTP 429", "timestamp": "2026-02-07T08:31:58.000159"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 656.5637588500977, "error": "HTTP 429", "timestamp": "2026-02-07T08:31:58.003920"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 671.91481590271, "error": "HTTP 429", "timestamp": "2026-02-07T08:31:58.013156"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 672.8470325469971, "error": "HTTP 429", "timestamp": "2026-02-07T08:31:58.016159"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 673.9742755889893, "error": "HTTP 429", "timestamp": "2026-02-07T08:31:58.023905"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 258.7869167327881, "error": null, "timestamp": "2026-02-07T08:31:58.259662"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 257.8778266906738, "error": null, "timestamp": "2026-02-07T08:31:58.262382"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 241.38975143432617, "error": null, "timestamp": "2026-02-07T08:31:58.265882"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 305.0508499145508, "error": null, "timestamp": "2026-02-07T08:31:58.268023"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 405.17282485961914, "error": null, "timestamp": "2026-02-07T08:31:58.271122"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 259.2322826385498, "error": null, "timestamp": "2026-02-07T08:31:58.273015"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 259.472131729126, "error": null, "timestamp": "2026-02-07T08:31:58.276622"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 754.1205883026123, "error": null, "timestamp": "2026-02-07T08:33:54.705566"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 779.3736457824707, "error": null, "timestamp": "2026-02-07T08:34:06.523714"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 511.5530490875244, "error": null, "timestamp": "2026-02-07T08:34:07.041863"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 614.501953125, "error": "HTTP 429", "timestamp": "2026-02-07T08:34:07.666950"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 623.4719753265381, "error": "HTTP 429", "timestamp": "2026-02-07T08:34:07.672674"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 642.397403717041, "error": null, "timestamp": "2026-02-07T08:34:07.691292"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 639.8134231567383, "error": null, "timestamp": "2026-02-07T08:34:07.696824"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 646.5437412261963, "error": null, "timestamp": "2026-02-07T08:34:07.702173"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 718.3640003204346, "error": null, "timestamp": "2026-02-07T08:34:08.519896"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 722.4318981170654, "error": null, "timestamp": "2026-02-07T08:34:08.524430"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 491.9259548187256, "error": "HTTP 429", "timestamp": "2026-02-07T08:34:21.061224"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 861.1829280853271, "error": null, "timestamp": "2026-02-07T08:34:22.046717"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 491.89066886901855, "error": "HTTP 429", "timestamp": "2026-02-07T08:34:22.539128"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 504.561185836792, "error": null, "timestamp": "2026-02-07T08:34:23.046801"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 627.4356842041016, "error": "HTTP 429", "timestamp": "2026-02-07T08:34:23.681821"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 632.556676864624, "error": "HTTP 429", "timestamp": "2026-02-07T08:34:23.687020"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 643.0504322052002, "error": "HTTP 429", "timestamp": "2026-02-07T08:34:23.691349"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 642.2786712646484, "error": "HTTP 429", "timestamp": "2026-02-07T08:34:23.695369"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 657.5236320495605, "error": "HTTP 429", "timestamp": "2026-02-07T08:34:23.707422"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 315.1094913482666, "error": null, "timestamp": "2026-02-07T08:34:24.011812"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 321.58970832824707, "error": null, "timestamp": "2026-02-07T08:34:24.014097"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 332.033634185791, "error": null, "timestamp": "2026-02-07T08:34:24.015864"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 308.6585998535156, "error": null, "timestamp": "2026-02-07T08:34:24.017157"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 330.43861389160156, "error": null, "timestamp": "2026-02-07T08:34:24.018289"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 657.9477787017822, "error": null, "timestamp": "2026-02-07T08:36:34.278031"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 523.9222049713135, "error": null, "timestamp": "2026-02-07T08:36:34.808907"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 549.3121147155762, "error": null, "timestamp": "2026-02-07T08:36:35.367230"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 560.9710216522217, "error": null, "timestamp": "2026-02-07T08:36:35.380628"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 645.7085609436035, "error": null, "timestamp": "2026-02-07T08:37:05.018585"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 645.014762878418, "error": null, "timestamp": "2026-02-07T08:37:05.674861"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 642.7524089813232, "error": null, "timestamp": "2026-02-07T08:37:06.329983"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 650.1410007476807, "error": null, "timestamp": "2026-02-07T08:37:06.334740"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 648.5555171966553, "error": null, "timestamp": "2026-02-07T08:37:18.221701"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 479.9976348876953, "error": "HTTP 429", "timestamp": "2026-02-07T08:37:18.710555"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 1062.4055862426758, "error": null, "timestamp": "2026-02-07T08:37:19.877886"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 994.9948787689209, "error": "HTTP 429", "timestamp": "2026-02-07T08:37:20.874112"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1010.1337432861328, "error": "HTTP 429", "timestamp": "2026-02-07T08:37:20.900001"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1022.1858024597168, "error": "HTTP 429", "timestamp": "2026-02-07T08:37:20.914498"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1033.5783958435059, "error": "HTTP 429", "timestamp": "2026-02-07T08:37:20.918650"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1032.5942039489746, "error": "HTTP 429", "timestamp": "2026-02-07T08:37:20.919101"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1031.8119525909424, "error": "HTTP 429", "timestamp": "2026-02-07T08:37:20.921751"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1038.1250381469727, "error": "HTTP 429", "timestamp": "2026-02-07T08:37:20.928601"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1048.2616424560547, "error": "HTTP 429", "timestamp": "2026-02-07T08:37:20.930652"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1049.0765571594238, "error": "HTTP 429", "timestamp": "2026-02-07T08:37:20.932916"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1055.1702976226807, "error": "HTTP 429", "timestamp": "2026-02-07T08:37:20.935012"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 356.57382011413574, "error": null, "timestamp": "2026-02-07T08:37:21.287792"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 356.14800453186035, "error": null, "timestamp": "2026-02-07T08:37:21.290091"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 360.1059913635254, "error": null, "timestamp": "2026-02-07T08:37:21.296655"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 379.7039985656738, "error": null, "timestamp": "2026-02-07T08:37:21.302303"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 381.3748359680176, "error": null, "timestamp": "2026-02-07T08:37:21.305801"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 395.7781791687012, "error": null, "timestamp": "2026-02-07T08:37:21.311092"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 415.8003330230713, "error": null, "timestamp": "2026-02-07T08:37:21.317082"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 447.74508476257324, "error": null, "timestamp": "2026-02-07T08:37:21.322681"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 403.19156646728516, "error": null, "timestamp": "2026-02-07T08:37:21.323197"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 396.1317539215088, "error": null, "timestamp": "2026-02-07T08:37:21.325516"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 793.6956882476807, "error": null, "timestamp": "2026-02-07T08:38:26.559380"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 626.7542839050293, "error": null, "timestamp": "2026-02-07T08:38:27.199336"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 982.2289943695068, "error": "HTTP 429", "timestamp": "2026-02-07T08:38:28.199908"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 983.9653968811035, "error": "HTTP 429", "timestamp": "2026-02-07T08:38:28.204371"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 989.8824691772461, "error": "HTTP 429", "timestamp": "2026-02-07T08:38:28.223092"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 999.7444152832031, "error": "HTTP 429", "timestamp": "2026-02-07T08:38:28.224900"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 998.9273548126221, "error": "HTTP 429", "timestamp": "2026-02-07T08:38:28.226058"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1008.6979866027832, "error": "HTTP 429", "timestamp": "2026-02-07T08:38:28.228116"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 992.1762943267822, "error": "HTTP 429", "timestamp": "2026-02-07T08:38:28.222226"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 1105.9825420379639, "error": null, "timestamp": "2026-02-07T08:38:28.314196"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 1134.0973377227783, "error": null, "timestamp": "2026-02-07T08:38:28.344146"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 1152.191400527954, "error": null, "timestamp": "2026-02-07T08:38:28.364181"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 819.8995590209961, "error": null, "timestamp": "2026-02-07T08:38:29.155591"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 824.4948387145996, "error": null, "timestamp": "2026-02-07T08:38:29.158681"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 828.0458450317383, "error": null, "timestamp": "2026-02-07T08:38:29.161693"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 829.6968936920166, "error": null, "timestamp": "2026-02-07T08:38:29.162231"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 831.5849304199219, "error": null, "timestamp": "2026-02-07T08:38:29.166794"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 834.9804878234863, "error": null, "timestamp": "2026-02-07T08:38:29.168240"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 835.4623317718506, "error": null, "timestamp": "2026-02-07T08:38:29.169961"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 663.4140014648438, "error": null, "timestamp": "2026-02-07T08:39:12.407103"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 653.008222579956, "error": null, "timestamp": "2026-02-07T08:39:13.072611"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 999.802827835083, "error": "HTTP 429", "timestamp": "2026-02-07T08:39:14.098189"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1013.2131576538086, "error": "HTTP 429", "timestamp": "2026-02-07T08:39:14.102801"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1012.6590728759766, "error": "HTTP 429", "timestamp": "2026-02-07T08:39:14.113690"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1016.5488719940186, "error": "HTTP 429", "timestamp": "2026-02-07T08:39:14.114567"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1016.4752006530762, "error": "HTTP 429", "timestamp": "2026-02-07T08:39:14.117012"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1024.6455669403076, "error": "HTTP 429", "timestamp": "2026-02-07T08:39:14.122212"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1013.4143829345703, "error": "HTTP 429", "timestamp": "2026-02-07T08:39:14.113465"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 1140.8507823944092, "error": null, "timestamp": "2026-02-07T08:39:14.222946"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 1138.9760971069336, "error": null, "timestamp": "2026-02-07T08:39:14.227046"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 1181.8346977233887, "error": null, "timestamp": "2026-02-07T08:39:14.268409"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 977.72216796875, "error": null, "timestamp": "2026-02-07T08:39:15.212877"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 982.4819564819336, "error": null, "timestamp": "2026-02-07T08:39:15.218713"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 984.5376014709473, "error": null, "timestamp": "2026-02-07T08:39:15.221685"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 988.5413646697998, "error": null, "timestamp": "2026-02-07T08:39:15.226088"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 989.8312091827393, "error": null, "timestamp": "2026-02-07T08:39:15.227882"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 990.7119274139404, "error": null, "timestamp": "2026-02-07T08:39:15.229338"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 999.7005462646484, "error": null, "timestamp": "2026-02-07T08:39:15.235048"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 995.8910942077637, "error": null, "timestamp": "2026-02-07T08:40:13.656805"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 680.2327632904053, "error": null, "timestamp": "2026-02-07T08:40:14.346668"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1002.1882057189941, "error": "HTTP 429", "timestamp": "2026-02-07T08:40:15.364456"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1002.1812915802002, "error": "HTTP 429", "timestamp": "2026-02-07T08:40:15.368024"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1014.8360729217529, "error": "HTTP 429", "timestamp": "2026-02-07T08:40:15.373356"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1007.9789161682129, "error": "HTTP 429", "timestamp": "2026-02-07T08:40:15.373652"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1020.615816116333, "error": "HTTP 429", "timestamp": "2026-02-07T08:40:15.377558"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1022.0346450805664, "error": "HTTP 429", "timestamp": "2026-02-07T08:40:15.382529"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1028.7995338439941, "error": "HTTP 429", "timestamp": "2026-02-07T08:40:15.395912"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 1115.661859512329, "error": null, "timestamp": "2026-02-07T08:40:15.484365"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 1134.7098350524902, "error": null, "timestamp": "2026-02-07T08:40:15.494128"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 1154.754400253296, "error": null, "timestamp": "2026-02-07T08:40:15.519920"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 1159.0702533721924, "error": null, "timestamp": "2026-02-07T08:40:16.662778"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 1160.2435111999512, "error": null, "timestamp": "2026-02-07T08:40:16.664829"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 1165.7376289367676, "error": null, "timestamp": "2026-02-07T08:40:16.669111"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 1182.2290420532227, "error": null, "timestamp": "2026-02-07T08:40:16.683831"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 1180.332899093628, "error": null, "timestamp": "2026-02-07T08:40:16.685404"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 1183.06565284729, "error": null, "timestamp": "2026-02-07T08:40:16.687256"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 1187.6006126403809, "error": null, "timestamp": "2026-02-07T08:40:16.689521"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 490.7560348510742, "error": "HTTP 429", "timestamp": "2026-02-07T08:40:41.948563"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 426.013708114624, "error": null, "timestamp": "2026-02-07T08:40:42.377095"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 639.6312713623047, "error": null, "timestamp": "2026-02-07T08:41:07.062599"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 637.8452777862549, "error": null, "timestamp": "2026-02-07T08:41:07.712837"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 959.2244625091553, "error": "HTTP 429", "timestamp": "2026-02-07T08:41:08.692805"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 961.6661071777344, "error": "HTTP 429", "timestamp": "2026-02-07T08:41:08.694019"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 978.0488014221191, "error": "HTTP 429", "timestamp": "2026-02-07T08:41:08.705498"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 966.968297958374, "error": "HTTP 429", "timestamp": "2026-02-07T08:41:08.706309"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 973.0055332183838, "error": "HTTP 429", "timestamp": "2026-02-07T08:41:08.707489"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 975.0514030456543, "error": "HTTP 429", "timestamp": "2026-02-07T08:41:08.713622"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 984.4498634338379, "error": "HTTP 429", "timestamp": "2026-02-07T08:41:08.715853"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 1051.7487525939941, "error": null, "timestamp": "2026-02-07T08:41:08.776379"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 1123.3911514282227, "error": null, "timestamp": "2026-02-07T08:41:08.849185"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 1128.6351680755615, "error": null, "timestamp": "2026-02-07T08:41:08.855776"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 893.4838771820068, "error": null, "timestamp": "2026-02-07T08:41:09.725899"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 899.2669582366943, "error": null, "timestamp": "2026-02-07T08:41:09.729208"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 902.3768901824951, "error": null, "timestamp": "2026-02-07T08:41:09.736147"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 905.1377773284912, "error": null, "timestamp": "2026-02-07T08:41:09.737896"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 907.0785045623779, "error": null, "timestamp": "2026-02-07T08:41:09.738377"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 908.994197845459, "error": null, "timestamp": "2026-02-07T08:41:09.739880"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 912.9087924957275, "error": null, "timestamp": "2026-02-07T08:41:09.742548"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 602.8587818145752, "error": "HTTP 429", "timestamp": "2026-02-07T08:41:38.661513"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 939.3038749694824, "error": null, "timestamp": "2026-02-07T08:41:39.752086"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 476.4530658721924, "error": "HTTP 429", "timestamp": "2026-02-07T08:41:40.229118"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 385.42914390563965, "error": null, "timestamp": "2026-02-07T08:41:40.618151"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1008.4855556488037, "error": "HTTP 429", "timestamp": "2026-02-07T08:41:41.639652"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1021.2531089782715, "error": "HTTP 429", "timestamp": "2026-02-07T08:41:41.643496"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1027.2586345672607, "error": "HTTP 429", "timestamp": "2026-02-07T08:41:41.653678"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1031.1059951782227, "error": "HTTP 429", "timestamp": "2026-02-07T08:41:41.654634"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1029.1645526885986, "error": "HTTP 429", "timestamp": "2026-02-07T08:41:41.660098"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1041.7118072509766, "error": "HTTP 429", "timestamp": "2026-02-07T08:41:41.660946"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1036.5328788757324, "error": "HTTP 429", "timestamp": "2026-02-07T08:41:41.664595"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1040.5097007751465, "error": "HTTP 429", "timestamp": "2026-02-07T08:41:41.665164"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1044.5480346679688, "error": "HTTP 429", "timestamp": "2026-02-07T08:41:41.665486"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1037.80198097229, "error": "HTTP 429", "timestamp": "2026-02-07T08:41:41.666786"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 346.12083435058594, "error": null, "timestamp": "2026-02-07T08:41:42.016558"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 378.9687156677246, "error": null, "timestamp": "2026-02-07T08:41:42.020035"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 365.7093048095703, "error": null, "timestamp": "2026-02-07T08:41:42.021885"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 381.9730281829834, "error": null, "timestamp": "2026-02-07T08:41:42.026775"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 363.9063835144043, "error": null, "timestamp": "2026-02-07T08:41:42.030077"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 372.8501796722412, "error": null, "timestamp": "2026-02-07T08:41:42.030646"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 367.71154403686523, "error": null, "timestamp": "2026-02-07T08:41:42.035188"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 376.1260509490967, "error": null, "timestamp": "2026-02-07T08:41:42.037892"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 376.8806457519531, "error": null, "timestamp": "2026-02-07T08:41:42.040235"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 381.394624710083, "error": null, "timestamp": "2026-02-07T08:41:42.050227"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 813.9820098876953, "error": null, "timestamp": "2026-02-07T08:59:34.299845"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 682.8019618988037, "error": null, "timestamp": "2026-02-07T08:59:35.000920"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1049.4561195373535, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:36.068907"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1055.4852485656738, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:36.072615"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1047.912836074829, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:36.080733"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1050.8761405944824, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:36.084001"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1065.382957458496, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:36.084285"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1069.795846939087, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:36.086564"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1061.6075992584229, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:36.089550"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 1205.9886455535889, "error": null, "timestamp": "2026-02-07T08:59:36.227441"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 1206.0620784759521, "error": null, "timestamp": "2026-02-07T08:59:36.229642"}
+{"type": "api_call", "api": "polygon", "success": true, "latency_ms": 1223.2494354248047, "error": null, "timestamp": "2026-02-07T08:59:36.234502"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 513.375997543335, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:36.750334"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 518.8808441162109, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:36.751960"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 521.5654373168945, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:36.753242"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 486.1888885498047, "error": null, "timestamp": "2026-02-07T08:59:37.238886"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 488.8155460357666, "error": null, "timestamp": "2026-02-07T08:59:37.242938"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 1054.1126728057861, "error": null, "timestamp": "2026-02-07T08:59:37.253318"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 1063.950538635254, "error": null, "timestamp": "2026-02-07T08:59:37.262830"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 512.5656127929688, "error": null, "timestamp": "2026-02-07T08:59:37.263973"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 1065.3080940246582, "error": null, "timestamp": "2026-02-07T08:59:37.265700"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 1069.6816444396973, "error": null, "timestamp": "2026-02-07T08:59:37.270614"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 1070.1489448547363, "error": null, "timestamp": "2026-02-07T08:59:37.271784"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 1074.3224620819092, "error": null, "timestamp": "2026-02-07T08:59:37.272910"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 1076.805591583252, "error": null, "timestamp": "2026-02-07T08:59:37.276417"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 792.8056716918945, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:38.046607"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 862.4417781829834, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:38.106806"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 914.9127006530762, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:38.181144"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 944.3447589874268, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:38.184756"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 917.1059131622314, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:38.192901"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 928.7271499633789, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:38.193128"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 927.6204109191895, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:38.200928"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 932.6086044311523, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:38.204806"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 938.0588531494141, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:38.214855"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 982.3112487792969, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:38.245555"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 407.2866439819336, "error": null, "timestamp": "2026-02-07T08:59:38.454376"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 255.6324005126953, "error": null, "timestamp": "2026-02-07T08:59:38.457175"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 269.730806350708, "error": null, "timestamp": "2026-02-07T08:59:38.463263"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 252.85887718200684, "error": null, "timestamp": "2026-02-07T08:59:38.468162"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 361.5853786468506, "error": null, "timestamp": "2026-02-07T08:59:38.469077"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 284.40165519714355, "error": null, "timestamp": "2026-02-07T08:59:38.469635"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 291.6114330291748, "error": null, "timestamp": "2026-02-07T08:59:38.473270"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 283.5049629211426, "error": null, "timestamp": "2026-02-07T08:59:38.478070"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 276.63373947143555, "error": null, "timestamp": "2026-02-07T08:59:38.481853"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 237.03312873840332, "error": null, "timestamp": "2026-02-07T08:59:38.483197"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 640.479564666748, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:39.104355"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 940.6886100769043, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:39.398826"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 931.1366081237793, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:39.401108"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 941.157341003418, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:39.424690"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 948.6613273620605, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:39.427060"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 959.2568874359131, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:39.427688"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 945.8169937133789, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:39.428038"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 957.6334953308105, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:39.431517"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 979.4857501983643, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:39.434323"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 979.0098667144775, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:39.450236"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 74.22280311584473, "error": null, "timestamp": "2026-02-07T08:59:39.504321"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 75.07658004760742, "error": null, "timestamp": "2026-02-07T08:59:39.507145"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 73.00639152526855, "error": null, "timestamp": "2026-02-07T08:59:39.507968"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 87.01348304748535, "error": null, "timestamp": "2026-02-07T08:59:39.515541"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 68.71294975280762, "error": null, "timestamp": "2026-02-07T08:59:39.519453"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 121.47378921508789, "error": null, "timestamp": "2026-02-07T08:59:39.521263"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 121.26779556274414, "error": null, "timestamp": "2026-02-07T08:59:39.524135"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 98.31023216247559, "error": null, "timestamp": "2026-02-07T08:59:39.527596"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 423.4299659729004, "error": null, "timestamp": "2026-02-07T08:59:39.528678"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 103.79219055175781, "error": null, "timestamp": "2026-02-07T08:59:39.529289"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 953.7527561187744, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:40.461202"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 982.567548751831, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:40.502402"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 975.7554531097412, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:40.503721"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 983.2327365875244, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:40.507820"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 992.8419589996338, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:40.508758"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 997.8053569793701, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:40.519418"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 989.4227981567383, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:40.520372"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 990.912675857544, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:40.520584"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1018.580436706543, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:40.523245"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 1018.3548927307129, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:40.527152"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 374.2969036102295, "error": null, "timestamp": "2026-02-07T08:59:40.894206"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 398.29134941101074, "error": null, "timestamp": "2026-02-07T08:59:40.906582"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 407.6664447784424, "error": null, "timestamp": "2026-02-07T08:59:40.910554"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 388.3168697357178, "error": null, "timestamp": "2026-02-07T08:59:40.911040"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 451.5955448150635, "error": null, "timestamp": "2026-02-07T08:59:40.913233"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 397.8135585784912, "error": null, "timestamp": "2026-02-07T08:59:40.919283"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 425.22430419921875, "error": null, "timestamp": "2026-02-07T08:59:40.929446"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 420.7329750061035, "error": null, "timestamp": "2026-02-07T08:59:40.930193"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 409.78336334228516, "error": null, "timestamp": "2026-02-07T08:59:40.933478"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 409.41667556762695, "error": null, "timestamp": "2026-02-07T08:59:40.937021"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 472.61810302734375, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:41.368423"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 606.0526371002197, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:41.517661"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 638.0085945129395, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:41.550558"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 641.503095626831, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:41.555281"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 626.9476413726807, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:41.558824"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 652.2905826568604, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:41.559252"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 643.812894821167, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:41.565119"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 408.1685543060303, "error": null, "timestamp": "2026-02-07T08:59:41.777442"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 215.6538963317871, "error": null, "timestamp": "2026-02-07T08:59:41.781590"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 266.7269706726074, "error": null, "timestamp": "2026-02-07T08:59:41.785693"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 226.2730598449707, "error": null, "timestamp": "2026-02-07T08:59:41.786348"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 226.4556884765625, "error": null, "timestamp": "2026-02-07T08:59:41.788081"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 233.05225372314453, "error": null, "timestamp": "2026-02-07T08:59:41.789638"}
+{"type": "api_call", "api": "yfinance", "success": true, "latency_ms": 239.99381065368652, "error": null, "timestamp": "2026-02-07T08:59:41.791960"}
+{"type": "api_call", "api": "polygon", "success": false, "latency_ms": 479.7844886779785, "error": "HTTP 429", "timestamp": "2026-02-07T08:59:43.261577"}

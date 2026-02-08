@@ -1,9 +1,22 @@
+
+from __future__ import annotations
 """Centralized scoring configuration for Stock Scout.
 
 All weights, thresholds, and scoring constants live here so that
 both the pipeline and unified_logic share a single source of truth.
 """
-from __future__ import annotations
+import numpy as np
+import pandas as pd
+
+# Canonical score column and aliases
+CANONICAL_SCORE_COLUMN = "FinalScore_20d"
+SCORE_ALIASES = ["Score", "overall_score_20d", "overall_score", "overall_score_pretty"]
+
+def get_canonical_score(row: pd.Series) -> float:
+    for col in [CANONICAL_SCORE_COLUMN] + SCORE_ALIASES:
+        if col in row and pd.notna(row.get(col)):
+            return float(row[col])
+    return np.nan
 
 from dataclasses import dataclass, field
 from typing import Dict

@@ -38,6 +38,19 @@ from datetime import datetime, timedelta
 from functools import lru_cache
 import logging
 from core.api_monitor import record_api_call
+
+# Facade: re-export main provider functions from core/providers
+from core.providers import (
+    _http_get_with_retry,
+    WindowRateLimiter,
+    get_fmp_fundamentals,
+    get_finnhub_fundamentals,
+    get_tiingo_fundamentals,
+    get_alpha_vantage_fundamentals,
+    get_polygon_fundamentals,
+    get_eodhd_fundamentals,
+    get_fundamentals_safe
+)
 from core.exceptions import (
     DataFetchError, RateLimitError, AuthenticationError, 
     ProviderUnavailableError, DataValidationError, classify_http_error

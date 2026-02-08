@@ -222,8 +222,9 @@ def render_recommendation_row_hebrew(row: pd.Series, rank: int) -> None:
     """
     Render a single recommendation using pure Streamlit (no HTML).
     """
+    from core.scoring_config import get_canonical_score
     ticker = row.get("Ticker", "N/A")
-    score = row.get("Score", row.get("FinalScore", np.nan))
+    score = get_canonical_score(row)
     risk_level = row.get("Risk_Level", "core").lower()
     price_entry = row.get("Price_Yahoo", row.get("Unit_Price", np.nan))
     price_target = row.get("Target_Price", np.nan)

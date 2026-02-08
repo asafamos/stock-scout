@@ -143,10 +143,16 @@ for col in filter_cols:
 # This is overly aggressive. Instead, use technical scores when fundamentals missing.
 
 # Strategy: match live app filtering logic
-score_candidates = [
-    'conviction_v2_final', 'Score', 'FinalScore_20d', 'overall_score_20d', 'TechScore_20d'
-]
-score_col = next((c for c in score_candidates if c in results_df.columns), None)
+from core.scoring_config import get_canonical_score
+
+# Use canonical score extraction for ranking
+score_col = None
+if not results_df.empty:
+    # Find canonical score column
+    for col in ["FinalScore_20d"] + ["Score", "overall_score_20d", "overall_score", "overall_score_pretty"]:
+        if col in results_df.columns:
+            score_col = col
+            break
 top_n = 15
 removed_below = 0
 

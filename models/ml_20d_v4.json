@@ -1,0 +1,70 @@
+{
+  "version": "v4",
+  "trained_at": "2026-02-07T08:42:27.891852",
+  "feature_count": 54,
+  "metrics": {
+    "fold_metrics": [
+      {
+        "fold": 1,
+        "train_size": 800,
+        "test_size": 800,
+        "auc": 0.7361111111111112,
+        "precision_at_20": 0.0,
+        "precision_at_50": 0.4,
+        "avg_precision": 0.3985247192456455
+      },
+      {
+        "fold": 2,
+        "train_size": 1600,
+        "test_size": 800,
+        "auc": 0.9913194444444445,
+        "precision_at_20": 1.0,
+        "precision_at_50": 1.0,
+        "avg_precision": 0.9519230769230769
+      },
+      {
+        "fold": 3,
+        "train_size": 2400,
+        "test_size": 800,
+        "auc": 0.9156785243741765,
+        "precision_at_20": 0.0,
+        "precision_at_50": 0.2,
+        "avg_precision": 0.4783935620622928
+      },
+      {
+        "fold": 4,
+        "train_size": 3200,
+        "test_size": 800,
+        "auc": 0.6510416666666666,
+        "precision_at_20": 0.3,
+        "precision_at_50": 0.6,
+        "avg_precision": 0.3665733489403021
+      },
+      {
+        "fold": 5,
+        "train_size": 4000,
+        "test_size": 800,
+        "auc": NaN,
+        "precision_at_20": 0.0,
+        "precision_at_50": 0.0,
+        "avg_precision": 0.0
+      }
+    ],
+    "aggregate_metrics": {
+      "avg_auc": NaN,
+      "avg_precision_at_20": 0.26,
+      "avg_precision_at_50": 0.43999999999999995,
+      "std_auc": NaN,
+      "std_precision_at_20": 0.3878143885933063
+    }
+  },
+  "config": {
+    "years_history": 3,
+    "min_samples_per_ticker": 50,
+    "target_threshold": 0.1,
+    "max_workers": 10,
+    "n_splits": 5,
+    "test_size_days": 180,
+    "random_state": 42
+  }
+}

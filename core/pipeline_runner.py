@@ -38,6 +38,15 @@ from core.unified_logic import (
 from core.pattern_matcher import PatternMatcher
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from core.market_context import get_benchmark_series, compute_relative_strength_vs_spy
+
+# Facade: re-export main pipeline functions from core/pipeline
+from core.pipeline import (
+    run_scan_pipeline,
+    fetch_top_us_tickers_by_market_cap,
+    process_single_ticker,
+    enrich_fundamentals,
+    filter_signals
+)
 from core.telemetry import Telemetry
 from advanced_filters import compute_relative_strength
 from core.scoring_config import SIGNAL_MIN_SCORE, ML_PROB_THRESHOLD, TOP_SIGNAL_K

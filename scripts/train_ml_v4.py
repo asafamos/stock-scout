@@ -86,6 +86,8 @@ class EnsembleClassifierV4(BaseEstimator, ClassifierMixin):
     Calibrated using isotonic regression for better probability estimates.
     """
     
+    _estimator_type = "classifier"  # Explicit sklearn classifier tag
+    
     def __init__(
         self,
         weights: Optional[List[float]] = None,
@@ -107,6 +109,7 @@ class EnsembleClassifierV4(BaseEstimator, ClassifierMixin):
         
         self.feature_names_ = feature_names or [f"f{i}" for i in range(X.shape[1])]
         self.n_features_in_ = X.shape[1]
+        self.classes_ = np.unique(y)  # Required for sklearn classifier interface
         
         # Initialize base models
         hgb = HistGradientBoostingClassifier(
@@ -232,6 +235,128 @@ def fetch_polygon_history(ticker: str, start_str: str, end_str: str) -> Optional
         return None
 
 
+def fetch_yfinance_history(ticker: str, start_str: str, end_str: str) -> Optional[pd.DataFrame]:
+    """Fetch adjusted daily bars from yfinance (free, no API key needed)."""
+    import yfinance as yf
+    
+    start_time = time.time()
+    try:
+        df = yf.download(
+            ticker,
+            start=start_str,
+            end=end_str,
+            progress=False,
+            auto_adjust=True
+        )
+        latency_ms = (time.time() - start_time) * 1000
+        
+        if df is None or len(df) < 50:
+            return None
+        
+        log_api_call("yfinance", True, latency_ms)
+        
+        # Handle multi-index columns from yfinance
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = [col[0] for col in df.columns]
+        
+        # Normalize column names to Title case
+        df.columns = [c.title() if isinstance(c, str) else str(c).title() for c in df.columns]
+        
+        return df[["Open", "High", "Low", "Close", "Volume"]]
+    except Exception as e:
+        latency_ms = (time.time() - start_time) * 1000
+        log_api_call("yfinance", False, latency_ms, str(e))
+        return None
+
+
+def fetch_price_history(ticker: str, start_str: str, end_str: str) -> Optional[pd.DataFrame]:
+    """Fetch price history, trying Polygon first then falling back to yfinance."""
+    # Try Polygon first (faster, more reliable for bulk)
+    df = fetch_polygon_history(ticker, start_str, end_str)
+    if df is not None and len(df) >= 50:
+        return df
+    
+    # Fallback to yfinance (free, always available)
+    return fetch_yfinance_history(ticker, start_str, end_str)
+
+
+def fetch_bulk_yfinance(tickers: List[str], start_str: str, end_str: str, verbose: bool = True) -> Dict[str, pd.DataFrame]:
+    """
+    Fetch price data for multiple tickers at once using yfinance batch download.
+    Much faster than downloading one at a time.
+    """
+    import yfinance as yf
+    
+    if verbose:
+        print(f"   🚀 Batch downloading {len(tickers)} tickers via yfinance...")
+    
+    start_time = time.time()
+    
+    # Download all at once - yfinance handles this efficiently
+    try:
+        data = yf.download(
+            tickers,
+            start=start_str,
+            end=end_str,
+            progress=verbose,
+            auto_adjust=True,
+            threads=True,  # Use threading for speed
+            group_by='ticker'
+        )
+    except Exception as e:
+        if verbose:
+            print(f"   ❌ Batch download failed: {e}")
+        return {}
+    
+    elapsed = time.time() - start_time
+    if verbose:
+        print(f"   ⏱️ Download completed in {elapsed:.1f}s")
+    
+    # Parse the multi-index DataFrame into individual ticker DataFrames
+    result: Dict[str, pd.DataFrame] = {}
+    
+    if data is None or data.empty:
+        return result
+    
+    # Handle single ticker case (no multi-index)
+    if len(tickers) == 1:
+        ticker = tickers[0]
+        df = data.copy()
+        
+        # Handle multi-index columns from yfinance
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = [col[0] for col in df.columns]
+        
+        df.columns = [c.title() if isinstance(c, str) else str(c).title() for c in df.columns]
+        if len(df) >= 50 and "Close" in df.columns:
+            result[ticker] = df[["Open", "High", "Low", "Close", "Volume"]]
+        return result
+    
+    # Multi-ticker case
+    for ticker in tickers:
+        try:
+            if ticker in data.columns.get_level_values(0):
+                df = data[ticker].copy()
+                df = df.dropna(how='all')
+                
+                # Handle multi-index columns
+                if isinstance(df.columns, pd.MultiIndex):
+                    df.columns = [col[0] for col in df.columns]
+                
+                # Normalize column names
+                df.columns = [c.title() if isinstance(c, str) else str(c).title() for c in df.columns]
+                
+                if len(df) >= 50 and "Close" in df.columns:
+                    result[ticker] = df[["Open", "High", "Low", "Close", "Volume"]]
+        except Exception:
+            continue
+    
+    if verbose:
+        print(f"   ✅ Loaded {len(result)} tickers with sufficient data")
+    
+    return result
+
+
 def get_universe_tickers(limit: int = 2000) -> List[str]:
     """Get universe of tickers to train on."""
     try:
@@ -300,13 +425,15 @@ def build_training_dataset(
         print(f"   Include sentiment: {include_sentiment}")
     
     # Fetch SPY for benchmark
-    spy_df = fetch_polygon_history("SPY", start_str, end_str)
+    spy_df = fetch_price_history("SPY", start_str, end_str)
     if spy_df is None or len(spy_df) < 50:
         print("   ⚠️ Could not fetch SPY data, relative strength features will be zeros")
         spy_df = None
+    else:
+        print(f"   ✅ Loaded SPY benchmark data: {len(spy_df)} days")
     
     # Fetch VIX
-    vix_df = fetch_polygon_history("VIXY", start_str, end_str)  # VIX ETF proxy
+    vix_df = fetch_price_history("VIXY", start_str, end_str)  # VIX ETF proxy
     
     # Fetch sentiment data if requested
     sentiment_data = {}
@@ -318,24 +445,31 @@ def build_training_dataset(
         except Exception as e:
             print(f"   ⚠️ Sentiment fetch failed: {e}")
     
-    # Fetch price data for all tickers
-    price_data: Dict[str, pd.DataFrame] = {}
-    
-    def _fetch_one(ticker: str) -> Tuple[str, Optional[pd.DataFrame]]:
-        df = fetch_polygon_history(ticker, start_str, end_str)
-        return ticker, df
-    
+    # Fetch price data for all tickers using batch download
     if verbose:
         print("   📥 Fetching price data...")
     
-    with ThreadPoolExecutor(max_workers=TRAIN_CONFIG["max_workers"]) as executor:
-        futures = [executor.submit(_fetch_one, t) for t in tickers]
-        for i, future in enumerate(as_completed(futures)):
-            ticker, df = future.result()
-            if df is not None and len(df) >= TRAIN_CONFIG["min_samples_per_ticker"]:
-                price_data[ticker] = df
-            if verbose and (i + 1) % 100 == 0:
-                print(f"     Fetched {i + 1}/{len(tickers)} tickers...")
+    # Check if Polygon API is available
+    polygon_key = get_api_key("POLYGON_API_KEY", required=False)
+    
+    if polygon_key:
+        # Use Polygon for bulk download (parallel)
+        price_data: Dict[str, pd.DataFrame] = {}
+        def _fetch_one(ticker: str) -> Tuple[str, Optional[pd.DataFrame]]:
+            df = fetch_price_history(ticker, start_str, end_str)
+            return ticker, df
+        
+        with ThreadPoolExecutor(max_workers=TRAIN_CONFIG["max_workers"]) as executor:
+            futures = [executor.submit(_fetch_one, t) for t in tickers]
+            for i, future in enumerate(as_completed(futures)):
+                ticker, df = future.result()
+                if df is not None and len(df) >= TRAIN_CONFIG["min_samples_per_ticker"]:
+                    price_data[ticker] = df
+                if verbose and (i + 1) % 100 == 0:
+                    print(f"     Fetched {i + 1}/{len(tickers)} tickers...")
+    else:
+        # Use yfinance batch download (much faster for no-API case)
+        price_data = fetch_bulk_yfinance(tickers, start_str, end_str, verbose=verbose)
     
     if verbose:
         print(f"   ✅ Loaded price data for {len(price_data)} tickers")
@@ -550,33 +684,39 @@ def analyze_feature_importance(
                 print(f"   {row['feature']:30s} {row['builtin_importance']:.4f} {bar}")
     
     # Permutation importance
-    if verbose:
-        print("\n   Computing permutation importance...")
-    
-    perm_importance = permutation_importance(
-        model, X_test, y_test,
-        n_repeats=10,
-        random_state=TRAIN_CONFIG["random_state"],
-        n_jobs=-1,
-        scoring='roc_auc'
-    )
-    
-    perm_df = pd.DataFrame({
-        'feature': feature_names,
-        'importance_mean': perm_importance.importances_mean,
-        'importance_std': perm_importance.importances_std
-    }).sort_values('importance_mean', ascending=False)
-    
-    if verbose:
-        print("\n🔹 Permutation Importance (Top 15):")
-        for _, row in perm_df.head(15).iterrows():
-            bar = "█" * int(max(0, row['importance_mean']) * 200)
-            print(f"   {row['feature']:30s} {row['importance_mean']:+.4f} ± {row['importance_std']:.4f} {bar}")
+    perm_df = None
+    try:
+        if verbose:
+            print("\n   Computing permutation importance...")
+        
+        perm_importance = permutation_importance(
+            model, X_test, y_test,
+            n_repeats=10,
+            random_state=TRAIN_CONFIG["random_state"],
+            n_jobs=-1,
+            scoring='accuracy'  # Use accuracy instead of roc_auc for compatibility
+        )
+        
+        perm_df = pd.DataFrame({
+            'feature': feature_names,
+            'importance_mean': perm_importance.importances_mean,
+            'importance_std': perm_importance.importances_std
+        }).sort_values('importance_mean', ascending=False)
+        
+        if verbose:
+            print("\n🔹 Permutation Importance (Top 15):")
+            for _, row in perm_df.head(15).iterrows():
+                bar = "█" * int(max(0, row['importance_mean']) * 200)
+                print(f"   {row['feature']:30s} {row['importance_mean']:+.4f} ± {row['importance_std']:.4f} {bar}")
+    except Exception as e:
+        if verbose:
+            print(f"   ⚠️ Skipping permutation importance: {e}")
     
     # Flag harmful features
-    harmful = perm_df[perm_df['importance_mean'] < 0]['feature'].tolist()
-    if harmful and verbose:
-        print(f"\n⚠️  Harmful features (negative importance): {harmful}")
+    if perm_df is not None:
+        harmful = perm_df[perm_df['importance_mean'] < 0]['feature'].tolist()
+        if harmful and verbose:
+            print(f"\n⚠️  Harmful features (negative importance): {harmful}")
     
     return perm_df
 

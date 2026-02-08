@@ -120,11 +120,7 @@ from core.classifier import apply_classification, filter_core_recommendations
 # ============================================================================
 # LEGACY IMPORTS - For backward compatibility (deprecated, will be removed)
 # ============================================================================
-from core.unified_logic import (
-    compute_technical_score,
-    compute_final_score,
-    compute_overall_score_20d,
-)
+
 from indicators import rsi, atr, macd_line, adx, _sigmoid
 
 # ============================================================================
@@ -222,11 +218,9 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
     overall_rank = row.get("Overall_Rank", "N/A")
     # Use pretty score for display (60-90 range), raw score for internal logic
     # Show both pretty score and 20d score
-    overall_score = row.get(
-        "overall_score_pretty",
-        row.get("overall_score", row.get("conviction_v2_final", np.nan)),
-    )
-    score_20d = row.get("overall_score_20d", None)
+    from core.scoring_config import get_canonical_score
+    overall_score = get_canonical_score(row)
+    score_20d = row.get("FinalScore_20d", None)
     target_price = _num(row.get("Target_Price", np.nan))
     # Use broader fallback chain for precomputed scans (no UI-only columns)
     entry_price = _num(
