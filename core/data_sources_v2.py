@@ -49,7 +49,6 @@ from core.providers import (
     get_alpha_vantage_fundamentals,
     get_polygon_fundamentals,
     get_eodhd_fundamentals,
-    get_fundamentals_safe
 )
 from core.exceptions import (
     DataFetchError, RateLimitError, AuthenticationError, 
@@ -307,77 +306,9 @@ def set_default_provider_status(preflight_status: Dict[str, Dict[str, Any]] | No
         logger.debug(f"Preflight provider status parse failed: {exc}")
         _DEFAULT_PROVIDER_STATUS = {}
 
-def get_fundamentals_safe(ticker: str) -> Optional[Dict]:
-    """
-    Smart, flat fundamentals fetch using the Smart Router's fastest healthy provider.
-
-    Returns flat dict suitable for UI augmentation:
-    {
-        'Market_Cap': float, 'PE_Ratio': float, 'PEG_Ratio': float,
-        'PB_Ratio': float, 'ROE': float,
-        'Beta': float, 'Sector': str, 'Industry': str,
-        'Vol_Avg': float, 'Dividend': float, 'Price': float,
-        'Debt_to_Equity': float
-    }
-    """
-    tkr = str(ticker).upper()
-
-    def _map_to_ui(d: Optional[Dict]) -> Optional[Dict]:
-        if not d:
-            return None
-        def _f(v):
-            try:
-                return float(v) if v is not None else None
-            except (TypeError, ValueError):
-                return None
-        out = {
-            "Market_Cap": _f(d.get("market_cap")) or _f(d.get("Market_Cap")),
-            "PE_Ratio": _f(d.get("pe")) or _f(d.get("PE_Ratio")),
-            "PEG_Ratio": _f(d.get("peg")) or _f(d.get("PEG_Ratio")),
-            "PB_Ratio": _f(d.get("pb")) or _f(d.get("PB_Ratio")),
-            "ROE": _f(d.get("roe")) or _f(d.get("ROE")),
-            "Beta": _f(d.get("beta")) or _f(d.get("Beta")),
-            "Sector": d.get("sector") or d.get("Sector"),
-            "Industry": d.get("industry") or d.get("Industry"),
-            "Debt_to_Equity": _f(d.get("debt_equity")) or _f(d.get("Debt_to_Equity")),
-        }
-        # FMP extras if present
-        if "vol_avg" in d or "Vol_Avg" in d:
-            out["Vol_Avg"] = _f(d.get("vol_avg") or d.get("Vol_Avg"))
-        if "last_div" in d or "Dividend" in d:
-            out["Dividend"] = _f(d.get("last_div") or d.get("Dividend"))
-        if "price_backup" in d or "Price" in d or "price" in d:
-            out["Price"] = _f(d.get("price_backup") or d.get("Price") or d.get("price"))
-        return out
-
-    # Build ordered provider list from Smart Router (fastest-first)
-    ranking = _get_provider_ranking()
-    tried: List[str] = []
-    providers_map = {
-        "FMP": fetch_fundamentals_fmp,
-        "Finnhub": fetch_fundamentals_finnhub,
-        "Tiingo": fetch_fundamentals_tiingo,
-        "AlphaVantage": fetch_fundamentals_alpha,
-    }
-
-    for p in ranking:
-        fn = providers_map.get(p)
-        if not fn:
-            continue
-        try:
-            d = fn(tkr)
-            if d:
-                ui = _map_to_ui(d)
-                if ui:
-                    logger.info(f"Smart Router: fundamentals for {tkr} from {p}")
-                    return ui
-        except Exception as e:
-            logger.debug(f"Smart Router: provider {p} failed for {tkr}: {e}")
-        finally:
-            tried.append(p)
-
-    logger.warning(f"Smart Router: no fundamentals for {tkr}; tried {tried}")
-    return None
+# NOTE: get_fundamentals_safe is defined below (line ~700), NOT imported from
+# core.providers (that module has a stub). The single definition below uses
+# FMP Profile + Ratios TTM directly.
 
 
 def _rate_limit(source: str) -> None:

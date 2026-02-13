@@ -28,7 +28,7 @@ import yfinance as yf
 from dotenv import load_dotenv, find_dotenv
 
 # ── project: config ─────────────────────────────────────────────────
-from app_config import CONFIG
+from app_config import CONFIG, empty_fund_row as _empty_fund_row
 
 # ── project: indicators ─────────────────────────────────────────────
 from indicators import rsi
@@ -83,17 +83,6 @@ FUND_SCHEMA_FIELDS = [
 ]
 FUND_STRING_FIELDS = ["sector", "industry"]
 
-# Utility: create empty fundamentals dict for a ticker (all NaN / Unknown)
-def _empty_fund_row() -> dict:
-    out = {f: np.nan for f in FUND_SCHEMA_FIELDS}
-    out["sector"] = "Unknown"
-    out["industry"] = "Unknown"
-    out["_sources"] = {}
-    out["_sources_used"] = []
-    out["Fund_Coverage_Pct"] = 0.0
-    out["fundamentals_available"] = False
-    return out
-
 # Provider usage tracker promoted to module level (was nested in legacy fundamentals function)
 def mark_provider_usage(provider: str, category: str):
     """Record usage of a provider for a given category (price/fundamentals/ml). Safe no-throw.
@@ -105,8 +94,8 @@ def mark_provider_usage(provider: str, category: str):
         cats = usage.setdefault(provider, set())
         cats.add(category)
         usage[provider] = cats
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("mark_provider_usage: %s", e)
 
 
 def render_data_sources_overview(provider_status: dict, provider_usage: dict, results: pd.DataFrame) -> None:
@@ -228,8 +217,8 @@ try:
     if ML_20D_AVAILABLE:
         try:
             st.info(f"✓ ML 20d ready (features: {len(FEATURE_COLS_20D)}; mode: {PREFERRED_SCORING_MODE_20D})")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("unknown: %s", e)
     else:
         st.info("ML 20d model not found; ML scoring will be neutral.")
 except Exception as _e:
@@ -265,8 +254,8 @@ def _env(key: str) -> Optional[str]:
                 val = st.secrets[key]
                 if val:  # Ensure it's not empty
                     return str(val)
-            except (KeyError, FileNotFoundError):
-                pass
+            except (KeyError, FileNotFoundError) as e:
+                logger.debug("_env: %s", e)
 
             # Try nested sections (api_keys, keys, secrets, tokens)
             for section in ("api_keys", "keys", "secrets", "tokens"):
@@ -384,8 +373,8 @@ def get_next_earnings_date(ticker: str) -> Optional[datetime.datetime]:
                 for row in data.get("earningsCalendar", []):
                     if row.get("symbol") == ticker and row.get("date"):
                         return datetime.datetime.fromisoformat(row["date"])
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("get_next_earnings_date: %s", e)
 
     try:
         ed = yf.Ticker(ticker).get_earnings_dates(limit=4)
@@ -395,8 +384,8 @@ def get_next_earnings_date(ticker: str) -> Optional[datetime.datetime]:
             dt = future.index.min() if not future.empty else ed.index.max()
             if pd.notna(dt):
                 return dt.to_pydatetime()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("get_next_earnings_date: %s", e)
 
     try:
         cal = yf.Ticker(ticker).calendar
@@ -406,8 +395,8 @@ def get_next_earnings_date(ticker: str) -> Optional[datetime.datetime]:
                 dt = pd.to_datetime(str(vals[0]))
                 if pd.notna(dt):
                     return dt.to_pydatetime()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("get_next_earnings_date: %s", e)
 
     return None
 
@@ -557,10 +546,10 @@ def calculate_rr(
 ) -> float:
     """
     Stable Reward/Risk calculation used across the app.
-    - reward = target_price - entry_price
+    - reward = max(0, target_price - entry_price)
     - risk   = max(atr_value * 2, entry_price * 0.01)
     - rr     = reward / risk
-    Clamped to [0, 15]. Returns numeric (float).
+    Clamped to [0, 5]. Returns 0.0 on failure.
     ATR fallback chain: atr_value → history_df (mean H-L 14 bars) → fallback_price → 1% of entry.
     """
     try:
@@ -582,8 +571,8 @@ def calculate_rr(
                     est_atr = (last["High"] - last["Low"]).abs().dropna().mean()
                     if np.isfinite(est_atr) and est_atr > 0:
                         atr = float(est_atr)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("calculate_rr: %s", e)
         # Fallback 2: use fallback_price (e.g. ATR_Price from another column)
         if (
             not np.isfinite(atr)
@@ -596,614 +585,14 @@ def calculate_rr(
             atr = max(0.01 * float(entry_price), 1e-6)
 
         risk = max(atr * 2.0, float(entry_price) * 0.01)
-        reward = float(target_price) - float(entry_price)
+        reward = max(0.0, float(target_price) - float(entry_price))
         rr = 0.0 if risk <= 0 else reward / risk
-        rr = float(np.clip(rr, 0.0, 15.0))
+        rr = float(np.clip(rr, 0.0, 5.0))
         return rr
     except Exception:
-        return np.nan
+        return 0.0
 
 
-
-def _eodhd_fetch_fundamentals(ticker: str, api_key: str) -> Dict[str, any]:
-    """Extracted EODHD fundamentals fetching for parallel execution."""
-    try:
-        r_eod = http_get_retry(
-            f"https://eodhistoricaldata.com/api/fundamentals/{ticker}.US?api_token={api_key}&fmt=json",
-            tries=1,
-            timeout=10,
-        )
-        if not r_eod:
-            return {}
-
-        fj = r_eod.json()
-        highlights = fj.get("Highlights", {}) if isinstance(fj, dict) else {}
-        valuation = fj.get("Valuation", {}) if isinstance(fj, dict) else {}
-        ratios = fj.get("Ratios", {}) if isinstance(fj, dict) else {}
-        growth = fj.get("Growth", {}) if isinstance(fj, dict) else {}
-
-        def finum(*keys):
-            for k in keys:
-                v = (
-                    highlights.get(k)
-                    or valuation.get(k)
-                    or ratios.get(k)
-                    or growth.get(k)
-                )
-                if isinstance(v, (int, float)) and np.isfinite(v):
-                    return float(v)
-            return np.nan
-
-        return {
-            "roe": finum("ReturnOnEquityTTM", "ROE"),
-            "roic": np.nan,
-            "gm": finum("GrossMarginTTM", "GrossMargin"),
-            "ps": finum("PriceToSalesTTM", "PriceToSales"),
-            "pe": finum("PERatio", "PE"),
-            "de": finum("DebtToEquity", "DebtEquityRatio"),
-            "rev_g_yoy": finum("RevenueGrowthTTMYoy", "RevenueGrowth"),
-            "eps_g_yoy": finum("EPSGrowthTTMYoy", "EPSGrowth"),
-            "sector": (
-                fj.get("General", {}).get("Sector", "Unknown")
-                if isinstance(fj.get("General"), dict)
-                else "Unknown"
-            ),
-            "from_eodhd": True,
-        }
-    except Exception:
-        return {}
-
-
-def _fmp_metrics_fetch(ticker: str, api_key: str) -> Dict[str, any]:
-    """
-    Fetch fundamental metrics from Financial Modeling Prep (FMP).
-    Primary data provider with comprehensive fundamental data.
-    """
-    try:
-        # FMP key-metrics endpoint provides comprehensive ratios
-        url = f"https://financialmodelingprep.com/stable/key-metrics?symbol={ticker}&apikey={api_key}"
-        r = http_get_retry(url, tries=2, timeout=8)
-        if not r:
-            return {}
-
-        data = r.json()
-        if not data or not isinstance(data, list) or len(data) == 0:
-            return {}
-
-        # Get most recent metrics
-        metrics = data[0]
-
-        def fget(key, default=np.nan):
-            val = metrics.get(key)
-            if val is None or val == "None":
-                return default
-            try:
-                return float(val)
-            except:
-                return default
-
-        # Get sector from profile endpoint
-        profile_url = f"https://financialmodelingprep.com/stable/profile?symbol={ticker}&apikey={api_key}"
-        sector = "Unknown"
-        try:
-            profile_r = http_get_retry(profile_url, tries=1, timeout=6)
-            if profile_r:
-                profile_data = profile_r.json()
-                if (
-                    profile_data
-                    and isinstance(profile_data, list)
-                    and len(profile_data) > 0
-                ):
-                    sector = profile_data[0].get("sector", "Unknown")
-        except:
-            pass
-
-        return {
-            "roe": fget("roe"),
-            "roic": fget("roic"),
-            "gm": fget("grossProfitMargin"),
-            "ps": fget("priceToSalesRatio"),
-            "pe": fget("peRatio"),
-            "de": fget("debtToEquity"),
-            "rev_g_yoy": fget("revenuePerShareGrowth"),
-            "eps_g_yoy": fget("netIncomePerShareGrowth"),
-            "sector": sector,
-        }
-    except Exception as e:
-        return {}
-
-
-@st.cache_data(ttl=60 * 60)
-def _fmp_full_bundle_fetch(ticker: str, api_key: str) -> Dict[str, any]:
-    """Fetch a richer fundamental bundle from FMP using multiple endpoints (profile, key-metrics, ratios-ttm, financial-growth).
-
-    Returns a dict with unified fields similar to other providers. Falls back silently if endpoints fail.
-    """
-    try:
-        base = "https://financialmodelingprep.com/stable"
-        endpoints = {
-            "profile": f"{base}/profile?symbol={ticker}&apikey={api_key}",
-            "key_metrics": f"{base}/key-metrics?symbol={ticker}&period=annual&limit=1&apikey={api_key}",
-            "ratios_ttm": f"{base}/ratios-ttm?symbol={ticker}&apikey={api_key}",
-            "growth": f"{base}/financial-growth?symbol={ticker}&period=annual&limit=1&apikey={api_key}",
-        }
-
-        fetched: Dict[str, any] = {}
-        with ThreadPoolExecutor(max_workers=4) as ex:
-            fut_map = {
-                ex.submit(http_get_retry, url, 2, 8): name
-                for name, url in endpoints.items()
-            }
-            for fut in as_completed(fut_map):
-                name = fut_map[fut]
-                try:
-                    resp = fut.result()
-                    if resp and resp.status_code == 200:
-                        j = resp.json()
-                        fetched[name] = j
-                except Exception:
-                    fetched[name] = None
-
-        def pick_first(obj):
-            return obj[0] if isinstance(obj, list) and obj else {}
-
-        profile = pick_first(fetched.get("profile"))
-        key_metrics = pick_first(fetched.get("key_metrics"))
-        ratios = pick_first(fetched.get("ratios_ttm"))
-        growth = pick_first(fetched.get("growth"))
-
-        def ffloat(src, key):
-            try:
-                v = src.get(key)
-                v = float(v)
-                return v if np.isfinite(v) else np.nan
-            except Exception:
-                return np.nan
-
-        out = {
-            "oper_margin": ffloat(key_metrics, "operatingProfitMargin"),
-            "roe": ffloat(key_metrics, "roe"),
-            "roic": ffloat(key_metrics, "roic"),
-            "gm": ffloat(key_metrics, "grossProfitMargin"),
-            "ps": ffloat(ratios, "priceToSalesRatioTTM"),
-            "pe": ffloat(ratios, "priceEarningsRatioTTM"),
-            "de": ffloat(ratios, "debtEquityRatioTTM"),
-            "rev_g_yoy": ffloat(growth, "revenueGrowth"),
-            "eps_g_yoy": ffloat(growth, "epsGrowth"),
-            "sector": (
-                profile.get("sector", "Unknown")
-                if isinstance(profile, dict)
-                else "Unknown"
-            ),
-        }
-
-        # Alternate gross margin if missing
-        if not np.isfinite(out.get("gm", np.nan)):
-            alt_gm = ffloat(ratios, "grossProfitMarginTTM")
-            if np.isfinite(alt_gm):
-                out["gm"] = alt_gm
-
-        valid_fields = sum(
-            1
-            for k, v in out.items()
-            if k not in ("sector",) and isinstance(v, (int, float)) and np.isfinite(v)
-        )
-        out["_fmp_field_count"] = valid_fields
-        out["from_fmp_full"] = valid_fields >= 3
-        return out if valid_fields > 0 else {}
-    except Exception:
-        return {}
-
-
-def _alpha_overview_fetch(ticker: str) -> Dict[str, any]:
-    """Fetch Alpha Vantage OVERVIEW with improved error handling and comprehensive fields.
-
-    Returns: dict with roe, roic, gm, ps, pe, de, rev_g_yoy, eps_g_yoy, sector
-    """
-    ak = _env("ALPHA_VANTAGE_API_KEY")
-    if not ak:
-        return {}
-    try:
-        alpha_throttle(12.0)  # 5 calls/minute = 12 seconds between calls
-        url = f"https://www.alphavantage.co/query?function=OVERVIEW&symbol={ticker}&apikey={ak}"
-        r = http_get_retry(url, tries=2, timeout=10)
-        if not r:
-            return {}
-        j = r.json()
-
-        # Check for Alpha Vantage errors
-        if isinstance(j, dict):
-            if "Note" in j or "Information" in j:
-                logger.warning(
-                    f"Alpha Vantage rate limit: {j.get('Note') or j.get('Information')}"
-                )
-                return {}
-            if not j.get("Symbol"):
-                return {}
-        else:
-            return {}
-
-        def fnum(k):
-            try:
-                v = j.get(k)
-                if v in (None, "None", "-", ""):
-                    return np.nan
-                v = float(v)
-                return v if np.isfinite(v) else np.nan
-            except Exception:
-                return np.nan
-
-        # Calculate gross margin from raw numbers if available
-        gp = fnum("GrossProfitTTM")
-        tr = fnum("RevenueTTM")
-        gm_calc = (
-            (gp / tr) if (np.isfinite(gp) and np.isfinite(tr) and tr > 0) else np.nan
-        )
-
-        # Fallback to profit margin if gross margin not available
-        pm = fnum("ProfitMargin")
-
-        out = {
-            "roe": fnum("ReturnOnEquityTTM"),
-            "roic": np.nan,  # Alpha doesn't provide ROIC directly
-            "gm": gm_calc if np.isfinite(gm_calc) else pm,
-            "ps": fnum("PriceToSalesRatioTTM"),
-            "pe": fnum("PERatio"),
-            "de": fnum("DebtToEquity"),
-            "rev_g_yoy": fnum("QuarterlyRevenueGrowthYOY"),
-            "eps_g_yoy": fnum("QuarterlyEarningsGrowthYOY"),
-            "sector": j.get("Sector") or "Unknown",
-        }
-
-        # Count valid fields
-        valid_count = sum(
-            1
-            for k, v in out.items()
-            if k != "sector" and isinstance(v, (int, float)) and np.isfinite(v)
-        )
-        if valid_count >= 3:  # At least 3 valid fields
-            out["from_alpha"] = True
-            out["_alpha_field_count"] = valid_count
-            return out
-        return {}
-    except Exception as e:
-        logger.debug(f"Alpha Vantage fetch failed for {ticker}: {e}")
-        return {}
-
-
-def _finnhub_metrics_fetch(ticker: str) -> Dict[str, any]:
-    """Fallback to Finnhub metrics + sector information."""
-    fk = _env("FINNHUB_API_KEY")
-    if not fk:
-        return {}
-    try:
-        url = f"https://finnhub.io/api/v1/stock/metric?symbol={ticker}&metric=all&token={fk}"
-        r = http_get_retry(url, tries=1, timeout=10)
-        if not r:
-            return {}
-        j = r.json()
-        m = j.get("metric", {})
-
-        def fget(*keys):
-            for k in keys:
-                v = m.get(k)
-                if isinstance(v, (int, float)) and np.isfinite(v):
-                    return float(v)
-            return np.nan
-
-        de = np.nan
-        try:
-            total_debt = fget("totalDebt")
-            total_equity = fget("totalEquity")
-            if (
-                np.isfinite(total_debt)
-                and np.isfinite(total_equity)
-                and total_equity != 0
-            ):
-                de = total_debt / total_equity
-        except Exception:
-            pass
-        return {
-            "roe": fget("roeTtm", "roeAnnual"),
-            "roic": np.nan,
-            "gm": fget("grossMarginTTM", "grossMarginAnnual"),
-            "ps": fget("psTTM", "priceToSalesTTM"),
-            "pe": fget("peBasicExclExtraTTM", "peNormalizedAnnual", "peTTM"),
-            "de": de,
-            "rev_g_yoy": fget("revenueGrowthTTMYoy", "revenueGrowthQuarterlyYoy"),
-            "eps_g_yoy": fget("epsGrowthTTMYoy", "epsGrowthQuarterlyYoy"),
-            "sector": _finnhub_sector(ticker, fk),
-        }
-    except Exception:
-        return {}
-
-
-def _finnhub_sector(ticker: str, token: str) -> str:
-    """Fetch sector information from Finnhub (profile2 endpoint)."""
-    r = http_get_retry(
-        f"https://finnhub.io/api/v1/stock/profile2?symbol={ticker}&token={token}",
-        tries=1,
-        timeout=8,
-    )
-    if not r:
-        return "Unknown"
-    try:
-        j = r.json()
-        return j.get("finnhubIndustry") or j.get("sector") or "Unknown"
-    except Exception:
-        return "Unknown"
-
-
-@st.cache_data(ttl=60 * 60)
-def _simfin_fetch(ticker: str, api_key: str) -> Dict[str, any]:
-    """Fetch fundamentals from SimFin (basic ratios). Defensive; returns {} if insufficient fields."""
-    try:
-        url = (
-            "https://simfin.com/api/v2/companies/statements/standardised?"
-            f"ticker={ticker}&statement=pl&period=FY&limit=1&api-key={api_key}"
-        )
-        r = http_get_retry(url, tries=2, timeout=10)
-        if not r:
-            return {}
-        j = r.json()
-        if not j or not isinstance(j, dict):
-            return {}
-
-        def grab(*paths):
-            for p in paths:
-                v = j.get(p)
-                if isinstance(v, (int, float)) and np.isfinite(v):
-                    return float(v)
-            return np.nan
-
-        roe = grab("roe")
-        gp = grab("grossProfit")
-        rev = grab("revenue")
-        gm = (
-            (gp / rev) if (np.isfinite(gp) and np.isfinite(rev) and rev > 0) else np.nan
-        )
-        ps = grab("priceToSales")
-        pe = grab("peRatio")
-        de = grab("debtToEquity")
-        rev_g = grab("revenueGrowth")
-        eps_g = grab("epsGrowth")
-        sector = j.get("sector") or "Unknown"
-        out = {
-            "roe": roe,
-            "roic": np.nan,
-            "gm": gm,
-            "ps": ps,
-            "pe": pe,
-            "de": de,
-            "rev_g_yoy": rev_g,
-            "eps_g_yoy": eps_g,
-            "sector": sector,
-        }
-        valid_fields = sum(
-            1
-            for k, v in out.items()
-            if k != "sector" and isinstance(v, (int, float)) and np.isfinite(v)
-        )
-        if valid_fields >= 3:
-            out["from_simfin"] = True
-            out["_simfin_field_count"] = valid_fields
-            return out
-        return {}
-    except Exception:
-        return {}
-
-
-@st.cache_data(ttl=60 * 60 * 24)
-def _tiingo_fundamentals_fetch(ticker: str) -> Dict[str, any]:
-    """Fetch fundamentals from Tiingo - comprehensive data from fundamentals endpoint.
-
-    Returns: dict with pe, ps, pb, roe, gm, de, rev_g_yoy, eps_g_yoy if available.
-    """
-    tk = _env("TIINGO_API_KEY")
-    if not tk:
-        return {}
-    try:
-        # Use Tiingo fundamentals endpoint for comprehensive data
-        fund_url = (
-            f"https://api.tiingo.com/tiingo/fundamentals/{ticker}/daily?token={tk}"
-        )
-        fund_r = http_get_retry(fund_url, tries=2, timeout=10)
-
-        if not fund_r:
-            return {}
-
-        fund_j = fund_r.json()
-        if not fund_j or not isinstance(fund_j, list) or len(fund_j) == 0:
-            return {}
-
-        latest = fund_j[0]  # Most recent data
-
-        def fnum(key):
-            try:
-                v = latest.get(key)
-                if v is None:
-                    return np.nan
-                return float(v) if np.isfinite(float(v)) else np.nan
-            except:
-                return np.nan
-
-        out = {
-            "pe": fnum("pe"),
-            "ps": fnum("priceToSalesRatio"),
-            "pb": fnum("pb"),
-            "roe": fnum("roe"),
-            "gm": fnum("grossMargin"),
-            "de": fnum("debtToEquity"),
-            "rev_g_yoy": fnum("revenueGrowth"),
-            "eps_g_yoy": fnum("epsGrowth"),
-        }
-
-        valid_count = sum(
-            1 for v in out.values() if isinstance(v, (int, float)) and np.isfinite(v)
-        )
-        if valid_count >= 2:  # At least 2 valid fields
-            out["from_tiingo"] = True
-            out["_tiingo_field_count"] = valid_count
-            return out
-        return {}
-    except Exception as e:
-        logger.debug(f"Tiingo fundamentals fetch failed for {ticker}: {e}")
-        return {}
-
-# -----------------------------------------------------------------
-# Canonical merge + batch fundamentals fetch
-# -----------------------------------------------------------------
-def merge_fundamentals(provider_map: dict) -> dict:
-    """Merge provider fundamentals into canonical schema with priority.
-
-    provider_map: { provider_label: dict }
-    Priority (highest first): SimFin -> Tiingo -> FMP -> Alpha -> Finnhub -> EODHD -> Marketstack -> Nasdaq
-    Fields only filled once; later providers cannot overwrite earlier non-NaN values.
-    """
-    merged = {f: np.nan for f in FUND_SCHEMA_FIELDS}
-    merged["sector"] = "Unknown"
-    merged["industry"] = "Unknown"
-    merged["_sources"] = {}
-    merged["_sources_used"] = []
-
-    priority = [
-        ("simfin", "SimFin"),
-        ("tiingo", "Tiingo"),
-        ("fmp", "FMP"),
-        ("alpha", "Alpha"),
-        ("finnhub", "Finnhub"),
-        ("eodhd", "EODHD"),
-        ("marketstack", "Marketstack"),
-        ("nasdaq", "Nasdaq"),
-    ]
-    for key, label in priority:
-        src = provider_map.get(key) or {}
-        if not isinstance(src, dict) or not src:
-            continue
-        contributed = False
-        for field in FUND_SCHEMA_FIELDS:
-            val = src.get(field, np.nan)
-            if (field not in merged) or (field in merged and np.isnan(merged[field])):
-                if isinstance(val, (int, float)) and np.isfinite(val):
-                    merged[field] = float(val)
-                    merged["_sources"][field] = label
-                    contributed = True
-        for f_str in FUND_STRING_FIELDS:
-            sval = src.get(f_str)
-            if sval and merged[f_str] == "Unknown":
-                merged[f_str] = str(sval)
-                contributed = True
-        if contributed:
-            merged["_sources_used"].append(label)
-
-    finite_count = sum(
-        1 for f in FUND_SCHEMA_FIELDS if isinstance(merged.get(f), (int, float)) and np.isfinite(merged.get(f))
-    )
-    merged["Fund_Coverage_Pct"] = finite_count / float(len(FUND_SCHEMA_FIELDS)) if FUND_SCHEMA_FIELDS else 0.0
-    merged["fundamentals_available"] = finite_count > 0
-    return merged
-
-def _fetch_single_fused(ticker: str, alpha_enabled: bool) -> dict:
-    """Fetch fundamentals from all configured providers for a single ticker and merge.
-    Fully defensive: never raises.
-    """
-    try:
-        prov = {}
-        # SimFin
-        if CONFIG.get("ENABLE_SIMFIN") and _env("SIMFIN_API_KEY"):
-            try:
-                prov["simfin"] = _simfin_fetch(ticker, _env("SIMFIN_API_KEY")) or {}
-            except Exception:
-                prov["simfin"] = {}
-        # Tiingo
-        if CONFIG.get("ENABLE_TIINGO", True):
-            try:
-                prov["tiingo"] = _tiingo_fundamentals_fetch(ticker) or {}
-            except Exception:
-                prov["tiingo"] = {}
-        # FMP (full + legacy sequential throttling)
-        fmp_key = _env("FMP_API_KEY")
-        if fmp_key:
-            try:
-                # Respect minimal interval
-                min_gap = CONFIG.get("FMP_MIN_INTERVAL", 0.6)
-                last_ts = st.session_state.get("_fmp_last_call_ts", 0.0)
-                now_ts = time.time()
-                gap = now_ts - last_ts
-                if gap < min_gap:
-                    time.sleep(min_gap - gap)
-                st.session_state["_fmp_last_call_ts"] = time.time()
-                full = _fmp_full_bundle_fetch(ticker, fmp_key) or {}
-                time.sleep(CONFIG.get("FMP_INTER_CALL_DELAY", 0.8))
-                legacy = _fmp_metrics_fetch(ticker, fmp_key) or {}
-                combo = {**legacy, **full}
-                prov["fmp"] = combo
-            except Exception as e:
-                logger.warning(f"FMP fundamentals failed for {ticker}: {e}")
-                prov["fmp"] = {}
-        # Alpha Vantage (smart)
-        if alpha_enabled:
-            try:
-                prov["alpha"] = _alpha_overview_fetch(ticker) or {}
-            except Exception:
-                prov["alpha"] = {}
-        # Finnhub
-        try:
-            prov["finnhub"] = _finnhub_metrics_fetch(ticker) or {}
-        except Exception:
-            prov["finnhub"] = {}
-        # EODHD
-        ek = _env("EODHD_API_KEY")
-        if ek:
-            try:
-                prov["eodhd"] = _eodhd_fetch_fundamentals(ticker, ek) or {}
-            except Exception:
-                prov["eodhd"] = {}
-        # Marketstack (stub until implemented)
-        if CONFIG.get("ENABLE_MARKETSTACK") and _env("MARKETSTACK_API_KEY"):
-            prov["marketstack"] = {}
-        # Nasdaq (stub; used primarily for sector/industry fallback)
-        if CONFIG.get("ENABLE_NASDAQ_DL") and (_env("NASDAQ_API_KEY") or _env("NASDAQ_DL_API_KEY")):
-            prov["nasdaq"] = {}
-        merged = merge_fundamentals(prov)
-        # Mark provider usage
-        for src_label in merged.get("_sources_used", []):
-            try:
-                mark_provider_usage(src_label, "fundamentals")
-            except Exception:
-                pass
-        merged["Ticker"] = ticker
-        return merged
-    except Exception as e:
-        logger.warning(f"Fundamentals fused fetch catastrophic failure for {ticker}: {e}")
-        m = _empty_fund_row()
-        m["Ticker"] = ticker
-        return m
-
-def fetch_fundamentals_batch(tickers: list, alpha_top_n: int = 15) -> pd.DataFrame:
-    """Batch fundamentals enrichment.
-    Always returns one row per ticker. On total failure returns empty rows with coverage=0.
-    """
-    if not tickers:
-        return pd.DataFrame(columns=["Ticker"] + FUND_SCHEMA_FIELDS + FUND_STRING_FIELDS)
-    rows = []
-    # Parallel per-ticker to avoid one slow provider blocking others
-    max_workers = min(8, max(1, CONFIG.get("FUND_BATCH_MAX_WORKERS", 8)))
-    with ThreadPoolExecutor(max_workers=max_workers) as ex:
-        fut_map = {}
-        for rank, tkr in enumerate(tickers, 1):
-            alpha_enabled = rank <= alpha_top_n and not CONFIG.get("PERF_FAST_MODE")
-            fut_map[ex.submit(_fetch_single_fused, tkr, alpha_enabled)] = tkr
-        for fut in as_completed(fut_map):
-            try:
-                rows.append(fut.result())
-            except Exception:
-                tkr = fut_map[fut]
-                m = _empty_fund_row()
-                m["Ticker"] = tkr
-                rows.append(m)
-    df = pd.DataFrame(rows).set_index("Ticker")
-    return df
 
 
 @st.cache_data(ttl=6 * 3600, show_spinner=False)
@@ -1333,84 +722,6 @@ def get_tiingo_price(ticker: str) -> Optional[float]:
     return None
 
 
-def get_marketstack_price(ticker: str) -> Optional[float]:
-    """Fetch latest end-of-day price from Marketstack."""
-    if not CONFIG.get("ENABLE_MARKETSTACK"):
-        return None
-    mk = _env("MARKETSTACK_API_KEY")
-    if not mk:
-        return None
-    try:
-        r = http_get_retry(
-            f"http://api.marketstack.com/v1/eod/latest?access_key={mk}&symbols={ticker}",
-            tries=1,
-            timeout=6,
-        )
-        if not r:
-            return None
-        j = r.json()
-        data = j.get("data") if isinstance(j, dict) else None
-        if isinstance(data, list) and data:
-            last = data[0]
-            c = last.get("close")
-            if isinstance(c, (int, float)) and np.isfinite(c):
-                return float(c)
-    except Exception:
-        return None
-    return None
-
-
-def get_nasdaq_price(ticker: str) -> Optional[float]:
-    """Attempt price via Nasdaq Data Link dataset (WIKI legacy). Returns None on failure."""
-    if not CONFIG.get("ENABLE_NASDAQ_DL"):
-        return None
-    nk = _env("NASDAQ_API_KEY") or _env("NASDAQ_DL_API_KEY")
-    if not nk:
-        return None
-    try:
-        r = http_get_retry(
-            f"https://data.nasdaq.com/api/v3/datasets/WIKI/{ticker}.json?api_key={nk}",
-            tries=1,
-            timeout=6,
-        )
-        if not r:
-            return None
-        j = r.json()
-        ds = j.get("dataset", {})
-        data = ds.get("data")
-        if isinstance(data, list) and data:
-            row = data[0]
-            if len(row) >= 5:
-                c = row[4]
-                if isinstance(c, (int, float)) and np.isfinite(c):
-                    return float(c)
-    except Exception:
-        return None
-    return None
-
-
-def get_eodhd_price(ticker: str) -> Optional[float]:
-    """Fetch real-time (delayed) price from EODHD."""
-    if not CONFIG.get("ENABLE_EODHD"):
-        return None
-    ek = _env("EODHD_API_KEY") or _env("EODHD_TOKEN")
-    if not ek:
-        return None
-    try:
-        r = http_get_retry(
-            f"https://eodhistoricaldata.com/api/real-time/{ticker}.US?api_token={ek}&fmt=json",
-            tries=1,
-            timeout=6,
-        )
-        if not r:
-            return None
-        j = r.json()
-        c = j.get("close") or j.get("Close")
-        if isinstance(c, (int, float)) and np.isfinite(c):
-            return float(c)
-    except Exception:
-        return None
-    return None
 
 
 # ==================== UI ====================
@@ -1607,8 +918,8 @@ def save_latest_scan_from_results(results_df: pd.DataFrame, metadata: Optional[D
         meta["build_commit"] = (
             subprocess.check_output(["git", "rev-parse", "--short", "HEAD"]).decode().strip()
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("save_latest_scan_from_results: %s", e)
     
     try:
         save_scan_helper(
@@ -1819,8 +1130,8 @@ elif precomputed_df is not None and precomputed_meta is not None and not scan_to
     st.session_state["precomputed_results"] = precomputed_df
     try:
         st.session_state["universe_size"] = int(universe_size)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("_render_snapshot_banner: %s", e)
     logger.info(f"[PERF] Precomputed scan: DataFrame shape {precomputed_df.shape}")
     use_precomputed = True
 else:
@@ -1835,8 +1146,8 @@ else:
         st.session_state["precomputed_results"] = precomputed_df
         try:
             st.session_state["universe_size"] = int(universe_size)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("unknown: %s", e)
         use_precomputed = True
     else:
         st.info("📊 אין סריקה זמינה - מחכה לסריקה אוטומטית הבאה.")
@@ -1904,8 +1215,8 @@ if skip_pipeline:
     try:
         status_manager.update_detail(f"Precomputed scan: {len(results)} top stocks")
         status_manager.set_progress(1.0)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("_cached_detect_market_regime: %s", e)
     
     # Show summary to user
     try:
@@ -1999,8 +1310,8 @@ else:
                         st.caption(f"Fund Providers: {', '.join(fund_used)}")
                     if fb_count:
                         st.caption(f"Fallback Events: {fb_count}")
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("unknown: %s", e)
             # Show Tier 1 filtered reasons (diagnostics)
             try:
                 if diagnostics:
@@ -2028,8 +1339,8 @@ else:
                     if filtered_rows:
                         with st.expander("Filtered Out (Tier 1)", expanded=False):
                             st.dataframe(pd.DataFrame(filtered_rows), use_container_width=True)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("_fmt_reason: %s", e)
             if used_fb:
                 st.warning(f"Legacy fallback engaged — {fb_reason or 'reason unavailable'}")
             # ML health warnings
@@ -2041,8 +1352,8 @@ else:
                     st.warning(f"ML degraded — missing features: {', '.join(missing)}")
                 else:
                     st.warning("ML degraded — limited features or model unavailable")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("_fmt_reason: %s", e)
         
         # 3. Mark scan as ready (actual save happens AFTER sector cap is applied below)
         if not results.empty:
@@ -2073,8 +1384,8 @@ try:
         "Universe_Provider": LAST_UNIVERSE_PROVIDER,
     }
     create_debug_expander(api_status, title="🔑 API Keys & Universe Provider")
-except Exception:
-    pass
+except Exception as e:
+    logger.debug("unknown: %s", e)
 
 # Initialize sources tracker
 sources_overview = SourcesOverview()
@@ -2086,12 +1397,8 @@ t0 = t_start()
 if CONFIG.get("EXTERNAL_PRICE_VERIFY", False):
     results["Price_Alpha"] = np.nan
     results["Price_Finnhub"] = np.nan
-    # IEX price column removed
     results["Price_Polygon"] = np.nan
     results["Price_Tiingo"] = np.nan
-    results["Price_Marketstack"] = np.nan
-    results["Price_NasdaqDL"] = np.nan
-    results["Price_EODHD"] = np.nan
     results["Price_Mean"] = np.nan
     results["Price_STD"] = np.nan
     results["Source_List"] = "🟡Yahoo"
@@ -2103,16 +1410,12 @@ def _fetch_external_for(
 ) -> Tuple[str, Dict[str, Optional[float]], List[str]]:
     vals: Dict[str, Optional[float]] = {}
     srcs: List[str] = []
+    # Track providers used — applied on main thread after ThreadPoolExecutor completes
+    _providers_used: List[str] = []
+    _alpha_hit = False
 
-    # helper to mark price usage
     def _mark_price(provider: str):
-        try:
-            usage = st.session_state.setdefault("provider_usage", {})
-            cats = usage.setdefault(provider, set())
-            cats.add("price")
-            usage[provider] = cats
-        except Exception:
-            pass
+        _providers_used.append(provider)
 
     if np.isfinite(py):
         vals["Yahoo"] = float(py)
@@ -2123,7 +1426,7 @@ def _fetch_external_for(
         if p is not None:
             vals.setdefault("Alpha", p)
             srcs.append("🟣Alpha")
-            st.session_state.av_calls = st.session_state.get("av_calls", 0) + 1
+            _alpha_hit = True
             _mark_price("Alpha")
     if finn_ok:
         p = get_finnhub_price(tkr)
@@ -2143,41 +1446,15 @@ def _fetch_external_for(
             vals.setdefault("Tiingo", p)
             srcs.append("🟠Tiingo")
             _mark_price("Tiingo")
-    if CONFIG.get("ENABLE_MARKETSTACK") and _env("MARKETSTACK_API_KEY"):
-        p = get_marketstack_price(tkr)
-        if p is not None:
-            vals.setdefault("Marketstack", p)
-            srcs.append("🧩Marketstack")
-            _mark_price("Marketstack")
-    if CONFIG.get("ENABLE_NASDAQ_DL") and (
-        _env("NASDAQ_API_KEY") or _env("NASDAQ_DL_API_KEY")
-    ):
-        p = get_nasdaq_price(tkr)
-        if p is not None:
-            vals.setdefault("NasdaqDL", p)
-            srcs.append("🏛NasdaqDL")
-            _mark_price("Nasdaq")
-    if CONFIG.get("ENABLE_EODHD") and (_env("EODHD_API_KEY") or _env("EODHD_TOKEN")):
-        p = get_eodhd_price(tkr)
-        if p is not None:
-            vals.setdefault("EODHD", p)
-            srcs.append("📘EODHD")
-            _mark_price("EODHD")
-    # Return collected prices and source badges
-    return tkr, vals, srcs
-    # Stage tracking now handled by StatusManager
+    # Marketstack / Nasdaq DL / EODHD providers removed (permanently disabled)
+    # Return collected prices, source badges, and thread-safe provider tracking
+    return tkr, vals, srcs, _providers_used, _alpha_hit
 
 
 # External price verification - run if ANY provider is available
 any_price_provider = (
     finn_ok
     or (poly_ok and _env("POLYGON_API_KEY"))
-    or (CONFIG.get("ENABLE_MARKETSTACK") and _env("MARKETSTACK_API_KEY"))
-    or (
-        CONFIG.get("ENABLE_NASDAQ_DL")
-        and (_env("NASDAQ_API_KEY") or _env("NASDAQ_DL_API_KEY"))
-    )
-    or (CONFIG.get("ENABLE_EODHD") and (_env("EODHD_API_KEY") or _env("EODHD_TOKEN")))
 )
 
 if CONFIG["EXTERNAL_PRICE_VERIFY"] and any_price_provider and "Price_Yahoo" in results.columns:
@@ -2194,9 +1471,16 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and any_price_provider and "Price_Yahoo" in r
             ]
             for f in as_completed(futures):
                 try:
-                    tkr, vals, srcs = f.result()
+                    tkr, vals, srcs, providers_used, alpha_hit = f.result()
                 except Exception:
                     continue
+                # Apply session state on main thread (thread-safe)
+                usage = st.session_state.setdefault("provider_usage", {})
+                for prov in providers_used:
+                    cats = usage.setdefault(prov, set())
+                    cats.add("price")
+                if alpha_hit:
+                    st.session_state.av_calls = st.session_state.get("av_calls", 0) + 1
                 idx = results.index[results["Ticker"] == tkr][0]
                 prices = [v for v in vals.values() if v is not None]
                 pmean = float(np.mean(prices)) if prices else np.nan
@@ -2208,9 +1492,6 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and any_price_provider and "Price_Yahoo" in r
                         "Price_Finnhub",
                         "Price_Polygon",
                         "Price_Tiingo",
-                        "Price_Marketstack",
-                        "Price_NasdaqDL",
-                        "Price_EODHD",
                         "Price_Mean",
                         "Price_STD",
                         "Source_List",
@@ -2220,10 +1501,6 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and any_price_provider and "Price_Yahoo" in r
                     vals.get("Finnhub", np.nan),
                     vals.get("Polygon", np.nan),
                     vals.get("Tiingo", np.nan),
-                    # IEX removed
-                    vals.get("Marketstack", np.nan),
-                    vals.get("NasdaqDL", np.nan),
-                    vals.get("EODHD", np.nan),
                     pmean,
                     pstd,
                     " - ".join(srcs),
@@ -2605,8 +1882,8 @@ if st.session_state.get("precomputed_results") is not None and st.session_state.
     try:
         status_manager.update_detail("Precomputed scan loaded — using cached results")
         status_manager.set_progress(1.0)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("unknown: %s", e)
     st.info("⚡ Rendering using precomputed scan (no live pipeline run)")
 
 # Note: Auto-save is now handled in the live pipeline section above
@@ -2616,8 +1893,8 @@ if st.session_state.get("precomputed_results") is not None and st.session_state.
 try:
     status_manager.advance("Signal Evaluation")
     status_manager.complete("✅ Pipeline complete")
-except Exception:
-    pass
+except Exception as e:
+    logger.debug("unknown: %s", e)
 
 # Close the skip_pipeline conditional block
 # (The if not skip_pipeline block ends here)
@@ -2762,8 +2039,8 @@ for p, meta in providers_meta.items():
             used_fund = True
         if p == "Alpha" and ("Price_Alpha" in results.columns and results["Price_Alpha"].notna().any()):
             used_price = True
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("unknown: %s", e)
 
     # Price sources from Source_List column
     try:
@@ -2772,8 +2049,8 @@ for p, meta in providers_meta.items():
             all_sources = " ".join([str(x) for x in results["Source_List"].fillna("") if x])
             if meta["label"].lower() in all_sources.lower():
                 used_price = True
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("unknown: %s", e)
 
     # OpenAI/ML usage heuristic
     try:
@@ -2785,8 +2062,8 @@ for p, meta in providers_meta.items():
                 # also consider session_usage
                 if "OpenAI" in session_usage and "ml" in (session_usage.get("OpenAI") or set()):
                     used_ml = True
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("unknown: %s", e)
 
     provider_usage[p] = {
         "key_present": bool(key_present),
@@ -3125,8 +2402,9 @@ if not rec_df.empty and not rr_present:
 
     rec_df["RewardRisk"] = rec_df.apply(
         lambda r: (
-            round(_compute_rr_row(r), 2) if np.isfinite(_compute_rr_row(r)) else np.nan
-        ),
+            (v := _compute_rr_row(r)),
+            round(v, 2) if np.isfinite(v) else np.nan,
+        )[-1],
         axis=1,
     )
     # Also update RR_Ratio alias used in classification
@@ -3748,8 +3026,8 @@ try:
     if "MarketCap_B" not in rec_df.columns:
         mc = pd.to_numeric(rec_df.get("MarketCap", rec_df.get("market_cap", np.nan)), errors="coerce")
         rec_df["MarketCap_B"] = (mc / 1e9).where(mc.notna(), np.nan)
-except Exception:
-    pass
+except Exception as e:
+    logger.debug("unknown: %s", e)
 
 csv_df = rec_df.rename(columns=hebrew_cols)
 

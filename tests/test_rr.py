@@ -11,10 +11,10 @@ def test_rr_clipped_when_reward_very_large():
     entry = 100.0
     target = 600.0
     atr = 2.0
-    # reward = 500, risk = max(atr*2=4, entry*0.01=1) = 4 -> rr = 125 -> clipped to 15
+    # reward = max(0, 500) = 500, risk = max(atr*2=4, entry*0.01=1) = 4 -> rr = 125 -> clipped to 5
     rr = calculate_rr(entry, target, atr)
     assert isinstance(rr, float)
-    assert math.isclose(rr, 15.0, rel_tol=1e-9)
+    assert math.isclose(rr, 5.0, rel_tol=1e-9)
 
 
 def test_rr_fallback_price_used_when_atr_missing():
