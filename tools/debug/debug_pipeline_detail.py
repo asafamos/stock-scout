@@ -24,15 +24,7 @@ from core.unified_logic import (
 from core.filters import fetch_benchmark_data
 
 
-def calculate_rr(entry_price, target_price, atr_value):
-    """Local copy of RR calculation"""
-    try:
-        if not (np.isfinite(entry_price) and np.isfinite(target_price)): return 0.0
-        atr = atr_value if np.isfinite(atr_value) else np.nan
-        risk = max(atr * 2.0, entry_price * 0.01) if np.isfinite(atr) else max(entry_price * 0.01, 0.01)
-        reward = max(0.0, float(target_price) - float(entry_price))
-        return float(np.clip(reward / max(risk, 1e-9), 0.0, 5.0))
-    except: return 0.0
+from core.risk import calculate_rr
 
 def fetch_history_bulk(tickers, days):
     """Fetch historical data using yfinance"""

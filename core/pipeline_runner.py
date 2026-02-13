@@ -1,3 +1,5 @@
+import dataclasses
+import json
 import pandas as pd
 import numpy as np
 import logging
@@ -10,9 +12,9 @@ import yfinance as yf
 from pathlib import Path
 from threading import Lock
 
-from core.config import get_config
+from core.config import get_config, get_secret
 from core.exceptions import (
-    DataFetchError, DataValidationError, PipelineError, 
+    DataFetchError, DataValidationError, PipelineError,
     ScoringError, InsufficientDataError
 )
 from core.scoring import build_technical_indicators, compute_fundamental_score_with_breakdown
@@ -37,19 +39,28 @@ from core.unified_logic import (
 )
 from core.pattern_matcher import PatternMatcher
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from core.market_context import get_benchmark_series, compute_relative_strength_vs_spy
-
-# Facade: re-export main pipeline functions from core/pipeline
-from core.pipeline import (
-    run_scan_pipeline,
-    fetch_top_us_tickers_by_market_cap,
-    process_single_ticker,
-    enrich_fundamentals,
-    filter_signals
+from core.market_context import (
+    get_benchmark_series,
+    compute_relative_strength_vs_spy,
+    initialize_market_context,
 )
+from core.sector_mapping import SECTOR_ETFS, get_stock_sector, get_sector_etf
 from core.telemetry import Telemetry
 from advanced_filters import compute_relative_strength
-from core.scoring_config import SIGNAL_MIN_SCORE, ML_PROB_THRESHOLD, TOP_SIGNAL_K
+from core.scoring_config import (
+    SIGNAL_MIN_SCORE, ML_PROB_THRESHOLD, TOP_SIGNAL_K,
+    TECH_STRONG_THRESHOLD,
+)
+from core.data_sources_v2 import (
+    get_last_index_source,
+    set_default_provider_status,
+    disable_provider_category,
+    get_prioritized_fetch_funcs,
+)
+from core.api_preflight import run_preflight
+from core.provider_guard import get_provider_guard
+from core.scoring_engine import compute_final_score_20d
+from core.ml_feature_builder import build_all_ml_features_v3
 
 # For backward compatibility with code that checks ML availability
 from core.ml_20d_inference import ML_20D_AVAILABLE, get_ml_health_meta
@@ -184,8 +195,6 @@ def _compute_sector_etf_returns() -> Dict[str, float]:
     
     Uses yfinance batch download to avoid rate limits.
     """
-    from core.sector_mapping import SECTOR_ETFS
-    
     etf_returns: Dict[str, float] = {}
     etf_symbols = list(SECTOR_ETFS.values())
     
@@ -230,8 +239,6 @@ def _get_sector_context_for_ticker(ticker: str, stock_20d_return: float) -> Dict
         - Sector_Rank: percentile of sector vs other sectors
     """
     global _SECTOR_ETF_RETURNS
-    from core.sector_mapping import get_stock_sector, get_sector_etf
-    
     context = {
         'Sector_RS': 0.0,
         'Sector_Momentum': 0.0,
@@ -309,7 +316,6 @@ def fetch_top_us_tickers_by_market_cap(limit: int = 2000) -> List[str]:
 
     # --- Primary: FMP company screener (stable API) ---
     try:
-        from core.config import get_secret
         api_key = get_secret("FMP_API_KEY", "")
         if api_key:
             url = "https://financialmodelingprep.com/stable/company-screener"
@@ -383,7 +389,6 @@ def fetch_top_us_tickers_by_market_cap(limit: int = 2000) -> List[str]:
 
     # --- Fallback 3: EODHD or Nasdaq (API fallback) ---
     try:
-        from core.config import get_secret
         eod_key = get_secret("EODHD_API_KEY", "")
         if eod_key:
             url = "https://eodhd.com/api/exchange-symbol-list/US"
@@ -459,7 +464,6 @@ def fetch_latest_company_news(symbol: str, count: int = 5) -> List[Dict[str, Any
         symbol: Ticker symbol
         count: Number of headlines to return
     """
-    from core.config import get_secret
     token = get_secret("FINNHUB_API_KEY", "")
     if not token:
         return []
@@ -486,7 +490,6 @@ def analyze_sentiment_openai(headlines: List[str]) -> Dict[str, Any]:
     Returns a dict with overall sentiment and per-headline scores.
     If OPENAI_API_KEY missing, returns a neutral placeholder.
     """
-    from core.config import get_secret
     api_key = get_secret("OPENAI_API_KEY", "")
     model = get_secret("OPENAI_API_MODEL", "gpt-4o-mini")
     if not api_key or not headlines:
@@ -511,7 +514,6 @@ def analyze_sentiment_openai(headlines: List[str]) -> Dict[str, Any]:
         content = js.get("choices", [{}])[0].get("message", {}).get("content", "{}")
         # Try to parse as JSON; if it isn't pure JSON, return as text blob
         try:
-            import json
             return json.loads(content)
         except (ValueError, TypeError, KeyError):
             return {"overall": "NEUTRAL", "confidence": 0.0, "details": [{"raw": content}]}
@@ -531,7 +533,6 @@ def _normalize_config(config: Any) -> Dict[str, Any]:
     Also applies selective environment overrides (e.g., METEOR_MODE, SMART_SCAN)
     after base normalization.
     """
-    import dataclasses  # local import to avoid global pollution
     if config is None:
         normalized = {}
     elif isinstance(config, dict):
@@ -571,8 +572,7 @@ def _normalize_config(config: Any) -> Dict[str, Any]:
     # Environment overrides (post-normalization). Only apply to expected keys.
     try:
         def _env_bool(name: str) -> Optional[bool]:
-            import os as _os
-            val = _os.getenv(name)
+            val = os.getenv(name)
             if val is None:
                 return None
             s = str(val).strip().lower()
@@ -680,25 +680,8 @@ def fetch_beta_vs_benchmark(ticker: str, bench: str = "SPY", days: int = 252) ->
         logger.debug(f"Beta calculation failed: {exc}")
         return np.nan
 
-def calculate_rr(entry_price: float, target_price: float, atr_value: float, history_df: pd.DataFrame = None) -> float:
-    try:
-        if not (np.isfinite(entry_price) and np.isfinite(target_price)): return 0.0
-        atr = atr_value if np.isfinite(atr_value) else np.nan
-        
-        if np.isnan(atr) and history_df is not None:
-            try:
-                last = history_df.tail(14)
-                est_atr = (last["High"] - last["Low"]).abs().mean()
-                if np.isfinite(est_atr): atr = float(est_atr)
-            except Exception as e:
-                logger.debug(f"ATR estimation failed: {e}")
-            
-        risk = max(atr * 2.0, entry_price * 0.01) if np.isfinite(atr) else max(entry_price * 0.01, 0.01)
-        reward = max(0.0, float(target_price) - float(entry_price))
-        return float(np.clip(reward / max(risk, 1e-9), 0.0, 5.0))
-    except (TypeError, ValueError, ZeroDivisionError) as exc:
-        logger.debug(f"R/R calculation failed: {exc}")
-        return 0.0
+# calculate_rr imported from core.risk (single source of truth)
+from core.risk import calculate_rr
 
 
 # --- Pipeline Steps ---
@@ -757,8 +740,6 @@ def _process_single_ticker(tkr: str, df: pd.DataFrame, skip_tech_filter: bool) -
 
     # Enrich with all 34 ML features using the feature builder
     try:
-        from core.ml_feature_builder import build_all_ml_features_v3
-        
         # Compute stock's 20d return for sector context
         stock_20d_return = 0.0
         try:
@@ -859,7 +840,6 @@ def _process_single_ticker(tkr: str, df: pd.DataFrame, skip_tech_filter: bool) -
 
     # Ensure SignalReasons/SignalQuality exist even when using bridge path
     try:
-        from core.scoring_config import ML_PROB_THRESHOLD, TECH_STRONG_THRESHOLD
         # Compute reasons based on available fields
         reasons = []
         try:
@@ -1002,6 +982,138 @@ def _step_compute_scores_with_unified_logic(
             results["TechScore_20d"] = np.nan
     return results
 
+# ---------------------------------------------------------------------------
+# Extracted helpers (formerly nested inside run_scan_pipeline)
+# ---------------------------------------------------------------------------
+
+def _canon_column_name(c) -> str:
+    """Canonicalize a DataFrame column name to lowercase string.
+
+    Handles MultiIndex tuples like ``('AAPL', 'Close')`` by extracting the
+    second element.
+    """
+    try:
+        if isinstance(c, tuple) and len(c) >= 2:
+            return str(c[1]).lower()
+        return str(c).lower()
+    except (TypeError, AttributeError):
+        return str(c)
+
+
+def _quantile_safe(vals, q: float, default: float) -> float:
+    """Return ``np.quantile(vals, q)`` or *default* when *vals* is empty."""
+    return float(np.quantile(vals, q)) if vals else default
+
+
+def check_earnings_blackout(ticker: str, days: int) -> bool:
+    """Return True if *ticker* has earnings within the next *days* days."""
+    try:
+        info = yf.Ticker(ticker).calendar
+        if info is not None and 'Earnings Date' in info:
+            earnings_dates = info['Earnings Date']
+            if earnings_dates is not None and len(earnings_dates) > 0:
+                next_date = pd.to_datetime(earnings_dates[0])
+                days_until = (next_date - datetime.now()).days
+                return 0 <= days_until <= days
+    except Exception as e:
+        logger.debug(f"Earnings check failed for {ticker}: {e}")
+    return False
+
+
+def _t2_pass_and_reasons(
+    row: pd.Series,
+    diagnostics: Dict[str, Dict[str, Any]],
+) -> Tuple[bool, str]:
+    """Determine Tier-2 pass/fail and collect rejection reason strings.
+
+    Returns ``(passed, reasons_text)`` where *passed* is ``False`` only when
+    an ``ADVANCED_REJECT`` rule appears in the ticker's diagnostics.
+    """
+    tkr = str(row.get("Ticker"))
+    rec = diagnostics.get(tkr, {}) if isinstance(diagnostics, dict) else {}
+    t2 = rec.get("tier2_reasons") or []
+    has_adv_reject = any(
+        (r.get("rule") == "ADVANCED_REJECT") for r in t2 if isinstance(r, dict)
+    )
+    reasons_rules = [
+        str(r.get("rule")) for r in t2 if isinstance(r, dict) and r.get("rule")
+    ]
+    reasons_text = row.get("RejectionReason")
+    joined = (
+        ";".join(reasons_rules)
+        if reasons_rules
+        else (str(reasons_text) if reasons_text else "")
+    )
+    return (not has_adv_reject, joined)
+
+
+def _compute_rr_for_row(
+    row: pd.Series,
+    data_map: Dict[str, pd.DataFrame],
+) -> Dict[str, Any]:
+    """Compute Entry / Target / Stop / RR from ATR, Bollinger & resistance.
+
+    *data_map* supplies the historical OHLCV DataFrame for the ticker.
+    """
+    _nan_rr = {
+        "Entry_Price": np.nan,
+        "Target_Price": np.nan,
+        "Stop_Loss": np.nan,
+        "RewardRisk": np.nan,
+        "RR_Ratio": np.nan,
+        "RR": np.nan,
+        "Target_Source": "N/A",
+    }
+    tkr = str(row.get("Ticker"))
+    hist = data_map.get(tkr)
+    if hist is None or len(hist) < 5:
+        return _nan_rr
+    try:
+        hdf = hist.copy()
+        if "Close" not in hdf.columns or "High" not in hdf.columns or "Low" not in hdf.columns:
+            return _nan_rr
+        entry = float(hdf["Close"].iloc[-1])
+        close_shift = hdf["Close"].shift(1)
+        tr = pd.concat([
+            (hdf["High"] - hdf["Low"]),
+            (hdf["High"] - close_shift).abs(),
+            (hdf["Low"] - close_shift).abs()
+        ], axis=1).max(axis=1)
+        atr14 = (
+            float(tr.rolling(14, min_periods=5).mean().iloc[-1])
+            if len(tr) >= 5
+            else float((hdf["High"] - hdf["Low"]).tail(5).mean())
+        )
+        atr14 = max(atr14, 1e-6)
+        low_5 = float(hdf["Low"].tail(5).min())
+        stop_price = float(min(low_5, entry - 2.0 * atr14))
+        ma20 = float(hdf["Close"].rolling(20, min_periods=5).mean().iloc[-1])
+        std20 = float(hdf["Close"].rolling(20, min_periods=5).std(ddof=0).iloc[-1])
+        bb_upper = (
+            ma20 + 2.0 * std20
+            if np.isfinite(ma20) and np.isfinite(std20)
+            else float(hdf["High"].tail(20).max())
+        )
+        res_60 = float(hdf["High"].tail(60).max())
+        target = float(max(res_60, bb_upper))
+        risk = float(entry - stop_price)
+        reward = float(target - entry)
+        rr = np.nan
+        if risk > 0 and reward > 0:
+            rr = float(np.clip(reward / risk, 0.0, 15.0))
+        return {
+            "Entry_Price": entry,
+            "Target_Price": target,
+            "Stop_Loss": stop_price,
+            "RewardRisk": rr,
+            "RR_Ratio": rr,
+            "RR": rr,
+            "Target_Source": "Resistance/Bollinger",
+        }
+    except (KeyError, TypeError, ValueError, ZeroDivisionError):
+        return _nan_rr
+
+
 # --- Main Pipeline Runner ---
 
 def run_scan_pipeline(
@@ -1076,13 +1188,11 @@ def run_scan_pipeline(
 
     # Initialize global market context caches (SPY + VIX) to avoid repeated provider hits
     try:
-        from core.market_context import initialize_market_context
         # Enforce minimum market context window of 250 days
         initialize_market_context(symbols=["SPY", "^VIX"], period_days=250)
         logger.info("[PIPELINE] Global index cache initialized (SPY, VIX)")
         # Record index provider telemetry (SPY, VIX)
         try:
-            from core.data_sources_v2 import get_last_index_source
             spy_src = get_last_index_source('SPY')
             vix_src = get_last_index_source('^VIX') or get_last_index_source('VIX')
             idx_map = {}
@@ -1112,7 +1222,6 @@ def run_scan_pipeline(
 
     # Run API preflight to determine active providers for this scan
     try:
-        from core.api_preflight import run_preflight
         provider_status: Dict[str, Dict[str, Any]] = run_preflight()
         run_mode = provider_status.get("SCAN_STATUS", "OK")
         try:
@@ -1121,11 +1230,9 @@ def run_scan_pipeline(
             pass
         # Apply global default provider status to v2 data layer
         try:
-            from core.data_sources_v2 import set_default_provider_status, disable_provider_category, get_prioritized_fetch_funcs
             set_default_provider_status(provider_status)
             # Feed ProviderGuard with preflight baseline
             try:
-                from core.provider_guard import get_provider_guard
                 guard = get_provider_guard()
                 guard.update_from_preflight(provider_status)
                 # Snapshot into telemetry for meta visibility
@@ -1220,7 +1327,6 @@ def run_scan_pipeline(
     try:
         if universe:
             tkr0 = str(universe[0])
-            from core.data import fetch_price_multi_source
             _ = fetch_price_multi_source(tkr0, provider_status=provider_status, telemetry=telemetry)
     except (ImportError, IndexError, TypeError) as exc:
         logger.debug(f"Price telemetry sample skipped: {exc}")
@@ -1294,15 +1400,7 @@ def run_scan_pipeline(
             # Mirror core.unified_logic.apply_technical_filters checks
             # Compute last valid close/volume using canonical mapping
             try:
-                def _canon(c):
-                    try:
-                        # Handle MultiIndex like ('AAPL','Close')
-                        if isinstance(c, tuple) and len(c) >= 2:
-                            return str(c[1]).lower()
-                        return str(c).lower()
-                    except (TypeError, AttributeError):
-                        return str(c)
-                cols_lower = {_canon(c): c for c in df.columns}
+                cols_lower = {_canon_column_name(c): c for c in df.columns}
             except (AttributeError, TypeError):
                 cols_lower = {}
             close_series = None
@@ -1538,9 +1636,6 @@ def run_scan_pipeline(
     mom_vals = [s.get("momentum_consistency") for _, s, _ in signals_store if s.get("momentum_consistency") is not None]
     rr_vals = [s.get("risk_reward_ratio") for _, s, _ in signals_store if s.get("risk_reward_ratio") is not None]
     
-    def _q(vals, q, default):
-        return float(np.quantile(vals, q)) if vals else default
-    
     # Use more lenient percentiles to avoid over-filtering
     # If we have fewer stocks, use even more lenient thresholds
     num_stocks = len(signals_store)
@@ -1552,9 +1647,9 @@ def run_scan_pipeline(
         logger.info(f"[PIPELINE] Using fixed lenient thresholds for {num_stocks} stocks")
     else:
         # Use dynamic thresholds but more lenient percentiles
-        rs_thresh = min(_q(rs_vals, 0.02, -0.40), -0.30)  # Cap at -0.30
-        mom_thresh = min(_q(mom_vals, 0.05, 0.10), 0.12)  # Cap at 0.12
-        rr_thresh = min(_q(rr_vals, 0.05, 0.30), 0.40)    # Cap at 0.40
+        rs_thresh = min(_quantile_safe(rs_vals, 0.02, -0.40), -0.30)  # Cap at -0.30
+        mom_thresh = min(_quantile_safe(mom_vals, 0.05, 0.10), 0.12)  # Cap at 0.12
+        rr_thresh = min(_quantile_safe(rr_vals, 0.05, 0.30), 0.40)    # Cap at 0.40
         logger.info(f"[PIPELINE] Using dynamic thresholds for {num_stocks} stocks")
     
     dyn_thresh = {"rs_63d": rs_thresh, "momentum_consistency": mom_thresh, "risk_reward_ratio": rr_thresh}
@@ -1881,32 +1976,7 @@ def run_scan_pipeline(
             if "debt_equity" in results.columns and "Debt_Equity" not in results.columns:
                 results["Debt_Equity"] = results["debt_equity"]
 
-            # Compute Valuation: favor lower PE and PEG; use PE/PEG when both present
-            def _valuation_row(row: pd.Series) -> float:
-                pe = row.get("pe")
-                peg = row.get("peg")
-                try:
-                    if pd.notna(pe) and pd.notna(peg) and float(peg) > 0:
-                        return float(pe) / float(peg)
-                    elif pd.notna(pe):
-                        return float(pe)
-                    else:
-                        return 0.0
-                except (TypeError, ValueError, ZeroDivisionError):
-                    return 0.0
-
-            # Compute Quality: emphasize ROE vs Debt/Equity
-            def _quality_row(row: pd.Series) -> float:
-                roe = row.get("roe")
-                de = row.get("debt_equity")
-                try:
-                    base_roe = float(roe) if pd.notna(roe) else 0.0
-                    base_de = float(de) if (pd.notna(de) and float(de) > 0) else 1.0
-                    return float(base_roe) / float(base_de)
-                except (TypeError, ValueError, ZeroDivisionError):
-                    return 0.0
-
-            # Legacy Quality helper no longer used here; Quality set from ROE above
+            # _valuation_row / _quality_row removed — Quality/Valuation set directly above
         except Exception as e:
             logger.debug(f"Valuation/Quality column creation skipped: {e}")
         
@@ -1945,7 +2015,6 @@ def run_scan_pipeline(
 
     # Apply sector mapping fallback for unknown or potentially incorrect sectors
     try:
-        from core.sector_mapping import get_stock_sector
         for idx, row in results.iterrows():
             ticker = row.get("Ticker", "")
             current_sector = row.get("Sector", "Unknown")
@@ -1961,7 +2030,6 @@ def run_scan_pipeline(
     # CRITICAL: Recalculate FinalScore_20d with fundamentals NOW integrated
     # The scoring engine needs the Fundamental_S field which was just added
     try:
-        from core.scoring_engine import compute_final_score_20d
         for idx, row in results.iterrows():
             try:
                 new_score = compute_final_score_20d(row)
@@ -1995,23 +2063,7 @@ def run_scan_pipeline(
         blackout_days = int(config.get("EARNINGS_BLACKOUT_DAYS", 7))
         if status_callback: status_callback(f"Checking earnings blackout (top {topk})...")
         
-        # Import earnings check function
         try:
-            
-            def check_earnings_blackout(ticker: str, days: int) -> bool:
-                """Check if earnings are within next N days"""
-                try:
-                    info = yf.Ticker(ticker).calendar
-                    if info is not None and 'Earnings Date' in info:
-                        earnings_dates = info['Earnings Date']
-                        if earnings_dates is not None and len(earnings_dates) > 0:
-                            next_date = pd.to_datetime(earnings_dates[0])
-                            days_until = (next_date - datetime.now()).days
-                            return 0 <= days_until <= days
-                except Exception as e:
-                    logger.debug(f"Earnings check failed for {ticker}: {e}")
-                return False
-            
             # Check top K stocks only (performance optimization)
             top_indices = results.nlargest(topk, "Score").index
             for idx in top_indices:
@@ -2045,17 +2097,10 @@ def run_scan_pipeline(
         results["Tier1_Passed"] = True
         results["Tier1_Reasons"] = ""
         # Tier 2: mark as False only if ADVANCED_REJECT present in diagnostics
-        def _t2_pass_and_reasons(row: pd.Series):
-            tkr = str(row.get("Ticker"))
-            rec = diagnostics.get(tkr, {}) if isinstance(diagnostics, dict) else {}
-            t2 = rec.get("tier2_reasons") or []
-            has_adv_reject = any((r.get("rule") == "ADVANCED_REJECT") for r in t2 if isinstance(r, dict))
-            # Include RejectionReason text if present
-            reasons_rules = [str(r.get("rule")) for r in t2 if isinstance(r, dict) and r.get("rule")]
-            reasons_text = row.get("RejectionReason")
-            joined = ";".join(reasons_rules) if reasons_rules else (str(reasons_text) if reasons_text else "")
-            return (not has_adv_reject, joined)
-        t2_vals = results.apply(_t2_pass_and_reasons, axis=1, result_type="expand")
+        t2_vals = results.apply(
+            lambda row: _t2_pass_and_reasons(row, diagnostics),
+            axis=1, result_type="expand",
+        )
         if isinstance(t2_vals, pd.DataFrame) and t2_vals.shape[1] == 2:
             results["Tier2_Passed"] = t2_vals.iloc[:,0]
             results["Tier2_Reasons"] = t2_vals.iloc[:,1]
@@ -2067,81 +2112,11 @@ def run_scan_pipeline(
     
     # --- Dynamic Risk/Reward based on resistance & Bollinger ---
     try:
-        def _compute_rr_for_row(row: pd.Series) -> Dict[str, Any]:
-            tkr = str(row.get("Ticker"))
-            hist = data_map.get(tkr)
-            if hist is None or len(hist) < 5:
-                return {
-                    "Entry_Price": np.nan,
-                    "Target_Price": np.nan,
-                    "Stop_Loss": np.nan,
-                    "RewardRisk": np.nan,
-                    "RR_Ratio": np.nan,
-                    "RR": np.nan,
-                    "Target_Source": "N/A",
-                }
-            try:
-                # Ensure expected columns
-                hdf = hist.copy()
-                if "Close" not in hdf.columns or "High" not in hdf.columns or "Low" not in hdf.columns:
-                    return {
-                        "Entry_Price": np.nan,
-                        "Target_Price": np.nan,
-                        "Stop_Loss": np.nan,
-                        "RewardRisk": np.nan,
-                        "RR_Ratio": np.nan,
-                        "RR": np.nan,
-                        "Target_Source": "N/A",
-                    }
-                # Entry price = latest close
-                entry = float(hdf["Close"].iloc[-1])
-                # ATR(14) using simple true range approximation
-                close_shift = hdf["Close"].shift(1)
-                tr = pd.concat([
-                    (hdf["High"] - hdf["Low"]),
-                    (hdf["High"] - close_shift).abs(),
-                    (hdf["Low"] - close_shift).abs()
-                ], axis=1).max(axis=1)
-                atr14 = float(tr.rolling(14, min_periods=5).mean().iloc[-1]) if len(tr) >= 5 else float((hdf["High"] - hdf["Low"]).tail(5).mean())
-                atr14 = max(atr14, 1e-6)
-                # Stop loss = min(Low of last 5 days, entry - 2*ATR)
-                low_5 = float(hdf["Low"].tail(5).min())
-                stop_price = float(min(low_5, entry - 2.0 * atr14))
-                # Bollinger upper band (20, 2)
-                ma20 = float(hdf["Close"].rolling(20, min_periods=5).mean().iloc[-1])
-                std20 = float(hdf["Close"].rolling(20, min_periods=5).std(ddof=0).iloc[-1])
-                bb_upper = ma20 + 2.0 * std20 if np.isfinite(ma20) and np.isfinite(std20) else float(hdf["High"].tail(20).max())
-                # Resistance = highest high last 60 days
-                res_60 = float(hdf["High"].tail(60).max())
-                target = float(max(res_60, bb_upper))
-                # Compute RR = (target - entry) / (entry - stop)
-                risk = float(entry - stop_price)
-                reward = float(target - entry)
-                rr = np.nan
-                if risk > 0 and reward > 0:
-                    rr = float(np.clip(reward / risk, 0.0, 15.0))  # Increased cap from 10 to 15
-                return {
-                    "Entry_Price": entry,
-                    "Target_Price": target,
-                    "Stop_Loss": stop_price,
-                    "RewardRisk": rr,
-                    "RR_Ratio": rr,
-                    "RR": rr,
-                    "Target_Source": "Resistance/Bollinger",
-                }
-            except (KeyError, TypeError, ValueError, ZeroDivisionError):
-                return {
-                    "Entry_Price": np.nan,
-                    "Target_Price": np.nan,
-                    "Stop_Loss": np.nan,
-                    "RewardRisk": np.nan,
-                    "RR_Ratio": np.nan,
-                    "RR": np.nan,
-                    "Target_Source": "N/A",
-                }
-
         # Apply to all rows
-        rr_updates = results.apply(_compute_rr_for_row, axis=1, result_type="expand")
+        rr_updates = results.apply(
+            lambda row: _compute_rr_for_row(row, data_map),
+            axis=1, result_type="expand",
+        )
         for col in ["Entry_Price", "Target_Price", "Stop_Loss", "RewardRisk", "RR_Ratio", "RR", "Target_Source"]:
             if col in rr_updates.columns:
                 results[col] = rr_updates[col]
@@ -2489,11 +2464,9 @@ def main():
     preflight_check()
 
     # Initialize market context early to populate global caches
-    from core.market_context import initialize_market_context
     logger.info("Initializing Market Context...")
     initialize_market_context()
     try:
-        from core.data_sources_v2 import get_last_index_source
         src = get_last_index_source('SPY') or 'Unknown'
         logger.info(f"[SUCCESS via {src}] Market context initialized")
     except (ImportError, AttributeError):
@@ -2550,7 +2523,6 @@ def main():
         })
 
     # Print JSON table
-    import json
     print(json.dumps(output, indent=2))
 
 

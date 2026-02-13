@@ -15,12 +15,8 @@ from core.unified_logic import (
 )
 
 # ============================================================================
-# ADVANCED FILTERS (from advanced_filters.py in root)
+# ADVANCED FILTERS (from advanced_filters.py in project root)
 # ============================================================================
-import sys
-import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-
 from advanced_filters import (
     compute_advanced_score,
     should_reject_ticker,

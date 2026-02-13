@@ -202,3 +202,81 @@ def get_scan_summary(results_df: pd.DataFrame) -> Dict[str, Any]:
         summary["avg_fundamental_coverage"] = float(results_df["Fund_Coverage_Pct"].mean())
     
     return summary
+
+
+# ---------------------------------------------------------------------------
+# Precomputed scan loader with fallback (moved from stock_scout.py)
+# ---------------------------------------------------------------------------
+
+def load_precomputed_scan_with_fallback(
+    scan_dir,
+) -> Tuple[Optional[pd.DataFrame], Optional[Dict[str, Any]], Path]:
+    """Load the freshest available snapshot from *scan_dir*.
+
+    Considers:
+      - Any ``latest_scan*.parquet`` (including ``latest_scan_live.parquet``)
+      - Timestamped backups: ``scan_*.parquet`` (newest)
+
+    Chooses the newest by metadata timestamp or file mtime.
+
+    Returns ``(df, meta, path)``.  When nothing is found the first two
+    elements are ``None`` and *path* defaults to ``scan_dir / "latest_scan.parquet"``.
+    """
+    scan_dir = Path(scan_dir)
+
+    def _to_naive_utc(dt: Optional[datetime]) -> Optional[datetime]:
+        if dt is None:
+            return None
+        if dt.tzinfo is not None:
+            return dt.astimezone(tz=None).replace(tzinfo=None)
+        return dt
+
+    def _load(path: Path):
+        df, meta = load_latest_scan(path)
+        if df is None or meta is None:
+            return None, None, None
+        ts_meta = meta.get("timestamp")
+        try:
+            ts_parsed = (
+                datetime.fromisoformat((ts_meta or "").replace("Z", "+00:00"))
+                if ts_meta
+                else None
+            )
+        except Exception:
+            ts_parsed = None
+        try:
+            ts_file = datetime.fromtimestamp(path.stat().st_mtime)
+        except Exception:
+            ts_file = None
+        ts_parsed = _to_naive_utc(ts_parsed)
+        ts_file = _to_naive_utc(ts_file)
+        ts_effective = max(
+            [t for t in [ts_parsed, ts_file] if t is not None], default=None
+        )
+        return df, meta, ts_effective
+
+    latest_candidates = sorted(scan_dir.glob("latest_scan*.parquet"))
+    best_df, best_meta, best_ts, best_path = None, None, None, None
+
+    for candidate_path in latest_candidates:
+        if candidate_path.exists():
+            df_c, meta_c, ts_c = _load(candidate_path)
+            if df_c is not None and meta_c is not None:
+                if best_ts is None or (ts_c and ts_c > best_ts):
+                    best_df, best_meta, best_ts, best_path = (
+                        df_c, meta_c, ts_c, candidate_path
+                    )
+
+    if best_df is not None and best_meta is not None:
+        return best_df, best_meta, best_path
+
+    # Fallback: pick newest timestamped backup
+    candidates = sorted(scan_dir.glob("scan_*.parquet"), reverse=True)
+    for candidate in candidates:
+        df_cand, meta_cand = load_latest_scan(candidate)
+        if df_cand is not None and meta_cand is not None:
+            meta_cand.setdefault("timestamp", candidate.stem.replace("scan_", ""))
+            meta_cand.setdefault("total_tickers", len(df_cand))
+            return df_cand, meta_cand, candidate
+
+    return None, None, (scan_dir / "latest_scan.parquet")

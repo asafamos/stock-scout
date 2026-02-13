@@ -15,7 +15,8 @@ sys.path.insert(0, "/workspaces/stock-scout-2")
 
 from core.pipeline_runner import run_scan
 from core.serialization import scanresult_to_dataframe
-from stock_scout import CONFIG, build_universe
+from app_config import CONFIG
+from core.pipeline_runner import fetch_top_us_tickers_by_market_cap as build_universe
 
 def test_scoring_fix():
     """Test that scoring now produces reasonable values (not all 0.1)."""

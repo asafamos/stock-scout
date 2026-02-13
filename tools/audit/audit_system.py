@@ -23,7 +23,7 @@ print("=" * 100)
 print("\n📊 1. DATA SOURCES AVAILABILITY:")
 print("-" * 100)
 
-from stock_scout import CONFIG
+from app_config import CONFIG
 import os
 
 sources = {
@@ -95,12 +95,13 @@ print("\n" + "=" * 100)
 print("🔄 4. RUNNING PIPELINE TO ANALYZE ACTUAL DATA:")
 print("-" * 100)
 
-from stock_scout import build_universe, fetch_history_bulk, CONFIG
+from core.pipeline_runner import fetch_top_us_tickers_by_market_cap, fetch_history_bulk
+from app_config import CONFIG
 from advanced_filters import compute_advanced_score, should_reject_ticker, fetch_benchmark_data
 from core.classifier import apply_classification
 
 # Build small sample
-universe = build_universe(CONFIG)[:30]  # Smaller for speed
+universe = fetch_top_us_tickers_by_market_cap(limit=30)
 print(f"\n✓ Universe: {len(universe)} stocks")
 
 data = fetch_history_bulk(universe, CONFIG['LOOKBACK_DAYS'])
@@ -116,7 +117,8 @@ benchmark_df = fetch_benchmark_data(CONFIG["BETA_BENCHMARK"], CONFIG["LOOKBACK_D
 print(f"✓ Benchmark data loaded")
 
 print(f"\nRunning advanced filters...")
-from stock_scout import data_map
+# data_map is returned by fetch_history_bulk (Dict[str, DataFrame])
+data_map = data if isinstance(data, dict) else {}
 advanced_keep = []
 rejection_reasons = {}
 

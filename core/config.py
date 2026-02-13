@@ -6,6 +6,9 @@ from dataclasses import dataclass, field
 from typing import Dict, Optional, Any
 import os
 
+# Import canonical weights so Config.weights stays in sync
+from core.scoring_config import TECH_WEIGHTS as _CANONICAL_TECH_WEIGHTS
+
 # Load .env early for Config defaults
 try:
     from dotenv import load_dotenv
@@ -81,19 +84,8 @@ class Config:
     min_rr_required: float = 1.5  # Minimum Risk/Reward ratio
     earnings_blackout_days: int = 7  # Skip stocks with earnings in next N days
     
-    # Technical Weights (Optimized based on backtest analysis)
-    weights: Dict[str, float] = field(default_factory=lambda: {
-        "ma": 0.20,
-        "mom": 0.25,           # Reduced from 0.30
-        "rsi": 0.20,           # INCREASED from 0.12 - RSI is highly predictive!
-        "near_high_bell": 0.12,
-        "vol": 0.02,           # REDUCED from 0.08 - volume surge doesn't predict well
-        "overext": 0.08,
-        "pullback": 0.05,
-        "risk_reward": 0.05,   # Increased from 0.03
-        "macd": 0.02,          # Increased from 0.01
-        "adx": 0.01,
-    })
+    # Technical Weights — delegates to scoring_config.TECH_WEIGHTS (single source of truth)
+    weights: Dict[str, float] = field(default_factory=lambda: dict(_CANONICAL_TECH_WEIGHTS))
     
     # Fundamentals
     fundamental_enabled: bool = True

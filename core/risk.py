@@ -268,3 +268,73 @@ class RiskManager:
             )
         
         return df
+
+
+# ---------------------------------------------------------------------------
+# Unified Reward / Risk calculator (single source of truth)
+# ---------------------------------------------------------------------------
+
+def calculate_rr(
+    entry_price: float,
+    target_price: float,
+    atr_value: float,
+    history_df: pd.DataFrame = None,
+    fallback_price: float = None,
+) -> float:
+    """Compute Reward/Risk ratio with ATR-based risk estimation.
+
+    Reward = max(0, target − entry)
+    Risk   = max(ATR × 2, entry × 1 %)
+    Result is clamped to [0, 5].
+
+    ATR fallback chain
+    -------------------
+    1. *atr_value* (explicit)
+    2. Mean(High − Low) over last 14 bars of *history_df*
+    3. *fallback_price* (e.g. ATR_Price column from another source)
+    4. 1 % of *entry_price*
+
+    Returns *np.nan* for invalid numeric inputs, 0.0 for unexpected errors.
+    """
+    try:
+        if not (isinstance(entry_price, (int, float)) and np.isfinite(entry_price)):
+            return np.nan
+        if not (isinstance(target_price, (int, float)) and np.isfinite(target_price)):
+            return np.nan
+
+        atr = (
+            atr_value
+            if (isinstance(atr_value, (int, float)) and np.isfinite(atr_value))
+            else np.nan
+        )
+
+        # Fallback 1: estimate from history_df
+        if (not np.isfinite(atr)) and history_df is not None:
+            try:
+                last = history_df.tail(14)
+                if not last.empty and "High" in last.columns and "Low" in last.columns:
+                    est_atr = (last["High"] - last["Low"]).abs().dropna().mean()
+                    if np.isfinite(est_atr) and est_atr > 0:
+                        atr = float(est_atr)
+            except Exception as e:
+                logger.debug("calculate_rr ATR estimation: %s", e)
+
+        # Fallback 2: use fallback_price (e.g. ATR_Price from another column)
+        if (
+            not np.isfinite(atr)
+            and isinstance(fallback_price, (int, float))
+            and np.isfinite(fallback_price)
+        ):
+            atr = fallback_price
+
+        # Fallback 3: 1% of entry price
+        if not np.isfinite(atr):
+            atr = max(0.01 * float(entry_price), 1e-6)
+
+        risk = max(atr * 2.0, float(entry_price) * 0.01)
+        reward = max(0.0, float(target_price) - float(entry_price))
+        rr = 0.0 if risk <= 0 else reward / risk
+        return float(np.clip(rr, 0.0, 5.0))
+    except Exception as e:
+        logger.debug("calculate_rr unexpected: %s", e)
+        return 0.0

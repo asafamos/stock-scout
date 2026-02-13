@@ -29,6 +29,7 @@ from dotenv import load_dotenv, find_dotenv
 
 # ── project: config ─────────────────────────────────────────────────
 from app_config import CONFIG, empty_fund_row as _empty_fund_row
+from core.risk import calculate_rr
 
 # ── project: indicators ─────────────────────────────────────────────
 from indicators import rsi
@@ -41,7 +42,11 @@ from core.ui_helpers import (
     SourcesOverview,
 )
 from core.market_regime import detect_market_regime, adjust_target_for_regime
-from core.scan_io import load_latest_scan, save_scan as save_scan_helper
+from core.scan_io import (
+    load_latest_scan,
+    load_precomputed_scan_with_fallback,
+    save_scan as save_scan_helper,
+)
 from core.pipeline_runner import (
     run_scan_pipeline,
     fetch_top_us_tickers_by_market_cap,
@@ -413,7 +418,8 @@ def _earnings_batch(symbols: List[str]) -> Dict[str, Optional[datetime.datetime]
             s = futs[f]
             try:
                 out[s] = f.result()
-            except Exception:
+            except Exception as exc:
+                logger.debug(f"Earnings fetch failed for {s}: {exc}")
                 out[s] = None
     return out
 
@@ -433,7 +439,8 @@ def _check_alpha() -> Tuple[bool, str]:
         return False, "Timeout"
     try:
         j = r.json()
-    except Exception:
+    except Exception as exc:
+        logger.debug(f"Alpha JSON parse failed: {exc}")
         return False, "Bad JSON"
     if "Global Quote" in j:
         return True, "OK"
@@ -454,7 +461,8 @@ def _check_finnhub() -> Tuple[bool, str]:
         return False, "Timeout"
     try:
         j = r.json()
-    except Exception:
+    except Exception as exc:
+        logger.debug(f"Finnhub JSON parse failed: {exc}")
         return False, "Bad JSON"
     return ("c" in j), ("OK" if "c" in j else "Bad response")
 
@@ -473,7 +481,8 @@ def _check_polygon() -> Tuple[bool, str]:
         return False, "Timeout"
     try:
         j = r.json()
-    except Exception:
+    except Exception as exc:
+        logger.debug(f"Polygon JSON parse failed: {exc}")
         return False, "Bad JSON"
     ok = (
         isinstance(j, dict)
@@ -498,7 +507,8 @@ def _check_tiingo() -> Tuple[bool, str]:
         return False, "Timeout"
     try:
         arr = r.json()
-    except Exception:
+    except Exception as exc:
+        logger.debug(f"Tiingo JSON parse failed: {exc}")
         return False, "Bad JSON"
     ok = (
         isinstance(arr, list)
@@ -523,7 +533,8 @@ def _check_fmp() -> Tuple[bool, str]:
         return False, "Timeout"
     try:
         j = r.json()
-    except Exception:
+    except Exception as exc:
+        logger.debug(f"FMP JSON parse failed: {exc}")
         return False, "Bad JSON"
     # Check for FMP error responses
     if isinstance(j, dict):
@@ -536,62 +547,7 @@ def _check_fmp() -> Tuple[bool, str]:
 
 
 # ==================== Fundamentals (Alpha -> Finnhub) ====================
-
-def calculate_rr(
-    entry_price: float,
-    target_price: float,
-    atr_value: float,
-    history_df: pd.DataFrame = None,
-    fallback_price: float = None,
-) -> float:
-    """
-    Stable Reward/Risk calculation used across the app.
-    - reward = max(0, target_price - entry_price)
-    - risk   = max(atr_value * 2, entry_price * 0.01)
-    - rr     = reward / risk
-    Clamped to [0, 5]. Returns 0.0 on failure.
-    ATR fallback chain: atr_value → history_df (mean H-L 14 bars) → fallback_price → 1% of entry.
-    """
-    try:
-        if not (isinstance(entry_price, (int, float)) and np.isfinite(entry_price)):
-            return np.nan
-        if not (isinstance(target_price, (int, float)) and np.isfinite(target_price)):
-            return np.nan
-
-        atr = (
-            atr_value
-            if (isinstance(atr_value, (int, float)) and np.isfinite(atr_value))
-            else np.nan
-        )
-        # Fallback 1: estimate from history_df
-        if (not np.isfinite(atr)) and history_df is not None:
-            try:
-                last = history_df.tail(14)
-                if not last.empty and "High" in last.columns and "Low" in last.columns:
-                    est_atr = (last["High"] - last["Low"]).abs().dropna().mean()
-                    if np.isfinite(est_atr) and est_atr > 0:
-                        atr = float(est_atr)
-            except Exception as e:
-                logger.debug("calculate_rr: %s", e)
-        # Fallback 2: use fallback_price (e.g. ATR_Price from another column)
-        if (
-            not np.isfinite(atr)
-            and isinstance(fallback_price, (int, float))
-            and np.isfinite(fallback_price)
-        ):
-            atr = fallback_price
-        # Fallback 3: 1% of entry price
-        if not np.isfinite(atr):
-            atr = max(0.01 * float(entry_price), 1e-6)
-
-        risk = max(atr * 2.0, float(entry_price) * 0.01)
-        reward = max(0.0, float(target_price) - float(entry_price))
-        rr = 0.0 if risk <= 0 else reward / risk
-        rr = float(np.clip(rr, 0.0, 5.0))
-        return rr
-    except Exception:
-        return 0.0
-
+# calculate_rr imported from core.risk (single source of truth)
 
 
 
@@ -639,7 +595,8 @@ def fetch_beta_vs_benchmark(ticker: str, bench: str = "SPY", days: int = 252) ->
             return np.nan
         slope = np.polyfit(j["rb"].to_numpy(), j["rt"].to_numpy(), 1)[0]
         return float(slope)
-    except (Exception, TimeoutError):
+    except (Exception, TimeoutError) as exc:
+        logger.debug(f"Beta calculation failed for {ticker}: {exc}")
         return np.nan
 
 
@@ -661,7 +618,8 @@ def get_alpha_price(ticker: str) -> Optional[float]:
         j = r.json()
         if "Global Quote" in j and "05. price" in j["Global Quote"]:
             return float(j["Global Quote"]["05. price"])
-    except Exception:
+    except Exception as exc:
+        logger.debug(f"Alpha price parse failed for {ticker}: {exc}")
         return None
     return None
 
@@ -678,7 +636,8 @@ def get_finnhub_price(ticker: str) -> Optional[float]:
     try:
         j = r.json()
         return float(j["c"]) if "c" in j else None
-    except Exception:
+    except Exception as exc:
+        logger.debug(f"Finnhub price parse failed for {ticker}: {exc}")
         return None
 
 
@@ -697,7 +656,8 @@ def get_polygon_price(ticker: str) -> Optional[float]:
         j = r.json()
         if j.get("resultsCount", 0) > 0 and "results" in j:
             return float(j["results"][0]["c"])
-    except Exception:
+    except Exception as exc:
+        logger.debug(f"Polygon price parse failed for {ticker}: {exc}")
         return None
     return None
 
@@ -717,7 +677,8 @@ def get_tiingo_price(ticker: str) -> Optional[float]:
         arr = r.json()
         if isinstance(arr, list) and arr:
             return float(arr[-1].get("close", np.nan))
-    except Exception:
+    except Exception as exc:
+        logger.debug(f"Tiingo price parse failed for {ticker}: {exc}")
         return None
     return None
 
@@ -939,69 +900,8 @@ precomputed_df = None
 precomputed_meta = None
 use_precomputed = False
 
-
-def _load_precomputed_scan_with_fallback(scan_dir: Path):
-    """Load the freshest available snapshot.
-    Considers:
-      - Any latest_scan*.parquet (including latest_scan_live.parquet)
-      - Timestamped backups: scan_*.parquet (newest)
-    Chooses the newest by metadata timestamp or file mtime.
-    """
-    latest_candidates = sorted(scan_dir.glob("latest_scan*.parquet"))
-
-    def _to_naive_utc(dt: Optional[datetime.datetime]) -> Optional[datetime.datetime]:
-        """Convert datetime to naive UTC for consistent comparison."""
-        if dt is None:
-            return None
-        if dt.tzinfo is not None:
-            # Convert to UTC then strip timezone
-            return dt.astimezone(tz=None).replace(tzinfo=None)
-        return dt  # Already naive
-
-    def _load(path: Path):
-        df, meta = load_latest_scan(path)
-        if df is None or meta is None:
-            return None, None, None
-        # Try to parse ISO timestamp, else use file mtime
-        ts_meta = meta.get("timestamp")
-        try:
-            ts_parsed = datetime.datetime.fromisoformat((ts_meta or "").replace("Z", "+00:00")) if ts_meta else None
-        except Exception:
-            ts_parsed = None
-        try:
-            ts_file = datetime.datetime.fromtimestamp(path.stat().st_mtime)
-        except Exception:
-            ts_file = None
-        # Normalize to naive UTC for comparison
-        ts_parsed = _to_naive_utc(ts_parsed)
-        ts_file = _to_naive_utc(ts_file)
-        ts_effective = max([t for t in [ts_parsed, ts_file] if t is not None], default=None)
-        return df, meta, ts_effective
-
-    best_df, best_meta, best_ts, best_path = None, None, None, None
-
-    # Load any latest_scan*.parquet candidates if present
-    for candidate_path in latest_candidates:
-        if candidate_path.exists():
-            df_c, meta_c, ts_c = _load(candidate_path)
-            if df_c is not None and meta_c is not None:
-                if best_ts is None or (ts_c and ts_c > best_ts):
-                    best_df, best_meta, best_ts, best_path = df_c, meta_c, ts_c, candidate_path
-
-    if best_df is not None and best_meta is not None:
-        return best_df, best_meta, best_path
-
-    # Fallback: pick newest timestamped backup
-    candidates = sorted(scan_dir.glob("scan_*.parquet"), reverse=True)
-    for candidate in candidates:
-        df_cand, meta_cand = load_latest_scan(candidate)
-        if df_cand is not None and meta_cand is not None:
-            meta_cand.setdefault("timestamp", candidate.stem.replace("scan_", ""))
-            meta_cand.setdefault("total_tickers", len(df_cand))
-            return df_cand, meta_cand, candidate
-
-    # If nothing found, default to conventional latest path for display
-    return None, None, (scan_dir / "latest_scan.parquet")
+# Canonical implementation moved to core.scan_io; keep alias for backward compat
+_load_precomputed_scan_with_fallback = load_precomputed_scan_with_fallback
 
 
 scan_dir = Path(__file__).parent / "data" / "scans"
@@ -1022,7 +922,8 @@ except Exception as exc:
 def _parse_iso(ts: str) -> Optional[datetime.datetime]:
     try:
         return datetime.datetime.fromisoformat(ts.replace('Z', '+00:00'))
-    except Exception:
+    except Exception as exc:
+        logger.debug(f"ISO parse failed for '{ts}': {exc}")
         return None
 
 if CONFIG.get("USE_REMOTE_AUTOSCAN", True):
@@ -1044,7 +945,8 @@ if CONFIG.get("USE_REMOTE_AUTOSCAN", True):
                 try:
                     mtime_source = (scan_path.with_suffix('.json') if (scan_path and scan_path.with_suffix('.json').exists()) else scan_path)
                     ts_current = datetime.datetime.fromtimestamp(mtime_source.stat().st_mtime)
-                except Exception:
+                except Exception as exc:
+                    logger.debug(f"Scan mtime read failed: {exc}")
                     ts_current = None
 
             # Only prefer remote if it's newer than current
@@ -1084,14 +986,16 @@ if precomputed_meta is not None:
             meta_path = scan_path.with_suffix('.json')
             mtime_source = meta_path if meta_path.exists() else scan_path
             scan_time_file = datetime.datetime.fromtimestamp(mtime_source.stat().st_mtime)
-        except Exception:
+        except Exception as exc:
+            logger.debug(f"Scan mtime fallback: {exc}")
             scan_time_file = scan_time_meta
 
         # Prefer the most recent timestamp available (both naive now)
         scan_time = max(scan_time_meta, scan_time_file)
         scan_age_hours = (datetime.datetime.now() - scan_time).total_seconds() / 3600
         scan_too_old = scan_age_hours > 12
-    except Exception:
+    except Exception as exc:
+        logger.debug(f"Scan age check failed, assuming stale: {exc}")
         scan_too_old = True
 
 # Helper: show snapshot provenance banner
@@ -1225,9 +1129,11 @@ if skip_pipeline:
             # Fall back to computed universe_size (from metadata) or current results length
             try:
                 original_count = int(universe_size)
-            except Exception:
+            except Exception as exc:
+                logger.debug(f"universe_size parse: {exc}")
                 original_count = len(results)
-    except Exception:
+    except Exception as exc:
+        logger.debug(f"original_count fallback: {exc}")
         original_count = len(results)
     st.info(f"⚡ **{len(results)} מניות מובילות** מתוך {original_count} שעברו סריקה מלאה")
     st.caption("✅ כולל: ML model, Technical scoring, Fundamental data, Risk assessment, Classification")
@@ -1278,7 +1184,8 @@ else:
         diagnostics = {}
         try:
             diagnostics = (payload.get("diagnostics") if isinstance(payload, dict) else {}) or {}
-        except Exception:
+        except Exception as exc:
+            logger.debug(f"Diagnostics payload extract failed: {exc}")
             diagnostics = {}
 
         # Display meta prominently
@@ -1327,7 +1234,8 @@ else:
                                     if val is not None or thr is not None:
                                         return f"{base} (val={val}, thr={thr})"
                                     return base
-                                except Exception:
+                                except Exception as exc:
+                                    logger.debug(f"Tier1 reason format: {exc}")
                                     return str(r)
                             joined = "; ".join([_fmt_reason(r) for r in tier1])
                             filtered_rows.append({
@@ -1472,7 +1380,8 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and any_price_provider and "Price_Yahoo" in r
             for f in as_completed(futures):
                 try:
                     tkr, vals, srcs, providers_used, alpha_hit = f.result()
-                except Exception:
+                except Exception as exc:
+                    logger.debug(f"External price verify future failed: {exc}")
                     continue
                 # Apply session state on main thread (thread-safe)
                 usage = st.session_state.setdefault("provider_usage", {})
@@ -1636,7 +1545,8 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and any_price_provider and "Price_Yahoo" in r
     # Expose canonical fund reliability field using the simple mapping helper
     try:
         from core.scoring.fundamental import compute_fund_reliability
-    except Exception:
+    except Exception as exc:
+        logger.debug(f"compute_fund_reliability import failed: {exc}")
         compute_fund_reliability = None
 
     if compute_fund_reliability is not None:
@@ -2005,7 +1915,8 @@ for p, meta in providers_meta.items():
     if meta["env"]:
         try:
             key_present = bool(_env(meta["env"]))
-        except Exception:
+        except Exception as exc:
+            logger.debug(f"Provider key check failed for {p}: {exc}")
             key_present = False
     else:
         # Providers that don't need a key (Yahoo)
@@ -2340,7 +2251,8 @@ if has_target_cols:
     try:
         vals = pd.to_numeric(rec_df["Target_Price"], errors="coerce")
         has_any_targets = bool(np.isfinite(vals).any())
-    except Exception:
+    except Exception as exc:
+        logger.debug(f"Target column check: {exc}")
         has_any_targets = False
 
 if not has_any_targets:
@@ -2367,14 +2279,8 @@ else:
     logger.info(f"Using pipeline targets for {len(rec_df)} stocks")
 
 
-def _calculate_rr_with_fallback(
-    entry_price: float,
-    target_price: float,
-    atr_value: float,
-    fallback_price: float = None,
-) -> float:
-    """Thin wrapper for calculate_rr (kept for backward compatibility)."""
-    return calculate_rr(entry_price, target_price, atr_value, fallback_price=fallback_price)
+# _calculate_rr_with_fallback removed — use calculate_rr directly from core.risk
+_calculate_rr_with_fallback = calculate_rr  # alias kept for existing callsites
 
 
 # Recalculate Reward/Risk only if pipeline RR not present; otherwise respect pipeline RR
@@ -2386,7 +2292,8 @@ if not rec_df.empty:
         elif "RR_Ratio" in rec_df.columns or "RewardRisk" in rec_df.columns:
             base_rr = rec_df.get("RR_Ratio", rec_df.get("RewardRisk", pd.Series([np.nan] * len(rec_df), index=rec_df.index)))
             rr_present = pd.to_numeric(base_rr, errors="coerce").notna().any()
-    except Exception:
+    except Exception as exc:
+        logger.debug(f"RR presence check: {exc}")
         rr_present = False
 
 if not rec_df.empty and not rr_present:
@@ -2428,7 +2335,8 @@ if not rec_df.empty and not rr_present:
             try:
                 score, ratio_adj, band = evaluate_rr_unified(float(row_rr))
                 return pd.Series({"rr_score_v2": score, "rr_band": band})
-            except Exception:
+            except Exception as exc:
+                logger.debug(f"RR eval: {exc}")
                 return pd.Series({"rr_score_v2": np.nan, "rr_band": "N/A"})
 
         rr_results = results["rr"].apply(_rr_eval_local)
@@ -2512,7 +2420,8 @@ if not rec_df.empty:
             def _fmt_num(val, fmt):
                 try:
                     return format(float(val), fmt) if val is not None and str(val) not in ("N/A", "nan") else str(val)
-                except Exception:
+                except Exception as exc:
+                    logger.debug(f"Debug fmt: {exc}")
                     return str(val)
             logger.info(
                 f"DEBUG: {ticker} Breakdown:\n"
@@ -2571,7 +2480,8 @@ else:
             if val in (None, "", "N/A", "nan"):
                 return np.nan
             return float(val)
-        except Exception:
+        except Exception as exc:
+            logger.debug(f"_to_float coerce: {exc}")
             return np.nan
 
 
@@ -2588,7 +2498,8 @@ else:
                 return '—'
             pv = max(0.0, min(1.0, pv))
             return pv
-        except Exception:
+        except Exception as exc:
+            logger.debug(f"_normalize_prob: {exc}")
             return None
 
     def _ml_badge(p) -> str:
@@ -2609,7 +2520,8 @@ else:
             if v is not None and pd.notna(v):
                 try:
                     return float(v)
-                except Exception:
+                except Exception as exc:
+                    logger.debug(f"ML prob parse for key {k}: {exc}")
                     continue
         return np.nan
 
@@ -2671,7 +2583,8 @@ else:
         try:
             v = _to_float(val)
             return format(v, fmt) if isinstance(v, float) and np.isfinite(v) else na
-        except Exception:
+        except Exception as exc:
+            logger.debug(f"_fmt_num: {exc}")
             return na
 
     # UI displays exactly what the pipeline provided (no extra slicing)
@@ -2690,7 +2603,8 @@ else:
                 info = yf.Ticker(ticker).info
                 sec = info.get('sector') or info.get('industry')
                 return sec or 'Unknown'
-            except Exception:
+            except Exception as exc:
+                logger.debug(f"yfinance sector lookup failed for {ticker}: {exc}")
                 return 'Unknown'
 
         for idx, r in core_df.iterrows():

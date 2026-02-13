@@ -22,13 +22,12 @@ print("🔍 DEBUG: Stock Scout Full Scan (1500) - Drop-off & Distribution Analys
 print(f"⏰ Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}")
 print("=" * 100)
 
-from core.pipeline_runner import run_scan_pipeline
+from core.pipeline_runner import run_scan_pipeline, fetch_top_us_tickers_by_market_cap
 from core.config import get_config
-from stock_scout import build_universe
 
 # Build wide universe
 UNIVERSE_LIMIT = 1500
-universe = build_universe(limit=UNIVERSE_LIMIT)
+universe = fetch_top_us_tickers_by_market_cap(limit=UNIVERSE_LIMIT)
 print(f"\n📊 STAGE 0: Universe built")
 print(f"   Input: {len(universe)} tickers")
 

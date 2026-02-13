@@ -29,9 +29,8 @@ print(f"⏰ Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}")
 print("=" * 80)
 
 # Import core modules
-from core.pipeline_runner import run_scan_pipeline
+from core.pipeline_runner import run_scan_pipeline, fetch_top_us_tickers_by_market_cap
 from core.config import get_config
-from stock_scout import build_universe
 from core.scoring import (
     build_technical_indicators,
     compute_tech_score_20d_v2,
@@ -53,7 +52,7 @@ from core.allocation import allocate_budget
 from core.classifier import apply_classification
 
 UNIVERSE_LIMIT = int(os.getenv("UNIVERSE_SIZE", os.getenv("AUTO_SCAN_UNIVERSE_LIMIT", "2000")))
-UNIVERSE = build_universe(limit=UNIVERSE_LIMIT)
+UNIVERSE = fetch_top_us_tickers_by_market_cap(limit=UNIVERSE_LIMIT)
 
 print(f"🎯 Universe size: {len(UNIVERSE)} stocks (limit {UNIVERSE_LIMIT})")
 print(f"⚙️  Loading configuration and initializing pipeline...")

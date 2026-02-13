@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 import pytest
 
-from stock_scout import calculate_rr
+from core.risk import calculate_rr
 
 
 def test_rr_clipped_when_reward_very_large():
