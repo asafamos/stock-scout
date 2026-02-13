@@ -251,107 +251,72 @@ def predict_20d_prob_from_row(row: pd.Series) -> float:
 def apply_live_v3_adjustments(
     df: pd.DataFrame,
     prob_col: str = "ML_20d_Prob_raw",
+    enable_adjustments: bool = False,
+
 ) -> pd.Series:
     """
-    Apply live_v3 adjustments to raw ML probabilities based on:
-      - Volatility bucket (ATR_Pct_percentile)
-      - Price bucket (Price_As_Of_Date)
-      - Ticker reliability meta (if available)
-    
-    Args:
-        df: DataFrame with columns:
-            - prob_col: Raw ML probability (default: ML_20d_Prob_raw)
-            - ATR_Pct_percentile: Volatility percentile [0, 1]
-            - Price_As_Of_Date: Current price
-            - ReliabilityFactor (optional): Per-ticker reliability multiplier
-        prob_col: Name of the raw probability column
-    
-    Returns:
-        pd.Series: Adjusted probabilities (ML_20d_Prob_live_v3)
-    
-    Logic (tuned to match offline research):
-      - Volatility buckets:
-        * 0.00-0.25 (low vol): -0.01 penalty
-        * 0.25-0.50 (mild): neutral
-        * 0.50-0.75 (sweet spot): +0.015 boost
-        * 0.75-1.00 (high vol): -0.005 penalty
-      - Price buckets:
-        * 0-20: +0.01 boost (only if raw prob > 0.55)
-        * 20-50: +0.01 boost
-        * 50-150: neutral
-        * 150+: -0.01 penalty
-      - Ticker reliability (optional):
-        * ReliabilityFactor available: multiply by factor
+    Apply live_v3 adjustments to raw ML probabilities (volatility/price/reliability buckets).
+    WARNING: These adjustments are not empirically validated and should be used only for research/backtest.
+    Set enable_adjustments=True to activate. By default, returns raw probabilities only.
     """
     if prob_col not in df.columns:
         logger.warning(f"Column {prob_col} not found, returning 0.5 for all rows")
         return pd.Series(0.5, index=df.index)
-    
     # Start with raw probabilities
     adjusted = df[prob_col].copy()
-    
+    if not enable_adjustments:
+        # No adjustments, just clip to [0.01, 0.99]
+        return pd.Series(np.clip(adjusted, 0.01, 0.99), index=df.index)
+
+    # --- ADJUSTMENTS BELOW ONLY IF ENABLED ---
     # Apply volatility bucket adjustments
     if "ATR_Pct_percentile" in df.columns:
         vol_pct = df["ATR_Pct_percentile"].fillna(0.5)
-        
         # Low vol (0.00-0.25): slight penalty
         adjusted = np.where(
             (vol_pct >= 0.0) & (vol_pct < 0.25),
             adjusted - 0.01,
             adjusted
         )
-        
-        # Mild vol (0.25-0.50): neutral (no change)
-        
         # Sweet spot (0.50-0.75): boost
         adjusted = np.where(
             (vol_pct >= 0.50) & (vol_pct < 0.75),
             adjusted + 0.015,
             adjusted
         )
-        
         # High vol (0.75-1.00): slight penalty
         adjusted = np.where(
             vol_pct >= 0.75,
             adjusted - 0.005,
             adjusted
         )
-    
     # Apply price bucket adjustments
     if "Price_As_Of_Date" in df.columns:
         price = df["Price_As_Of_Date"].fillna(50.0)
-        
         # 0-20: boost only if raw prob is already high (avoid garbage)
         adjusted = np.where(
             (price > 0) & (price < 20) & (df[prob_col] > 0.55),
             adjusted + 0.01,
             adjusted
         )
-        
         # 20-50: mild boost
         adjusted = np.where(
             (price >= 20) & (price < 50),
             adjusted + 0.01,
             adjusted
         )
-        
-        # 50-150: neutral (no change)
-        
         # 150+: mild penalty
         adjusted = np.where(
             price >= 150,
             adjusted - 0.01,
             adjusted
         )
-    
     # Apply ticker reliability multiplier (if available)
     if "ReliabilityFactor" in df.columns:
         reliability = df["ReliabilityFactor"].fillna(1.0)
         adjusted = adjusted * reliability
-    
     # Clip final probability to [0.01, 0.99]
     adjusted = np.clip(adjusted, 0.01, 0.99)
-    
     return pd.Series(adjusted, index=df.index)
 
 
@@ -363,36 +328,28 @@ def calibrate_ml_20d_prob(
     reliability_factor: float | None = None,
     market_regime: str | None = None,
     rsi: float | None = None,
+    enable_adjustments: bool = False,
 ) -> float:
     """
     Calibrate a single raw ML 20d probability using the same semantics as live_v3.
-
-    Inputs:
-      - prob_raw: Raw model probability in [0,1]
-      - atr_pct_percentile: Optional volatility percentile [0,1]
-      - price_as_of: Optional last price to bucket by price levels
-      - reliability_factor: Optional multiplicative reliability factor
-
-    Returns:
-      - float in [0.01, 0.99]: calibrated probability
-
-    Notes:
-      - Mirrors apply_live_v3_adjustments logic for scalar usage in code paths
-        that don't have a full DataFrame (e.g., single-row computations).
+    WARNING: Adjustments are not empirically validated. Set enable_adjustments=True to activate.
+    By default, returns raw probability (clipped).
     """
     try:
         if prob_raw is None or not np.isfinite(prob_raw):
             # Explicit missing-value semantics; caller should handle fallback
             return np.nan
         adjusted = float(prob_raw)
+        if not enable_adjustments:
+            return float(np.clip(adjusted, 0.01, 0.99))
 
+        # --- ADJUSTMENTS BELOW ONLY IF ENABLED ---
         # Volatility bucket adjustments
         if atr_pct_percentile is not None and np.isfinite(atr_pct_percentile):
             v = float(atr_pct_percentile)
             if 0.0 <= v < 0.25:
                 adjusted -= 0.01
             elif 0.50 <= v < 0.75:
-                # Sweet spot boost varies by regime: stronger in bull markets
                 boost = 0.015
                 if isinstance(market_regime, str) and market_regime.upper() == 'BULLISH':
                     boost = 0.035
@@ -412,33 +369,24 @@ def calibrate_ml_20d_prob(
 
         # Reliability handling
         if reliability_factor is not None and np.isfinite(reliability_factor):
-            # When provided, retain multiplicative semantics
             adjusted *= float(reliability_factor)
         else:
-            # Missing reliability: apply small conservative adjustment (5% toward neutral)
-            # instead of severe dampening to preserve model signal
             adjusted = 0.95 * adjusted + 0.05 * 0.5
 
         # Regime Bonus/Penalty adjustments
         try:
             regime = (market_regime or '').upper()
             rsi_val = float(rsi) if (rsi is not None and np.isfinite(rsi)) else 50.0
-
-            # BEARISH or PANIC: suppress overbought names
             if regime in {'BEARISH', 'PANIC'}:
                 if rsi_val > 65.0:
                     adjusted -= 0.06
-
-            # CORRECTION: flight to quality via reliability emphasis
             if regime == 'CORRECTION':
                 if reliability_factor is not None and np.isfinite(reliability_factor):
                     if float(reliability_factor) > 1.1:
                         adjusted += 0.02
         except Exception:
-            # Defensive: ignore regime tweaks if inputs malformed
             pass
 
-        # Clip
         adjusted = float(np.clip(adjusted, 0.01, 0.99))
         return adjusted
     except Exception:

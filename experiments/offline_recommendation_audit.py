@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 import os
 
 import numpy as np
+from core.ml_targets import make_label_20d
 import pandas as pd
 import yfinance as yf
 
@@ -224,8 +225,8 @@ def main() -> None:
                         "BigWinnerScore_20d": float(bw.get("BigWinnerScore_20d", 0.0)),
                         "BigWinnerFlag_20d": int(bw.get("BigWinnerFlag_20d", 0)),
                         "Forward_Return_20d": forward_ret,
-                        # Classification label: 1 if strong winner (>= +15%), 0 if flat/weak (<= +2%), else neutral
-                        "Label_20d": (1 if forward_ret >= 0.15 else (0 if forward_ret <= 0.02 else -1)),
+                        # Classification label: unified logic
+                        "Label_20d": make_label_20d(pd.Series([forward_ret])).iloc[0],
                         # Multi-period returns (from build_technical_indicators)
                         "Return_5d": float(row_ind.get("Return_5d", np.nan)),
                         "Return_10d": float(row_ind.get("Return_10d", np.nan)),
@@ -270,12 +271,13 @@ def main() -> None:
                 print(f"[ERROR] {tkr}: {e}")
                 traceback.print_exc()
         out_df = pd.DataFrame(rows)
-        # Optionally drop neutral rows (Label_20d == -1)
-        if not out_df.empty and bool(args.drop_neutral):
+        # Drop NaN labels (unified logic)
+        if not out_df.empty:
             before = len(out_df)
-            out_df = out_df[out_df["Label_20d"].isin([0, 1])].copy()
+            out_df = out_df.dropna(subset=["Label_20d"]).copy()
+            out_df["Label_20d"] = out_df["Label_20d"].astype(int)
             after = len(out_df)
-            print(f"[INFO] Dropped neutral rows: {before - after} (kept {after})")
+            print(f"[INFO] Dropped NaN labels: {before - after} (kept {after})")
         
         # Compute context-dependent features (relative strength, volatility percentiles)
         if not out_df.empty:

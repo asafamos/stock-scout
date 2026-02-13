@@ -214,6 +214,7 @@ def disable_provider(provider: str) -> None:
 
 # Global default provider status (set via preflight)
 _DEFAULT_PROVIDER_STATUS: Dict[str, bool] = {}
+_DEFAULT_PROVIDER_STATUS_LOCK = __import__('threading').Lock()
 
 # Dynamic provider priority list for fundamentals (populated by preflight)
 _PROVIDER_PRIORITY: List[str] = []
@@ -255,23 +256,20 @@ class WindowRateLimiter:
 _POLYGON_WINDOW_LIMITER = WindowRateLimiter(max_calls=5, window_seconds=60)
 
 def set_default_provider_status(preflight_status: Dict[str, Dict[str, Any]] | None) -> None:
-    """Set global default provider status from preflight results.
-
-    Maps uppercase provider keys to internal lower-case flags.
-    Also disables FMP index category if preflight reported forbidden.
-    """
+    """Set global default provider status from preflight results (thread-safe)."""
     global _DEFAULT_PROVIDER_STATUS
     try:
         status = preflight_status or {}
-        _DEFAULT_PROVIDER_STATUS = {
-            "fmp": bool(status.get("FMP", {"ok": True}).get("ok", True)),
-            "finnhub": bool(status.get("FINNHUB", {"ok": True}).get("ok", True)),
-            "tiingo": bool(status.get("TIINGO", {"ok": True}).get("ok", True)),
-            "alpha": bool(status.get("ALPHAVANTAGE", {"ok": True}).get("ok", True)),
-            "polygon": bool(status.get("POLYGON", {"ok": True}).get("ok", True)),
-            "eodhd": bool(status.get("EODHD", {"ok": True}).get("ok", True)),
-            "simfin": bool(status.get("SIMFIN", {"ok": True}).get("ok", True)),
-        }
+        with _DEFAULT_PROVIDER_STATUS_LOCK:
+            _DEFAULT_PROVIDER_STATUS = {
+                "fmp": bool(status.get("FMP", {"ok": True}).get("ok", True)),
+                "finnhub": bool(status.get("FINNHUB", {"ok": True}).get("ok", True)),
+                "tiingo": bool(status.get("TIINGO", {"ok": True}).get("ok", True)),
+                "alpha": bool(status.get("ALPHAVANTAGE", {"ok": True}).get("ok", True)),
+                "polygon": bool(status.get("POLYGON", {"ok": True}).get("ok", True)),
+                "eodhd": bool(status.get("EODHD", {"ok": True}).get("ok", True)),
+                "simfin": bool(status.get("SIMFIN", {"ok": True}).get("ok", True)),
+            }
         fmp_index_ok = bool(status.get("FMP_INDEX", {"ok": True}).get("ok", True))
         if not fmp_index_ok:
             disable_provider_category("fmp", "index")

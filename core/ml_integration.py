@@ -37,10 +37,13 @@ DEFAULT_FEATURES: List[str] = get_feature_names("v3")
 # This will be populated when the model is loaded (from bundle or defaults)
 EXPECTED_FEATURES: List[str] = []
 
-# Global model cache
+
+# Global model cache with thread safety
+import threading
 _ML_MODEL = None
 _MODEL_LOADED = False
 _MODEL_BUNDLE = None  # Store full bundle for metadata access
+_MODEL_LOCK = threading.Lock()
 
 
 # Model path priority (first found is used):
@@ -110,74 +113,75 @@ def load_ml_model(model_path: Optional[str] = None) -> bool:
     """
     global _ML_MODEL, _MODEL_LOADED, _MODEL_PATH, _MODEL_BUNDLE, EXPECTED_FEATURES
 
-    if model_path:
-        _MODEL_PATH = model_path
-    elif _MODEL_PATH is None:
-        _MODEL_PATH = _find_model_path()
+    with _MODEL_LOCK:
+        if model_path:
+            _MODEL_PATH = model_path
+        elif _MODEL_PATH is None:
+            _MODEL_PATH = _find_model_path()
 
-    if _MODEL_LOADED:
-        return _ML_MODEL is not None
+        if _MODEL_LOADED:
+            return _ML_MODEL is not None
 
-    if _MODEL_PATH is None:
-        logger.warning("No ML model file found in any expected location")
-        _MODEL_LOADED = True
-        return False
-
-    try:
-        # Try joblib first (newer format), fall back to pickle
-        try:
-            loaded = joblib.load(_MODEL_PATH)
-            logger.debug(f"Loaded model using joblib from {_MODEL_PATH}")
-        except Exception:
-            with open(_MODEL_PATH, "rb") as f:
-                loaded = pickle.load(f)
-            logger.debug(f"Loaded model using pickle from {_MODEL_PATH}")
-
-        # Handle bundled models (dict with 'model' key)
-        if isinstance(loaded, dict) and 'model' in loaded:
-            logger.info(f"Loaded model bundle with keys: {list(loaded.keys())}")
-            _MODEL_BUNDLE = loaded
-            _ML_MODEL = loaded['model']
-            
-            # Extract feature names from bundle
-            if 'feature_names' in loaded:
-                EXPECTED_FEATURES = list(loaded['feature_names'])
-                logger.info(f"Loaded {len(EXPECTED_FEATURES)} features from model bundle")
-            elif hasattr(_ML_MODEL, 'feature_names_in_'):
-                EXPECTED_FEATURES = list(_ML_MODEL.feature_names_in_)
-                logger.info(f"Loaded {len(EXPECTED_FEATURES)} features from model attribute")
-            else:
-                EXPECTED_FEATURES = DEFAULT_FEATURES.copy()
-                logger.warning(f"No feature names in bundle, using defaults: {len(EXPECTED_FEATURES)} features")
-        else:
-            # Plain model (not bundled)
-            _ML_MODEL = loaded
-            _MODEL_BUNDLE = None
-            if hasattr(_ML_MODEL, 'feature_names_in_'):
-                EXPECTED_FEATURES = list(_ML_MODEL.feature_names_in_)
-            else:
-                EXPECTED_FEATURES = DEFAULT_FEATURES.copy()
-                logger.warning("Model has no feature_names_in_, using defaults")
-
-        # Validate the model against expected features
-        if not validate_model_features(_ML_MODEL, EXPECTED_FEATURES):
-            logger.error("Model features don't match expected features!")
-            logger.error(f"Expected {len(EXPECTED_FEATURES)} features: {EXPECTED_FEATURES[:5]}...")
-            _ML_MODEL = None
+        if _MODEL_PATH is None:
+            logger.warning("No ML model file found in any expected location")
             _MODEL_LOADED = True
             return False
 
-        logger.info(f"✓ ML model loaded from {_MODEL_PATH}")
-        logger.info(f"  Model type: {type(_ML_MODEL).__name__}")
-        logger.info(f"  Features: {len(EXPECTED_FEATURES)}")
-        _MODEL_LOADED = True
-        return True
+        try:
+            # Try joblib first (newer format), fall back to pickle
+            try:
+                loaded = joblib.load(_MODEL_PATH)
+                logger.debug(f"Loaded model using joblib from {_MODEL_PATH}")
+            except Exception:
+                with open(_MODEL_PATH, "rb") as f:
+                    loaded = pickle.load(f)
+                logger.debug(f"Loaded model using pickle from {_MODEL_PATH}")
 
-    except Exception as e:
-        logger.error(f"Failed to load ML model: {e}")
-        _ML_MODEL = None
-        _MODEL_LOADED = True
-        return False
+            # Handle bundled models (dict with 'model' key)
+            if isinstance(loaded, dict) and 'model' in loaded:
+                logger.info(f"Loaded model bundle with keys: {list(loaded.keys())}")
+                _MODEL_BUNDLE = loaded
+                _ML_MODEL = loaded['model']
+            
+                # Extract feature names from bundle
+                if 'feature_names' in loaded:
+                    EXPECTED_FEATURES = list(loaded['feature_names'])
+                    logger.info(f"Loaded {len(EXPECTED_FEATURES)} features from model bundle")
+                elif hasattr(_ML_MODEL, 'feature_names_in_'):
+                    EXPECTED_FEATURES = list(_ML_MODEL.feature_names_in_)
+                    logger.info(f"Loaded {len(EXPECTED_FEATURES)} features from model attribute")
+                else:
+                    EXPECTED_FEATURES = DEFAULT_FEATURES.copy()
+                    logger.warning(f"No feature names in bundle, using defaults: {len(EXPECTED_FEATURES)} features")
+            else:
+                # Plain model (not bundled)
+                _ML_MODEL = loaded
+                _MODEL_BUNDLE = None
+                if hasattr(_ML_MODEL, 'feature_names_in_'):
+                    EXPECTED_FEATURES = list(_ML_MODEL.feature_names_in_)
+                else:
+                    EXPECTED_FEATURES = DEFAULT_FEATURES.copy()
+                    logger.warning("Model has no feature_names_in_, using defaults")
+
+            # Validate the model against expected features
+            if not validate_model_features(_ML_MODEL, EXPECTED_FEATURES):
+                logger.error("Model features don't match expected features!")
+                logger.error(f"Expected {len(EXPECTED_FEATURES)} features: {EXPECTED_FEATURES[:5]}...")
+                _ML_MODEL = None
+                _MODEL_LOADED = True
+                return False
+
+            logger.info(f"✓ ML model loaded from {_MODEL_PATH}")
+            logger.info(f"  Model type: {type(_ML_MODEL).__name__}")
+            logger.info(f"  Features: {len(EXPECTED_FEATURES)}")
+            _MODEL_LOADED = True
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to load ML model: {e}")
+            _ML_MODEL = None
+            _MODEL_LOADED = True
+            return False
 
 
 def get_model_info() -> Dict[str, Any]:
@@ -226,38 +230,26 @@ def get_ml_prediction(features: Dict[str, float]) -> Optional[float]:
         Probability 0-1, or None if model unavailable or prediction fails
     """
     global _ML_MODEL, _MODEL_LOADED
-    
-    # Ensure model is loaded
-    if not _MODEL_LOADED:
-        load_ml_model()
-    
-    if _ML_MODEL is None:
+
+    # Ensure model is loaded (thread-safe)
+    with _MODEL_LOCK:
+        if not _MODEL_LOADED:
+            load_ml_model()
+        model = _ML_MODEL
+
+    if model is None:
         return None
-    
+
     try:
         # Convert features dict to DataFrame (single row)
-        # The model expects specific feature names from training
         df = pd.DataFrame([features])
-        
-        # Get prediction probability
-        # For XGBoost binary classifier: predict_proba returns [[prob_class_0, prob_class_1]]
-        proba = _ML_MODEL.predict_proba(df)
-        
+        proba = model.predict_proba(df)
         if proba is None or len(proba) == 0:
             return None
-        
-        # Return probability of positive class (win)
         prob_win = float(proba[0][1])
-        
-        # Sanity check
         if not (0 <= prob_win <= 1):
             logger.warning(f"ML probability out of range: {prob_win}")
             return None
-        
-        # NOTE: Return raw model probabilities. Proper probability calibration
-        # (e.g., Platt scaling, isotonic regression) should be applied during
-        # model training, not at inference time. See train_rolling_ml_20d.py.
-        
         return prob_win
         
     except Exception as e:

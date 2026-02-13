@@ -17,6 +17,7 @@ import joblib
 import argparse
 import pandas as pd
 import numpy as np
+from core.ml_targets import compute_forward_return, make_label_20d
 from pathlib import Path
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -193,7 +194,7 @@ def calculate_all_features(df: pd.DataFrame, spy_df: pd.DataFrame, ticker: str) 
     result['Support_Strength'] = (close <= support_threshold).rolling(20).mean()
 
     # Forward return for labeling
-    result['Forward_Return_20d'] = close.shift(-20) / close - 1
+    result['Forward_Return_20d'] = compute_forward_return(close)
 
     # Cleanup
     result['Ticker'] = ticker
@@ -328,15 +329,13 @@ def train_model(df: pd.DataFrame, source: str) -> bool:
         if old in df.columns and new not in df.columns:
             df[new] = df[old]
 
-    # Create label if needed
-    if 'Label' not in df.columns and 'Forward_Return_20d' in df.columns:
-        threshold = df['Forward_Return_20d'].quantile(0.80)
-        df['Label'] = (df['Forward_Return_20d'] >= threshold).astype(int)
-        print(f"🎯 Created labels (threshold: {threshold*100:.1f}%)")
-
-    if 'Label' not in df.columns:
-        print("❌ No label column!")
-        return False
+    # Create Label_20d using shared logic
+    if 'Label_20d' not in df.columns and 'Forward_Return_20d' in df.columns:
+        df['Label_20d'] = make_label_20d(df['Forward_Return_20d'])
+    df = df.dropna(subset=["Label_20d"]).copy()
+    df["Label_20d"] = df["Label_20d"].astype(int)
+    if df["Label_20d"].isnull().any():
+        print("❌ Some labels are NaN after make_label_20d!")
 
     # Fill missing features
     for feat in FEATURE_NAMES:
@@ -345,7 +344,7 @@ def train_model(df: pd.DataFrame, source: str) -> bool:
 
     # Prepare X, y
     X = df[FEATURE_NAMES].copy()
-    y = df['Label'].copy()
+    y = df['Label_20d'].copy()
 
     X = X.replace([np.inf, -np.inf], np.nan)
     for col in X.columns:

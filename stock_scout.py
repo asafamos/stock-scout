@@ -1,524 +1,69 @@
 # -*- coding: utf-8 -*-
 """
-Stock Scout — Streamlit app for building a US equities universe,
-computing indicators and scores, optional fundamentals, and presenting
-an RTL/English UI with CSV export and quick charts.
+Stock Scout — Streamlit UI entrypoint.
+CONFIG is imported from app_config (built from core.config dataclass).
 """
 
-from __future__ import annotations
+# ── stdlib ──────────────────────────────────────────────────────────
 import os
+import io
 import time
+import json
 import logging
 import warnings
-import pickle
+import datetime
+from datetime import timedelta
 from pathlib import Path
-from datetime import datetime, timedelta
-from typing import List, Dict, Optional, Tuple, Set
-
-import numpy as np
-import pandas as pd
-import requests
-import yfinance as yf
-import streamlit as st
-import plotly.graph_objs as go
-from dotenv import load_dotenv, find_dotenv
+from typing import Any, Dict, List, Optional, Set, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import html as html_escape
 
-# --- FORCE API KEYS (USER CONFIGURATION / SAFE INJECTION) ---
-# Inject API keys from environment, .env, or Streamlit secrets BEFORE core imports.
-# This ensures all core modules initialize with real provider credentials.
-try:
-    # Load .env without overriding existing env
-    _dotenv_path = find_dotenv(usecwd=True)
-    if _dotenv_path:
-        load_dotenv(_dotenv_path, override=False)
-except Exception:
-    pass
+# ── third-party ─────────────────────────────────────────────────────
+import numpy as np
+import pandas as pd
+import requests
+import streamlit as st
+import plotly.graph_objs as go
+import yfinance as yf
+from dotenv import load_dotenv, find_dotenv
 
-def _clean_key(val: Optional[str]) -> Optional[str]:
-    try:
-        if val is None:
-            return None
-        return str(val).strip().strip('"').strip("'")
-    except Exception:
-        return val
+# ── project: config ─────────────────────────────────────────────────
+from app_config import CONFIG
 
-def _inject_api_keys_early() -> None:
-    keys = [
-        "OPENAI_API_KEY",
-        "ALPHA_VANTAGE_API_KEY",
-        "FINNHUB_API_KEY",
-        "POLYGON_API_KEY",
-        "TIINGO_API_KEY",
-        "FMP_API_KEY",
-        "MARKETSTACK_API_KEY",
-        "NASDAQ_API_KEY",
-        "NASDAQ_DL_API_KEY",
-        "EODHD_API_KEY",
-        "EODHD_TOKEN",
-        "SIMFIN_API_KEY",
-    ]
-    for k in keys:
-        val = _clean_key(os.getenv(k))
-        # Prefer Streamlit secrets if available
-        try:
-            if not val and hasattr(st, "secrets") and k in st.secrets:
-                val = _clean_key(st.secrets[k])
-        except Exception:
-            pass
-        if val:
-            os.environ[k] = str(val)
-    # Universe limit: default to 2000 unless explicitly set
-    if not os.getenv("UNIVERSE_LIMIT"):
-        os.environ["UNIVERSE_LIMIT"] = "2000"
+# ── project: indicators ─────────────────────────────────────────────
+from indicators import rsi
 
-_inject_api_keys_early()
-# ------------------------------------------------------------
-
-# ============================================================================
-# NEW UNIFIED API - Use wrapper modules
-
-# Minimal NullStatus for import-time safety when context is missing
-class NullStatus:
-    def write(self, *args, **kwargs):
-        pass
-    def update(self, *args, **kwargs):
-        pass
-    def __enter__(self):
-        return self
-    def __exit__(self, exc_type, exc, tb):
-        return False
-# ============================================================================
-from core.data import (
-    fetch_price_multi_source,
-    aggregate_price,
-    aggregate_fundamentals,
-    fetch_fundamentals_batch,
-    build_technical_indicators,
-)
-from core.scoring import (
-    compute_tech_score_20d_v2,
-    predict_20d_prob_from_row,
-    apply_live_v3_adjustments,
-    compute_final_scores_20d,
-    apply_20d_sorting,
-    score_ticker_v2_enhanced,
-    calculate_reliability_v2,
-    compute_fundamental_score_with_breakdown,
-    evaluate_rr_unified,
-)
-from core.filters import (
-    apply_technical_filters,
-    compute_advanced_score,
-    should_reject_ticker,
-    fetch_benchmark_data,
-)
-# Allocation is computed by the pipeline; UI should not recompute
-from core.classifier import apply_classification, filter_core_recommendations
-
-# ============================================================================
-# LEGACY IMPORTS - For backward compatibility (deprecated, will be removed)
-# ============================================================================
-
-from indicators import rsi, atr, macd_line, adx, _sigmoid
-
-# ============================================================================
-# UI & CONFIG
-# ============================================================================
-from card_styles import get_card_css
-from ui_redesign import (
-    render_simplified_sidebar,
-    render_native_recommendation_row,
-)
-from hebrew_ui import (
-    setup_hebrew_rtl,
-    render_top_control_bar,
-    render_hebrew_sidebar_expander,
-    render_view_controls,
-    render_recommendation_row_hebrew,
-    render_core_section_hebrew,
-    render_speculative_section_hebrew,
-    render_kpi_cards_hebrew,
-    force_ml_and_sorting,
-)
-from core.config import get_config
-from core.market_regime import detect_market_regime, adjust_target_for_regime
+# ── project: core helpers / UI ──────────────────────────────────────
 from core.ui_helpers import (
     StatusManager,
-    SourcesOverview,
     get_pipeline_stages,
-    show_config_summary,
     create_debug_expander,
+    SourcesOverview,
 )
-from core.pipeline_runner import run_scan_pipeline, fetch_top_us_tickers_by_market_cap, LAST_UNIVERSE_PROVIDER
+from core.market_regime import detect_market_regime, adjust_target_for_regime
+from core.scan_io import load_latest_scan, save_scan as save_scan_helper
+from core.pipeline_runner import (
+    run_scan_pipeline,
+    fetch_top_us_tickers_by_market_cap,
+    LAST_UNIVERSE_PROVIDER,
+)
 from core.data_sources_v2 import clear_cache, reset_disabled_providers
 
-# Helper: build clean minimal card
-
-# Small safety helpers to avoid None-related TypeErrors when building HTML
-def _safe_str(v, default: str = "N/A") -> str:
-    """Return a safe string for value `v`. If v is None return `default`.
-    If v is already a string return it unchanged."""
-    if v is None:
-        return default
-    try:
-        return str(v)
-    except Exception:
-        return default
-
-
-def _num(v) -> float:
-    """Coerce v to float if possible, otherwise return np.nan. Safe for None."""
-    try:
-        if v is None:
-            return np.nan
-        return float(v)
-    except Exception:
-        return np.nan
-
-
-def _is_finite(v) -> bool:
-    """Safe wrapper around np.isfinite that returns False for non-numeric/None."""
-    try:
-        return np.isfinite(v)
-    except Exception:
-        return False
-
-# --- Robust .env loading (earlier + multi-path) ---------------------------------
-def _force_load_env() -> None:
-    """Attempt to load .env from common locations before any key access.
-    Uses override=True so local development updates take effect immediately.
-    Safe to call multiple times (idempotent)."""
-    try:
-        from dotenv import load_dotenv
-
-        candidates = [Path(".env"), Path(__file__).parent / ".env", Path.cwd() / ".env"]
-        for p in candidates:
-            if p.exists():
-                load_dotenv(p, override=True)
-    except Exception:
-        pass
-
-
-_force_load_env()
-
-
-def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
-    """
-    Build professional minimal card with:
-    - Header: Ticker, Badge, Overall Score only
-    - Top 6 fields: Target, RR, Risk, Reliability, ML, Quality
-    - Rest in <details> collapsible section
-    - No emojis except ⚠️ for warnings
-    - Tabular numbers, consistent formatting
-    """
-    esc = html_escape.escape
-    ticker = esc(_safe_str(row.get("Ticker", "N/A")))
-    overall_rank = row.get("Overall_Rank", "N/A")
-    # Use pretty score for display (60-90 range), raw score for internal logic
-    # Show both pretty score and 20d score
-    from core.scoring_config import get_canonical_score
-    overall_score = get_canonical_score(row)
-    score_20d = row.get("FinalScore_20d", None)
-    target_price = _num(row.get("Target_Price", np.nan))
-    # Use broader fallback chain for precomputed scans (no UI-only columns)
-    entry_price = _num(
-        row.get(
-            "Entry_Price",
-            row.get(
-                "Price_Yahoo",
-                row.get(
-                    "Unit_Price",
-                    row.get("Close", np.nan)
-                )
-            )
-        )
-    )
-    target_date = _safe_str(row.get("Target_Date", "N/A"))
-    target_source = _safe_str(row.get("Target_Source", "N/A"))
-    # Prefer v2/alias RR_Ratio if present
-    rr_ratio = _num(row.get("RR_Ratio", row.get("rr", np.nan)))
-    rr_score = _num(row.get("rr_score_v2", np.nan))
-    rr_band = _safe_str(row.get("rr_band", ""), "")
-
-    # Get display bands
-    risk_meter = _num(row.get("risk_meter_v2", np.nan))
-    risk_band_label = _safe_str(row.get("risk_band", row.get("Risk_Level", "N/A")))
-    reliability_pct = _num(row.get("reliability_pct", row.get("Reliability_v2", np.nan)))
-    reliability_band_label = _safe_str(row.get("reliability_band", "N/A"))
-    # Fallback: derive reliability band from percentage if missing
-    if (not reliability_band_label) or reliability_band_label == "N/A":
-        if np.isfinite(reliability_pct):
-            if reliability_pct >= 75:
-                reliability_band_label = "High"
-            elif reliability_pct >= 40:
-                reliability_band_label = "Medium"
-            else:
-                reliability_band_label = "Low"
-    # Prefer canonical ML probability from 20d pipeline
-    ml_prob = _num(row.get("ML_20d_Prob", row.get("ML_Probability", np.nan)))
-
-    # Derive confidence band with explicit Low/Medium/High thresholds; fallback message if missing
-    def ml_conf_band(p: float) -> str:
-        if not np.isfinite(p):
-            return "N/A"
-        if p < 0.60:
-            return "Low"
-        if p < 0.75:
-            return "Medium"
-        return "High"
-
-    ml_conf_band_label = _safe_str(row.get("ml_conf_band", ml_conf_band(ml_prob)))
-
-    quality_level = _safe_str(row.get("Quality_Level", row.get("quality_level", "N/A")))
-    quality_score = _num(row.get("Quality_Score_Numeric", np.nan))
-    conv_base = _num(row.get("conviction_v2_base", np.nan))
-
-    # Component scores for <details>
-    fund_score = _num(row.get("Fundamental_S", np.nan))
-    tech_score = _num(row.get("Technical_S", np.nan))
-    # Compressed data sources line (prices + fundamentals providers if available)
-    price_sources = _safe_str(row.get("Price_Sources_Line", row.get("price_sources_line", "")), "")
-    fund_sources = _safe_str(row.get("Fund_Sources_Line", row.get("fund_sources_line", "")), "")
-    sources_line = ""
-    if price_sources or fund_sources:
-        sources_line = f"Data sources: Prices - {price_sources or 'N/A'}; Fundamentals - {fund_sources or 'N/A'}"
-
-    def fmt_money(v):
-        return f"${v:.2f}" if _is_finite(v) else "N/A"
-
-    def fmt_pct(v):
-        """Format percentage values with 1 decimal place."""
-        return f"{v:.1f}%" if _is_finite(v) else "N/A"
-
-    def fmt_score(v):
-        # Handle lists by taking first element or count
-        if isinstance(v, (list, tuple)):
-            if len(v) == 0:
-                return "0"
-            v = len(v) if all(isinstance(x, str) for x in v) else v[0]
-        # Handle non-numeric types
-        try:
-            fv = _num(v)
-            return f"{float(fv):.0f}" if _is_finite(fv) else "N/A"
-        except (TypeError, ValueError):
-            return _safe_str(v, "N/A")
-
-    entry_fmt = fmt_money(entry_price)
-    target_fmt = fmt_money(target_price)
-    if _is_finite(entry_price) and _is_finite(target_price) and entry_price > 0:
-        potential_gain_pct = ((target_price - entry_price) / entry_price) * 100
-        potential_fmt = f"+{potential_gain_pct:.1f}%"
-    else:
-        potential_fmt = "N/A"
-
-    target_badge = ""
-    if target_source == "AI":
-        target_badge = '<span class="badge ai">AI</span>'
-    elif target_source == "Technical":
-        target_badge = '<span class="badge tech">Tech</span>'
-
-    # Ratios -> 2 decimals, Scores -> int or (if fractional) 1 decimal, Percentages handled by fmt_pct
-    rr_ratio_fmt = f"{rr_ratio:.2f}" if _is_finite(rr_ratio) else "N/A"
-    overall_score_fmt = fmt_score(overall_score)  # already integer style
-    score_20d_fmt = fmt_score(score_20d) if score_20d is not None else "N/A"
-    if _is_finite(quality_score):
-        quality_score_fmt = f"{quality_score:.1f}" if abs(quality_score - round(quality_score)) > 0.05 else f"{int(round(quality_score))}"
-    else:
-        quality_score_fmt = "N/A"
-
-    # Get Fund and Price reliability separately for detailed display
-    fund_reliability = _num(row.get("Fundamental_Reliability_v2", row.get("Fundamental_Reliability", np.nan)))
-    price_reliability = _num(row.get("Price_Reliability_v2", row.get("Price_Reliability", np.nan)))
-    # Reliability percentages -> 1 decimal place
-    fund_rel_fmt = f"{fund_reliability:.1f}" if _is_finite(fund_reliability) else "N/A"
-    price_rel_fmt = f"{price_reliability:.1f}" if _is_finite(price_reliability) else "N/A"
-
-    # Format display values with bands
-    risk_fmt = f"{fmt_score(risk_meter)} ({_safe_str(risk_band_label,'N/A')})"
-    reliability_fmt = f"{_safe_str(reliability_band_label,'N/A')} (F:{fund_rel_fmt}% / P:{price_rel_fmt}%)"
-    ml_fmt = f"{_safe_str(ml_conf_band_label,'N/A')} (p={ml_prob*100:.1f}%)" if _is_finite(ml_prob) else "N/A (no model data)"
-
-    type_badge = "SPEC" if speculative else "CORE"
-    # Fallback badge if this stock is shown only due to emergency/fallback logic
-    if bool(row.get("Fallback_Display", False)):
-        type_badge += " (FB)"
-
-    # Warning indicator
-    warning = ""
-    if (_is_finite(rr_ratio) and rr_ratio < 1.5) or (_is_finite(risk_meter) and risk_meter > 70):
-        warning = " ⚠️"
-    # Badges: Coiled + Growth Boost
-    rr_5_20 = _num(row.get("RangeRatio_5_20", row.get("range_ratio_5_20", np.nan)))
-    tightness = _num(row.get("Tightness_Ratio", row.get("tightness_ratio", np.nan)))
-    eps_g = _num(row.get("eps_g_yoy", row.get("EPS YoY", np.nan)))
-    is_coiled = (np.isfinite(rr_5_20) and rr_5_20 < 0.7) or (np.isfinite(tightness) and tightness < 0.6)
-    is_growth = np.isfinite(eps_g) and eps_g > 0.25
-
-    coil_badge = "<span class='badge coil'>🎯 COILED</span>" if is_coiled else ""
-    growth_badge = "<span class='badge growth'>🚀 GROWTH BOOST</span>" if is_growth else ""
-
-    # UI no longer displays allocation notes; pipeline controls allocation logic
-
-    # Build explanation bullets (top-level quick rationale) only when warning
-    bullets = []
-    bullet_html = ""
-    if warning:
-        if _is_finite(fund_score):
-            if fund_score >= 60:
-                bullets.append(f"Fundamentals solid ({fmt_score(fund_score)})")
-            elif fund_score < 50:
-                bullets.append(f"Weak fundamentals ({fmt_score(fund_score)})")
-        if _is_finite(tech_score) and tech_score >= 65:
-            bullets.append("Technical momentum")
-        if _is_finite(rr_ratio) and rr_ratio >= 1.5:
-            bullets.append(f"RR {rr_ratio_fmt}x")
-        if reliability_band_label:
-            bullets.append(f"Reliability {reliability_band_label}")
-        if ml_conf_band_label in ("High", "Medium"):
-            bullets.append(f"ML {ml_conf_band_label}")
-        if overall_rank not in (None, "N/A"):
-            bullets.append(f"Rank #{overall_rank}")
-        if potential_fmt not in ("N/A", None):
-            bullets.append(f"Upside {potential_fmt}")
-        if bullets:
-            items = "".join(f"<li>{html_escape.escape(b)}</li>" for b in bullets[:6])
-            bullet_html = f"<ul class='signal-bullets'>{items}</ul>"
-
-    # Card HTML rendering block (always render)
-    card_html = f"""
-<div class='clean-card { 'speculative' if speculative else 'core' }'>
-    <div class='card-header'>
-        <div class='ticker-line'><span class='ticker-badge ltr'>{ticker}</span><span class='type-badge'>{type_badge}</span><span class='rank-badge ltr'>#{overall_rank}</span> {coil_badge} {growth_badge}</div>
-        <h2 class='overall-score'>{overall_score_fmt}<span class='score-label ltr'>/100</span>{warning}</h2>
-    </div>
-    <div class='entry-target-line'>Entry <b class='ltr'>{entry_fmt}</b> -> Target <b class='ltr'>{target_fmt}</b> {target_badge} <span class='potential ltr'>{potential_fmt}</span></div>
-    {bullet_html}
-    
-    <div class='top-grid'>
-        <div class='field'><span class='label'>R/R</span><span class='value tabular ltr'>{rr_ratio_fmt} <span class='band ltr'>{rr_band}</span></span></div>
-        <div class='field'><span class='label'>Risk</span><span class='value tabular ltr'>{risk_fmt}</span></div>
-        <div class='field'><span class='label'>Reliability</span><span class='value tabular ltr'>{reliability_fmt}</span></div>
-        <div class='field'><span class='label'>ML</span><span class='value tabular ltr'>{ml_fmt}</span></div>
-        <div class='field'><span class='label'>Quality</span><span class='value tabular ltr'>{quality_level} ({quality_score_fmt})</span></div>
-        <div class='field'><span class='label'>Fundamental Score</span><span class='value tabular ltr'>{fmt_score(fund_score)}</span></div>
-    </div>
-    <details class='more-info'>
-        <summary>More Details</summary>
-        <div class='detail-grid'>
-            <div class='field'><span class='label'>Target Date</span><span class='value ltr'>{target_date}</span></div>
-            <div class='field'><span class='label'>ML Probability</span><span class='value ltr'>{fmt_pct(ml_prob * 100) if np.isfinite(ml_prob) else 'N/A'}</span></div>
-            <div class='field'><span class='label'>Base Conviction</span><span class='value ltr'>{fmt_score(conv_base)}</span></div>
-            <div class='field'><span class='label'>Fund Sources</span><span class='value ltr'>{fmt_score(row.get('fund_sources_used_v2', row.get('Fundamental_Sources_Count', 0)))}</span></div>
-            <div class='field'><span class='label'>Price Sources</span><span class='value ltr'>{fmt_score(row.get('price_sources_used_v2', row.get('Price_Sources_Count', 0)))}</span></div>
-            <div class='field'><span class='label'>Price Std Dev</span><span class='value ltr'>{fmt_money(row.get('Price_STD_v2', np.nan))}</span></div>
-        </div>
-    </details>
-</div>
-"""
-    return card_html
-# Deterministic ranking helper (score desc, ticker asc) prior to Core/Spec split
-def apply_deterministic_ranking(df: pd.DataFrame) -> pd.DataFrame:
-    if df is None or df.empty:
-        return df
-    if 'Ticker' not in df.columns:
-        return df
-    score_col = None
-    for c in ['overall_score_20d','Score','overall_score','conviction_v2_final','overall_score_pretty']:
-        if c in df.columns:
-            score_col = c
-            break
-    if score_col is None:
-        # Ensure robust fallback if none of the expected score columns exist
-        df['Rank'] = range(1, len(df)+1)
-        if 'Overall_Rank' not in df.columns:
-            df['Overall_Rank'] = df['Rank']
-        return df
-    df = df.sort_values(by=[score_col,'Ticker'], ascending=[False, True]).copy()
-    df['Rank'] = range(1, len(df)+1)
-    if 'Overall_Rank' not in df.columns:
-        df['Overall_Rank'] = df['Rank']
-    return df
-
-
-# OpenAI for enhanced target price predictions
+# ── optional: OpenAI ────────────────────────────────────────────────
 try:
     from openai import OpenAI
-
     OPENAI_AVAILABLE = True
 except ImportError:
     OPENAI_AVAILABLE = False
-    OpenAI = None
 
-# Get global configuration
-_config_obj = get_config()
-CONFIG = {
-    # Convert dataclass to dict with all attributes
-    **{
-        k: getattr(_config_obj, k)
-        for k in dir(_config_obj)
-        if not k.startswith("_") and not callable(getattr(_config_obj, k))
-    },
-    # Additional backwards-compatible keys
-    "SMART_SCAN": _config_obj.smart_scan,
-    "UNIVERSE_LIMIT": _config_obj.universe_limit,
-    "LOOKBACK_DAYS": _config_obj.lookback_days,
-    "MA_SHORT": _config_obj.ma_short,
-    "MA_LONG": _config_obj.ma_long,
-    "RSI_BOUNDS": _config_obj.rsi_bounds,
-    "WEIGHTS": _config_obj.weights,
-    # Indicator toggles and thresholds
-    "USE_MACD_ADX": _config_obj.use_macd_adx,
-    "OVEREXT_SOFT": _config_obj.overext_soft,
-    "OVEREXT_HARD": _config_obj.overext_hard,
-    "PULLBACK_RANGE": _config_obj.pullback_range,
-    "ATR_PRICE_HARD": _config_obj.atr_price_hard,
-    # Basic price/volume constraints
-    "MIN_PRICE": _config_obj.min_price,
-    "MIN_AVG_VOLUME": _config_obj.min_avg_volume,
-    "MIN_DOLLAR_VOLUME": _config_obj.min_dollar_volume,
-    "MIN_MARKET_CAP": _config_obj.min_market_cap,
-    "FUNDAMENTAL_ENABLED": _config_obj.fundamental_enabled,
-    # Canonical lowercase key used by pipeline_runner
-    "fundamental_enabled": _config_obj.fundamental_enabled,
-    "FUNDAMENTAL_WEIGHT": _config_obj.fundamental_weight,
-    # Earnings / risk filters
-    "EARNINGS_BLACKOUT_DAYS": _config_obj.earnings_blackout_days,
-    "EARNINGS_CHECK_TOPK": _config_obj.earnings_check_topk,
-    "BETA_FILTER_ENABLED": _config_obj.beta_filter_enabled,
-    "BETA_TOP_K": _config_obj.beta_top_k,
-    "BETA_MAX_ALLOWED": _config_obj.beta_max_allowed,
-    "SECTOR_CAP_MAX": _config_obj.sector_cap_max,
-    "SECTOR_CAP_ENABLED": _config_obj.sector_cap_enabled,
-    # Results sizing
-    "TOPN_RESULTS": _config_obj.topn_results,
-    "TOPK_RECOMMEND": _config_obj.topk_recommend,
-    # Allocation / budget
-    "BUDGET_TOTAL": _config_obj.budget_total,
-    "MIN_POSITION": _config_obj.min_position,
-    "MAX_POSITION_PCT": _config_obj.max_position_pct,
-    "EXTERNAL_PRICE_VERIFY": _config_obj.external_price_verify,
-    "TOP_VALIDATE_K": _config_obj.top_validate_k,
-    "BETA_BENCHMARK": _config_obj.beta_benchmark,
-    # Disabled providers (legacy/deprecated/paid):
-    "ENABLE_SIMFIN": False,  # SimFin API v2 deprecated, v3 requires paid subscription
-    "ENABLE_MARKETSTACK": False,  # Monthly usage limit reached (free tier exhausted)
-    "ENABLE_NASDAQ_DL": False,  # API access blocked (403 Forbidden)
-    "ENABLE_EODHD": False,  # Requires paid subscription (402 Payment Required)
-    # --- Performance / Fast Mode Flags ---
-    "PERF_FAST_MODE": False,  # Set True to reduce external waits for interactive exploration
-    "PERF_MULTI_SOURCE_TOP_N": 8,  # In fast mode: only compute multi-source reliability for top N by score
-    "PERF_ALPHA_ENABLED": True,  # In fast mode we force this False to skip Alpha Vantage entirely
-    "PERF_FUND_TIMEOUT": 15,  # Normal per-provider future timeout
-    "PERF_FUND_TIMEOUT_FAST": 6,  # Fast mode per-provider future timeout
-    # --- Debug / Developer Flags ---
-    "DEBUG_MODE": os.getenv("STOCK_SCOUT_DEBUG", "false").lower() in ("true", "1", "yes"),
-    # --- Remote autoscan artifacts (GitHub raw) ---
-    "USE_REMOTE_AUTOSCAN": True,
-    "REMOTE_AUTOSCAN_REPO": os.getenv("REMOTE_AUTOSCAN_REPO", "asafamos/stock-scout"),
-    "REMOTE_AUTOSCAN_BRANCH": os.getenv("REMOTE_AUTOSCAN_BRANCH", "main"),
-}
+# ── NullStatus fallback (safe no-op status context) ────────────────
+class NullStatus:
+    """No-op status placeholder when st.status context is unavailable."""
+    def write(self, *a, **kw): pass
+    def update(self, *a, **kw): pass
+    def __enter__(self): return self
+    def __exit__(self, *a): pass
+
 
 # -----------------------------------------------------------------
 # Canonical fundamentals schema (numeric + string fields)
@@ -569,8 +114,6 @@ def render_data_sources_overview(provider_status: dict, provider_usage: dict, re
     Render a dynamic, compact data sources table showing which providers were actually used in this run.
     Uses emoji indicators and Hebrew labels with RTL layout and avoids any raw HTML inside the dataframe.
     """
-    import pandas as pd
-    import streamlit as st
 
     # Canonical provider names; map to internal usage labels if needed
     synonyms = {
@@ -796,7 +339,7 @@ def alpha_throttle(min_gap_seconds: float = 12.0) -> None:
 
     # Reset counter daily (conservative approach)
     last_reset_key = "_alpha_reset_date"
-    today = datetime.utcnow().date().isoformat()
+    today = datetime.datetime.utcnow().date().isoformat()
     if st.session_state.get(last_reset_key) != today:
         st.session_state[calls_key] = 0
         st.session_state[last_reset_key] = today
@@ -823,115 +366,14 @@ def alpha_throttle(min_gap_seconds: float = 12.0) -> None:
     st.session_state[calls_key] = call_count + 1
 
 
-# --- Build Universe (restored) ---
-def build_universe(limit: int) -> List[str]:
-    """Build a wide US universe (NASDAQ + NYSE + AMEX) with sane filters.
-
-    Priority: cached file data/universe_full.csv (Symbol column). If missing, fetch
-    nasdaqlisted + otherlisted symbol directories, drop ETFs/test/warrants, dedupe,
-    and fall back to S&P500 if everything fails.
-    """
-
-    def _clean_symbols(df: pd.DataFrame, sym_col: str = "Symbol") -> List[str]:
-        if sym_col not in df.columns:
-            return []
-        syms = (
-            df[sym_col]
-            .astype(str)
-            .str.strip()
-            .str.replace(".", "-", regex=False)
-            .tolist()
-        )
-        # Basic sanity: drop empty and very long symbols
-        syms = [s for s in syms if s and len(s) <= 6]
-        return syms
-
-    # 1) Cached file if exists
-    cache_path = Path("data/universe_full.csv")
-    if cache_path.exists():
-        try:
-            df_cache = pd.read_csv(cache_path)
-            cached = _clean_symbols(df_cache, sym_col="Symbol") or _clean_symbols(df_cache, sym_col="symbol")
-            uniq = list(pd.unique(cached))
-            logger.info(f"✓ Loaded cached universe_full.csv with {len(uniq)} symbols")
-            return uniq[:limit]
-        except Exception as e:
-            logger.warning(f"Cached universe_full.csv load failed: {e}")
-
-    # 2) NASDAQ + OTHERLISTED (full US common stock list)
-    try:
-        nasdaq_url = "https://ftp.nasdaqtrader.com/dynamic/SYMBOLDirectory/nasdaqlisted.txt"
-        other_url = "https://ftp.nasdaqtrader.com/dynamic/SYMBOLDirectory/otherlisted.txt"
-        nasdaq_df = pd.read_csv(nasdaq_url, sep="|")
-        other_df = pd.read_csv(other_url, sep="|")
-
-        # Filter out ETFs, test issues, rights/warrants
-        if "ETF" in nasdaq_df.columns:
-            nasdaq_df = nasdaq_df[nasdaq_df["ETF"] != "Y"]
-        if "Test Issue" in nasdaq_df.columns:
-            nasdaq_df = nasdaq_df[nasdaq_df["Test Issue"] != "Y"]
-        if "Exchange" in other_df.columns:
-            other_df = other_df[other_df["Exchange"].isin(["A", "N", "Q"])]
-        for col in ("Test Issue", "ETF"):
-            if col in other_df.columns:
-                other_df = other_df[other_df[col] != "Y"]
-
-        syms = _clean_symbols(nasdaq_df, sym_col="Symbol") + _clean_symbols(other_df, sym_col="ACT Symbol")
-        uniq = list(pd.unique(syms))
-        logger.info(f"✓ Loaded {len(uniq)} symbols from NASDAQ/NYSE/AMEX lists")
-        return uniq[:limit]
-    except Exception as e:
-        logger.warning(f"NASDAQ/OTHERLISTED fetch failed ({e}), falling back to S&P500")
-
-    # 3) Fallback to S&P500 (previous behavior)
-    try:
-        tables = pd.read_html(
-            "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies",
-            storage_options={"User-Agent": "Mozilla/5.0"},
-        )
-        df_sp = tables[1]
-        df_sp = df_sp.drop_duplicates(subset="Security", keep="first")
-        tickers = df_sp["Symbol"].astype(str).str.replace(".", "-", regex=False).tolist()
-        logger.info(f"✓ Loaded {len(tickers)} S&P500 symbols (fallback)")
-        return tickers[:limit]
-    except Exception as e:
-        logger.warning(f"Fallback S&P500 fetch failed ({e}), using tiny fallback list")
-        fallback = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "JPM", "V", "WMT", "UNH", "AVGO"]
-        return fallback[:limit]
-
-
-def fetch_history_bulk(
-    tickers: List[str], period_days: int, ma_long: int
-) -> Dict[str, pd.DataFrame]:
-    """Fetch bulk historical data with sufficient lookback for moving averages."""
-    import yfinance as yf
-
-    end = datetime.utcnow()
-    start = end - timedelta(days=period_days + 50)
-
-    data_map: Dict[str, pd.DataFrame] = {}
-    min_rows = ma_long + 40
-
-    for tkr in tickers:
-        try:
-            df = yf.download(tkr, start=start, end=end, progress=False)
-            if df is not None and len(df) >= min_rows:
-                # Handle MultiIndex columns from newer yfinance versions
-                if isinstance(df.columns, pd.MultiIndex):
-                    df.columns = df.columns.get_level_values(0)
-                data_map[tkr] = df
-        except Exception as exc:  # best-effort fetch per ticker
-            logger.warning(f"Historical fetch failed for {tkr}: {exc}")
-
-    return data_map
 # ==================== Earnings ====================
 @st.cache_data(ttl=60 * 60)
-def get_next_earnings_date(ticker: str) -> Optional[datetime]:
+def get_next_earnings_date(ticker: str) -> Optional[datetime.datetime]:
     """Get next earnings date from Finnhub -> yfinance fallback."""
     try:
         key = _env("FINNHUB_API_KEY")
         if key:
-            today = datetime.utcnow().date()
+            today = datetime.datetime.utcnow().date()
             url = (
                 f"https://finnhub.io/api/v1/calendar/earnings?from={today.isoformat()}"
                 f"&to={(today + timedelta(days=180)).isoformat()}&symbol={ticker}&token={key}"
@@ -941,7 +383,7 @@ def get_next_earnings_date(ticker: str) -> Optional[datetime]:
                 data = r.json()
                 for row in data.get("earningsCalendar", []):
                     if row.get("symbol") == ticker and row.get("date"):
-                        return datetime.fromisoformat(row["date"])
+                        return datetime.datetime.fromisoformat(row["date"])
     except Exception:
         pass
 
@@ -971,9 +413,9 @@ def get_next_earnings_date(ticker: str) -> Optional[datetime]:
 
 
 @st.cache_data(ttl=60 * 30)
-def _earnings_batch(symbols: List[str]) -> Dict[str, Optional[datetime]]:
+def _earnings_batch(symbols: List[str]) -> Dict[str, Optional[datetime.datetime]]:
     """Batch fetch earnings dates in parallel."""
-    out: Dict[str, Optional[datetime]] = {}
+    out: Dict[str, Optional[datetime.datetime]] = {}
     if not symbols:
         return out
     with ThreadPoolExecutor(max_workers=6) as ex:
@@ -1105,37 +547,34 @@ def _check_fmp() -> Tuple[bool, str]:
 
 
 # ==================== Fundamentals (Alpha -> Finnhub) ====================
-def _to_01(x: float, low: float, high: float) -> float:
-    if not isinstance(x, (int, float)) or not np.isfinite(x):
-        return np.nan
-    return np.clip((x - low) / (high - low), 0, 1)
-
 
 def calculate_rr(
     entry_price: float,
     target_price: float,
     atr_value: float,
     history_df: pd.DataFrame = None,
+    fallback_price: float = None,
 ) -> float:
     """
     Stable Reward/Risk calculation used across the app.
     - reward = target_price - entry_price
     - risk   = max(atr_value * 2, entry_price * 0.01)
     - rr     = reward / risk
-    Clamped to [0, 5]. Returns numeric (float). If ATR missing and history_df provided,
-    estimate ATR as mean(high-low) over last 14 candles.
+    Clamped to [0, 15]. Returns numeric (float).
+    ATR fallback chain: atr_value → history_df (mean H-L 14 bars) → fallback_price → 1% of entry.
     """
     try:
         if not (isinstance(entry_price, (int, float)) and np.isfinite(entry_price)):
-            return 0.0
+            return np.nan
         if not (isinstance(target_price, (int, float)) and np.isfinite(target_price)):
-            return 0.0
+            return np.nan
 
         atr = (
             atr_value
             if (isinstance(atr_value, (int, float)) and np.isfinite(atr_value))
             else np.nan
         )
+        # Fallback 1: estimate from history_df
         if (not np.isfinite(atr)) and history_df is not None:
             try:
                 last = history_df.tail(14)
@@ -1144,375 +583,26 @@ def calculate_rr(
                     if np.isfinite(est_atr) and est_atr > 0:
                         atr = float(est_atr)
             except Exception:
-                atr = np.nan
+                pass
+        # Fallback 2: use fallback_price (e.g. ATR_Price from another column)
+        if (
+            not np.isfinite(atr)
+            and isinstance(fallback_price, (int, float))
+            and np.isfinite(fallback_price)
+        ):
+            atr = fallback_price
+        # Fallback 3: 1% of entry price
+        if not np.isfinite(atr):
+            atr = max(0.01 * float(entry_price), 1e-6)
 
-        # Fallback risk if ATR still missing
-        risk = None
-        if np.isfinite(atr):
-            risk = max(atr * 2.0, entry_price * 0.01)
-        else:
-            risk = max(entry_price * 0.01, 0.01)
-
-        reward = max(0.0, float(target_price) - float(entry_price))
-        rr = reward / max(risk, 1e-9)
-        rr = float(np.clip(rr, 0.0, 15.0))  # Increased cap from 5 to 15
+        risk = max(atr * 2.0, float(entry_price) * 0.01)
+        reward = float(target_price) - float(entry_price)
+        rr = 0.0 if risk <= 0 else reward / risk
+        rr = float(np.clip(rr, 0.0, 15.0))
         return rr
     except Exception:
-        return 0.0
+        return np.nan
 
-
-@st.cache_data(ttl=60 * 60 * 24)  # 24h cache for fundamentals
-def fetch_fundamentals_bundle(ticker: str, enable_alpha_smart: bool = False) -> dict:
-    """Fetch fundamentals from multiple providers and merge into a single dict (parallel).
-
-    This function runs all configured fundamentals providers in parallel using
-    a ThreadPoolExecutor instead of a slow sequential approach. Typical runtime
-    savings: ~60-70% per ticker depending on enabled providers.
-
-    Merge priority (updated): Tiingo -> Alpha (smart) -> FMP (full + legacy) -> Finnhub -> SimFin -> EODHD
-    `enable_alpha_smart`: if True, uses Alpha Vantage (recommended only for top picks)
-
-    Returns a dict with the merged fields plus source flags, `_sources` attribution
-    and `Fund_Coverage_Pct`.
-    """
-    merged: dict = {
-        "oper_margin": np.nan,
-        "roe": np.nan,
-        "roic": np.nan,
-        "gm": np.nan,
-        "ps": np.nan,
-        "pe": np.nan,
-        "de": np.nan,
-        "rev_g_yoy": np.nan,
-        "eps_g_yoy": np.nan,
-        "sector": "Unknown",
-        "from_fmp": False,
-        "from_fmp_full": False,
-        "from_alpha": False,
-        "from_finnhub": False,
-        "from_simfin": False,
-        "from_eodhd": False,
-        "from_tiingo": False,
-        "_sources_used": [],
-        "_sources": {},  # Track which provider gave which field
-    }
-
-    # Track provider usage for UI diagnostics (fundamentals/price/ml)
-    def mark_provider_usage(provider: str, category: str):
-        try:
-            usage = st.session_state.setdefault("provider_usage", {})
-            cats = usage.setdefault(provider, set())
-            cats.add(category)
-            usage[provider] = cats
-        except Exception:
-            pass
-
-    def _merge(src: dict, flag: str, source_name: str):
-        if not src:
-            return
-        # Accept common operating margin keys from providers (if present)
-        oper_keys = [
-            "oper_margin",
-            "operatingMargin",
-            "operating_margin",
-            "operatingProfitMargin",
-            "operatingProfitMarginTTM",
-        ]
-        for k in [
-            "roe",
-            "roic",
-            "gm",
-            "ps",
-            "pe",
-            "de",
-            "rev_g_yoy",
-            "eps_g_yoy",
-            "oper_margin",
-        ]:
-            v_cur = merged.get(k, np.nan)
-            # First try direct normalized key
-            v_new = src.get(k, np.nan)
-            # If looking for operating margin, check alternate provider keys as well
-            if k == "oper_margin" and (
-                not isinstance(v_new, (int, float)) or not np.isfinite(v_new)
-            ):
-                for ok in oper_keys:
-                    if (
-                        ok in src
-                        and isinstance(src.get(ok), (int, float))
-                        and np.isfinite(src.get(ok))
-                    ):
-                        v_new = src.get(ok)
-                        break
-
-            if (
-                (not np.isfinite(v_cur))
-                and isinstance(v_new, (int, float))
-                and np.isfinite(v_new)
-            ):
-                merged[k] = float(v_new)
-                merged["_sources"][k] = source_name  # Attribution!
-        # sector preference: keep first non-Unknown
-        if merged.get("sector", "Unknown") == "Unknown":
-            sec = src.get("sector", "Unknown")
-            if isinstance(sec, str) and sec:
-                merged["sector"] = sec
-                merged["_sources"]["sector"] = source_name
-        merged[flag] = True
-        merged["_sources_used"].append(flag)
-        # Mark fundamentals usage for provider (UI status table later)
-        mark_provider_usage(source_name, "fundamentals")
-
-    # Helper: sequential FMP fetch with internal delay + global minimal spacing
-    def _fmp_sequential_wrap(t: str, key: str) -> dict:
-        try:
-            # Global spacing to reduce burst pressure
-            min_gap = CONFIG.get("FMP_MIN_INTERVAL", 0.6)
-            last_ts = st.session_state.get("_fmp_last_call_ts", 0.0)
-            now = time.time()
-            if now - last_ts < min_gap:
-                time.sleep(min_gap - (now - last_ts))
-            st.session_state["_fmp_last_call_ts"] = time.time()
-        except Exception:
-            pass
-        out_full = _fmp_full_bundle_fetch(t, key)
-        time.sleep(CONFIG.get("FMP_INTER_CALL_DELAY", 0.8))  # spacing between endpoints
-        out_legacy = _fmp_metrics_fetch(t, key)
-        return {"full": out_full, "legacy": out_legacy}
-
-    # ========== PARALLEL FETCHING (adjusted) ==========
-    # Keep overall worker cap modest; FMP endpoints now sequentially wrapped.
-    with ThreadPoolExecutor(max_workers=5) as ex:
-        futures = {}
-
-        # Tiingo first (primary provider)
-        if CONFIG.get("ENABLE_TIINGO", True):
-            tk = _env("TIINGO_API_KEY")
-            if tk:
-                futures["tiingo"] = ex.submit(_tiingo_fundamentals_fetch, ticker)
-
-        # Alpha Vantage (smart/targeted)
-        if (
-            enable_alpha_smart
-            and bool(st.session_state.get("_alpha_ok"))
-            and bool(_env("ALPHA_VANTAGE_API_KEY"))
-        ):
-            futures["alpha"] = ex.submit(_alpha_overview_fetch, ticker)
-
-        # FMP (wrapped sequentially to reduce pressure)
-        fmp_key = _env("FMP_API_KEY")
-        if fmp_key:
-            futures["fmp_combo"] = ex.submit(_fmp_sequential_wrap, ticker, fmp_key)
-
-        # Finnhub (supplemental)
-        futures["finnhub"] = ex.submit(_finnhub_metrics_fetch, ticker)
-
-        # SimFin (supplemental)
-        if CONFIG.get("ENABLE_SIMFIN"):
-            sim_key = _env("SIMFIN_API_KEY")
-            if sim_key:
-                futures["simfin"] = ex.submit(_simfin_fetch, ticker, sim_key)
-
-        # EODHD (supplemental)
-        if CONFIG.get("ENABLE_EODHD"):
-            ek = _env("EODHD_API_KEY") or _env("EODHD_TOKEN")
-            if ek:
-                futures["eodhd"] = ex.submit(_eodhd_fetch_fundamentals, ticker, ek)
-
-        # Collect results
-        results = {}
-        fund_timeout = (
-            CONFIG.get("PERF_FUND_TIMEOUT_FAST")
-            if CONFIG.get("PERF_FAST_MODE")
-            else CONFIG.get("PERF_FUND_TIMEOUT")
-        )
-        for source, fut in futures.items():
-            try:
-                results[source] = fut.result(timeout=fund_timeout)
-            except Exception as e:
-                logger.warning(f"Parallel fetch failed for {source}/{ticker}: {e}")
-                results[source] = {}
-
-    # Unpack FMP combo
-    if results.get("fmp_combo"):
-        combo = results.get("fmp_combo", {})
-        results["fmp_full"] = combo.get("full", {})
-        results["fmp_legacy"] = combo.get("legacy", {})
-
-    # ========== MERGE IN NEW PRIORITY ORDER ==========
-    # Primary providers first: Tiingo -> Finnhub -> Alpha -> FMP, then supplemental providers.
-    if results.get("tiingo"):
-        _merge(results["tiingo"], "from_tiingo", "Tiingo")
-        logger.debug(f"Fundamentals merge: Tiingo ✓ {ticker}")
-
-    # Prefer Finnhub over Alpha for primary merging so that Finnhub-provided
-    # fields take precedence when both respond (matches expected fallback
-    # semantics used in tests and historical behavior).
-    if results.get("finnhub"):
-        _merge(results["finnhub"], "from_finnhub", "Finnhub")
-        logger.debug(f"Fundamentals merge: Finnhub ✓ {ticker}")
-
-    if results.get("alpha"):
-        _merge(results["alpha"], "from_alpha", "Alpha")
-        logger.debug(f"Fundamentals merge: Alpha ✓ {ticker}")
-
-    if results.get("fmp_full"):
-        _merge(results["fmp_full"], "from_fmp_full", "FMP")
-        merged["from_fmp"] = True
-        logger.debug(
-            f"Fundamentals merge: FMP/full ✓ {ticker} fields={results['fmp_full'].get('_fmp_field_count')}"
-        )
-    if results.get("fmp_legacy"):
-        _merge(results["fmp_legacy"], "from_fmp", "FMP")
-        logger.debug(f"Fundamentals merge: FMP/legacy ✓ {ticker}")
-
-    if results.get("finnhub"):
-        _merge(results["finnhub"], "from_finnhub", "Finnhub")
-        logger.debug(f"Fundamentals merge: Finnhub ✓ {ticker}")
-
-    if results.get("simfin"):
-        _merge(results["simfin"], "from_simfin", "SimFin")
-        logger.debug(f"Fundamentals merge: SimFin ✓ {ticker}")
-
-    if results.get("eodhd"):
-        _merge(results["eodhd"], "from_eodhd", "EODHD")
-        logger.debug(f"Fundamentals merge: EODHD ✓ {ticker}")
-
-    # Per-field explicit fallbacks now (after Tiingo primary): Alpha -> FMP -> Finnhub -> SimFin -> EODHD
-    fallback_order = [
-        ("alpha", "Alpha"),
-        ("fmp_full", "FMP"),
-        ("fmp_legacy", "FMP"),
-        ("finnhub", "Finnhub"),
-        ("simfin", "SimFin"),
-        ("eodhd", "EODHD"),
-    ]
-    for k in ["roe", "roic", "gm", "ps", "pe", "de", "rev_g_yoy", "eps_g_yoy"]:
-        if not isinstance(merged.get(k), (int, float)) or not np.isfinite(
-            merged.get(k)
-        ):
-            for src_key, src_name in fallback_order:
-                src = (
-                    results.get(src_key, {})
-                    if isinstance(results.get(src_key, {}), dict)
-                    else {}
-                )
-                v_new = src.get(k, np.nan)
-                if isinstance(v_new, (int, float)) and np.isfinite(v_new):
-                    merged[k] = float(v_new)
-                    merged["_sources"][k] = src_name
-                    # mark source flag and record
-                    merged[f"from_{src_key}"] = True
-                    if f"from_{src_key}" not in merged["_sources_used"]:
-                        merged["_sources_used"].append(f"from_{src_key}")
-                    break
-
-    # Try operating margin fallback explicitly
-    if not np.isfinite(merged.get("oper_margin", np.nan)):
-        for src_key, src_name in fallback_order:
-            src = (
-                results.get(src_key, {})
-                if isinstance(results.get(src_key, {}), dict)
-                else {}
-            )
-            # check common oper margin keys in provider dicts
-            for ok in [
-                "oper_margin",
-                "operatingMargin",
-                "operating_margin",
-                "operatingProfitMargin",
-                "operatingProfitMarginTTM",
-            ]:
-                v_new = src.get(ok, np.nan)
-                if isinstance(v_new, (int, float)) and np.isfinite(v_new):
-                    merged["oper_margin"] = float(v_new)
-                    merged["_sources"]["oper_margin"] = src_name
-                    merged[f"from_{src_key}"] = True
-                    if f"from_{src_key}" not in merged["_sources_used"]:
-                        merged["_sources_used"].append(f"from_{src_key}")
-                    break
-            if np.isfinite(merged.get("oper_margin", np.nan)):
-                break
-
-    # Compute coverage after fallbacks (map our internal names to requested external names)
-    cov_fields = [
-        merged.get(k)
-        for k in [
-            "pe",
-            "ps",
-            "rev_g_yoy",
-            "eps_g_yoy",
-            "gm",
-            "de",
-            "oper_margin",
-            "roe",
-        ]
-    ]
-    valid_count = sum(
-        isinstance(v, (int, float)) and np.isfinite(v) for v in cov_fields
-    )
-    merged["Fund_Coverage_Pct"] = float(valid_count) / float(len(cov_fields))
-
-    # Log missing fields for debugging
-    missing_fields = [
-        k
-        for k, v in zip(
-            ["pe", "ps", "rev_g_yoy", "eps_g_yoy", "gm", "de", "oper_margin", "roe"],
-            cov_fields,
-        )
-        if not (isinstance(v, (int, float)) and np.isfinite(v))
-    ]
-    if missing_fields:
-        print(f"[FUND] Missing for {ticker}: {missing_fields}")
-
-    # If at least one provider responded (any from_* flag) but coverage is zero, set a small floor
-    provider_responded = any(
-        merged.get(f, False)
-        for f in [
-            "from_fmp_full",
-            "from_fmp",
-            "from_alpha",
-            "from_finnhub",
-            "from_simfin",
-            "from_eodhd",
-            "from_tiingo",
-        ]
-    )
-    if provider_responded and valid_count == 0:
-        # Inject neutral defaults so the ticker is not dropped and to allow partial scoring
-        neutral_defaults = {
-            "pe": 20.0,
-            "ps": 2.0,
-            "rev_g_yoy": 0.0,
-            "eps_g_yoy": 0.0,
-            "gm": 0.25,
-            "de": 1.0,
-            "oper_margin": 0.05,
-            "roe": 8.0,
-        }
-        merged.setdefault("_defaulted_fields", [])
-        for f, v in neutral_defaults.items():
-            if not (
-                isinstance(merged.get(f), (int, float)) and np.isfinite(merged.get(f))
-            ):
-                merged[f] = float(v)
-                merged["_defaulted_fields"].append(f)
-        # Set a small coverage floor to reflect presence of providers
-        merged["Fund_Coverage_Pct"] = max(merged.get("Fund_Coverage_Pct", 0.0), 0.05)
-
-    # Flag partial fundamentals coverage (for UI note) if providers responded but not full coverage
-    try:
-        if provider_responded and valid_count < len(cov_fields):
-            st.session_state.setdefault("_fundamentals_partial", True)
-    except Exception:
-        pass
-
-    # Ensure 'overall_score_20d' is always present for robust downstream compatibility
-    if 'overall_score_20d' not in merged:
-        print(f"[DIAG] 'overall_score_20d' missing in merged for {ticker}, injecting np.nan")
-        merged['overall_score_20d'] = np.nan
-    assert 'overall_score_20d' in merged, "[DIAG] 'overall_score_20d' still missing after injection!"
-    return merged
 
 
 def _eodhd_fetch_fundamentals(ticker: str, api_key: str) -> Dict[str, any]:
@@ -2116,19 +1206,14 @@ def fetch_fundamentals_batch(tickers: list, alpha_top_n: int = 15) -> pd.DataFra
     return df
 
 
-@st.cache_data(ttl=60 * 60)
-@st.cache_data(ttl=3600, show_spinner=False)
 @st.cache_data(ttl=6 * 3600, show_spinner=False)
 def fetch_beta_vs_benchmark(ticker: str, bench: str = "SPY", days: int = 252) -> float:
     """Calculate beta with timeout protection and caching."""
     try:
-        from concurrent.futures import (
-            ThreadPoolExecutor,
-            TimeoutError as FuturesTimeoutError,
-        )
+        from concurrent.futures import TimeoutError as FuturesTimeoutError
 
         def _download_both():
-            end = datetime.utcnow()
+            end = datetime.datetime.utcnow()
             start = end - timedelta(days=days + 30)
             df_t = yf.download(
                 ticker,
@@ -2336,37 +1421,22 @@ st.set_page_config(
 # === HEBREW RTL STYLING WITH LTR ENGLISH TEXT ===
 st.markdown("""
 <style>
-    /* Global RTL direction */
-    body, .stApp, .main, .block-container {
-        direction: rtl;
-        text-align: right;
-    }
-    
-    /* Streamlit overrides */
-    .css-1l269bu { direction: rtl; }  /* Main content */
-    .stSidebar { direction: rtl; }
-    
-    /* RTL text alignment */
-    h1, h2, h3, h4, h5, h6 { text-align: right; }
-    
-    /* Force LTR for English text, tickers, numbers, provider names */
-    span.ltr, .ltr, .stMetricDelta, [class*="st-emotion"] {
-        direction: ltr !important;
-        text-align: left !important;
-        unicode-bidi: embed;
-    }
-    
-    /* Button styling */
-    .stButton > button { border-radius: 8px; }
-    
-    /* Card styling */
-    .stContainer { direction: rtl; border: 1px solid #e5e7eb; border-radius: 8px; padding: 1rem; margin: 0.5rem 0; }
-    
-    /* Metric styling */
-    .stMetric { text-align: right; }
-    
-    /* Margin adjustments */
-    h1, h2, h3 { margin-top: 1rem; margin-bottom: 0.5rem; }
+/* Global RTL direction */
+body, .stApp, .main, .block-container {
+    direction: rtl;
+    text-align: right;
+}
+/* Streamlit overrides */
+/* RTL text alignment */
+h1, h2, h3, h4, h5, h6 { text-align: right; }
+/* Force LTR for English text, tickers, numbers, provider names */
+span.ltr, .ltr, .stMetricDelta, [class*="st-emotion"] {
+    direction: ltr !important;
+    text-align: left !important;
+    unicode-bidi: embed;
+}
+
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -2503,10 +1573,7 @@ if st.button("🔄 הרץ לייב סריקה עכשיו", key="live_scan_button
 
 force_live_scan_once = st.session_state.get("force_live_scan_once", False)
 
-# Import scan I/O helpers
-from core.scan_io import load_latest_scan, save_scan as save_scan_helper
-import time
-import io
+# scan_io already imported at top of file
 
 def save_latest_scan_from_results(results_df: pd.DataFrame, metadata: Optional[Dict] = None) -> None:
     """Helper to save scan results using scan_io.save_scan with proper paths.
@@ -2571,7 +1638,7 @@ def _load_precomputed_scan_with_fallback(scan_dir: Path):
     """
     latest_candidates = sorted(scan_dir.glob("latest_scan*.parquet"))
 
-    def _to_naive_utc(dt: Optional[datetime]) -> Optional[datetime]:
+    def _to_naive_utc(dt: Optional[datetime.datetime]) -> Optional[datetime.datetime]:
         """Convert datetime to naive UTC for consistent comparison."""
         if dt is None:
             return None
@@ -2587,11 +1654,11 @@ def _load_precomputed_scan_with_fallback(scan_dir: Path):
         # Try to parse ISO timestamp, else use file mtime
         ts_meta = meta.get("timestamp")
         try:
-            ts_parsed = datetime.fromisoformat((ts_meta or "").replace("Z", "+00:00")) if ts_meta else None
+            ts_parsed = datetime.datetime.fromisoformat((ts_meta or "").replace("Z", "+00:00")) if ts_meta else None
         except Exception:
             ts_parsed = None
         try:
-            ts_file = datetime.fromtimestamp(path.stat().st_mtime)
+            ts_file = datetime.datetime.fromtimestamp(path.stat().st_mtime)
         except Exception:
             ts_file = None
         # Normalize to naive UTC for comparison
@@ -2641,9 +1708,9 @@ except Exception as exc:
     load_time = t1_precomputed - t0_precomputed
 
 # Optionally prefer remote autoscan artifacts from GitHub if newer than local/live
-def _parse_iso(ts: str) -> Optional[datetime]:
+def _parse_iso(ts: str) -> Optional[datetime.datetime]:
     try:
-        return datetime.fromisoformat(ts.replace('Z', '+00:00'))
+        return datetime.datetime.fromisoformat(ts.replace('Z', '+00:00'))
     except Exception:
         return None
 
@@ -2665,7 +1732,7 @@ if CONFIG.get("USE_REMOTE_AUTOSCAN", True):
             if not ts_current:
                 try:
                     mtime_source = (scan_path.with_suffix('.json') if (scan_path and scan_path.with_suffix('.json').exists()) else scan_path)
-                    ts_current = datetime.fromtimestamp(mtime_source.stat().st_mtime)
+                    ts_current = datetime.datetime.fromtimestamp(mtime_source.stat().st_mtime)
                 except Exception:
                     ts_current = None
 
@@ -2696,7 +1763,7 @@ if precomputed_meta is not None:
     # Check scan age (12 hour limit)
     try:
         # Parse metadata timestamp (may be naive or UTC)
-        scan_time_meta = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+        scan_time_meta = datetime.datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
         # Normalize to naive for comparison
         if scan_time_meta.tzinfo is not None:
             scan_time_meta = scan_time_meta.replace(tzinfo=None)
@@ -2705,13 +1772,13 @@ if precomputed_meta is not None:
         try:
             meta_path = scan_path.with_suffix('.json')
             mtime_source = meta_path if meta_path.exists() else scan_path
-            scan_time_file = datetime.fromtimestamp(mtime_source.stat().st_mtime)
+            scan_time_file = datetime.datetime.fromtimestamp(mtime_source.stat().st_mtime)
         except Exception:
             scan_time_file = scan_time_meta
 
         # Prefer the most recent timestamp available (both naive now)
         scan_time = max(scan_time_meta, scan_time_file)
-        scan_age_hours = (datetime.now() - scan_time).total_seconds() / 3600
+        scan_age_hours = (datetime.datetime.now() - scan_time).total_seconds() / 3600
         scan_too_old = scan_age_hours > 12
     except Exception:
         scan_too_old = True
@@ -2934,35 +2001,35 @@ else:
                         st.caption(f"Fallback Events: {fb_count}")
                 except Exception:
                     pass
-                    # Show Tier 1 filtered reasons (diagnostics)
-                    try:
-                        if diagnostics:
-                            filtered_rows = []
-                            for tkr, rec in diagnostics.items():
-                                tier1 = rec.get("tier1_reasons") or []
-                                if tier1:
-                                    def _fmt_reason(r: dict) -> str:
-                                        try:
-                                            base = f"{r.get('rule')}: {r.get('message')}"
-                                            val = r.get('value')
-                                            thr = r.get('threshold')
-                                            if val is not None or thr is not None:
-                                                return f"{base} (val={val}, thr={thr})"
-                                            return base
-                                        except Exception:
-                                            return str(r)
-                                    joined = "; ".join([_fmt_reason(r) for r in tier1])
-                                    filtered_rows.append({
-                                        "Ticker": tkr,
-                                        "Reasons": joined,
-                                        "last_price": rec.get("last_price"),
-                                        "last_volume": rec.get("last_volume"),
-                                    })
-                            if filtered_rows:
-                                with st.expander("Filtered Out (Tier 1)", expanded=False):
-                                    st.dataframe(pd.DataFrame(filtered_rows), use_container_width=True)
-                    except Exception:
-                        pass
+            # Show Tier 1 filtered reasons (diagnostics)
+            try:
+                if diagnostics:
+                    filtered_rows = []
+                    for tkr, rec in diagnostics.items():
+                        tier1 = rec.get("tier1_reasons") or []
+                        if tier1:
+                            def _fmt_reason(r: dict) -> str:
+                                try:
+                                    base = f"{r.get('rule')}: {r.get('message')}"
+                                    val = r.get('value')
+                                    thr = r.get('threshold')
+                                    if val is not None or thr is not None:
+                                        return f"{base} (val={val}, thr={thr})"
+                                    return base
+                                except Exception:
+                                    return str(r)
+                            joined = "; ".join([_fmt_reason(r) for r in tier1])
+                            filtered_rows.append({
+                                "Ticker": tkr,
+                                "Reasons": joined,
+                                "last_price": rec.get("last_price"),
+                                "last_volume": rec.get("last_volume"),
+                            })
+                    if filtered_rows:
+                        with st.expander("Filtered Out (Tier 1)", expanded=False):
+                            st.dataframe(pd.DataFrame(filtered_rows), use_container_width=True)
+            except Exception:
+                pass
             if used_fb:
                 st.warning(f"Legacy fallback engaged — {fb_reason or 'reason unavailable'}")
             # ML health warnings
@@ -3321,12 +2388,19 @@ status_manager.update_detail(f"Price verification: {len(results)} validated")
 status_manager.advance("Price Verification")
 
 # Update ReliabilityScore in results (sync with Reliability_Score if computed)
-if "Reliability_Score" in results.columns and results["Reliability_Score"].notna().any():
-    # Convert from 0-1 to 0-100 scale and update ReliabilityScore
-    results["ReliabilityScore"] = (results["Reliability_Score"].fillna(0.5) * 100).round(2)
-elif "Price_Reliability" in results.columns:
-    # Fallback: use price reliability alone if fundamental not available
-    results["ReliabilityScore"] = (results["Price_Reliability"].fillna(0.5) * 100).round(2)
+# Only overwrite if pipeline hasn't already provided a valid ReliabilityScore
+_has_pipeline_reliability = (
+    "ReliabilityScore" in results.columns
+    and results["ReliabilityScore"].notna().any()
+    and (results["ReliabilityScore"] > 0).any()
+)
+if not _has_pipeline_reliability:
+    if "Reliability_Score" in results.columns and results["Reliability_Score"].notna().any():
+        # Convert from 0-1 to 0-100 scale and update ReliabilityScore
+        results["ReliabilityScore"] = (results["Reliability_Score"].fillna(0.5) * 100).round(2)
+    elif "Price_Reliability" in results.columns:
+        # Fallback: use price reliability alone if fundamental not available
+        results["ReliabilityScore"] = (results["Price_Reliability"].fillna(0.5) * 100).round(2)
 
 # NOTE: Save happens AFTER sector cap is applied (at line ~3435) to ensure consistent reload counts
 
@@ -3412,7 +2486,7 @@ is_live_scan = not st.session_state.get("skip_pipeline", False)
 if is_live_scan and not results.empty:
     try:
         meta_final = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",  # UTC with Z suffix for consistency
+            "timestamp": datetime.datetime.utcnow().isoformat() + "Z",  # UTC with Z suffix for consistency
             "scan_type": "live_streamlit_final",
             "total_tickers": len(results),  # Count AFTER sector cap
             "sector_cap_applied": True,
@@ -3506,13 +2580,15 @@ results["עודף ($)"] = np.round(
 # (which would discard the sector cap filtering).
 if st.session_state.get("precomputed_results") is not None and st.session_state.get("skip_pipeline", False):
     # Apply column renames for UI compatibility (in-place on the already-filtered results)
+    # Only rename Overall_Score→Score if Score doesn't already exist (avoid silent overwrite)
     column_renames = {
         'Close': 'Price_Yahoo',
         'Technical_Score': 'Score_Tech',
         'Fundamental_Score': 'Fundamental_S',
-        'Overall_Score': 'Score',
         'Fund_Sources_Count': 'fund_sources_used_v2',
     }
+    if 'Score' not in results.columns:
+        column_renames['Overall_Score'] = 'Score'
     results = results.rename(columns=column_renames)
     # Ensure both reliability aliases exist for UI fallbacks
     if 'Reliability_v2' not in results.columns and 'reliability_v2' in results.columns:
@@ -3754,7 +2830,7 @@ render_data_sources_overview(
 )
 
 # Calculate target prices and dates WITH OPTIONAL OPENAI ENHANCEMENT
-from datetime import datetime, timedelta
+# (datetime and timedelta already imported at top of file)
 
 
 @st.cache_data(ttl=3600)
@@ -3813,7 +2889,6 @@ def get_openai_target_prediction(
 
         # Extract JSON from response
         answer = response.choices[0].message.content.strip()
-        import json
         import re
 
         # Try to extract JSON from response
@@ -3972,7 +3047,7 @@ def calculate_targets(row):
             # days already set to 30
 
         # Target date: today + holding horizon (now from AI or calculated)
-        target_date = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
+        target_date = (datetime.datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
 
         return entry_price, target_price, target_date, target_source
     else:
@@ -4015,48 +3090,14 @@ else:
     logger.info(f"Using pipeline targets for {len(rec_df)} stocks")
 
 
-def calculate_rr(
+def _calculate_rr_with_fallback(
     entry_price: float,
     target_price: float,
     atr_value: float,
     fallback_price: float = None,
 ) -> float:
-    """
-    Calculate Reward/Risk using the requested formula:
-    RR = clamp( (target_price - entry_price) / max(atr_value*2, entry_price*0.01), 0, 5 )
-    If ATR is missing, try to use provided ATR value or a conservative fallback (1% of price).
-    Returns numeric RR (float).
-    """
-    try:
-        if not (isinstance(entry_price, (int, float)) and np.isfinite(entry_price)):
-            return np.nan
-        if not (isinstance(target_price, (int, float)) and np.isfinite(target_price)):
-            return np.nan
-
-        atr = (
-            atr_value
-            if isinstance(atr_value, (int, float)) and np.isfinite(atr_value)
-            else np.nan
-        )
-        # If atr not provided, try common fallback field name from row via fallback_price
-        if (
-            not np.isfinite(atr)
-            and isinstance(fallback_price, (int, float))
-            and np.isfinite(fallback_price)
-        ):
-            atr = fallback_price
-
-        # Final ATR fallback: 1% of entry price
-        if not np.isfinite(atr):
-            atr = max(0.01 * float(entry_price), 1e-6)
-
-        risk = max(atr * 2.0, float(entry_price) * 0.01)
-        reward = float(target_price) - float(entry_price)
-        rr = 0.0 if risk <= 0 else reward / risk
-        rr = float(np.clip(rr, 0.0, 15.0))  # Increased cap from 5 to 15
-        return rr
-    except Exception:
-        return np.nan
+    """Thin wrapper for calculate_rr (kept for backward compatibility)."""
+    return calculate_rr(entry_price, target_price, atr_value, fallback_price=fallback_price)
 
 
 # Recalculate Reward/Risk only if pipeline RR not present; otherwise respect pipeline RR
@@ -4079,7 +3120,7 @@ if not rec_df.empty and not rr_present:
         atr = r.get("ATR", r.get("ATR14", r.get("ATR14", np.nan)))
         # fallback ATR in price terms (ATR_Price)
         atr_price = r.get("ATR_Price", np.nan)
-        rr_val = calculate_rr(entry, target, atr, fallback_price=atr_price)
+        rr_val = _calculate_rr_with_fallback(entry, target, atr, fallback_price=atr_price)
         return rr_val
 
     rec_df["RewardRisk"] = rec_df.apply(
@@ -4102,32 +3143,22 @@ if not rec_df.empty and not rr_present:
         results["rr"] = results["RewardRisk"]
 
         # Recompute normalized rr_score_v2 (0-100) for any updated rr values
-        def _norm_rr_local(x):
-            try:
-                xr = float(x)
-                if not np.isfinite(xr):
-                    return np.nan
-                xr = min(max(xr, 0.0), 5.0)
-                return float((xr / 5.0) * 100.0)
-            except Exception:
-                return np.nan
-
-        results["rr_score_v2"] = results["rr"].apply(_norm_rr_local)
-        # Keep canonical RR_Score alias in sync if present
-        results["RR_Score"] = results["rr_score_v2"].copy()
-        results["RR"] = results["rr"].copy()
-
-        # Recompute rr_band after RR update using evaluate_rr_unified
+        # Recompute rr_score_v2 and rr_band using evaluate_rr_unified (tiered, consistent)
         from core.scoring_engine import evaluate_rr_unified
 
         def _rr_eval_local(row_rr):
             try:
                 score, ratio_adj, band = evaluate_rr_unified(float(row_rr))
-                return band
+                return pd.Series({"rr_score_v2": score, "rr_band": band})
             except Exception:
-                return "N/A"
+                return pd.Series({"rr_score_v2": np.nan, "rr_band": "N/A"})
 
-        results["rr_band"] = results["rr"].apply(_rr_eval_local)
+        rr_results = results["rr"].apply(_rr_eval_local)
+        results["rr_score_v2"] = rr_results["rr_score_v2"]
+        results["rr_band"] = rr_results["rr_band"]
+        # Keep canonical RR_Score alias in sync if present
+        results["RR_Score"] = results["rr_score_v2"].copy()
+        results["RR"] = results["rr"].copy()
 
         # Sync updated RR fields back to rec_df (recommendation dataframe)
         if not rec_df.empty:
@@ -4265,18 +3296,44 @@ else:
         except Exception:
             return np.nan
 
-    def _ml_badge(p: float) -> str:
+
+    def _normalize_prob(p):
         try:
-            pv = _to_float(p)
-            if not (isinstance(pv, float) and np.isfinite(pv)):
-                return "⚪ N/A"
-            if pv > 0.60:
-                return f"🟢 {pv*100:.0f}%"
-            if pv >= 0.40:
-                return f"🟡 {pv*100:.0f}%"
-            return f"🔴 {pv*100:.0f}%"
+            if p is None or (isinstance(p, float) and np.isnan(p)):
+                return None
+            pv = float(p)
+            if not np.isfinite(pv):
+                return None
+            if pv > 1 and pv <= 100:
+                pv = pv / 100.0
+            elif pv > 100:
+                return '—'
+            pv = max(0.0, min(1.0, pv))
+            return pv
         except Exception:
-            return "⚪ N/A"
+            return None
+
+    def _ml_badge(p) -> str:
+        norm = _normalize_prob(p)
+        if norm is None:
+            return "—"
+        if norm == '—':
+            return '—'
+        if norm > 0.60:
+            return f"🟢 {norm*100:.0f}%"
+        if norm >= 0.40:
+            return f"🟡 {norm*100:.0f}%"
+        return f"🔴 {norm*100:.0f}%"
+
+    def _get_ml_prob_from_row(r):
+        for k in ["ML_20d_Prob_live_v3","ML_20d_Prob","ML_20d_Prob_raw","ML_Probability"]:
+            v = r.get(k, np.nan)
+            if v is not None and pd.notna(v):
+                try:
+                    return float(v)
+                except Exception:
+                    continue
+        return np.nan
 
     def _risk_class(row: pd.Series) -> str:
         rc = row.get("RiskClass")
@@ -4342,30 +3399,48 @@ else:
     # UI displays exactly what the pipeline provided (no extra slicing)
     st.write(f"Showing {len(rec_df)} candidates")
 
+    show_ml_debug = st.checkbox("Show ML Debug", value=False)
+
     # Core recommendations
     if not core_df.empty:
         st.markdown("### 🛡️ Core Stocks — Lower Relative Risk")
         st.caption(f"Showing {len(core_df)} candidates")
-        
+
         @st.cache_data(ttl=3600)
         def _fallback_sector_yf(ticker: str) -> str:
             try:
-                import yfinance as yf
                 info = yf.Ticker(ticker).info
                 sec = info.get('sector') or info.get('industry')
                 return sec or 'Unknown'
             except Exception:
                 return 'Unknown'
 
-        for _, r in core_df.iterrows():
+        for idx, r in core_df.iterrows():
+            final_score = r.get("FinalScore_20d", r.get("Score", np.nan))
+            ml_prob = _get_ml_prob_from_row(r)
+            if show_ml_debug and idx < 10:
+                ml_prob_live_v3 = r.get("ML_20d_Prob_live_v3", None)
+                ml_prob_raw = r.get("ML_20d_Prob_raw", None)
+                ml_prob_prob = r.get("ML_Probability", None)
+                ml_rank_20d = r.get("ML_rank_20d", None)
+                st.sidebar.write(f"[ML BADGE DEBUG] Ticker: {r.get('Ticker','N/A')} | ml_prob_final: {ml_prob} | ML_20d_Prob: {r.get('ML_20d_Prob', None)} | ML_Probability: {ml_prob_prob} | ML_20d_Prob_live_v3: {ml_prob_live_v3} | ML_20d_Prob_raw: {ml_prob_raw} | ML_rank_20d: {ml_rank_20d}")
+            # (move the rest of the card rendering here, using ml_prob as before)
             ticker = r.get("Ticker", "N/A")
             sector = r.get("Sector", r.get("sector", "Unknown"))
             company = r.get("shortName", r.get("Company", r.get("Name", "")))
             if sector in (None, "", "Unknown") and isinstance(ticker, str) and ticker and ticker != "N/A":
                 sector = _fallback_sector_yf(ticker)
 
+
             final_score = r.get("FinalScore_20d", r.get("Score", np.nan))
+            # --- DEBUG: Print ML badge source info for first 10 rows ---
             ml_prob = r.get("ML_20d_Prob", r.get("ML_Probability", np.nan))
+            if idx < 10:
+                ml_prob_live_v3 = r.get("ML_20d_Prob_live_v3", None)
+                ml_prob_raw = r.get("ML_20d_Prob_raw", None)
+                ml_prob_prob = r.get("ML_Probability", None)
+                ml_rank_20d = r.get("ML_rank_20d", None)
+                print(f"[ML BADGE DEBUG] Ticker: {r.get('Ticker','N/A')} | ml_prob: {ml_prob} | Source: 'ML_20d_Prob'→'ML_Probability' | ML_20d_Prob: {r.get('ML_20d_Prob', None)} | ML_Probability: {ml_prob_prob} | ML_20d_Prob_live_v3: {ml_prob_live_v3} | ML_20d_Prob_raw: {ml_prob_raw} | ML_rank_20d: {ml_rank_20d}")
             rr = r.get("RR", r.get("RR_Ratio", r.get("RewardRisk", np.nan)))
             rel = r.get("ReliabilityScore", r.get("Reliability_Score", r.get("Reliability_v2", np.nan)))
             risk_c = _risk_class(r)
@@ -4447,370 +3522,67 @@ else:
 
     # Speculative candidates
     if not spec_df.empty:
-        st.markdown("### ⚡ Speculative Stocks — High Upside, High Risk")
+        st.markdown("### 🚀 Speculative Stocks — Higher Risk/Reward")
         st.caption(f"Showing {len(spec_df)} candidates")
-        st.warning("🔔 Warning: These stocks are classified as speculative due to partial data or elevated risk factors. Suitable for experienced investors only.")
-        
-        @st.cache_data(ttl=3600)
-        def _fallback_sector_yf_spec(ticker: str) -> str:
-            try:
-                import yfinance as yf
-                info = yf.Ticker(ticker).info
-                sec = info.get('sector') or info.get('industry')
-                return sec or 'Unknown'
-            except Exception:
-                return 'Unknown'
-
-        for _, r in spec_df.iterrows():
-            ticker = r.get("Ticker", "N/A")
-            sector = r.get("Sector", r.get("sector", "Unknown"))
-            company = r.get("shortName", r.get("Company", r.get("Name", "")))
-            if sector in (None, "", "Unknown") and isinstance(ticker, str) and ticker and ticker != "N/A":
-                sector = _fallback_sector_yf_spec(ticker)
-
+        for idx, r in spec_df.iterrows():
             final_score = r.get("FinalScore_20d", r.get("Score", np.nan))
-            ml_prob = r.get("ML_20d_Prob", r.get("ML_Probability", np.nan))
+            ml_prob = _get_ml_prob_from_row(r)
             rr = r.get("RR", r.get("RR_Ratio", r.get("RewardRisk", np.nan)))
             rel = r.get("ReliabilityScore", r.get("Reliability_Score", r.get("Reliability_v2", np.nan)))
-            risk_c = _risk_class(r)
+            if show_ml_debug and idx < 10:
+                ml_prob_live_v3 = r.get("ML_20d_Prob_live_v3", None)
+                ml_prob_raw = r.get("ML_20d_Prob_raw", None)
+                ml_prob_prob = r.get("ML_Probability", None)
+                ml_rank_20d = r.get("ML_rank_20d", None)
+                st.sidebar.write(f"[ML BADGE DEBUG] Ticker: {r.get('Ticker','N/A')} | ml_prob_final: {ml_prob} | ML_20d_Prob: {r.get('ML_20d_Prob', None)} | ML_Probability: {ml_prob_prob} | ML_20d_Prob_live_v3: {ml_prob_live_v3} | ML_20d_Prob_raw: {ml_prob_raw} | ML_rank_20d: {ml_rank_20d}")
+            # (move the rest of the card rendering here, using ml_prob as before)
+            t1, t2, t3, t4 = st.columns(4)
+            with t1:
+                st.text("RSI")
+                st.code(_fmt_num(r.get('RSI', np.nan), '.1f'))
+            with t2:
+                atrv = r.get('ATR_Price', r.get('ATR_Pct', np.nan))
+                st.text("ATR/Price")
+                st.code(_fmt_num(atrv, '.3f'))
+            with t3:
+                st.text("Momentum (Tech)")
+                momv = r.get('MomentumScore', r.get('TechScore_20d', np.nan))
+                st.code(_fmt_num(momv, '.0f'))
+            with t4:
+                st.text("ML Prob")
+                st.code(_fmt_num(ml_prob, '.3f'))
 
-            with st.container(border=True):
-                c1, c2, c3, c4, c5 = st.columns([2, 1, 1, 1, 2])
-                with c1:
-                    title = ticker if not company else f"{ticker} · {company}"
-                    st.subheader(title)
-                    st.caption(f"Sector: {sector}")
-                with c2:
-                    st.metric(score_label, _fmt_num(final_score, '.0f'))
-                with c3:
-                    st.metric("Risk", risk_c)
-                with c4:
-                    st.metric("ML", _ml_badge(ml_prob))
-                with c5:
-                    rr_val = _to_float(rr)
-                    rr_fmt = f"{rr_val:.2f}x" if isinstance(rr_val, float) and np.isfinite(rr_val) else "N/A"
-                    st.metric("R/R", rr_fmt)
+            f1, f2, f3, f4 = st.columns(4)
+            with f1:
+                st.text("Fundamental")
+                fsv = r.get('FundamentalScore', r.get('Fundamental_S', np.nan))
+                st.code(_fmt_num(fsv, '.0f'))
+            with f2:
+                st.text("Quality/Growth")
+                q_score = r.get('Quality_Score_F', np.nan)
+                g_score = r.get('Growth_Score_F', np.nan)
+                st.code(f"{_fmt_num(q_score, '.0f')} / {_fmt_num(g_score, '.0f')}")
+            with f3:
+                st.text("Valuation")
+                st.code(_fmt_num(r.get('Valuation_Score_F', np.nan), '.0f'))
+            with f4:
+                st.text("Leverage (D/E)")
 
-                storyline = _headline_story(r)
-                if storyline:
-                    st.caption(storyline)
+                st.code(_fmt_num(r.get('DE_f', r.get('debt_to_equity', np.nan)), '.2f'))
 
-                with st.expander("Details", expanded=False):
-                    t1, t2, t3, t4 = st.columns(4)
-                    with t1:
-                        st.text("RSI")
-                        st.code(_fmt_num(r.get('RSI', np.nan), '.1f'))
-                    with t2:
-                        atrv = r.get('ATR_Price', r.get('ATR_Pct', np.nan))
-                        st.text("ATR/Price")
-                        st.code(_fmt_num(atrv, '.3f'))
-                    with t3:
-                        st.text("Momentum (Tech)")
-                        momv = r.get('MomentumScore', r.get('TechScore_20d', np.nan))
-                        st.code(_fmt_num(momv, '.0f'))
-                    with t4:
-                        st.text("ML Prob")
-                        st.code(_fmt_num(ml_prob, '.3f'))
-
-                    f1, f2, f3, f4 = st.columns(4)
-                    with f1:
-                        st.text("Fundamental")
-                        fsv = r.get('FundamentalScore', r.get('Fundamental_S', np.nan))
-                        st.code(_fmt_num(fsv, '.0f'))
-                    with f2:
-                        st.text("Quality/Growth")
-                        q_score = r.get('Quality_Score_F', np.nan)
-                        g_score = r.get('Growth_Score_F', np.nan)
-                        st.code(f"{_fmt_num(q_score, '.0f')} / {_fmt_num(g_score, '.0f')}")
-                    with f3:
-                        st.text("Valuation")
-                        st.code(_fmt_num(r.get('Valuation_Score_F', np.nan), '.0f'))
-                    with f4:
-                        st.text("Leverage (D/E)")
-                        st.code(_fmt_num(r.get('DE_f', r.get('debt_to_equity', np.nan)), '.2f'))
-
-                    rel1, rel2, rel3, rel4 = st.columns(4)
-                    with rel1:
-                        st.text("Reliability")
-                        st.code(_fmt_num(rel, '.0f'))
-                    with rel2:
-                        st.text("Fund sources")
-                        st.code(_fmt_num(r.get('Fundamental_Sources_Count', r.get('fund_sources_used_v2', np.nan)), '.0f'))
-                    with rel3:
-                        st.text("Price sources")
-                        st.code(_fmt_num(r.get('Price_Sources_Count', r.get('price_sources_used_v2', np.nan)), '.0f'))
-                    with rel4:
-                        st.text("Price STD")
-                        st.code(_fmt_num(r.get('Price_STD', r.get('price_std', np.nan)), '.2f'))
-
-    # Export section (single, unified)
-            mean = r.get("מחיר ממוצע", np.nan)
-            std = r.get("סטיית תקן", np.nan)
-            hist_std = r.get(
-                "Historical_StdDev", np.nan
-            )  # NEW: Use historical price std dev
-            # Robust fallback if Price_Yahoo is missing: try Close, then Unit_Price
-            base_price = r.get("Price_Yahoo", r.get("Close", r.get("Unit_Price", np.nan)))
-            show_mean = mean if np.isfinite(mean) else base_price
-            # Prefer Historical_StdDev if available, fallback to old std
-            show_std = (
-                f"${hist_std:.2f}"
-                if np.isfinite(hist_std)
-                else (f"${std:.2f}" if np.isfinite(std) else "N/A")
-            )
-            sources = r.get("מקורות מחיר", "N/A")
-            buy_amt = float(r.get("סכום קנייה ($)", 0.0))
-            horizon = r.get("טווח החזקה", "N/A")
-            rsi_v = r.get("RSI", np.nan)
-            near52 = r.get("Near52w", np.nan)
-            score = r.get("Score", 0)
-            unit_price = r.get("Unit_Price", np.nan)
-            shares = int(r.get("מניות לקנייה", 0))
-            leftover = r.get("עודף ($)", 0.0)
-            rr = r.get("RewardRisk", np.nan)
-            atrp = r.get("ATR_Price", np.nan)
-            overx = r.get("OverextRatio", np.nan)
-
-            # New advanced signals
-            rs_63d = r.get("RS_63d", np.nan)
-            vol_surge = r.get("Volume_Surge", np.nan)
-            ma_aligned = r.get("MA_Aligned", False)
-            quality_score = r.get("Quality_Score", 0.0)
-            rr_ratio = r.get("RR_Ratio", np.nan)
-            mom_consistency = r.get("Momentum_Consistency", 0.0)
-            high_confidence = r.get("High_Confidence", False)
-
-            # Classification info
-            risk_level = r.get("Risk_Level", "core")
-            data_quality = r.get("Data_Quality", "medium")
-            confidence_level = r.get("Confidence_Level", "medium")
-            warnings = r.get("Classification_Warnings", "")
-
-            # ML scoring info
-            ml_prob = r.get("ML_Probability", np.nan)
-            ml_confidence = r.get("ML_Confidence", "N/A")
-
-            # Data quality badge
-            if data_quality == "high":
-                quality_badge_class = "badge-quality-high"
-                quality_icon = "✅"
-                quality_pct = "85%+"
-            elif data_quality == "medium":
-                quality_badge_class = "badge-quality-medium"
-                quality_icon = "⚠️"
-                quality_pct = "60-85%"
-            else:
-                quality_badge_class = "badge-quality-low"
-                quality_icon = "❌"
-                quality_pct = "<60%"
-
-            # ML confidence badge: High>=70%, Med 50-70%, Low<50%
-            if np.isfinite(ml_prob):
-                if ml_prob >= 0.70:
-                    ml_badge_color = "#16a34a"  # green
-                    ml_badge_text = "🔥 גבוה"
-                elif ml_prob >= 0.50:
-                    ml_badge_color = "#f59e0b"  # orange
-                    ml_badge_text = "🟡 בינוני"
-                else:
-                    ml_badge_color = "#dc2626"  # red
-                    ml_badge_text = "⚠️ נמוך"
-                def _fmt_pct(val, fmt):
-                    try:
-                        return format(float(val), fmt) if val is not None and str(val) not in ("N/A", "nan") else str(val)
-                    except Exception:
-                        return str(val)
-                ml_badge_html = f"""<span style='display:inline-block;padding:3px 8px;border-radius:4px;background:{ml_badge_color};color:white;font-weight:bold;font-size:0.85em;margin-left:8px'>ML: {ml_badge_text} ({_fmt_pct(ml_prob*100, '.0f')}%)</span>"""
-                ml_status_esc = f"{ml_badge_text} ({_fmt_pct(ml_prob*100, '.0f')}%)"
-            else:
-                ml_badge_html = ""
-                ml_status_esc = "N/A"
-
-            show_mean_fmt = f"{show_mean:.2f}" if np.isfinite(show_mean) else "N/A"
-            unit_price_fmt = f"{unit_price:.2f}" if np.isfinite(unit_price) else "N/A"
-            rr_fmt = f"{rr:.2f}R" if np.isfinite(rr) else "N/A"
-            atrp_fmt = f"{atrp:.2f}" if np.isfinite(atrp) else "N/A"
-            overx_fmt = f"{overx:.2f}" if np.isfinite(overx) else "N/A"
-            near52_fmt = f"{near52:.1f}" if np.isfinite(near52) else "N/A"
-
-            # Format new signals
-            rs_fmt = f"{rs_63d*100:+.1f}%" if np.isfinite(rs_63d) else "N/A"
-            vol_surge_fmt = f"{vol_surge:.2f}x" if np.isfinite(vol_surge) else "N/A"
-            ma_status = "✅ Aligned" if ma_aligned else "⚠️ Not aligned"
-            quality_fmt = f"{quality_score:.0f}/50"
-            rr_ratio_fmt = f"{rr_ratio:.2f}" if np.isfinite(rr_ratio) else "N/A"
-            mom_fmt = f"{mom_consistency*100:.0f}%"
-            confidence_badge = (
-                f"{confidence_level.upper()}" if confidence_level else "MEDIUM"
-            )
-
-            # Fundamental breakdown
-            qual_score_f = r.get("Quality_Score_F", np.nan)
-            qual_label = r.get("Quality_Label", "N/A")
-            growth_score_f = r.get("Growth_Score_F", np.nan)
-            growth_label = r.get("Growth_Label", "N/A")
-            val_score_f = r.get("Valuation_Score_F", np.nan)
-            val_label = r.get("Valuation_Label", "N/A")
-            lev_score_f = r.get("Leverage_Score_F", np.nan)
-            lev_label = r.get("Leverage_Label", "N/A")
-
-            # Format fundamental scores with labels
-            qual_fmt = (
-                f"{qual_score_f:.0f} ({qual_label})"
-                if np.isfinite(qual_score_f)
-                else "N/A"
-            )
-            growth_fmt = (
-                f"{growth_score_f:.0f} ({growth_label})"
-                if np.isfinite(growth_score_f)
-                else "N/A"
-            )
-            val_fmt = (
-                f"{val_score_f:.0f} ({val_label})"
-                if np.isfinite(val_score_f)
-                else "N/A"
-            )
-            lev_fmt = (
-                f"{lev_score_f:.0f} ({lev_label})"
-                if np.isfinite(lev_score_f)
-                else "N/A"
-            )
-
-            # Color coding for labels
-            def label_color(label, good_vals):
-                if label in good_vals:
-                    return "#16a34a"  # green
-                elif label in ["Medium", "Fair", "Moderate"]:
-                    return "#f59e0b"  # orange
-                else:
-                    return "#dc2626"  # red
-
-            qual_color = label_color(qual_label, ["High"])
-            growth_color = label_color(growth_label, ["Fast", "Moderate"])
-            val_color = label_color(val_label, ["Cheap", "Fair"])
-            lev_color = label_color(lev_label, ["Low", "Medium"])
-
-            # Detect missing fundamental data
-            missing_fundamental_count = 0
-            fundamental_fields = ["ROE_f", "ROIC_f", "DE_f", "PE_f", "GM_f"]
-            for field in fundamental_fields:
-                val = r.get(field, np.nan)
-                if not np.isfinite(val):
-                    missing_fundamental_count += 1
-
-            # Create partial data badge if applicable
-            data_quality_badge = ""
-            if missing_fundamental_count >= 4:
-                data_quality_badge = (
-                    "<span class='modern-badge badge-missing'>⚠️ Missing Data</span>"
-                )
-            elif missing_fundamental_count >= 2:
-                data_quality_badge = (
-                    "<span class='modern-badge badge-partial'>📊 Partial Data</span>"
-                )
-
-            esc = html_escape.escape
-            ticker = esc(str(r["Ticker"]))
-            sources_esc = esc(str(sources))
-
-            # Next earnings date
-            next_earnings = r.get("NextEarnings", "Unknown")
-
-            # NEW: Ranking and target prices
-            overall_rank = r.get("Overall_Rank", "N/A")
-            entry_price = r.get("Entry_Price", np.nan)
-            target_price = r.get("Target_Price", np.nan)
-            target_date = r.get("Target_Date", "N/A")
-            target_source = r.get("Target_Source", "N/A")
-
-            entry_price_fmt = (
-                f"${entry_price:.2f}" if np.isfinite(entry_price) else "N/A"
-            )
-            target_price_fmt = (
-                f"${target_price:.2f}" if np.isfinite(target_price) else "N/A"
-            )
-
-            # Add badge for AI-enhanced targets
-            target_badge = ""
-            if target_source == "AI":
-                target_badge = " <span style='background:#10b981;color:white;padding:2px 6px;border-radius:4px;font-size:0.75em;font-weight:bold'>🤖 AI</span>"
-            elif target_source == "Technical":
-                target_badge = " <span style='background:#6366f1;color:white;padding:2px 6px;border-radius:4px;font-size:0.75em'>📊 Tech</span>"
-            elif target_source == "Default":
-                target_badge = " <span style='background:#6b7280;color:white;padding:2px 6px;border-radius:4px;font-size:0.75em'>📐 Est</span>"
-
-            # Calculate potential gain %
-            if (
-                np.isfinite(entry_price)
-                and np.isfinite(target_price)
-                and entry_price > 0
-            ):
-                potential_gain_pct = ((target_price - entry_price) / entry_price) * 100
-                gain_fmt = f"+{potential_gain_pct:.1f}%"
-                gain_color = "#16a34a"
-            else:
-                gain_fmt = "N/A"
-                gain_color = "#6b7280"
-                target_badge = ""  # No badge if no valid target
-
-            # Inject CSS for iframe isolation
-            price_rel_fmt = format_rel(r.get("Price_Reliability", np.nan))
-            fund_rel_fmt = format_rel(r.get("Fundamental_Reliability", np.nan))
-            rel_score_fmt = format_rel(r.get("Reliability_Score", np.nan))
-
-            # V2 SCORES (NOW ALWAYS ENABLED AS DEFAULT)
-            v2_html = ""
-            conv_v2 = r.get("conviction_v2_final", np.nan)
-            conv_v2_base = r.get("conviction_v2_base", np.nan)
-            fund_v2 = r.get("fundamental_score_v2", np.nan)
-            tech_v2 = r.get("technical_score_v2", np.nan)
-            rr_v2 = r.get("rr_score_v2", np.nan)
-            rel_v2 = r.get("reliability_score_v2", np.nan)
-            risk_v2 = r.get("risk_meter_v2", np.nan)
-            risk_label_v2 = r.get("risk_label_v2", "N/A")
-            ml_boost_v2 = r.get("ml_boost", 0.0)
-            # Strict gate status and V2 allocations
-            gate_status = r.get("risk_gate_status_v2", None)
-            gate_reason = r.get("risk_gate_reason_v2", "")
-            buy_amount_v2 = float(r.get("buy_amount_v2", 0.0) or 0.0)
-            shares_v2 = int(r.get("shares_to_buy_v2", 0) or 0)
-
-            # Build strict-mode badge
-            badge_html = ""
-            if gate_status == "blocked":
-                badge_html = "<span style='background:#dc2626;color:white;padding:4px 8px;border-radius:6px;font-weight:700;margin-left:8px'>❌ Blocked (Strict Risk Gate)</span>"
-            elif gate_status == "reduced" or gate_status == "severely_reduced":
-                badge_html = "<span style='background:#f59e0b;color:black;padding:4px 8px;border-radius:6px;font-weight:700;margin-left:8px'>⚠️ Reduced (Strict Risk Gate)</span>"
-            elif gate_status == "full":
-                badge_html = "<span style='background:#16a34a;color:white;padding:4px 8px;border-radius:6px;font-weight:700;margin-left:8px'>✅ Passed Strict Risk Gate</span>"
-
-            # Format V2 scores for inline display
-            conv_v2_fmt = f"{conv_v2:.0f}" if np.isfinite(conv_v2) else "N/A"
-            fund_v2_fmt = f"{fund_v2:.0f}" if np.isfinite(fund_v2) else "N/A"
-            tech_v2_fmt = f"{tech_v2:.0f}" if np.isfinite(tech_v2) else "N/A"
-            rr_v2_fmt = f"{rr_v2:.0f}" if np.isfinite(rr_v2) else "N/A"
-            rel_v2_fmt = f"{rel_v2:.0f}" if np.isfinite(rel_v2) else "N/A"
-            risk_v2_fmt = f"{risk_v2:.0f}" if np.isfinite(risk_v2) else "N/A"
-
-            # Conviction meter color
-            if np.isfinite(conv_v2):
-                if conv_v2 >= 75:
-                    conv_color = "#16a34a"  # green
-                elif conv_v2 >= 60:
-                    conv_color = "#f59e0b"  # orange
-                else:
-                    conv_color = "#dc2626"  # red
-            else:
-                conv_color = "#6b7280"
-
-            # Risk meter color (inverted: low risk = green)
-            if np.isfinite(risk_v2):
-                if risk_v2 < 35:
-                    risk_color = "#16a34a"  # green
-                elif risk_v2 < 65:
-                    risk_color = "#f59e0b"  # orange
-                else:
-                    risk_color = "#dc2626"  # red
+            rel1, rel2, rel3, rel4 = st.columns(4)
+            with rel1:
+                st.text("Reliability")
+                st.code(_fmt_num(rel, '.0f'))
+            with rel2:
+                st.text("Fund sources")
+                st.code(_fmt_num(r.get('Fundamental_Sources_Count', r.get('fund_sources_used_v2', np.nan)), '.0f'))
+            with rel3:
+                st.text("Price sources")
+                st.code(_fmt_num(r.get('Price_Sources_Count', r.get('price_sources_used_v2', np.nan)), '.0f'))
+            with rel4:
+                st.text("Price STD")
+                st.code(_fmt_num(r.get('Price_STD', r.get('price_std', np.nan)), '.2f'))
 
     # Export section (single, unified)
 show_order = [
@@ -5131,7 +3903,7 @@ else:
 # ==================== Notes ====================
 with st.expander("ℹ️ Methodology (Summary)"):
         st.markdown(
-                """
+"""
 - **Historical Data**: Yahoo Finance (`yfinance`). Price verification: Alpha Vantage, Finnhub, Polygon, Tiingo.
 - **Technical Scoring**: Moving averages, momentum (1/3/6 months with Sigmoid), RSI range, Near-High bell curve, 
     Overextension vs MA_L, Pullback detection, ATR/Price ratio, Reward/Risk, MACD/ADX.

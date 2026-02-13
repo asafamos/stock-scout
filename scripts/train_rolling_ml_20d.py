@@ -736,23 +736,15 @@ def train_and_save_bundle():
     full_df = pd.concat(all_data)
     print(f"📊 Total Training Rows: {len(full_df)}")
     
-    # 3. Labeling (Percentile-based ranking for balanced classes)
-    # Label top 20% performers as winners (relative ranking)
-    # This guarantees ~20% positive class regardless of market conditions
-    WINNER_PERCENTILE = 80  # Top 20% are winners
-    percentile_threshold = full_df['Forward_Return_20d'].quantile(WINNER_PERCENTILE / 100.0)
-    full_df['Label'] = (full_df['Forward_Return_20d'] >= percentile_threshold).astype(int)
-    
-    # Store threshold for metadata
-    threshold = float(percentile_threshold)
-    
-    print(f"🎯 Winner threshold (top {100 - WINNER_PERCENTILE}%): {percentile_threshold*100:.1f}% return")
-    
-    # Print class distribution
-    pos_count = full_df['Label'].sum()
-    neg_count = len(full_df) - pos_count
-    print(f"📊 Class distribution: {pos_count} winners ({pos_count/len(full_df)*100:.1f}%), "
-          f"{neg_count} losers ({neg_count/len(full_df)*100:.1f}%)")
+        # 3. Labeling (Unified logic)
+        full_df['Label_20d'] = make_label_20d(full_df['Forward_Return_20d'])
+        full_df = full_df.dropna(subset=["Label_20d"]).copy()
+        full_df["Label_20d"] = full_df["Label_20d"].astype(int)
+        # Print class distribution
+        pos_count = full_df['Label_20d'].sum()
+        neg_count = len(full_df) - pos_count
+        print(f"📊 Class distribution: {pos_count} winners ({pos_count/len(full_df)*100:.1f}%), "
+            f"{neg_count} losers ({neg_count/len(full_df)*100:.1f}%)")
     
     # Print performance by market regime
     print("\n📊 Performance by Market Regime:")

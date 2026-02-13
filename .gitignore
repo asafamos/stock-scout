@@ -92,3 +92,4 @@ tools/audit/*.log
 # ML artifacts
 ml/
 models/*.joblib
+.claude/
