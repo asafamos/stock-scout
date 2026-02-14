@@ -18,7 +18,7 @@ from pathlib import Path
 import pandas as pd
 
 # Ensure project root in path
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from core.pipeline_runner import (

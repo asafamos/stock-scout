@@ -355,7 +355,7 @@ def main():
     
     # Load ML model
     model_data = None
-    model_path = Path(__file__).parent / args.model
+    model_path = Path(__file__).resolve().parent.parent / args.model
     if model_path.exists():
         try:
             with open(model_path, 'rb') as f:

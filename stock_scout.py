@@ -71,110 +71,7 @@ class NullStatus:
 
 # Fundamentals schema imported from app_config (single source of truth)
 
-
-
-
-def render_data_sources_overview(provider_status: dict, provider_usage: dict, results: pd.DataFrame) -> None:
-    """
-    Render a dynamic, compact data sources table showing which providers were actually used in this run.
-    Uses emoji indicators and Hebrew labels with RTL layout and avoids any raw HTML inside the dataframe.
-    """
-
-    # Canonical provider names; map to internal usage labels if needed
-    synonyms = {
-        "Alpha Vantage": "Alpha",
-        "Nasdaq": "NasdaqDL",
-        "Yahoo": "Yahoo",
-    }
-
-    table_rows = []
-    for provider_name, status_info in provider_status.items():
-        ok = bool(status_info.get("ok", False))
-        status_icon = "🟢" if ok else "🔴"
-        status_text = "פעיל" if ok else "תקלה / חסום"
-
-        usage_key = provider_name if provider_name in provider_usage else synonyms.get(provider_name, provider_name)
-        usage_info = provider_usage.get(usage_key, {})
-
-        used_price = bool(usage_info.get("used_price"))
-        used_fund = bool(usage_info.get("used_fundamentals"))
-        used_ml = bool(usage_info.get("used_ml"))
-        implemented = bool(usage_info.get("implemented", True))
-
-        if not implemented:
-            status_icon = "⚪"
-            status_text = "לא רלוונטי בריצה זו"
-
-        if used_price or used_fund or used_ml:
-            used_icon = "🟢"
-            used_text = "בשימוש"
-        else:
-            used_icon = "⚪"
-            used_text = "לא בשימוש"
-
-        details_parts = []
-        if used_price:
-            details_parts.append("מחיר")
-        if used_fund:
-            details_parts.append("פונדמנטלי")
-        if used_ml:
-            details_parts.append("ML")
-
-        usage_detail = " | ".join(details_parts) if details_parts else "—"
-
-        table_rows.append(
-            {
-                "ספק": provider_name,
-                "סטטוס": f"{status_icon} {status_text}",
-                "שימוש": f"{used_icon} {used_text}",
-                "פרטים": usage_detail,
-            }
-        )
-
-    if not table_rows:
-        return
-
-    df_sources = pd.DataFrame(table_rows)
-    df_sources["ספק"] = df_sources["ספק"].astype(str)
-
-    styled = (
-        df_sources.style
-        .set_properties(
-            subset=["ספק"],
-            **{
-                "direction": "ltr",
-                "text-align": "left",
-                "font-size": "14px",
-                "white-space": "nowrap",
-            }
-        )
-        .set_properties(
-            subset=["סטטוס", "שימוש", "פרטים"],
-            **{
-                "text-align": "center",
-                "font-size": "14px",
-            }
-        )
-        .set_table_styles(
-            [
-                {
-                    "selector": "th",
-                    "props": [("text-align", "center"), ("font-size", "15px")],
-                }
-            ]
-        )
-    )
-
-    st.markdown("### 🔌 מקורות נתונים")
-    st.dataframe(styled, width='stretch', hide_index=True)
-
-    used_count = 0
-    for provider_name in provider_status.keys():
-        usage_key = provider_name if provider_name in provider_usage else synonyms.get(provider_name, provider_name)
-        info = provider_usage.get(usage_key, {})
-        if info.get("used_price") or info.get("used_fundamentals") or info.get("used_ml"):
-            used_count += 1
-    st.caption(f"סה\"כ ספקים פעילים: {used_count} / {len(provider_status)}")
+from ui.data_sources import render_data_sources_overview
 
 
 # Load environment variables
@@ -1539,229 +1436,32 @@ render_data_sources_overview(
     results=results
 )
 
-# Calculate target prices and dates WITH OPTIONAL OPENAI ENHANCEMENT
-# (datetime and timedelta already imported at top of file)
-
+# Target price / date calculation — imported from ui.target_calc
+from ui.target_calc import (
+    get_openai_target_prediction as _get_openai_target_raw,
+    calculate_targets as _calculate_targets_raw,
+)
 
 @st.cache_data(ttl=3600)
-def get_openai_target_prediction(
-    ticker: str, current_price: float, fundamentals: dict, technicals: dict
-) -> Optional[Tuple[float, int]]:
-    """
-    Use OpenAI to predict realistic target price AND holding period based on fundamentals and technicals.
-    Returns (target_price, days_to_target) tuple or None if API unavailable or request fails.
-    """
-    if not OPENAI_AVAILABLE:
-        return None
-
-    openai_key = _env("OPENAI_API_KEY")
-    if not openai_key:
-        return None
-
-    try:
-        client = OpenAI(api_key=openai_key)
-
-        # Build context from fundamentals
-        fund_str = ", ".join(
-            [
-                f"{k}: {v}"
-                for k, v in fundamentals.items()
-                if v is not None and not (isinstance(v, float) and np.isnan(v))
-            ]
-        )
-        tech_str = ", ".join(
-            [
-                f"{k}: {v:.2f}"
-                for k, v in technicals.items()
-                if isinstance(v, (int, float)) and np.isfinite(v)
-            ]
-        )
-
-        prompt = (
-            f"You are a financial analyst. Based on the following data for {ticker}:\n"
-            f"Current Price: USD {current_price:.2f}\n"
-            f"Fundamentals: {fund_str}\n"
-            f"Technical Indicators: {tech_str}\n"
-            "Provide TWO predictions as a JSON object:\n"
-            "1. Target Price: realistic price target considering growth trends, valuation, momentum, and risk/reward\n"
-            "2. Days to Target: estimated holding period in days to reach this target (typically 7-180 days based on momentum and catalysts)\n"
-            "Return ONLY a JSON object with this exact format:\n"
-            '{"target_price": <number>, "days_to_target": <integer>}\n'
-            "JSON:"
-        )
-
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.3,
-            max_tokens=100,
-        )
-
-        # Extract JSON from response
-        answer = response.choices[0].message.content.strip()
-        import re
-
-        # Try to extract JSON from response
-        json_match = re.search(r"\{[^}]+\}", answer)
-        if json_match:
-            data = json.loads(json_match.group(0))
-            target = float(data.get("target_price", 0))
-            days = int(data.get("days_to_target", 20))
-            # Sanity checks
-            if (
-                current_price * 0.5 <= target <= current_price * 3.0
-                and 7 <= days <= 365
-            ):
-                return (target, days)
-    except Exception as e:
-        logger.warning(f"OpenAI target prediction failed for {ticker}: {e}")
-
-    return None
-
+def get_openai_target_prediction(ticker, current_price, fundamentals, technicals):
+    oai_key = _env("OPENAI_API_KEY") if OPENAI_AVAILABLE else None
+    return _get_openai_target_raw(ticker, current_price, fundamentals, technicals, openai_key=oai_key)
 
 def calculate_targets(row):
-    """Calculate entry price, target price, and target date based on ATR, RR, and optional OpenAI prediction"""
-    ticker = row.get("Ticker", "")
-    current_price = row.get("Unit_Price", row.get("Price_Yahoo", np.nan))
-    atr = row.get("ATR", np.nan)
-    rr = row.get("RewardRisk", np.nan)
-    rsi = row.get("RSI", np.nan)
-    momentum = row.get("Momentum_63d", np.nan)
-    sector = row.get("Sector", "")
-    # Use canonical ML probability when available
-    ml_prob = row.get("ML_20d_Prob", row.get("ml_probability", 0.5))
-
-    if np.isfinite(current_price) and current_price > 0:
-        # Entry price: current - 0.5*ATR (wait for slight pullback)
-        if np.isfinite(atr):
-            entry_price = current_price - (0.5 * atr)
-        else:
-            entry_price = current_price * 0.98  # 2% below if no ATR
-
-        # Calculate volatility factor for date variability
-        atr_pct = (
-            (atr / current_price) if (np.isfinite(atr) and current_price > 0) else 0.02
-        )
-        volatility_factor = np.clip(atr_pct / 0.03, 0.5, 2.5)  # 0.5x to 2.5x multiplier
-
-        # Sector-based offset (defensive sectors slower, growth sectors faster)
-        sector_offsets = {
-            "Utilities": 1.3,
-            "Consumer Defensive": 1.2,
-            "Real Estate": 1.15,
-            "Financials": 1.1,
-            "Healthcare": 1.0,
-            "Industrials": 0.95,
-            "Energy": 0.9,
-            "Consumer Cyclical": 0.85,
-            "Technology": 0.75,
-            "Communication Services": 0.8,
-        }
-        sector_mult = sector_offsets.get(sector, 1.0)
-
-        # ML probability influence (higher confidence = shorter timeline)
-        ml_mult = 1.0
-        if isinstance(ml_prob, (int, float)) and np.isfinite(ml_prob):
-            ml_mult = 1.2 - (ml_prob * 0.4)  # 0.5→1.0, 1.0→0.8 (high conf = faster)
-
-        # Calculate fallback days from multiple factors (more dynamic)
-        if np.isfinite(rr):
-            # Base days from RR
-            base_days = 20 + (rr * 10)
-
-            # Adjust based on RSI: oversold (< 40) = faster, overbought (> 70) = slower
-            if np.isfinite(rsi):
-                if rsi < 40:
-                    base_days *= 0.75  # Strong momentum, faster target
-                elif rsi > 70:
-                    base_days *= 1.3  # Overbought, slower target
-
-            # Adjust based on momentum: strong momentum = faster
-            if np.isfinite(momentum) and momentum > 0.05:
-                base_days *= 0.9  # Strong uptrend, faster
-            elif np.isfinite(momentum) and momentum < -0.05:
-                base_days *= 1.2  # Weak trend, slower
-
-            # Apply volatility, sector, and ML multipliers
-            base_days *= volatility_factor * sector_mult * ml_mult
-
-            # Add ticker-specific variance (hash-based to keep consistent per ticker)
-            ticker_seed = sum(ord(c) for c in ticker) % 20
-            base_days += ticker_seed
-
-            days = int(min(180, max(14, base_days)))
-        else:
-            # Fallback: use volatility factor for diverse dates (30-180 days)
-            base_days = 60 * volatility_factor * sector_mult * ml_mult
-            ticker_seed = sum(ord(c) for c in ticker) % 30
-            days = int(min(180, max(30, base_days + ticker_seed)))
-
-        # Try OpenAI-enhanced target (returns both price and days)
-        ai_result = None
-        # Skip OpenAI calls in precomputed mode for faster loading
-        skip_openai = st.session_state.get("skip_pipeline", False)
-        if not skip_openai and st.session_state.get("enable_openai_targets", False):
-            fundamentals = {
-                "PE": row.get("PERatio", np.nan),
-                "PB": row.get("PBRatio", np.nan),
-                "ROE": row.get("ROE", np.nan),
-                "Margin": row.get("ProfitMargin", np.nan),
-                "RevenueGrowth": row.get("RevenueGrowthYoY", np.nan),
-            }
-            technicals = {
-                "RSI": rsi,
-                "Momentum_63d": momentum,
-                "RewardRisk": rr,
-                "ATR": atr,
-            }
-            try:
-                ai_result = get_openai_target_prediction(
-                    ticker, current_price, fundamentals, technicals
-                )
-            except Exception as e:
-                logger.warning(f"OpenAI call failed for {ticker}: {e}")
-                ai_result = None
-
-        if ai_result is not None:
-            # Use AI prediction for both target price AND timing
-            target_price, days = ai_result
-            target_source = "AI"
-        elif np.isfinite(atr) and np.isfinite(rr):
-            # Fallback to technical calculation: entry + (RR * ATR)
-            base_target_pct = rr * (atr / current_price) if current_price > 0 else 0.10
-            
-            # REGIME-AWARE ADJUSTMENT
-            reliability = row.get("Reliability_v2", row.get("reliability_pct", 50.0))
-            risk_meter = row.get("risk_meter_v2", row.get("RiskMeter", 50.0))
-            regime_data = st.session_state.get('market_regime', {"regime": "neutral", "confidence": 50})
-            
-            adjusted_target_pct, adjustment_explanation = adjust_target_for_regime(
-                base_target_pct, 
-                reliability, 
-                risk_meter, 
-                regime_data
-            )
-            
-            target_price = entry_price * (1 + adjusted_target_pct)
-            target_source = "AI"  # Mark as AI to show regime-aware calculation
-            
-            # Debug logging
-            if CONFIG.get("DEBUG_MODE") and adjustment_explanation != "no adjustments":
-                logger.debug(f"{ticker}: Target adjusted from {base_target_pct*100:.1f}% to {adjusted_target_pct*100:.1f}% ({adjustment_explanation})")
-            
-            # days already calculated above from RR + RSI + momentum
-        else:
-            # Conservative default: 10% above entry
-            target_price = entry_price * 1.10
-            target_source = "Default"
-            # days already set to 30
-
-        # Target date: today + holding horizon (now from AI or calculated)
-        target_date = (datetime.datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
-
-        return entry_price, target_price, target_date, target_source
-    else:
-        return current_price, np.nan, "N/A", "N/A"
+    """Wrapper that injects Streamlit session state into pure-logic function."""
+    regime_data = st.session_state.get('market_regime', {"regime": "neutral", "confidence": 50})
+    skip_openai = st.session_state.get("skip_pipeline", False)
+    enable_openai = st.session_state.get("enable_openai_targets", False)
+    oai_key = _env("OPENAI_API_KEY") if OPENAI_AVAILABLE else None
+    return _calculate_targets_raw(
+        row,
+        regime_data=regime_data,
+        openai_key=oai_key,
+        enable_openai=enable_openai,
+        skip_openai=skip_openai,
+        adjust_target_for_regime=adjust_target_for_regime,
+        config=CONFIG,
+    )
 
 
 """Respect pipeline targets: only compute if missing."""
@@ -1889,27 +1589,11 @@ if not rec_df.empty:
     rec_df["Regime_Confidence"] = regime_data.get("confidence", 50)
     
     # Reliability band (High/Medium/Low based on reliability score)
-    def _get_reliability_band(reliability_val):
-        if pd.notna(reliability_val) and isinstance(reliability_val, (int, float)):
-            if reliability_val >= 75:
-                return "High"
-            elif reliability_val >= 40:
-                return "Medium"
-            else:
-                return "Low"
-        return "Unknown"
+    from ui.card_helpers import get_reliability_band as _get_reliability_band, get_reliability_components as _get_reliability_components
     
     # Get reliability values, defaulting to 50 if columns don't exist
     reliability_series = rec_df.get("Reliability_v2", rec_df.get("reliability_pct", pd.Series([50] * len(rec_df), index=rec_df.index)))
     rec_df["Reliability_Band"] = reliability_series.apply(_get_reliability_band)
-    
-    # Reliability components summary
-    def _get_reliability_components(row):
-        fund_rel = row.get("Fundamental_Reliability_v2", 0)
-        price_rel = row.get("Price_Reliability_v2", 0)
-        fund_sources = row.get("fund_sources_used_v2", 0)
-        price_sources = row.get("price_sources_used_v2", 0)
-        return f"F:{fund_rel:.0f}%(n={fund_sources}),P:{price_rel:.0f}%(n={price_sources})"
     
     rec_df["Reliability_Components"] = rec_df.apply(_get_reliability_components, axis=1)
     
@@ -1936,23 +1620,18 @@ if not rec_df.empty:
     
     # Debug logging for sample stocks
     if CONFIG.get("DEBUG_MODE") and len(rec_df) > 0:
+        from ui.card_helpers import fmt_num as _debug_fmt_num
         sample_tickers = rec_df["Ticker"].head(3).tolist()
         for ticker in sample_tickers:
             row = rec_df[rec_df["Ticker"] == ticker].iloc[0]
-            def _fmt_num(val, fmt):
-                try:
-                    return format(float(val), fmt) if val is not None and str(val) not in ("N/A", "nan") else str(val)
-                except Exception as exc:
-                    logger.debug(f"Debug fmt: {exc}")
-                    return str(val)
             logger.info(
                 f"DEBUG: {ticker} Breakdown:\n"
                 f"  Overall Score: {row.get('overall_score_pretty', row.get('Score', 'N/A'))}\n"
-                f"  Fundamentals: {_fmt_num(row.get('Fundamental_S', 'N/A'), '.0f')} (coverage: {_fmt_num(row.get('Fund_Coverage_Pct', 0), '.1f')}%)\n"
-                f"  Technical: {_fmt_num(row.get('Technical_S', 'N/A'), '.0f')}\n"
-                f"  RR: {_fmt_num(row.get('rr_score_v2', 'N/A'), '.0f')} (ratio: {_fmt_num(row.get('rr', 'N/A'), '.2f')})\n"
-                f"  Reliability: {_fmt_num(row.get('Reliability_v2', 'N/A'), '.0f')} ({row.get('Reliability_Band', 'N/A')})\n"
-                f"  Risk: {_fmt_num(row.get('risk_meter_v2', 'N/A'), '.0f')} ({row.get('risk_band', 'N/A')})\n"
+                f"  Fundamentals: {_debug_fmt_num(row.get('Fundamental_S', 'N/A'), '.0f')} (coverage: {_debug_fmt_num(row.get('Fund_Coverage_Pct', 0), '.1f')}%)\n"
+                f"  Technical: {_debug_fmt_num(row.get('Technical_S', 'N/A'), '.0f')}\n"
+                f"  RR: {_debug_fmt_num(row.get('rr_score_v2', 'N/A'), '.0f')} (ratio: {_debug_fmt_num(row.get('rr', 'N/A'), '.2f')})\n"
+                f"  Reliability: {_debug_fmt_num(row.get('Reliability_v2', 'N/A'), '.0f')} ({row.get('Reliability_Band', 'N/A')})\n"
+                f"  Risk: {_debug_fmt_num(row.get('risk_meter_v2', 'N/A'), '.0f')} ({row.get('risk_band', 'N/A')})\n"
                 f"  Classification: {row.get('Risk_Level', 'N/A')}\n"
                 f"  Market Regime: {regime_data.get('regime', 'N/A')} ({regime_data.get('confidence', 0)}%)"
             )
@@ -1986,119 +1665,16 @@ else:
     # Determine score label based on schema
     score_label = "FinalScore_20d" if "FinalScore_20d" in rec_df.columns else "Score"
 
-    # Small helpers for compact card rendering (headline vs details)
-    def _to_float(val) -> float:
-        try:
-            # Coerce common non-numeric placeholders safely
-            if val in (None, "", "N/A", "nan"):
-                return np.nan
-            return float(val)
-        except Exception as exc:
-            logger.debug(f"_to_float coerce: {exc}")
-            return np.nan
-
-
-    def _normalize_prob(p):
-        try:
-            if p is None or (isinstance(p, float) and np.isnan(p)):
-                return None
-            pv = float(p)
-            if not np.isfinite(pv):
-                return None
-            if pv > 1 and pv <= 100:
-                pv = pv / 100.0
-            elif pv > 100:
-                return '—'
-            pv = max(0.0, min(1.0, pv))
-            return pv
-        except Exception as exc:
-            logger.debug(f"_normalize_prob: {exc}")
-            return None
-
-    def _ml_badge(p) -> str:
-        norm = _normalize_prob(p)
-        if norm is None:
-            return "—"
-        if norm == '—':
-            return '—'
-        if norm > 0.60:
-            return f"🟢 {norm*100:.0f}%"
-        if norm >= 0.40:
-            return f"🟡 {norm*100:.0f}%"
-        return f"🔴 {norm*100:.0f}%"
-
-    def _get_ml_prob_from_row(r):
-        for k in ["ML_20d_Prob_live_v3","ML_20d_Prob","ML_20d_Prob_raw","ML_Probability"]:
-            v = r.get(k, np.nan)
-            if v is not None and pd.notna(v):
-                try:
-                    return float(v)
-                except Exception as exc:
-                    logger.debug(f"ML prob parse for key {k}: {exc}")
-                    continue
-        return np.nan
-
-    def _risk_class(row: pd.Series) -> str:
-        rc = row.get("RiskClass")
-        if isinstance(rc, str) and rc:
-            return rc
-        # Fallback to legacy Risk_Level
-        rl = str(row.get("Risk_Level", "speculative")).lower()
-        return "CORE" if rl == "core" else ("SPEC" if rl else "SPEC")
-
-    def _headline_story(row: pd.Series) -> str:
-        # Headline fields: FinalScore_20d, ML_20d_Prob, RiskClass, RR, ReliabilityScore
-        fund = _to_float(row.get("FundamentalScore", row.get("Fundamental_S", np.nan)))
-        mom = _to_float(row.get("MomentumScore", row.get("TechScore_20d", np.nan)))
-        rr = _to_float(row.get("RR", row.get("RR_Ratio", row.get("RewardRisk", np.nan))))
-        rel = _to_float(row.get("ReliabilityScore", row.get("Reliability_Score", row.get("Reliability_v2", np.nan))))
-
-        parts = []
-        # Quality / fundamentals
-        if isinstance(fund, float) and np.isfinite(fund):
-            if fund >= 70:
-                parts.append("Quality business")
-            elif fund >= 50:
-                parts.append("Decent fundamentals")
-            else:
-                parts.append("Weak fundamentals")
-        # Momentum
-        if isinstance(mom, float) and np.isfinite(mom):
-            if mom >= 70:
-                parts.append("strong momentum")
-            elif mom >= 50:
-                parts.append("moderate momentum")
-            else:
-                parts.append("weak momentum")
-        # RR
-        if isinstance(rr, float) and np.isfinite(rr):
-            if rr >= 2.5:
-                parts.append("excellent RR")
-            elif rr >= 1.5:
-                parts.append("good RR")
-            else:
-                parts.append("poor RR")
-        # Reliability
-        if isinstance(rel, float) and np.isfinite(rel):
-            # Normalize legacy 0-1
-            rel_val = rel
-            if rel_val <= 1.0:
-                rel_val *= 100.0
-            if rel_val >= 75:
-                parts.append("high data reliability")
-            elif rel_val >= 40:
-                parts.append("medium reliability")
-            else:
-                parts.append("low reliability")
-        return ", ".join(parts[:4])
-
-    def _fmt_num(val, fmt, na="N/A"):
-        try:
-            v = _to_float(val)
-            return format(v, fmt) if isinstance(v, float) and np.isfinite(v) else na
-        except Exception as exc:
-            logger.debug(f"_fmt_num: {exc}")
-            return na
+    # Small helpers for compact card rendering — imported from ui.card_helpers
+    from ui.card_helpers import (
+        to_float as _to_float,
+        normalize_prob as _normalize_prob,
+        ml_badge as _ml_badge,
+        get_ml_prob_from_row as _get_ml_prob_from_row,
+        risk_class as _risk_class,
+        headline_story as _headline_story,
+        fmt_num as _fmt_num,
+    )
 
     # UI displays exactly what the pipeline provided (no extra slicing)
     st.write(f"Showing {len(rec_df)} candidates")

@@ -193,39 +193,4 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
 """
     return card_html
 
-def render_data_sources_overview(provider_status: dict, provider_usage: dict, results: pd.DataFrame) -> None:
-    synonyms = {
-        "Alpha Vantage": "Alpha",
-        "Nasdaq": "NasdaqDL",
-        "Yahoo": "Yahoo",
-    }
-    table_rows = []
-    for provider_name, status_info in provider_status.items():
-        ok = bool(status_info.get("ok", False))
-        status_icon = "🟢" if ok else "🔴"
-        status_text = "פעיל" if ok else "תקלה / חסום"
-        usage_key = provider_name if provider_name in provider_usage else synonyms.get(provider_name, provider_name)
-        usage_info = provider_usage.get(usage_key, {})
-        used_price = bool(usage_info.get("used_price"))
-        used_fund = bool(usage_info.get("used_fundamentals"))
-        used_ml = bool(usage_info.get("used_ml"))
-        implemented = bool(usage_info.get("implemented", True))
-        if not implemented:
-            status_icon = "⚪"
-            status_text = "לא רלוונטי בריצה זו"
-        if used_price or used_fund or used_ml:
-            row = {
-                "ספק": provider_name,
-                "סטטוס": status_icon + " " + status_text,
-                "מחיר": "✅" if used_price else "",
-                "פונדמנטלי": "✅" if used_fund else "",
-                "ML": "✅" if used_ml else "",
-            }
-            table_rows.append(row)
-    if not table_rows:
-        st.info("לא נמצאו ספקים פעילים בריצה זו.")
-        return
-    styled = pd.DataFrame(table_rows)
-    st.markdown("### 🔌 מקורות נתונים")
-    st.dataframe(styled, width='stretch', hide_index=True)
-    st.caption(f"סה\"כ ספקים פעילים: {sum(1 for r in table_rows if '🟢' in r['סטטוס'])} / {len(provider_status)}")
+# render_data_sources_overview lives in stock_scout.py (canonical version)

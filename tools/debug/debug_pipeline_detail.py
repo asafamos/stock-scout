@@ -25,34 +25,8 @@ from core.filters import fetch_benchmark_data
 
 
 from core.risk import calculate_rr
+from core.pipeline.market_data import fetch_history_bulk
 
-def fetch_history_bulk(tickers, days):
-    """Fetch historical data using yfinance"""
-    import yfinance as yf
-    from datetime import datetime, timedelta
-    end = datetime.utcnow()
-    start = end - timedelta(days=days + 50)
-    data_map = {}
-    min_rows = 50 + 40
-    
-    try:
-        if len(tickers) == 1:
-            df_all = yf.download(tickers[0], start=start, end=end, progress=False)
-            if not df_all.empty and len(df_all) >= min_rows:
-                data_map[tickers[0]] = df_all
-        else:
-            df_all = yf.download(tickers, start=start, end=end, group_by='ticker', progress=False, threads=True)
-            for tkr in tickers:
-                try:
-                    df = df_all[tkr].dropna(how='all')
-                    if len(df) >= min_rows:
-                        data_map[tkr] = df
-                except:
-                    pass
-    except Exception as e:
-        print(f"Fetch error: {e}")
-    
-    return data_map
 # Try to import ML inference, make it optional
 try:
     from core.ml_20d_inference import predict_20d_prob_from_row

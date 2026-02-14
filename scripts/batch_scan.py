@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 
-PROJECT_ROOT = Path(__file__).parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 load_dotenv()
@@ -62,40 +62,6 @@ def build_universe(limit: int = 100) -> List[str]:
         logger.error(f"Failed to fetch S&P 500 tickers: {e}")
         fallback = ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "NVDA", "META", "BRK-B", "V", "JNJ"]
         return fallback[:limit]
-
-
-def fetch_history_bulk(tickers: List[str], lookback_days: int, ma_long: int) -> Dict[str, pd.DataFrame]:
-    """
-    Fetch historical data for all tickers.
-    
-    Args:
-        tickers: List of ticker symbols
-        lookback_days: Days of history to fetch
-        ma_long: Long MA period (determines required history)
-    
-    Returns:
-        Dict mapping ticker -> DataFrame with OHLCV data
-    """
-    import yfinance as yf
-    
-    logger.info(f"Fetching historical data for {len(tickers)} tickers...")
-    
-    data_map = {}
-    min_len = max(ma_long + 5, lookback_days)
-    
-    for i, ticker in enumerate(tickers, 1):
-        if i % 10 == 0:
-            logger.info(f"  Progress: {i}/{len(tickers)} ({i/len(tickers)*100:.0f}%)")
-        
-        try:
-            df = yf.download(ticker, period=f"{lookback_days + 60}d", progress=False)
-            if df is not None and len(df) >= min_len:
-                data_map[ticker] = df
-        except Exception as e:
-            logger.warning(f"Failed to fetch {ticker}: {e}")
-    
-    logger.info(f"Historical data fetched: {len(data_map)}/{len(tickers)} successful")
-    return data_map
 
 
 def run_batch_scan(

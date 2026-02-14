@@ -49,26 +49,7 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 
-
-# ------------------------------- Indicator Helpers -------------------------------
-
-def rsi(series: pd.Series, period: int = 14) -> pd.Series:
-    delta = series.diff()
-    gain = (delta.clip(lower=0)).ewm(alpha=1/period, adjust=False).mean()
-    loss = (-delta.clip(upper=0)).ewm(alpha=1/period, adjust=False).mean()
-    rs = gain / loss.replace(0, np.nan)
-    return 100 - (100 / (1 + rs))
-
-
-def atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
-    prev_close = df['Close'].shift()
-    range1 = df['High'] - df['Low']
-    range2 = (df['High'] - prev_close).abs()
-    range3 = (df['Low'] - prev_close).abs()
-    true_range = np.maximum(range1, np.maximum(range2, range3))
-    # Ensure 1D
-    true_range = np.asarray(true_range).reshape(-1)
-    return pd.Series(true_range, index=df.index).rolling(period).mean()
+from indicators import rsi, atr  # canonical implementations
 
 
 def momentum_consistency(close: pd.Series, lookback: int = 14) -> pd.Series:

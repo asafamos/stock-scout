@@ -19,11 +19,11 @@ import pandas as pd
 from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime, timedelta
 from functools import lru_cache
-import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from core.config import get_secret
 from core.api_monitor import record_api_call
+from core.data_sources_v2 import _rate_limit  # canonical rate limiter
 
 logger = logging.getLogger(__name__)
 
@@ -32,25 +32,9 @@ FINNHUB_API_KEY = get_secret("FINNHUB_API_KEY", "")
 FMP_API_KEY = get_secret("FMP_API_KEY", "")
 POLYGON_API_KEY = get_secret("POLYGON_API_KEY", "")
 
-# Rate limiting
-_LAST_CALL: Dict[str, float] = {}
-_RATE_LOCK = threading.Lock()
-MIN_INTERVAL = {"finnhub": 0.2, "fmp": 0.1, "polygon": 0.5}
-
 # Cache
 _SENTIMENT_CACHE: Dict[str, Dict] = {}
 _CACHE_TTL = 3600  # 1 hour
-
-
-def _rate_limit(provider: str) -> None:
-    """Apply rate limiting for API calls."""
-    with _RATE_LOCK:
-        now = time.time()
-        last = _LAST_CALL.get(provider, 0)
-        wait = MIN_INTERVAL.get(provider, 0.2) - (now - last)
-        if wait > 0:
-            time.sleep(wait)
-        _LAST_CALL[provider] = time.time()
 
 
 def _safe_get(url: str, params: Dict, provider: str, timeout: int = 10) -> Optional[Dict]:

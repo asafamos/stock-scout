@@ -1,7 +1,7 @@
 """Quick 500-stock scan with hardcoded universe."""
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 # Large universe of 500 major US stocks
 UNIVERSE_500 = [
