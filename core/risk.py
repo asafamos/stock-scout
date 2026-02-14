@@ -32,7 +32,7 @@ class RiskConstraints:
 class RiskManager:
     """Risk management and filtering."""
     
-    def __init__(self, config=None):
+    def __init__(self, config: dict | None = None) -> None:
         self.config = config or get_config()
     
     def get_constraints(self) -> RiskConstraints:

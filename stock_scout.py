@@ -16,7 +16,6 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import html as html_escape
 
 # ── third-party ─────────────────────────────────────────────────────
 import numpy as np
@@ -70,37 +69,9 @@ class NullStatus:
     def __exit__(self, *a): pass
 
 
-# -----------------------------------------------------------------
-# Canonical fundamentals schema (numeric + string fields)
-# These fields are used across all provider normalization helpers and
-# the fusion layer. New providers should map into these names only.
-# -----------------------------------------------------------------
-FUND_SCHEMA_FIELDS = [
-    "oper_margin",  # Operating margin
-    "roe",          # Return on Equity
-    "roic",         # Return on Invested Capital
-    "gm",           # Gross Margin
-    "ps",           # Price to Sales
-    "pe",           # Price to Earnings
-    "de",           # Debt to Equity
-    "rev_g_yoy",    # Revenue growth YoY
-    "eps_g_yoy",    # EPS growth YoY
-]
-FUND_STRING_FIELDS = ["sector", "industry"]
+# Fundamentals schema imported from app_config (single source of truth)
 
-# Provider usage tracker promoted to module level (was nested in legacy fundamentals function)
-def mark_provider_usage(provider: str, category: str):
-    """Record usage of a provider for a given category (price/fundamentals/ml). Safe no-throw.
-    
-    DEPRECATED: Use SourcesOverview.mark_usage() instead. Kept for backward compatibility.
-    """
-    try:
-        usage = st.session_state.setdefault("provider_usage", {})
-        cats = usage.setdefault(provider, set())
-        cats.add(category)
-        usage[provider] = cats
-    except Exception as e:
-        logger.debug("mark_provider_usage: %s", e)
+
 
 
 def render_data_sources_overview(provider_status: dict, provider_usage: dict, results: pd.DataFrame) -> None:
@@ -230,22 +201,7 @@ except Exception as _e:
     st.warning(f"ML 20d loader issue: {_e}")
 
 
-def assign_confidence_tier(prob: float) -> str:
-    """
-    Assign ML confidence tier based on probability.
 
-    Recalibrated thresholds for realistic diversity:
-    - High: >=0.75 (strong prediction)
-    - Medium: 0.60-0.74 (moderate confidence)
-    - Low: <0.60 (weak prediction)
-    """
-    if not isinstance(prob, (int, float)) or not np.isfinite(prob):
-        return "N/A"
-    if prob >= 0.75:
-        return "High"
-    if prob >= 0.60:
-        return "Medium"
-    return "Low"
 
 
 # ==================== Environment helper ====================
@@ -279,271 +235,14 @@ def _env(key: str) -> Optional[str]:
     return os.getenv(key)
 
 
-# ==================== HTTP helpers ====================
-_log = logging.getLogger(__name__)
+
+# Earnings date fetching now in core/data_sources_v2.get_next_earnings_date
 
 
-def http_get_retry(
-    url: str,
-    tries: int = 4,
-    timeout: float = 8.0,
-    headers: Optional[dict] = None,
-    session: Optional[requests.Session] = None,
-    backoff_base: float = 0.5,
-    max_backoff: float = 10.0,
-) -> Optional[requests.Response]:
-    """HTTP GET with exponential backoff + full jitter."""
-    import random
-
-    sess = session or requests
-    for attempt in range(1, max(1, tries) + 1):
-        try:
-            resp = sess.get(url, timeout=timeout, headers=headers)
-            if resp is not None and resp.status_code == 200:
-                return resp
-            if resp is not None and (
-                resp.status_code == 429 or (500 <= resp.status_code < 600)
-            ):
-                _log.debug(
-                    f"HTTP {resp.status_code} -> retry attempt {attempt}/{tries}"
-                )
-            else:
-                return resp
-        except requests.RequestException as exc:
-            _log.debug(f"Request exception on attempt {attempt}/{tries}: {exc}")
-        if attempt < tries:
-            backoff = min(max_backoff, backoff_base * (2 ** (attempt - 1)))
-            sleep_time = random.uniform(0, backoff)
-            time.sleep(sleep_time)
-    _log.warning(f"All {tries} attempts failed for URL")
-    return None
 
 
-def alpha_throttle(min_gap_seconds: float = 12.0) -> None:
-    """Throttle Alpha Vantage calls to respect 5 calls/minute (25 calls/day on free tier).
-
-    Args:
-        min_gap_seconds: Minimum seconds between calls (default '12s' = 5 calls per min)
-    """
-    ts_key = "_alpha_last_call_ts"
-    calls_key = "av_calls"
-
-    # Track number of calls in session
-    call_count = st.session_state.get(calls_key, 0)
-
-    # Reset counter daily (conservative approach)
-    last_reset_key = "_alpha_reset_date"
-    today = datetime.datetime.utcnow().date().isoformat()
-    if st.session_state.get(last_reset_key) != today:
-        st.session_state[calls_key] = 0
-        st.session_state[last_reset_key] = today
-        call_count = 0
-
-    # Check daily limit (25 on free tier, be conservative with 20)
-    if call_count >= 20:
-        logger.warning(
-            f"Alpha Vantage daily limit reached ({call_count} calls), skipping"
-        )
-        return
-
-    # Enforce rate limit
-    last = st.session_state.get(ts_key, 0.0)
-    now = time.time()
-    elapsed = now - last
-    if elapsed < min_gap_seconds:
-        sleep_time = min_gap_seconds - elapsed
-        logger.debug(f"Alpha Vantage throttle: sleeping {sleep_time:.1f}s")
-        time.sleep(sleep_time)
-
-    # Update state
-    st.session_state[ts_key] = time.time()
-    st.session_state[calls_key] = call_count + 1
-
-
-# ==================== Earnings ====================
-@st.cache_data(ttl=60 * 60)
-def get_next_earnings_date(ticker: str) -> Optional[datetime.datetime]:
-    """Get next earnings date from Finnhub -> yfinance fallback."""
-    try:
-        key = _env("FINNHUB_API_KEY")
-        if key:
-            today = datetime.datetime.utcnow().date()
-            url = (
-                f"https://finnhub.io/api/v1/calendar/earnings?from={today.isoformat()}"
-                f"&to={(today + timedelta(days=180)).isoformat()}&symbol={ticker}&token={key}"
-            )
-            r = http_get_retry(url, tries=1, timeout=10)
-            if r:
-                data = r.json()
-                for row in data.get("earningsCalendar", []):
-                    if row.get("symbol") == ticker and row.get("date"):
-                        return datetime.datetime.fromisoformat(row["date"])
-    except Exception as e:
-        logger.debug("get_next_earnings_date: %s", e)
-
-    try:
-        ed = yf.Ticker(ticker).get_earnings_dates(limit=4)
-        if isinstance(ed, pd.DataFrame) and not ed.empty:
-            now = pd.Timestamp.utcnow()
-            future = ed[ed.index >= now]
-            dt = future.index.min() if not future.empty else ed.index.max()
-            if pd.notna(dt):
-                return dt.to_pydatetime()
-    except Exception as e:
-        logger.debug("get_next_earnings_date: %s", e)
-
-    try:
-        cal = yf.Ticker(ticker).calendar
-        if isinstance(cal, pd.DataFrame) and "Earnings Date" in cal.index:
-            vals = cal.loc["Earnings Date"].values
-            if len(vals) > 0:
-                dt = pd.to_datetime(str(vals[0]))
-                if pd.notna(dt):
-                    return dt.to_pydatetime()
-    except Exception as e:
-        logger.debug("get_next_earnings_date: %s", e)
-
-    return None
-
-
-@st.cache_data(ttl=60 * 30)
-def _earnings_batch(symbols: List[str]) -> Dict[str, Optional[datetime.datetime]]:
-    """Batch fetch earnings dates in parallel."""
-    out: Dict[str, Optional[datetime.datetime]] = {}
-    if not symbols:
-        return out
-    with ThreadPoolExecutor(max_workers=6) as ex:
-        futs = {ex.submit(get_next_earnings_date, s): s for s in symbols}
-        for f in as_completed(futs):
-            s = futs[f]
-            try:
-                out[s] = f.result()
-            except Exception as exc:
-                logger.debug(f"Earnings fetch failed for {s}: {exc}")
-                out[s] = None
-    return out
-
-
-# ==================== Connectivity checks ====================
-@st.cache_data(ttl=300)
-def _check_alpha() -> Tuple[bool, str]:
-    k = _env("ALPHA_VANTAGE_API_KEY")
-    if not k:
-        return False, "Missing API key"
-    r = http_get_retry(
-        f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=MSFT&apikey={k}",
-        tries=1,
-        timeout=8,
-    )
-    if not r:
-        return False, "Timeout"
-    try:
-        j = r.json()
-    except Exception as exc:
-        logger.debug(f"Alpha JSON parse failed: {exc}")
-        return False, "Bad JSON"
-    if "Global Quote" in j:
-        return True, "OK"
-    return False, j.get("Note") or j.get("Information") or "Rate-limited"
-
-
-@st.cache_data(ttl=300)
-def _check_finnhub() -> Tuple[bool, str]:
-    k = _env("FINNHUB_API_KEY")
-    if not k:
-        return False, "Missing API key"
-    r = http_get_retry(
-        f"https://finnhub.io/api/v1/quote?symbol=AAPL&token={k}",
-        tries=1,
-        timeout=6,
-    )
-    if not r:
-        return False, "Timeout"
-    try:
-        j = r.json()
-    except Exception as exc:
-        logger.debug(f"Finnhub JSON parse failed: {exc}")
-        return False, "Bad JSON"
-    return ("c" in j), ("OK" if "c" in j else "Bad response")
-
-
-@st.cache_data(ttl=300)
-def _check_polygon() -> Tuple[bool, str]:
-    k = _env("POLYGON_API_KEY")
-    if not k:
-        return False, "Missing API key"
-    r = http_get_retry(
-        f"https://api.polygon.io/v2/aggs/ticker/AAPL/prev?apiKey={k}",
-        tries=1,
-        timeout=6,
-    )
-    if not r:
-        return False, "Timeout"
-    try:
-        j = r.json()
-    except Exception as exc:
-        logger.debug(f"Polygon JSON parse failed: {exc}")
-        return False, "Bad JSON"
-    ok = (
-        isinstance(j, dict)
-        and "results" in j
-        and isinstance(j["results"], list)
-        and j["results"]
-    )
-    return ok, ("OK" if ok else "Bad response")
-
-
-@st.cache_data(ttl=300)
-def _check_tiingo() -> Tuple[bool, str]:
-    k = _env("TIINGO_API_KEY")
-    if not k:
-        return False, "Missing API key"
-    r = http_get_retry(
-        f"https://api.tiingo.com/tiingo/daily/AAPL/prices?token={k}&resampleFreq=daily",
-        tries=1,
-        timeout=6,
-    )
-    if not r:
-        return False, "Timeout"
-    try:
-        arr = r.json()
-    except Exception as exc:
-        logger.debug(f"Tiingo JSON parse failed: {exc}")
-        return False, "Bad JSON"
-    ok = (
-        isinstance(arr, list)
-        and arr
-        and isinstance(arr[-1], dict)
-        and ("close" in arr[-1])
-    )
-    return ok, ("OK" if ok else "Bad response")
-
-
-@st.cache_data(ttl=300)
-def _check_fmp() -> Tuple[bool, str]:
-    k = _env("FMP_API_KEY")
-    if not k:
-        return False, "Missing API key"
-    r = http_get_retry(
-        f"https://financialmodelingprep.com/stable/profile?symbol=AAPL&apikey={k}",
-        tries=3,
-        timeout=12.0,
-    )
-    if not r:
-        return False, "Timeout"
-    try:
-        j = r.json()
-    except Exception as exc:
-        logger.debug(f"FMP JSON parse failed: {exc}")
-        return False, "Bad JSON"
-    # Check for FMP error responses
-    if isinstance(j, dict):
-        if "Error Message" in j:
-            return False, j["Error Message"]
-        if "error" in j:
-            return False, str(j.get("error", "Unknown error"))
-    ok = isinstance(j, list) and j and isinstance(j[0], dict) and "symbol" in j[0]
-    return ok, ("OK" if ok else "Bad response")
+# Connectivity checks now handled by core.api_preflight.run_preflight
+from core.api_preflight import run_preflight as _run_preflight
 
 
 # ==================== Fundamentals (Alpha -> Finnhub) ====================
@@ -551,136 +250,17 @@ def _check_fmp() -> Tuple[bool, str]:
 
 
 
-@st.cache_data(ttl=6 * 3600, show_spinner=False)
-def fetch_beta_vs_benchmark(ticker: str, bench: str = "SPY", days: int = 252) -> float:
-    """Calculate beta with timeout protection and caching."""
-    try:
-        from concurrent.futures import TimeoutError as FuturesTimeoutError
-
-        def _download_both():
-            end = datetime.datetime.utcnow()
-            start = end - timedelta(days=days + 30)
-            df_t = yf.download(
-                ticker,
-                start=start,
-                end=end,
-                auto_adjust=True,
-                progress=False,
-                timeout=8,
-            )
-            df_b = yf.download(
-                bench, start=start, end=end, auto_adjust=True, progress=False, timeout=8
-            )
-            return df_t, df_b
-
-        # Use ThreadPoolExecutor for timeout (works on all platforms)
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(_download_both)
-            try:
-                df_t, df_b = future.result(timeout=10)
-            except FuturesTimeoutError:
-                return np.nan
-
-        if df_t.empty or df_b.empty:
-            return np.nan
-        j = pd.concat(
-            [
-                df_t["Close"].pct_change(fill_method=None).dropna(),
-                df_b["Close"].pct_change(fill_method=None).dropna(),
-            ],
-            axis=1,
-        ).dropna()
-        j.columns = ["rt", "rb"]
-        if len(j) < 40:
-            return np.nan
-        slope = np.polyfit(j["rb"].to_numpy(), j["rt"].to_numpy(), 1)[0]
-        return float(slope)
-    except (Exception, TimeoutError) as exc:
-        logger.debug(f"Beta calculation failed for {ticker}: {exc}")
-        return np.nan
+# Beta calculation now in core/pipeline_runner.fetch_beta_vs_benchmark
 
 
-# ==================== External Prices ====================
-def get_alpha_price(ticker: str) -> Optional[float]:
-    k = _env("ALPHA_VANTAGE_API_KEY")
-    if not k:
-        return None
-    if st.session_state.get("_alpha_ok", False):
-        alpha_throttle()
-    r = http_get_retry(
-        f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={ticker}&apikey={k}",
-        tries=1,
-        timeout=10,
-    )
-    if not r:
-        return None
-    try:
-        j = r.json()
-        if "Global Quote" in j and "05. price" in j["Global Quote"]:
-            return float(j["Global Quote"]["05. price"])
-    except Exception as exc:
-        logger.debug(f"Alpha price parse failed for {ticker}: {exc}")
-        return None
-    return None
 
 
-def get_finnhub_price(ticker: str) -> Optional[float]:
-    k = _env("FINNHUB_API_KEY")
-    if not k:
-        return None
-    r = http_get_retry(
-        f"https://finnhub.io/api/v1/quote?symbol={ticker}&token={k}", tries=1, timeout=8
-    )
-    if not r:
-        return None
-    try:
-        j = r.json()
-        return float(j["c"]) if "c" in j else None
-    except Exception as exc:
-        logger.debug(f"Finnhub price parse failed for {ticker}: {exc}")
-        return None
-
-
-def get_polygon_price(ticker: str) -> Optional[float]:
-    k = _env("POLYGON_API_KEY")
-    if not k:
-        return None
-    r = http_get_retry(
-        f"https://api.polygon.io/v2/aggs/ticker/{ticker}/prev?adjusted=true&apiKey={k}",
-        tries=1,
-        timeout=8,
-    )
-    if not r:
-        return None
-    try:
-        j = r.json()
-        if j.get("resultsCount", 0) > 0 and "results" in j:
-            return float(j["results"][0]["c"])
-    except Exception as exc:
-        logger.debug(f"Polygon price parse failed for {ticker}: {exc}")
-        return None
-    return None
-
-
-def get_tiingo_price(ticker: str) -> Optional[float]:
-    k = _env("TIINGO_API_KEY")
-    if not k:
-        return None
-    r = http_get_retry(
-        f"https://api.tiingo.com/tiingo/daily/{ticker}/prices?token={k}&resampleFreq=daily",
-        tries=1,
-        timeout=8,
-    )
-    if not r:
-        return None
-    try:
-        arr = r.json()
-        if isinstance(arr, list) and arr:
-            return float(arr[-1].get("close", np.nan))
-    except Exception as exc:
-        logger.debug(f"Tiingo price parse failed for {ticker}: {exc}")
-        return None
-    return None
+# External prices now handled by core.price_verify.fetch_prices_for_ticker
+from core.price_verify import (
+    fetch_prices_for_ticker as _fetch_prices_unified,
+    compute_price_stats,
+    format_source_badges as _format_source_badges,
+)
 
 
 
@@ -725,24 +305,19 @@ st.session_state["USE_FINAL_SCORE_SORT"] = True
 st.markdown("---")
 
 
-# Secrets button
-def _mask(s: Optional[str], show_last: int = 4) -> str:
-    if not s:
-        return "—"
-    s = str(s).strip()
-    return (
-        ("•" * (len(s) - show_last)) + s[-show_last:]
-        if len(s) > show_last
-        else ("•" * (len(s) - 1)) + s[-1]
-    )
 
-# Status table
-alpha_ok, alpha_reason = _check_alpha()
-finn_ok, finnh_reason = _check_finnhub()
-poly_ok, poly_reason = _check_polygon()
-tiin_ok, tiin_reason = _check_tiingo()
-fmp_ok, fmp_reason = _check_fmp()
-st.session_state["_alpha_ok"] = bool(alpha_ok)
+# Status table via unified preflight
+@st.cache_data(ttl=300)
+def _cached_preflight():
+    return _run_preflight(timeout=3.0)
+
+_preflight = _cached_preflight()
+alpha_ok = bool(_preflight.get("ALPHAVANTAGE", {}).get("ok", False))
+finn_ok = bool(_preflight.get("FINNHUB", {}).get("ok", False))
+poly_ok = bool(_preflight.get("POLYGON", {}).get("ok", False))
+tiin_ok = bool(_preflight.get("TIINGO", {}).get("ok", False))
+fmp_ok = bool(_preflight.get("FMP", {}).get("ok", False))
+st.session_state["_alpha_ok"] = alpha_ok
 simfin_key = _env("SIMFIN_API_KEY") if CONFIG.get("ENABLE_SIMFIN") else None
 marketstack_key = (
     _env("MARKETSTACK_API_KEY") if CONFIG.get("ENABLE_MARKETSTACK") else None
@@ -810,13 +385,6 @@ _stage_triggers = [
 _completed_stages: Set[str] = set()
 
 
-def status_with_progress(message: str) -> None:
-    """Update detail text and advance progress when key milestones fire."""
-    status_manager.update_detail(message)
-    for trigger, stage_name in _stage_triggers:
-        if trigger in message and stage_name not in _completed_stages:
-            status_manager.advance(stage_name)
-            _completed_stages.add(stage_name)
 
 # timers
 def t_start() -> float:
@@ -1300,7 +868,7 @@ sources_overview = SourcesOverview()
 
 ## Read-only mode: live scan execution removed. Always use precomputed results loaded above.
 
-# External price verification (Top-K)
+# External price verification (Top-K) — using core.price_verify
 t0 = t_start()
 if CONFIG.get("EXTERNAL_PRICE_VERIFY", False):
     results["Price_Alpha"] = np.nan
@@ -1310,60 +878,20 @@ if CONFIG.get("EXTERNAL_PRICE_VERIFY", False):
     results["Price_Mean"] = np.nan
     results["Price_STD"] = np.nan
     results["Source_List"] = "🟡Yahoo"
-    results["Historical_StdDev"] = np.nan  # Initialize for all, fill selectively below
+    results["Historical_StdDev"] = np.nan
 
 
-def _fetch_external_for(
-    tkr: str, py: float
-) -> Tuple[str, Dict[str, Optional[float]], List[str]]:
-    vals: Dict[str, Optional[float]] = {}
-    srcs: List[str] = []
-    # Track providers used — applied on main thread after ThreadPoolExecutor completes
-    _providers_used: List[str] = []
-    _alpha_hit = False
+# Build provider_status dict for core.price_verify from preflight
+_pv_status = {
+    "alpha": alpha_ok,
+    "finnhub": finn_ok,
+    "polygon": poly_ok,
+    "tiingo": tiin_ok,
+    "fmp": fmp_ok,
+}
 
-    def _mark_price(provider: str):
-        _providers_used.append(provider)
-
-    if np.isfinite(py):
-        vals["Yahoo"] = float(py)
-        srcs.append("🟡Yahoo")
-        _mark_price("Yahoo")
-    if alpha_ok:
-        p = get_alpha_price(tkr)
-        if p is not None:
-            vals.setdefault("Alpha", p)
-            srcs.append("🟣Alpha")
-            _alpha_hit = True
-            _mark_price("Alpha")
-    if finn_ok:
-        p = get_finnhub_price(tkr)
-        if p is not None:
-            vals.setdefault("Finnhub", p)
-            srcs.append("🔵Finnhub")
-            _mark_price("Finnhub")
-    if poly_ok and _env("POLYGON_API_KEY"):
-        p = get_polygon_price(tkr)
-        if p is not None:
-            vals.setdefault("Polygon", p)
-            srcs.append("🟢Polygon")
-            _mark_price("Polygon")
-    if tiin_ok and _env("TIINGO_API_KEY"):
-        p = get_tiingo_price(tkr)
-        if p is not None:
-            vals.setdefault("Tiingo", p)
-            srcs.append("🟠Tiingo")
-            _mark_price("Tiingo")
-    # Marketstack / Nasdaq DL / EODHD providers removed (permanently disabled)
-    # Return collected prices, source badges, and thread-safe provider tracking
-    return tkr, vals, srcs, _providers_used, _alpha_hit
-
-
-# External price verification - run if ANY provider is available
-any_price_provider = (
-    finn_ok
-    or (poly_ok and _env("POLYGON_API_KEY"))
-)
+# External price verification — run if ANY provider is available
+any_price_provider = finn_ok or poly_ok
 
 if CONFIG["EXTERNAL_PRICE_VERIFY"] and any_price_provider and "Price_Yahoo" in results.columns:
     subset_idx = list(results.head(int(CONFIG["TOP_VALIDATE_K"])).index)
@@ -1371,29 +899,31 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and any_price_provider and "Price_Yahoo" in r
         with ThreadPoolExecutor(max_workers=4) as ex:
             futures = [
                 ex.submit(
-                    _fetch_external_for,
+                    _fetch_prices_unified,
                     results.loc[idx, "Ticker"],
                     float(results.loc[idx, "Price_Yahoo"]),
+                    _pv_status,
                 )
                 for idx in subset_idx
             ]
             for f in as_completed(futures):
                 try:
-                    tkr, vals, srcs, providers_used, alpha_hit = f.result()
+                    vals, srcs = f.result()
                 except Exception as exc:
                     logger.debug(f"External price verify future failed: {exc}")
                     continue
-                # Apply session state on main thread (thread-safe)
-                usage = st.session_state.setdefault("provider_usage", {})
-                for prov in providers_used:
-                    cats = usage.setdefault(prov, set())
-                    cats.add("price")
-                if alpha_hit:
-                    st.session_state.av_calls = st.session_state.get("av_calls", 0) + 1
-                idx = results.index[results["Ticker"] == tkr][0]
-                prices = [v for v in vals.values() if v is not None]
-                pmean = float(np.mean(prices)) if prices else np.nan
-                pstd = float(np.std(prices)) if len(prices) > 1 else np.nan
+                # Identify ticker from vals (Yahoo price matches)
+                tkr = None
+                for si in subset_idx:
+                    t = results.loc[si, "Ticker"]
+                    yp = float(results.loc[si, "Price_Yahoo"])
+                    if abs(vals.get("Yahoo", 0) - yp) < 0.01:
+                        tkr = t
+                        idx = si
+                        break
+                if tkr is None:
+                    continue
+                pmean, pstd, count = compute_price_stats(vals)
                 results.loc[
                     idx,
                     [
@@ -1412,7 +942,7 @@ if CONFIG["EXTERNAL_PRICE_VERIFY"] and any_price_provider and "Price_Yahoo" in r
                     vals.get("Tiingo", np.nan),
                     pmean,
                     pstd,
-                    " - ".join(srcs),
+                    _format_source_badges(srcs),
                 ]
                 # Compute historical std dev for this ticker (only for verified subset)
                 ticker = results.loc[idx, "Ticker"]
@@ -1686,28 +1216,20 @@ if is_live_scan and not results.empty:
         logger.warning(f"Failed to save final scan: {e}")
 
 
-# Source badges & unit price
+# Source badges now use core.price_verify.format_source_badges
 def source_badges(row: pd.Series) -> str:
-    """Build badges for all fundamental + price providers present on the row.
-
-    Fundamental flags (merged dict) use: from_fmp_full, from_fmp, from_simfin, from_eodhd, from_alpha, from_finnhub.
-    Price providers parsed from Source_List.
-    """
+    """Build badges from provider flags and Source_List."""
     badges: list[str] = []
-    # Fundamentals (order of preference)
     if row.get("from_fmp_full") or row.get("from_fmp"):
         badges.append("🟣FMP")
     if row.get("from_simfin"):
         badges.append("🧪SimFin")
-    # IEX removed
     if row.get("from_eodhd"):
         badges.append("📘EODHD")
     if row.get("from_alpha"):
         badges.append("🟣Alpha")
     if row.get("from_finnhub"):
         badges.append("🔵Finnhub")
-
-    # Price providers
     price_sources = row.get("Source_List")
     if isinstance(price_sources, str) and price_sources:
         for provider in price_sources.split(" - "):
@@ -1715,7 +1237,7 @@ def source_badges(row: pd.Series) -> str:
                 badges.append(provider)
     if not badges:
         badges.append("🟡Yahoo")
-    return " - ".join(badges)
+    return _format_source_badges(badges)
 
 
 results["Price_Sources"] = results.apply(source_badges, axis=1)
@@ -2437,15 +1959,6 @@ if not rec_df.empty:
 
 # CSS now loaded from design_system.py - no need for separate CARD_CSS
 
-
-def format_rel(val) -> str:
-    if not isinstance(val, (int, float)) or not np.isfinite(val):
-        return "Not available"
-    tier = "High" if val >= 0.75 else ("Medium" if val >= 0.4 else "Low")
-    color = (
-        "#16a34a" if tier == "High" else ("#f59e0b" if tier == "Medium" else "#dc2626")
-    )
-    return f"<span style='color:{color};font-weight:600'>{val:.2f} ({tier})</span>"
 
 
 if rec_df.empty:

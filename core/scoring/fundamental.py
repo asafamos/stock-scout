@@ -16,7 +16,7 @@ from core.logging_config import get_logger
 logger = get_logger("fundamental_scoring")
 
 
-def _safe_float(value, scale_to_pct: bool = False) -> Optional[float]:
+def _safe_float(value: object, scale_to_pct: bool = False) -> Optional[float]:
     """
     Convert value to float, return None if invalid.
     
@@ -61,7 +61,7 @@ def _normalize(value: Optional[float], low: float, high: float, neutral: float =
     return float(np.clip((value - low) / (high - low), 0.0, 1.0))
 
 
-def compute_fundamental_score_with_breakdown(data: dict, coverage_pct: float = 1.0) -> FundamentalScore:
+def compute_fundamental_score_with_breakdown(data: dict[str, object], coverage_pct: float = 1.0) -> FundamentalScore:
     """
     Compute comprehensive fundamental score with Quality/Growth/Valuation/Stability breakdown.
     
@@ -476,7 +476,7 @@ def _stability_label(score: float) -> str:
 
 
 # Legacy compatibility function
-def fundamental_score_legacy(data: dict, surprise_bonus_on: bool = False, coverage_pct: float = 1.0) -> float:
+def fundamental_score_legacy(data: dict[str, object], surprise_bonus_on: bool = False, coverage_pct: float = 1.0) -> float:
     """
     Legacy fundamental_score function for backward compatibility.
     Returns simple 0-1 score.

@@ -21,7 +21,7 @@ def atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
     return tr.rolling(period, min_periods=period).mean()
 
 
-def macd_line(close: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9):
+def macd_line(close: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9) -> tuple[pd.Series, pd.Series, pd.Series]:
     ema_fast = close.ewm(span=fast, adjust=False).mean()
     ema_slow = close.ewm(span=slow, adjust=False).mean()
     macd = ema_fast - ema_slow

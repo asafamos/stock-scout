@@ -1,6 +1,6 @@
-# Polygon provider
-# Extracted from data_sources_v2.py
+"""Polygon provider — Polygon does not provide fundamentals, only price data."""
 
-def get_polygon_fundamentals():
-    # ...existing code...
-    pass
+
+def get_polygon_fundamentals(ticker=None, provider_status=None):
+    """Polygon has no fundamentals endpoint. Returns None."""
+    return None

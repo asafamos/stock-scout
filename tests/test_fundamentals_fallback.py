@@ -1,94 +1,116 @@
+"""Tests for fundamentals aggregation with multi-source fallback.
+
+Validates that aggregate_fundamentals in core.data_sources_v2:
+1. Uses the preferred source first, then fills missing fields from others
+2. Returns neutral defaults when all providers respond with empty data
+"""
 import pytest
-import stock_scout
+import numpy as np
+from unittest.mock import patch, MagicMock
+
+from core.data_sources_v2 import aggregate_fundamentals
 
 
-@pytest.mark.skip(reason="stock_scout._fmp_full_bundle_fetch was removed during modular refactor; "
-                          "fundamentals now handled by core.fundamental / core.data_sources_v2")
 def test_per_field_fallback_order(monkeypatch):
-    # Ensure environment keys appear present so fetch tasks are scheduled
-    monkeypatch.setattr(stock_scout, '_env', lambda k: 'DUMMY')
+    """When a preferred source is missing a field, other sources fill it in."""
+    # Mock each provider's fetch function to return partial data
+    fmp_data = {"pe": 15.0, "ps": 2.0, "market_cap": 1e9, "beta": 1.1}
+    finnhub_data = {"roe": 0.18, "margin": 0.25, "debt_equity": 0.5}
+    tiingo_data = {"rev_yoy": 0.20, "eps_yoy": 0.15}
+    alpha_data = {"pb": 3.0, "peg": 1.5}
 
-    # Mock provider fetches
-    def mock_fmp_full(ticker, api_key):
-        return {'ps': 2.0, 'sector': 'Technology'}  # no 'pe'
+    # Patch individual fetch functions to return controlled data
+    with patch("core.data_sources_v2.fetch_fundamentals_fmp", return_value=fmp_data) as mock_fmp, \
+         patch("core.data_sources_v2.fetch_fundamentals_finnhub", return_value=finnhub_data) as mock_finn, \
+         patch("core.data_sources_v2.fetch_fundamentals_tiingo", return_value=tiingo_data) as mock_tiingo, \
+         patch("core.data_sources_v2.fetch_fundamentals_alpha", return_value=alpha_data) as mock_alpha, \
+         patch("core.data_sources_v2.fetch_fundamentals_eodhd", return_value=None), \
+         patch("core.data_sources_v2.fetch_fundamentals_simfin", return_value=None), \
+         patch("core.data_sources_v2.get_provider_guard") as mock_guard, \
+         patch("core.data_sources_v2.load_fundamentals_as_of", return_value=None):
 
-    def mock_fmp_metrics(ticker, api_key):
-        return {}
+        # Guard allows all providers
+        guard = MagicMock()
+        guard.allow.return_value = (True, "ok", "allow")
+        mock_guard.return_value = guard
 
-    def mock_finnhub(ticker):
-        return {'pe': 8.0, 'gm': 0.30}
+        merged = aggregate_fundamentals("TST")
 
-    def mock_alpha(ticker):
-        return {'pe': 9.0, 'eps_g_yoy': 0.11}
+    # FMP fields present
+    assert merged["pe"] == pytest.approx(15.0)
+    assert merged["ps"] == pytest.approx(2.0)
 
-    def mock_tiingo(ticker):
-        return {'rev_g_yoy': 0.20}
+    # Finnhub fields filled in
+    assert merged["roe"] == pytest.approx(0.18)
+    assert merged["margin"] == pytest.approx(0.25)
 
-    monkeypatch.setattr(stock_scout, '_fmp_full_bundle_fetch', mock_fmp_full)
-    monkeypatch.setattr(stock_scout, '_fmp_metrics_fetch', mock_fmp_metrics)
-    monkeypatch.setattr(stock_scout, '_finnhub_metrics_fetch', mock_finnhub)
-    monkeypatch.setattr(stock_scout, '_alpha_overview_fetch', mock_alpha)
-    monkeypatch.setattr(stock_scout, '_tiingo_fundamentals_fetch', mock_tiingo)
-    monkeypatch.setattr(stock_scout, '_simfin_fetch', lambda t, k: {})
-    monkeypatch.setattr(stock_scout, '_eodhd_fetch_fundamentals', lambda t, k: {})
-    # Ensure Alpha is considered OK in session state so enable_alpha_smart path runs
-    try:
-        stock_scout.st.session_state['_alpha_ok'] = True
-    except Exception:
-        # If session_state not available as mapping, set attribute fallback
-        setattr(stock_scout.st, 'session_state', {'_alpha_ok': True})
+    # Tiingo fields filled in
+    assert merged["rev_yoy"] == pytest.approx(0.20)
+    assert merged["eps_yoy"] == pytest.approx(0.15)
 
-    merged = stock_scout.fetch_fundamentals_bundle('TST', enable_alpha_smart=True)
+    # Alpha fields filled in
+    assert merged["pb"] == pytest.approx(3.0)
 
-    # FMP provided PS
-    assert merged['ps'] == 2.0
-    assert merged['_sources'].get('ps') == 'FMP'
+    # sources_used should list all contributing providers
+    assert "fmp" in merged["sources_used"]
+    assert "finnhub" in merged["sources_used"]
 
-    # PE should come from Finnhub (fallback order: Finnhub -> Alpha -> Tiingo)
-    assert merged['pe'] == 8.0
-    assert merged['_sources'].get('pe') == 'Finnhub'
-
-    # GM should be from Finnhub
-    assert merged['gm'] == pytest.approx(0.30)
-    assert merged['_sources'].get('gm') == 'Finnhub'
-
-    # EPS growth should be from Alpha
-    assert merged['eps_g_yoy'] == pytest.approx(0.11)
-    assert merged['_sources'].get('eps_g_yoy') == 'Alpha'
-
-    # Rev growth from Tiingo
-    assert merged['rev_g_yoy'] == pytest.approx(0.20)
-    assert merged['_sources'].get('rev_g_yoy') == 'Tiingo'
+    # coverage should map fields to their source(s)
+    assert "pe" in merged["coverage"]
+    assert len(merged["coverage"]["pe"]) >= 1
 
 
-@pytest.mark.skip(reason="stock_scout._fmp_full_bundle_fetch was removed during modular refactor; "
-                          "fundamentals now handled by core.fundamental / core.data_sources_v2")
-def test_neutral_defaults_when_providers_respond_but_no_fields(monkeypatch):
-    # _env present so tasks scheduled
-    monkeypatch.setattr(stock_scout, '_env', lambda k: 'DUMMY')
+def test_neutral_defaults_when_providers_respond_but_no_fields():
+    """When all providers return empty or None, we get a neutral structure."""
+    with patch("core.data_sources_v2.fetch_fundamentals_fmp", return_value=None), \
+         patch("core.data_sources_v2.fetch_fundamentals_finnhub", return_value=None), \
+         patch("core.data_sources_v2.fetch_fundamentals_tiingo", return_value=None), \
+         patch("core.data_sources_v2.fetch_fundamentals_alpha", return_value=None), \
+         patch("core.data_sources_v2.fetch_fundamentals_eodhd", return_value=None), \
+         patch("core.data_sources_v2.fetch_fundamentals_simfin", return_value=None), \
+         patch("core.data_sources_v2.get_provider_guard") as mock_guard, \
+         patch("core.data_sources_v2.load_fundamentals_as_of", return_value=None):
 
-    # Mock providers: fmp_full responds but with no numeric fields
-    monkeypatch.setattr(stock_scout, '_fmp_full_bundle_fetch', lambda t, k: {'ok': True})
-    monkeypatch.setattr(stock_scout, '_fmp_metrics_fetch', lambda t, k: {})
-    monkeypatch.setattr(stock_scout, '_finnhub_metrics_fetch', lambda t: {})
-    monkeypatch.setattr(stock_scout, '_alpha_overview_fetch', lambda t: {})
-    monkeypatch.setattr(stock_scout, '_tiingo_fundamentals_fetch', lambda t: {})
-    monkeypatch.setattr(stock_scout, '_simfin_fetch', lambda t, k: {})
-    monkeypatch.setattr(stock_scout, '_eodhd_fetch_fundamentals', lambda t, k: {})
+        guard = MagicMock()
+        guard.allow.return_value = (True, "ok", "allow")
+        mock_guard.return_value = guard
 
-    merged = stock_scout.fetch_fundamentals_bundle('NOP', enable_alpha_smart=False)
+        merged = aggregate_fundamentals("NOP")
 
-    # Provider flags should show at least FMP full responded
-    assert merged.get('from_fmp_full', False) is True
-    assert 'from_fmp_full' in merged.get('_sources_used', [])
+    # Should get neutral structure, not crash
+    assert merged["ticker"] == "NOP"
+    assert merged["sources_used"] == []
+    assert merged["Fundamental_Coverage_Pct"] == 0.0
+    assert merged["Fundamental_Sources_Count"] == 0
+    # Neutral fundamental score
+    assert merged.get("Fundamental_S", 50.0) == pytest.approx(50.0)
+    # Disagreement should be maximum (1.0) with no data
+    assert merged["disagreement_score"] == pytest.approx(1.0)
 
-    # Since no valid numeric fields provided, defaults should be injected
-    assert '_defaulted_fields' in merged
-    defaults = merged['_defaulted_fields']
-    # Expect key defaults for core fields
-    for k in ['pe','ps','rev_g_yoy','eps_g_yoy','gm','de','oper_margin','roe']:
-        assert k in defaults
-        assert isinstance(merged[k], float)
 
-    # Fund_Coverage_Pct should be floored to at least 0.05
-    assert merged['Fund_Coverage_Pct'] >= 0.05
+def test_median_used_when_multiple_sources_provide_same_field():
+    """When multiple sources provide the same field, median is used."""
+    fmp_data = {"pe": 10.0, "market_cap": 1e9}
+    finnhub_data = {"pe": 14.0, "roe": 0.15}
+    tiingo_data = {"pe": 12.0, "rev_yoy": 0.10}
+
+    with patch("core.data_sources_v2.fetch_fundamentals_fmp", return_value=fmp_data), \
+         patch("core.data_sources_v2.fetch_fundamentals_finnhub", return_value=finnhub_data), \
+         patch("core.data_sources_v2.fetch_fundamentals_tiingo", return_value=tiingo_data), \
+         patch("core.data_sources_v2.fetch_fundamentals_alpha", return_value=None), \
+         patch("core.data_sources_v2.fetch_fundamentals_eodhd", return_value=None), \
+         patch("core.data_sources_v2.fetch_fundamentals_simfin", return_value=None), \
+         patch("core.data_sources_v2.get_provider_guard") as mock_guard, \
+         patch("core.data_sources_v2.load_fundamentals_as_of", return_value=None):
+
+        guard = MagicMock()
+        guard.allow.return_value = (True, "ok", "allow")
+        mock_guard.return_value = guard
+
+        merged = aggregate_fundamentals("MED")
+
+    # PE: median of [10, 14, 12] = 12
+    assert merged["pe"] == pytest.approx(12.0)
+    # All three contributed to PE
+    assert len(merged["coverage"]["pe"]) == 3
+

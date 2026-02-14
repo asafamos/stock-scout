@@ -91,7 +91,7 @@ def check_portfolio_concentration(
     current_positions: Dict[str, float],
     new_ticker: str,
     new_dollar: float,
-) -> Dict:
+) -> Dict[str, object]:
     """
     Check if adding new position creates concentration risk.
     
@@ -127,7 +127,7 @@ def generate_risk_report(
     ml_prob: float,
     rsi: float,
     atr_pct: float,
-    position_info: dict,
+    position_info: Dict[str, object],
 ) -> str:
     """
     Generate human-readable risk report.

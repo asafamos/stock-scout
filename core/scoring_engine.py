@@ -849,7 +849,7 @@ def calculate_rr_score(
         return float(score), 75.0
 
     # Derive ratio from levels
-    if all(np.isfinite(v) for v in [atr, support, resistance, current_price]) and atr and atr > 0:
+    if all(v is not None and np.isfinite(v) for v in [atr, support, resistance, current_price]) and atr and atr > 0:
         # Require support below price and resistance above price
         if support < current_price and resistance > current_price:
             risk_dollars = current_price - support
