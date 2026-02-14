@@ -15,7 +15,7 @@ import pandas as pd
 from typing import Dict, Tuple, Optional
 import logging
 
-from core.scoring_config import CONVICTION_WEIGHTS, FINAL_SCORE_WEIGHTS
+from core.scoring_config import CONVICTION_WEIGHTS, FINAL_SCORE_WEIGHTS, PATTERN_SCORE_WEIGHTS
 
 logger = logging.getLogger(__name__)
 
@@ -75,11 +75,13 @@ def compute_final_score_20d(row: pd.Series) -> float:
         rr_ratio = row.get("RR", None)
         rr_score, _, _ = evaluate_rr_unified(rr_ratio) if rr_ratio is not None else (50.0, 0.0, "N/A")
 
+        # Weights from scoring_config.CONVICTION_WEIGHTS (single source of truth)
+        w = CONVICTION_WEIGHTS
         base = (
-            0.35 * fund +
-            0.35 * mom +
-            0.15 * rr_score +
-            0.15 * rel
+            w["fundamental"] * fund +
+            w["momentum"] * mom +
+            w["risk_reward"] * rr_score +
+            w["reliability"] * rel
         )
         
         # Optional ML adjustment with reliability gating

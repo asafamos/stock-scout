@@ -20,6 +20,7 @@ from core.scoring_config import (
     ADVANCED_FILTER_DEFAULTS,
     ATR_RULES,
     FINAL_SCORE_WEIGHTS,
+    PATTERN_SCORE_WEIGHTS,
     REGIME_MULTIPLIERS,
     ML_GATES,
     TECH_WEIGHTS,
@@ -1457,63 +1458,25 @@ def compute_final_score(
     ml_prob: Optional[float] = None,
     market_regime: Optional[str] = None,
 ) -> float:
-    """Combine technical, fundamental, and ML components into a 0–100 score.
-    
-    Uses weights from scoring_config.FINAL_SCORE_WEIGHTS:
-    - Technical: 55%
-    - Fundamental: 25%
-    - ML: 20%
-    
-    Args:
-        tech_score: Technical score 0-100
-        fundamental_score: Fundamental score 0-100 (optional, defaults to 0)
-        ml_prob: ML probability 0-1 (optional, defaults to 0.5 neutral)
-    
-    Returns:
-        float: Combined final score 0-100
+    """Combine technical, fundamental, and ML components into a 0-100 score.
+
+    Delegates to :func:`compute_final_score_with_patterns` with neutral
+    defaults for the pattern/big-winner channels, so the weight logic,
+    ML gates, and regime multipliers live in exactly one place.
+
+    Uses weights from ``scoring_config.FINAL_SCORE_WEIGHTS``.
     """
-
-    weights = FINAL_SCORE_WEIGHTS
-
-    fund = 0.0 if fundamental_score is None or pd.isna(fundamental_score) else float(fundamental_score)
-    ml_score = 0.5 if ml_prob is None or pd.isna(ml_prob) else float(ml_prob)
-
-    # Base score using configured weights
-    final = (
-        weights["technical"] * float(tech_score)
-        + weights["fundamental"] * fund
-        + weights["ml"] * (ml_score * 100.0)
+    score, _breakdown = compute_final_score_with_patterns(
+        tech_score=tech_score,
+        fundamental_score=fundamental_score,
+        ml_prob=ml_prob,
+        big_winner_score=None,
+        pattern_score=None,
+        bw_weight=0.0,
+        pattern_weight=0.0,
+        market_regime=market_regime,
     )
-
-    # Confidence Penalty/Bonus (Meta-labeling gatekeeper)
-    # Neutral if ml_prob is NaN/None; penalty if < 0.38; bonus if > 0.62
-    multiplier = 1.0
-    try:
-        ml_val = float(ml_prob) if ml_prob is not None else np.nan
-    except Exception:
-        ml_val = np.nan
-
-    if pd.notna(ml_val):
-        thr_pen = float(ML_GATES.get("penalty_lt", 0.15))
-        thr_bonus = float(ML_GATES.get("bonus_gt", 0.62))
-        mult_pen = float(ML_GATES.get("penalty_mult", 0.60))
-        mult_bonus = float(ML_GATES.get("bonus_mult", 1.15))
-        if ml_val < thr_pen:
-            multiplier = mult_pen
-        elif ml_val > thr_bonus:
-            multiplier = mult_bonus
-        else:
-            multiplier = 1.0
-
-    # Apply market regime adjustment
-    regime_mult = 1.0
-    if isinstance(market_regime, str):
-        reg = market_regime.upper()
-        regime_mult = float(REGIME_MULTIPLIERS.get(reg, 1.0))
-
-    final = final * multiplier * regime_mult
-
-    return float(np.clip(final, 0.0, 100.0))
+    return score
 
 
 def compute_final_score_with_patterns(
@@ -1525,60 +1488,48 @@ def compute_final_score_with_patterns(
     bw_weight: float = 0.10,
     pattern_weight: float = 0.10,
     market_regime: Optional[str] = None,
-) -> Tuple[float, Dict[str, float]]:
-    """
-    Enhanced final score incorporating Big Winner signal and pattern matching.
-    
-    UPDATED (Dec 2025): Incorporates learnings from historical backtests.
-    
-    Weights:
-    - Technical: 45% (down from 55%)
-    - Fundamental: 20% (down from 25%)
-    - ML: 15% (down from 20%)
-    - Big Winner Signal: 10% (new - highly predictive 20d pattern)
-    - Pattern Matching: 10% (new - reward historical winners)
-    
-    Args:
-        tech_score: Technical score 0-100
-        fundamental_score: Fundamental score 0-100
-        ml_prob: ML probability 0-1
-        big_winner_score: Big Winner signal 0-100 (optional)
-        pattern_score: Pattern match score 0-100 (optional)
-        bw_weight: Weight for Big Winner signal (default 0.10)
-        pattern_weight: Weight for pattern matching (default 0.10)
-    
+) -> tuple:
+    """Enhanced final score incorporating Big Winner signal and pattern matching.
+
+    Weights are sourced from ``scoring_config.PATTERN_SCORE_WEIGHTS`` for the
+    5-component case, or ``FINAL_SCORE_WEIGHTS`` when *bw_weight* and
+    *pattern_weight* are both 0 (i.e. called via :func:`compute_final_score`).
+    All weights are auto-normalized to sum to 1.0.
+
     Returns:
-        Tuple of (final_score 0-100, breakdown dict)
+        ``(final_score, breakdown_dict)`` where *final_score* is 0-100.
     """
     tech = float(tech_score) if tech_score is not None else 50.0
     fund = float(fundamental_score) if fundamental_score is not None and pd.notna(fundamental_score) else 50.0
     ml_score = float(ml_prob) if ml_prob is not None and pd.notna(ml_prob) else 0.5
     bw = float(big_winner_score) if big_winner_score is not None and pd.notna(big_winner_score) else 50.0
     patt = float(pattern_score) if pattern_score is not None and pd.notna(pattern_score) else 50.0
-    
-    # Base weights (must sum to 1.0)
-    base_weights = {
-        "technical": 0.45,
-        "fundamental": 0.20,
-        "ml": 0.15,
-        "big_winner": bw_weight,
-        "pattern": pattern_weight,
-    }
-    
+
+    # Build weights from config; override bw/pattern with caller-supplied values
+    if bw_weight == 0.0 and pattern_weight == 0.0:
+        # 3-component mode — use FINAL_SCORE_WEIGHTS directly
+        base_weights = dict(FINAL_SCORE_WEIGHTS)  # tech, fund, ml
+        base_weights["big_winner"] = 0.0
+        base_weights["pattern"] = 0.0
+    else:
+        base_weights = dict(PATTERN_SCORE_WEIGHTS)  # 5-component defaults
+        base_weights["big_winner"] = bw_weight
+        base_weights["pattern"] = pattern_weight
+
     # Normalize to ensure sum = 1.0
     total_weight = sum(base_weights.values())
-    normalized_weights = {k: v / total_weight for k, v in base_weights.items()}
-    
-    # Base score using normalized weights
+    nw = {k: v / total_weight for k, v in base_weights.items()}
+
+    # Weighted sum
     final = (
-        normalized_weights["technical"] * tech
-        + normalized_weights["fundamental"] * fund
-        + normalized_weights["ml"] * (ml_score * 100.0)
-        + normalized_weights["big_winner"] * bw
-        + normalized_weights["pattern"] * patt
+        nw.get("technical", 0) * tech
+        + nw.get("fundamental", 0) * fund
+        + nw.get("ml", 0) * (ml_score * 100.0)
+        + nw.get("big_winner", 0) * bw
+        + nw.get("pattern", 0) * patt
     )
-    
-    # Confidence Penalty/Bonus (Meta-labeling gatekeeper)
+
+    # Confidence Penalty/Bonus (ML gatekeeper)
     multiplier = 1.0
     try:
         ml_val = float(ml_prob) if ml_prob is not None else np.nan
@@ -1594,27 +1545,24 @@ def compute_final_score_with_patterns(
             multiplier = mult_pen
         elif ml_val > thr_bonus:
             multiplier = mult_bonus
-        else:
-            multiplier = 1.0
 
-    # Apply market regime adjustment
+    # Market regime adjustment
     regime_mult = 1.0
     if isinstance(market_regime, str):
-        reg = market_regime.upper()
-        regime_mult = float(REGIME_MULTIPLIERS.get(reg, 1.0))
+        regime_mult = float(REGIME_MULTIPLIERS.get(market_regime.upper(), 1.0))
 
     final = float(np.clip(final * multiplier * regime_mult, 0.0, 100.0))
-    
+
     breakdown = {
-        "tech_component": normalized_weights["technical"] * tech,
-        "fund_component": normalized_weights["fundamental"] * fund,
-        "ml_component": normalized_weights["ml"] * (ml_score * 100.0),
-        "bw_component": normalized_weights["big_winner"] * bw,
-        "pattern_component": normalized_weights["pattern"] * patt,
+        "tech_component": nw.get("technical", 0) * tech,
+        "fund_component": nw.get("fundamental", 0) * fund,
+        "ml_component": nw.get("ml", 0) * (ml_score * 100.0),
+        "bw_component": nw.get("big_winner", 0) * bw,
+        "pattern_component": nw.get("pattern", 0) * patt,
         "final_score": final,
-        "weights_used": normalized_weights,
+        "weights_used": nw,
     }
-    
+
     return final, breakdown
 
 

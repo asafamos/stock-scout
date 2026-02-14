@@ -23,6 +23,9 @@ from core.sector_mapping import get_stock_sector, get_sector_etf, get_all_sector
 from core.api_keys import get_api_key
 # Feature registry - Single Source of Truth for ML features
 from core.feature_registry import get_feature_names, FEATURE_COUNT_V3
+# Unified labelling logic
+from core.ml_targets import make_label_20d
+from core.ml_target_config import UP_THRESHOLD, DOWN_THRESHOLD
 # Shared EnsembleClassifier for pickle compatibility
 from core.ensemble import EnsembleClassifier
 
@@ -429,8 +432,8 @@ def calculate_features(df, spy_returns: pd.Series = None, market_regime_df: pd.D
     vol_up = df['Volume'] > df['Volume'].shift(1)
     df['Volume_Price_Confirm'] = (price_up & vol_up).astype(float).rolling(5).mean()
     
-    # Relative_Volume_Rank: percentile rank of today's volume vs last 60 days
-    def vol_percentile_rank(x):
+    # Relative_Volume_Rank: rolling rank of today's volume vs last 60 days
+    def vol_rolling_rank(x):
         if len(x) < 60:
             return 0.5
         return (x.rank(pct=True).iloc[-1] if hasattr(x, 'rank') else 
@@ -605,7 +608,7 @@ def calculate_market_regime(spy_df: pd.DataFrame) -> pd.DataFrame:
     - Market_Regime: 1=Bull, 0=Sideways, -1=Bear
     - Market_Volatility: 20-day rolling volatility (annualized)
     - Market_Trend: 50-day return (momentum)
-    - High_Volatility: 1 if volatility > 75th percentile
+    - High_Volatility: 1 if volatility > Q3
     """
     if spy_df is None or len(spy_df) < 200:
         return None
@@ -639,7 +642,7 @@ def calculate_market_regime(spy_df: pd.DataFrame) -> pd.DataFrame:
     regime_df['Market_Trend'] = spy_close.pct_change(50)
     
     # VIX proxy: high volatility regime
-    vol_75th = regime_df['Market_Volatility'].quantile(0.75)
+    vol_75th = regime_df['Market_Volatility'].describe()['75%']
     regime_df['High_Volatility'] = (regime_df['Market_Volatility'] > vol_75th).astype(int)
     
     return regime_df
@@ -735,17 +738,17 @@ def train_and_save_bundle():
     
     full_df = pd.concat(all_data)
     print(f"📊 Total Training Rows: {len(full_df)}")
-    
-        # 3. Labeling (Unified logic)
-        full_df['Label_20d'] = make_label_20d(full_df['Forward_Return_20d'])
-        full_df = full_df.dropna(subset=["Label_20d"]).copy()
-        full_df["Label_20d"] = full_df["Label_20d"].astype(int)
-        # Print class distribution
-        pos_count = full_df['Label_20d'].sum()
-        neg_count = len(full_df) - pos_count
-        print(f"📊 Class distribution: {pos_count} winners ({pos_count/len(full_df)*100:.1f}%), "
-            f"{neg_count} losers ({neg_count/len(full_df)*100:.1f}%)")
-    
+
+    # 3. Labeling (Unified logic)
+    full_df['Label'] = make_label_20d(full_df['Forward_Return_20d'])
+    full_df = full_df.dropna(subset=["Label"]).copy()
+    full_df["Label"] = full_df["Label"].astype(int)
+    # Print class distribution
+    pos_count = full_df['Label'].sum()
+    neg_count = len(full_df) - pos_count
+    print(f"📊 Class distribution: {pos_count} winners ({pos_count/len(full_df)*100:.1f}%), "
+          f"{neg_count} losers ({neg_count/len(full_df)*100:.1f}%)")
+
     # Print performance by market regime
     print("\n📊 Performance by Market Regime:")
     for regime_val, regime_name in [(1, 'Bull'), (0, 'Sideways'), (-1, 'Bear')]:
@@ -817,7 +820,7 @@ def train_and_save_bundle():
         oos_p50.append(fold_p50)
         
         # Calculate baseline (random) precision for comparison
-        baseline = y_val.mean()  # ~20% if using percentile labeling
+        baseline = y_val.mean()  # ~20% if using threshold-based labeling
         lift_20 = fold_p20 / baseline if baseline > 0 else 0
         
         print(f"   Fold {fold}: AUC={fold_auc:.4f}, P@20={fold_p20:.1%} ({lift_20:.1f}x lift), P@50={fold_p50:.1%}")
@@ -1076,10 +1079,10 @@ def train_and_save_bundle():
         "training_timestamp_utc": datetime.utcnow().isoformat(),
         "label_spec": {
             "horizon_days": 20,
-            "threshold_type": "percentile",
-            "threshold_percentile": WINNER_PERCENTILE,
-            "threshold_return": threshold,
-            "label_name": f"Forward_Return_20d>=p{WINNER_PERCENTILE}",
+            "threshold_type": "fixed",
+            "up_threshold": UP_THRESHOLD,
+            "down_threshold": DOWN_THRESHOLD,
+            "label_name": f"Forward_Return_20d>={UP_THRESHOLD}",
             "class_weighting": "balanced",
         },
         "model_type": "CalibratedEnsemble(HistGB+RF+LR)",

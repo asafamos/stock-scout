@@ -1114,6 +1114,1049 @@ def _compute_rr_for_row(
         return _nan_rr
 
 
+
+# ---------------------------------------------------------------------------
+# Pipeline context & phase functions (extracted from run_scan_pipeline)
+# ---------------------------------------------------------------------------
+
+@dataclasses.dataclass
+class _PipelineContext:
+    """Mutable state bag threaded through pipeline phases."""
+    config: Dict[str, Any]
+    universe: List[str]
+    status_callback: Optional[Callable[[str], None]]
+    data_map: Dict[str, pd.DataFrame]
+    diagnostics: Dict[str, Dict[str, Any]] = dataclasses.field(default_factory=dict)
+    telemetry: Telemetry = dataclasses.field(default_factory=Telemetry)
+    provider_status: Dict[str, Dict[str, Any]] = dataclasses.field(default_factory=dict)
+    run_mode: str = "OK"
+    benchmark_df: Optional[pd.DataFrame] = None
+    benchmark_status: str = "OK"
+    postfilter_mode: str = "strict"
+    filtered_df: pd.DataFrame = dataclasses.field(default_factory=pd.DataFrame)
+    tier1_pass: List[str] = dataclasses.field(default_factory=list)
+    results: pd.DataFrame = dataclasses.field(default_factory=pd.DataFrame)
+    fundamentals_status: str = "not_requested"
+    start_universe: int = 0
+
+
+def _build_pipeline_meta(ctx: _PipelineContext, **overrides) -> Dict[str, Any]:
+    """Build the standard meta dict returned alongside scan results."""
+    meta: Dict[str, Any] = {
+        "engine_version": "pipeline_v2",
+        "engine_mode": "SIGNAL_ONLY",
+        "used_legacy_fallback": bool(_LEGACY_FALLBACK_USED),
+        "fallback_reason": (
+            ", ".join(sorted(set(_LEGACY_FALLBACK_REASONS)))
+            if _LEGACY_FALLBACK_REASONS else None
+        ),
+        "sources_used": ctx.telemetry.export(),
+        "run_timestamp_utc": datetime.utcnow().isoformat(),
+        "postfilter_mode": ctx.postfilter_mode,
+        "run_mode": (
+            "DEGRADED_TECH_ONLY"
+            if ctx.run_mode == "OK"
+            and ctx.fundamentals_status in ("not_requested", "requested_empty")
+            else ctx.run_mode
+        ),
+        "benchmark_status": ctx.benchmark_status,
+    }
+    meta.update(overrides)
+    try:
+        meta.update(get_ml_health_meta())
+        if meta.get("ml_bundle_version_warning"):
+            meta["ml_mode"] = "DISABLED_VERSION_MISMATCH"
+        elif not ML_20D_AVAILABLE:
+            meta["ml_mode"] = "DISABLED_NO_MODEL"
+        else:
+            meta["ml_mode"] = "HYBRID"
+    except (ImportError, AttributeError, TypeError, KeyError):
+        pass
+    return meta
+
+
+def _phase_init_context(ctx: _PipelineContext) -> Optional[Dict[str, Any]]:
+    """Phases 0-4: config, telemetry, market context, ML, preflight, gating.
+
+    Returns an early-exit result dict when the scan must abort, else *None*.
+    """
+    try:
+        logger.info(f"\U0001f30c Starting pipeline with universe size: {len(ctx.universe)} tickers")
+    except (TypeError, ValueError):
+        pass
+
+    ctx.config = _normalize_config(ctx.config)
+    ctx.start_universe = len(ctx.universe)
+
+    if ctx.status_callback:
+        ctx.status_callback(f"Starting pipeline for {len(ctx.universe)} tickers...")
+
+    ctx.telemetry = Telemetry()
+    try:
+        ctx.telemetry.set_value("universe_provider", LAST_UNIVERSE_PROVIDER)
+    except (AttributeError, TypeError):
+        pass
+
+    # ---- Market context (SPY + VIX) ----
+    try:
+        initialize_market_context(symbols=["SPY", "^VIX"], period_days=250)
+        logger.info("[PIPELINE] Global index cache initialized (SPY, VIX)")
+        try:
+            spy_src = get_last_index_source('SPY')
+            vix_src = get_last_index_source('^VIX') or get_last_index_source('VIX')
+            idx_map: Dict[str, Any] = {}
+            if spy_src:
+                idx_map['SPY'] = spy_src
+                try:
+                    if str(spy_src).upper() == 'POLYGON':
+                        ctx.telemetry.mark_used('price', 'POLYGON')
+                except (AttributeError, TypeError):
+                    pass
+            if vix_src:
+                idx_map['VIX'] = vix_src
+            ctx.telemetry.set_value('index', idx_map)
+            if vix_src and 'Synthetic' in vix_src:
+                ctx.telemetry.record_fallback(
+                    'index', 'provider_chain', 'SYNTHETIC_VIX_PROXY',
+                    'constructed proxy from SPY volatility',
+                )
+        except (AttributeError, TypeError, KeyError):
+            pass
+    except Exception as e:
+        logger.debug(f"[PIPELINE] Market context init skipped: {e}")
+
+    # ---- ML context ----
+    try:
+        _initialize_ml_context()
+    except Exception as e:
+        logger.debug(f"[PIPELINE] ML context init skipped: {e}")
+
+    # ---- API Preflight ----
+    try:
+        ctx.provider_status = run_preflight()
+        ctx.run_mode = ctx.provider_status.get("SCAN_STATUS", "OK")
+        try:
+            ctx.telemetry.set_value("preflight_status", ctx.provider_status.get("ACTIVE_COUNTS", {}))
+        except (AttributeError, TypeError):
+            pass
+        try:
+            set_default_provider_status(ctx.provider_status)
+            try:
+                guard = get_provider_guard()
+                guard.update_from_preflight(ctx.provider_status)
+                ctx.telemetry.set_value("provider_states", guard.snapshot())
+            except (ImportError, AttributeError, TypeError):
+                pass
+            if not ctx.provider_status.get("FMP_INDEX", {"ok": True}).get("ok", True):
+                disable_provider_category("fmp", "index")
+            try:
+                funcs = get_prioritized_fetch_funcs(ctx.provider_status)
+                name_map = {
+                    "fmp": "FMP", "finnhub": "FINNHUB", "tiingo": "TIINGO",
+                    "alpha": "ALPHAVANTAGE", "eodhd": "EODHD", "simfin": "SIMFIN",
+                }
+                parts = []
+                for internal_name, _func in funcs:
+                    up = name_map.get(internal_name, internal_name.upper())
+                    p_meta = ctx.provider_status.get(up, {})
+                    lat = p_meta.get("latency")
+                    if isinstance(lat, (int, float)):
+                        parts.append(f"{up} ({lat:.2f}s)")
+                    else:
+                        parts.append(f"{up} (n/a)")
+                if parts:
+                    logger.info("Smart Routing: " + " -> ".join(parts))
+            except (ImportError, KeyError, TypeError, AttributeError):
+                pass
+        except (ImportError, AttributeError):
+            pass
+    except (ImportError, KeyError) as exc:
+        logger.debug(f"API preflight skipped: {exc}")
+        ctx.provider_status = {}
+        ctx.run_mode = "OK"
+
+    # Reset fallback trackers
+    try:
+        with _LEGACY_LOCK:
+            global _LEGACY_FALLBACK_USED, _LEGACY_FALLBACK_REASONS
+            _LEGACY_FALLBACK_USED = False
+            _LEGACY_FALLBACK_REASONS = []
+    except (RuntimeError, NameError):
+        pass
+
+    # ---- Gating ----
+    try:
+        if ctx.run_mode == "BLOCKED":
+            logger.error("[PIPELINE] Preflight BLOCKED: no active price providers; aborting scan")
+            meta = _build_pipeline_meta(ctx, postfilter_mode="blocked", run_mode="BLOCKED")
+            return {"result": {"results_df": pd.DataFrame(), "data_map": {}, "diagnostics": {}}, "meta": meta}
+        elif ctx.run_mode == "DEGRADED_TECH_ONLY":
+            ctx.config["fundamental_enabled"] = False
+            logger.warning("[PIPELINE] Preflight DEGRADED_TECH_ONLY: fundamentals disabled for this run")
+    except (KeyError, TypeError):
+        pass
+
+    return None
+
+
+def _phase_fetch_and_tier1(ctx: _PipelineContext) -> None:
+    """Phases 5-7: fetch historical data, RS ranking, Tier 1 OHLCV filter.
+
+    Populates *ctx.data_map*, *ctx.benchmark_df*, *ctx.tier1_pass*,
+    *ctx.filtered_df*, *ctx.benchmark_status*, *ctx.postfilter_mode*.
+    """
+    ctx.data_map, ctx.benchmark_df = _step_fetch_and_prepare_base_data(
+        ctx.universe, ctx.config, ctx.status_callback, ctx.data_map,
+    )
+
+    # Benchmark status
+    ctx.benchmark_status = "OK"
+    try:
+        if ctx.benchmark_df is None or (hasattr(ctx.benchmark_df, "empty") and ctx.benchmark_df.empty):
+            ctx.benchmark_status = "UNAVAILABLE"
+            logger.warning("[PIPELINE] Benchmark unavailable; skipping RS/Beta dependent steps")
+    except (AttributeError, TypeError):
+        ctx.benchmark_status = "UNAVAILABLE"
+
+    try:
+        small = bool(ctx.start_universe < 50 or bool(ctx.config.get("smoke_mode", False)))
+    except (TypeError, AttributeError):
+        small = bool(ctx.start_universe < 50)
+    ctx.postfilter_mode = "lenient_small_universe" if small else "strict"
+
+    # Minimal price telemetry sample
+    try:
+        if ctx.universe:
+            tkr0 = str(ctx.universe[0])
+            _ = fetch_price_multi_source(
+                tkr0, provider_status=ctx.provider_status, telemetry=ctx.telemetry,
+            )
+    except (ImportError, IndexError, TypeError) as exc:
+        logger.debug(f"Price telemetry sample skipped: {exc}")
+
+    # ---- RS blended ranking (>100 tickers, env-gated) ----
+    rs_enabled_env = os.getenv("RS_RANKING", os.getenv("RS_RANKING_ENABLED", "1"))
+    rs_enabled = bool(rs_enabled_env == "1")
+    if rs_enabled and ctx.start_universe > 100:
+        if ctx.status_callback:
+            ctx.status_callback("Ranking universe by blended RS (21/63d)...")
+        try:
+            bench_df = fetch_benchmark_data("SPY", days=200)
+            if bench_df is None or bench_df.empty:
+                raise ValueError("Benchmark DataFrame is empty; skipping RS blended ranking")
+            rs_records: List[Dict[str, Any]] = []
+            for tkr, df in (ctx.data_map or {}).items():
+                try:
+                    if df is None or df.empty:
+                        rs_records.append({"Ticker": tkr, "RS_blend": np.nan})
+                        continue
+                    rs = compute_relative_strength(
+                        df.rename(columns=str.title),
+                        bench_df.rename(columns=str.title),
+                        periods=[21, 63],
+                    )
+                    rs63 = rs.get("rs_63d", rs.get("RS_63d", np.nan))
+                    rs21 = rs.get("rs_21d", rs.get("RS_21d", np.nan))
+                    if pd.notna(rs63) and pd.notna(rs21):
+                        rs_blend = 0.7 * float(rs63) + 0.3 * float(rs21)
+                    else:
+                        rs_blend = rs63 if pd.notna(rs63) else rs21
+                    rs_records.append({"Ticker": tkr, "RS_blend": rs_blend})
+                except (KeyError, TypeError, ValueError):
+                    rs_records.append({"Ticker": tkr, "RS_blend": np.nan})
+            if rs_records:
+                rs_df = pd.DataFrame(rs_records)
+                rs_df["RS_blend_Pctl"] = rs_df["RS_blend"].rank(pct=True, ascending=True)
+                logger.info(
+                    f"[PIPELINE] RS blended ranking computed for {len(rs_records)} tickers "
+                    "(no hard filter applied)"
+                )
+        except Exception as e:
+            logger.warning(f"RS blended ranking failed (continuing without): {e}")
+
+    # ---- Tier 1: Fast OHLCV filter ----
+    if ctx.status_callback:
+        ctx.status_callback("Tier 1: applying OHLCV filters...")
+
+    ctx.tier1_pass = []
+    filtered_rows: List[Dict[str, Any]] = []
+    for tkr, df in (ctx.data_map or {}).items():
+        try:
+            if df is None or df.empty:
+                ctx.diagnostics.setdefault(tkr, {"tier1_reasons": [], "tier2_reasons": []})
+                ctx.diagnostics[tkr]["tier1_reasons"].append({
+                    "rule": "EMPTY_HISTORY",
+                    "message": "No historical OHLCV data",
+                })
+                ctx.diagnostics[tkr]["last_price"] = np.nan
+                ctx.diagnostics[tkr]["last_volume"] = np.nan
+                filtered_rows.append({
+                    "Ticker": tkr, "Tier1_Reasons": "EMPTY_HISTORY",
+                    "last_price": np.nan, "last_volume": np.nan,
+                })
+                continue
+
+            try:
+                cols_lower = {_canon_column_name(c): c for c in df.columns}
+            except (AttributeError, TypeError):
+                cols_lower = {}
+
+            close_series = None
+            vol_series = None
+            if "close" in cols_lower:
+                close_series = pd.to_numeric(df[cols_lower["close"]], errors="coerce")
+            elif "adj close" in cols_lower:
+                close_series = pd.to_numeric(df[cols_lower["adj close"]], errors="coerce")
+            if "volume" in cols_lower:
+                vol_series = pd.to_numeric(df[cols_lower["volume"]], errors="coerce")
+            elif "v" in cols_lower:
+                vol_series = pd.to_numeric(df[cols_lower["v"]], errors="coerce")
+
+            close = (
+                close_series.dropna().iloc[-1]
+                if isinstance(close_series, pd.Series) and not close_series.dropna().empty
+                else np.nan
+            )
+            volume = (
+                vol_series.dropna().iloc[-1]
+                if isinstance(vol_series, pd.Series) and not vol_series.dropna().empty
+                else np.nan
+            )
+
+            reasons: List[Dict[str, Any]] = []
+            if pd.isna(volume):
+                reasons.append({"rule": "MISSING_VOLUME_DATA", "message": "Missing Volume on last bar"})
+            elif volume < 100000:
+                reasons.append({
+                    "rule": "VOLUME_MIN", "message": "Volume below minimum",
+                    "value": float(volume) if pd.notna(volume) else None, "threshold": 100000,
+                })
+            if pd.isna(close):
+                reasons.append({"rule": "MISSING_PRICE_DATA", "message": "Missing Close price on last bar"})
+            elif close < 1.0:
+                reasons.append({
+                    "rule": "PRICE_MIN", "message": "Price below $1",
+                    "value": float(close), "threshold": 1.0,
+                })
+            if pd.notna(close) and close > 10000:
+                reasons.append({
+                    "rule": "PRICE_MAX", "message": "Price above $10,000",
+                    "value": float(close), "threshold": 10000.0,
+                })
+
+            row_for_filter = pd.Series({"Volume": volume, "Close": close})
+            if (not reasons) and apply_technical_filters(row_for_filter, relaxed=False):
+                ctx.tier1_pass.append(tkr)
+                ctx.diagnostics.setdefault(tkr, {"tier1_reasons": [], "tier2_reasons": []})
+                ctx.diagnostics[tkr]["last_price"] = float(close) if pd.notna(close) else np.nan
+                ctx.diagnostics[tkr]["last_volume"] = float(volume) if pd.notna(volume) else np.nan
+            else:
+                ctx.diagnostics.setdefault(tkr, {"tier1_reasons": [], "tier2_reasons": []})
+                if not reasons:
+                    reasons.append({"rule": "TECH_FILTER_FAIL", "message": "Failed Tier 1 technical filter"})
+                ctx.diagnostics[tkr]["tier1_reasons"].extend(reasons)
+                ctx.diagnostics[tkr]["last_price"] = float(close) if pd.notna(close) else np.nan
+                ctx.diagnostics[tkr]["last_volume"] = float(volume) if pd.notna(volume) else np.nan
+                try:
+                    joined = ";".join([str(r.get("rule")) for r in reasons])
+                except (TypeError, AttributeError, KeyError):
+                    joined = ";".join([str(r) for r in reasons])
+                filtered_rows.append({
+                    "Ticker": tkr, "Tier1_Reasons": joined,
+                    "last_price": float(close) if pd.notna(close) else np.nan,
+                    "last_volume": float(volume) if pd.notna(volume) else np.nan,
+                })
+        except Exception as exc:
+            logger.debug(f"Tier1 filter failed for {tkr}: {exc}")
+            ctx.diagnostics.setdefault(tkr, {"tier1_reasons": [], "tier2_reasons": []})
+            ctx.diagnostics[tkr]["tier1_reasons"].append({
+                "rule": "EXCEPTION", "message": f"Tier1 error: {exc.__class__.__name__}",
+            })
+            ctx.diagnostics[tkr]["last_price"] = np.nan
+            ctx.diagnostics[tkr]["last_volume"] = np.nan
+            filtered_rows.append({
+                "Ticker": tkr, "Tier1_Reasons": "EXCEPTION",
+                "last_price": np.nan, "last_volume": np.nan,
+            })
+            continue
+
+    filtered_count = ctx.start_universe - len(ctx.tier1_pass)
+    logger.info(
+        f"[PIPELINE] Tier 1: scanned={ctx.start_universe}, "
+        f"passed={len(ctx.tier1_pass)}, filtered={filtered_count}"
+    )
+
+    try:
+        ctx.filtered_df = pd.DataFrame(filtered_rows)
+    except (TypeError, ValueError):
+        ctx.filtered_df = pd.DataFrame()
+
+
+def _phase_score_and_filter(ctx: _PipelineContext) -> Optional[Dict[str, Any]]:
+    """Phases 8-11: Tier 2 scoring, beta, advanced filters, meteor.
+
+    Populates *ctx.results*.  Returns early-exit dict on empty results, else *None*.
+    """
+    # Build Tier 2 input from Tier 1 output
+    tier2_map: Dict[str, pd.DataFrame] = {
+        t: ctx.data_map[t] for t in ctx.tier1_pass if t in ctx.data_map
+    }
+    if not tier2_map and isinstance(ctx.data_map, dict) and ctx.data_map:
+        logger.warning(
+            "[PIPELINE] Tier 1 yielded no candidates; "
+            "falling back to relaxed Tier 2 on full universe"
+        )
+        tier2_map = dict(ctx.data_map)
+
+    # ---- Tier 2: indicators + ML ----
+    ctx.results = _step_compute_scores_with_unified_logic(
+        tier2_map, ctx.config, ctx.status_callback, skip_tech_filter=True,
+    )
+
+    # Verify Tier 2 I/O
+    tier2_input_set = set(tier2_map.keys())
+    try:
+        if not ctx.results.empty:
+            if "Ticker" in ctx.results.columns:
+                tier2_output_set = set(str(x) for x in ctx.results["Ticker"].tolist() if pd.notna(x))
+            elif ctx.results.index.name == "Ticker":
+                tier2_output_set = set(str(x) for x in ctx.results.index.tolist() if pd.notna(x))
+            elif "ticker" in ctx.results.columns:
+                tier2_output_set = set(
+                    str(x).upper().replace('.', '-').replace('/', '-')
+                    for x in ctx.results["ticker"].tolist() if pd.notna(x)
+                )
+            else:
+                tier2_output_set = set()
+        else:
+            tier2_output_set = set()
+    except (KeyError, AttributeError, TypeError):
+        tier2_output_set = set()
+    if tier2_input_set == tier2_output_set:
+        logger.info(f"[PIPELINE] Tier 2 verification OK: input={len(tier2_input_set)} equals output tickers")
+    else:
+        missing = sorted(tier2_input_set - tier2_output_set)
+        extra = sorted(tier2_output_set - tier2_input_set)
+        logger.warning(
+            f"[PIPELINE] Tier 2 verification mismatch: input={len(tier2_input_set)}, "
+            f"output={len(tier2_output_set)}; missing={len(missing)}, extra={len(extra)}"
+        )
+
+    # Empty guard
+    if ctx.results.empty:
+        try:
+            ctx.telemetry.set_value("fundamentals_status", "not_requested")
+        except (AttributeError, TypeError):
+            pass
+        meta = _build_pipeline_meta(ctx)
+        try:
+            if isinstance(ctx.data_map, dict):
+                ctx.data_map = dict(ctx.data_map)
+                ctx.data_map["filtered_tier1_df"] = ctx.filtered_df
+        except (TypeError, KeyError):
+            pass
+        return {
+            "result": {"results_df": ctx.results, "data_map": ctx.data_map, "diagnostics": ctx.diagnostics},
+            "meta": meta,
+        }
+
+    if "Score" not in ctx.results.columns and "FinalScore_20d" in ctx.results.columns:
+        ctx.results["Score"] = ctx.results["FinalScore_20d"]
+
+    # ---- Beta filter ----
+    if ctx.config.get("beta_filter_enabled"):
+        if ctx.status_callback:
+            ctx.status_callback("Applying Beta filter...")
+        beta_max = float(ctx.config.get("beta_max_allowed", 1.5))
+        top_k = int(ctx.config.get("beta_top_k", 50))
+        ctx.results = ctx.results.sort_values("Score", ascending=False)
+        to_check = ctx.results.head(top_k).index
+        for idx in to_check:
+            tkr = ctx.results.at[idx, "Ticker"]
+            b = fetch_beta_vs_benchmark(tkr, ctx.config.get("beta_benchmark", "SPY"))
+            ctx.results.at[idx, "Beta"] = b
+        ctx.results = ctx.results[~((ctx.results["Beta"].notna()) & (ctx.results["Beta"] > beta_max))]
+        logger.info(f"[PIPELINE] After beta filter: {len(ctx.results)} remain")
+
+    # ---- Advanced filters (penalties) ----
+    if ctx.status_callback:
+        ctx.status_callback("Applying advanced filters...")
+
+    signals_store: List[Tuple[Any, Dict, float]] = []
+    for idx, row in ctx.results.iterrows():
+        tkr = row["Ticker"]
+        if tkr in ctx.data_map:
+            df = ctx.data_map[tkr]
+            base_score = row["Score"]
+            df_title = df.rename(columns=str.title)
+            if "Date" not in df_title.columns:
+                try:
+                    df_title = df_title.reset_index()
+                    if "Date" not in df_title.columns and df_title.columns[0] not in ("Date", "date"):
+                        first = df_title.columns[0]
+                        df_title = df_title.rename(columns={first: "Date"})
+                except (KeyError, IndexError, AttributeError):
+                    pass
+            bench_title = ctx.benchmark_df.rename(columns=str.title)
+            enhanced, sig = compute_advanced_score(tkr, df_title, bench_title, base_score / 100.0)
+            signals_store.append((idx, sig, enhanced))
+
+    rs_vals = [s.get("rs_63d") for _, s, _ in signals_store if s.get("rs_63d") is not None]
+    mom_vals = [s.get("momentum_consistency") for _, s, _ in signals_store if s.get("momentum_consistency") is not None]
+    rr_vals = [s.get("risk_reward_ratio") for _, s, _ in signals_store if s.get("risk_reward_ratio") is not None]
+
+    num_stocks = len(signals_store)
+    if num_stocks < 20:
+        rs_thresh = -0.40
+        mom_thresh = 0.10
+        rr_thresh = 0.30
+        logger.info(f"[PIPELINE] Using fixed lenient thresholds for {num_stocks} stocks")
+    else:
+        rs_thresh = min(_quantile_safe(rs_vals, 0.02, -0.40), -0.30)
+        mom_thresh = min(_quantile_safe(mom_vals, 0.05, 0.10), 0.12)
+        rr_thresh = min(_quantile_safe(rr_vals, 0.05, 0.30), 0.40)
+        logger.info(f"[PIPELINE] Using dynamic thresholds for {num_stocks} stocks")
+
+    dyn_thresh = {"rs_63d": rs_thresh, "momentum_consistency": mom_thresh, "risk_reward_ratio": rr_thresh}
+    logger.info(f"[PIPELINE] Thresholds: RS={rs_thresh:.3f}, Mom={mom_thresh:.3f}, RR={rr_thresh:.3f}")
+
+    for idx, sig, enhanced in signals_store:
+        catastrophic, reason = should_reject_ticker(sig, dynamic=dyn_thresh)
+
+        ctx.results.at[idx, "RS_63d"] = sig.get("rs_63d")
+        ctx.results.at[idx, "Volume_Surge"] = sig.get("volume_surge")
+        ctx.results.at[idx, "MA_Aligned"] = sig.get("ma_aligned")
+        ctx.results.at[idx, "Quality_Score"] = sig.get("quality_score")
+        ctx.results.at[idx, "RR_Ratio"] = sig.get("risk_reward_ratio")
+        ctx.results.at[idx, "Momentum_Consistency"] = sig.get("momentum_consistency")
+
+        if catastrophic:
+            ctx.results.at[idx, "FinalScore_20d"] = float(enhanced)
+            ctx.results.at[idx, "RejectionReason"] = reason
+            try:
+                tkr = str(ctx.results.at[idx, "Ticker"]) if "Ticker" in ctx.results.columns else None
+                if tkr:
+                    ctx.diagnostics.setdefault(tkr, {"tier1_reasons": [], "tier2_reasons": []})
+                    ctx.diagnostics[tkr]["tier2_reasons"].append({
+                        "rule": "ADVANCED_REJECT",
+                        "message": str(reason) if reason else "Advanced filters rejection",
+                    })
+            except (KeyError, TypeError, AttributeError):
+                pass
+        else:
+            penalty = 0.0
+            if sig.get("rs_63d", 0) < rs_thresh:
+                penalty += 1.0
+            if sig.get("momentum_consistency", 0) < mom_thresh:
+                penalty += 1.0
+            if sig.get("risk_reward_ratio", 0) < rr_thresh:
+                penalty += 1.5
+            normalized_penalty = penalty / 100.0
+            ctx.results.at[idx, "AdvPenalty"] = penalty
+            ctx.results.at[idx, "FinalScore_20d"] = max(0.01, float(enhanced) - float(normalized_penalty))
+            try:
+                tkr = str(ctx.results.at[idx, "Ticker"]) if "Ticker" in ctx.results.columns else None
+                if tkr:
+                    ctx.diagnostics.setdefault(tkr, {"tier1_reasons": [], "tier2_reasons": []})
+                    if sig.get("rs_63d", None) is not None and sig.get("rs_63d") < rs_thresh:
+                        ctx.diagnostics[tkr]["tier2_reasons"].append({
+                            "rule": "RS_BELOW_THRESH", "message": "RS_63d below threshold",
+                            "value": float(sig.get("rs_63d")), "threshold": float(rs_thresh),
+                        })
+                    if sig.get("momentum_consistency", None) is not None and sig.get("momentum_consistency") < mom_thresh:
+                        ctx.diagnostics[tkr]["tier2_reasons"].append({
+                            "rule": "MOM_BELOW_THRESH", "message": "Momentum consistency below threshold",
+                            "value": float(sig.get("momentum_consistency")), "threshold": float(mom_thresh),
+                        })
+                    if sig.get("risk_reward_ratio", None) is not None and sig.get("risk_reward_ratio") < rr_thresh:
+                        ctx.diagnostics[tkr]["tier2_reasons"].append({
+                            "rule": "RR_BELOW_THRESH", "message": "Risk/Reward below threshold",
+                            "value": float(sig.get("risk_reward_ratio")), "threshold": float(rr_thresh),
+                        })
+            except (KeyError, TypeError, AttributeError):
+                pass
+
+    # Scale FinalScore_20d back to 0-100
+    ctx.results["FinalScore_20d"] = ctx.results["FinalScore_20d"] * 100.0
+    if "FinalScore_20d" in ctx.results.columns:
+        ctx.results["Score"] = ctx.results["FinalScore_20d"]
+    logger.info(f"[PIPELINE] Advanced filters applied without score-zeroing; total stocks: {len(ctx.results)}")
+
+    # ---- Meteor mode (optional) ----
+    meteor_mode = bool(ctx.config.get("meteor_mode", bool(os.getenv("METEOR_MODE", "0") == "1")))
+    if meteor_mode and not ctx.results.empty:
+        if ctx.status_callback:
+            ctx.status_callback("Applying Meteor filters (VCP + RS + Pocket Pivots)...")
+        try:
+            bench_df = fetch_benchmark_data("SPY", days=200)
+            if bench_df is None or bench_df.empty:
+                logger.warning("Benchmark DataFrame empty; skipping Meteor filters")
+            else:
+                kept_rows = []
+                for _, row in ctx.results.iterrows():
+                    tkr = str(row.get("Ticker"))
+                    df = tier2_map.get(tkr) or ctx.data_map.get(tkr)
+                    if df is None or df.empty:
+                        continue
+                    base_score = float(row.get("FinalScore_20d", row.get("Score", 0.0)))
+                    new_score, details = compute_advanced_score(
+                        tkr, df.rename(columns=str.title),
+                        bench_df.rename(columns=str.title), base_score,
+                    )
+                    if details.get("passed"):
+                        row = row.copy()
+                        row["FinalScore_20d"] = float(new_score)
+                        row["Score"] = float(new_score)
+                        row["Meteor_Passed"] = True
+                        row["Meteor_Reason"] = details.get("reason")
+                        kept_rows.append(row)
+                ctx.results = pd.DataFrame(kept_rows)
+                logger.info(f"[PIPELINE] Meteor Mode: {len(ctx.results)} candidates after filters")
+        except Exception as e:
+            logger.warning(f"Meteor filter application failed: {e}")
+
+    return None
+
+
+def _phase_enrich_fundamentals(ctx: _PipelineContext) -> None:
+    """Phase 12-14: fetch fundamentals, merge, sector mapping, score recalc.
+
+    Updates *ctx.results* in place and sets *ctx.fundamentals_status*.
+    """
+    if not ctx.config.get("fundamental_enabled", True):
+        ctx.results["Sector"] = "Unknown"
+        ctx.results["Fundamental_S"] = 50.0
+        try:
+            ctx.telemetry.set_value("fundamentals_status", "not_requested")
+            ctx.fundamentals_status = "not_requested"
+        except (AttributeError, TypeError):
+            pass
+        _apply_sector_mapping(ctx)
+        return
+
+    if ctx.status_callback:
+        ctx.status_callback("Fetching fundamentals & sector data...")
+
+    # Signal date for fundamentals
+    fund_as_of = None
+    try:
+        if "As_Of_Date" in ctx.results.columns and len(ctx.results) > 0:
+            fund_as_of = pd.to_datetime(ctx.results["As_Of_Date"].iloc[0]).date()
+        else:
+            dates = []
+            for df in (ctx.data_map or {}).values():
+                if df is not None and not df.empty:
+                    try:
+                        dates.append(pd.to_datetime(df.index[-1]).date())
+                    except (IndexError, TypeError, ValueError):
+                        pass
+            if dates:
+                fund_as_of = max(dates)
+    except (KeyError, TypeError, ValueError):
+        fund_as_of = None
+
+    # Score/cap thresholds
+    try:
+        score_thr = float(ctx.config.get(
+            "fundamentals_score_threshold",
+            float(os.getenv("FUNDAMENTALS_SCORE_THRESHOLD", "60")),
+        ))
+    except (TypeError, ValueError):
+        score_thr = 60.0
+    try:
+        top_n_cap = int(ctx.config.get(
+            "fundamentals_top_n_cap",
+            int(os.getenv("FUNDAMENTALS_TOP_N_CAP", "50")),
+        ))
+    except (TypeError, ValueError):
+        top_n_cap = 50
+    if top_n_cap > 0:
+        logger.info(f"\u26a1 Fetching fundamentals for Top-{top_n_cap} stocks (score > {score_thr})")
+    else:
+        logger.info(f"\u26a1 Fetching fundamentals for ALL stocks with score > {score_thr} (no cap)")
+
+    # Ensure scoring columns exist
+    try:
+        if "Score" not in ctx.results.columns and "FinalScore_20d" in ctx.results.columns:
+            ctx.results["Score"] = ctx.results["FinalScore_20d"]
+        if "TechScore_20d" not in ctx.results.columns:
+            if "Score" in ctx.results.columns:
+                ctx.results["TechScore_20d"] = ctx.results["Score"]
+            elif "FinalScore_20d" in ctx.results.columns:
+                ctx.results["TechScore_20d"] = ctx.results["FinalScore_20d"]
+    except (KeyError, TypeError):
+        pass
+
+    score_col = (
+        "TechScore_20d" if "TechScore_20d" in ctx.results.columns
+        else ("Score" if "Score" in ctx.results.columns else None)
+    )
+    if score_col is None or ctx.results.empty:
+        eligible = pd.DataFrame(columns=ctx.results.columns)
+    else:
+        eligible = ctx.results[ctx.results[score_col] > score_thr].sort_values(score_col, ascending=False)
+    if top_n_cap > 0:
+        eligible = eligible.head(top_n_cap)
+
+    try:
+        if "Ticker" in eligible.columns:
+            winners = eligible["Ticker"].tolist()
+        elif eligible.index.name == "Ticker":
+            winners = eligible.index.tolist()
+        elif "ticker" in eligible.columns:
+            winners = [str(x).upper().replace('.', '-').replace('/', '-') for x in eligible["ticker"].tolist()]
+        else:
+            winners = []
+    except (KeyError, AttributeError, TypeError):
+        winners = []
+
+    # Fetch
+    if not winners:
+        logger.info(f"No winners with Score > {score_thr:.0f}; skipping fundamentals fetch")
+        fund_df = pd.DataFrame()
+        try:
+            ctx.telemetry.set_value("fundamentals_status", "requested_empty")
+            ctx.fundamentals_status = "requested_empty"
+        except (AttributeError, TypeError):
+            pass
+    else:
+        logger.info(f"Fetching fundamentals for {len(winners)} winners ({score_col} > {score_thr:.0f}, TopN={top_n_cap})")
+        logger.info(f"[PIPELINE] Sending {len(winners)} tickers to fetch_fundamentals_batch")
+        fund_df = fetch_fundamentals_batch(
+            winners, provider_status=ctx.provider_status,
+            as_of_date=fund_as_of, telemetry=ctx.telemetry,
+        )
+        try:
+            status_val = "used" if (isinstance(fund_df, pd.DataFrame) and not fund_df.empty) else "requested_empty"
+            ctx.telemetry.set_value("fundamentals_status", status_val)
+            ctx.fundamentals_status = status_val
+        except (AttributeError, TypeError):
+            pass
+
+    # Normalize fund_df index
+    if isinstance(fund_df.index, pd.Index):
+        fund_df = fund_df.reset_index()
+        if 'ticker' in fund_df.columns:
+            fund_df = fund_df.rename(columns={'ticker': 'Ticker'})
+        elif 'index' in fund_df.columns and 'Ticker' not in fund_df.columns:
+            fund_df = fund_df.rename(columns={'index': 'Ticker'})
+    if "Ticker" not in fund_df.columns and len(fund_df) > 0:
+        if len(fund_df.columns) > 0:
+            first_col = fund_df.columns[0]
+            if fund_df[first_col].dtype == 'object':
+                fund_df = fund_df.rename(columns={first_col: 'Ticker'})
+
+    # Merge
+    if "Ticker" in fund_df.columns and len(fund_df) > 0:
+        ctx.results = pd.merge(ctx.results, fund_df, on="Ticker", how="left", suffixes=("", "_fund"))
+    else:
+        logger.warning("Fundamental data has no Ticker column, skipping merge")
+        try:
+            ctx.telemetry.set_value("fundamentals_status", "requested_empty")
+            ctx.fundamentals_status = "requested_empty"
+        except (AttributeError, TypeError):
+            pass
+
+    # Map aggregated columns to UI names + fill missing
+    try:
+        _col_map = {
+            "market_cap": "Market_Cap", "beta": "Beta", "sector": "Sector",
+            "pe": "PE_Ratio", "peg": "PEG_Ratio", "debt_equity": "Debt_to_Equity",
+        }
+        for src, dst in _col_map.items():
+            if src in ctx.results.columns and dst not in ctx.results.columns:
+                ctx.results[dst] = ctx.results[src]
+
+        for col in ["Market_Cap", "PE_Ratio", "PEG_Ratio", "Beta", "Debt_to_Equity"]:
+            if col in ctx.results.columns:
+                ctx.results[col] = pd.to_numeric(ctx.results[col], errors="coerce")
+
+        # Fill missing via get_fundamentals_safe (winners only)
+        ui_cols = [
+            "Market_Cap", "PE_Ratio", "PEG_Ratio", "PB_Ratio",
+            "Beta", "Sector", "Industry", "Debt_to_Equity",
+            "ROE", "Vol_Avg", "Dividend", "Price",
+        ]
+        winners_set = set(winners) if winners else set()
+        fill_count = 0
+        for idx, row in ctx.results.iterrows():
+            tkr = row.get("Ticker")
+            if not tkr or tkr not in winners_set:
+                continue
+            need_fill = any(pd.isna(row.get(c)) for c in ui_cols)
+            if not need_fill:
+                continue
+            safe = get_fundamentals_safe(str(tkr))
+            if not safe:
+                continue
+            fill_count += 1
+            for c in ui_cols:
+                if pd.isna(row.get(c)) and (c in safe):
+                    ctx.results.at[idx, c] = safe.get(c)
+        if fill_count > 0:
+            logger.debug(f"Filled missing fundamentals for {fill_count} winners")
+
+        # Valuation / Quality / Leverage
+        if "PE_Ratio" in ctx.results.columns:
+            ctx.results["Valuation"] = pd.to_numeric(ctx.results["PE_Ratio"], errors="coerce")
+        else:
+            ctx.results["Valuation"] = np.nan
+        if "ROE" in ctx.results.columns:
+            ctx.results["Quality"] = pd.to_numeric(ctx.results["ROE"], errors="coerce")
+        elif "roe" in ctx.results.columns:
+            ctx.results["Quality"] = pd.to_numeric(ctx.results["roe"], errors="coerce")
+        else:
+            ctx.results["Quality"] = np.nan
+        if "Debt_to_Equity" in ctx.results.columns:
+            ctx.results["Leverage"] = pd.to_numeric(ctx.results["Debt_to_Equity"], errors="coerce")
+        else:
+            ctx.results["Leverage"] = np.nan
+    except Exception as e:
+        logger.debug(f"UI mapping/Valuation-Leverage setup skipped: {e}")
+
+    # Raw metric aliases
+    try:
+        _alias_map = {"pe": "PE", "peg": "PEG", "roe": "ROE", "debt_equity": "Debt_Equity"}
+        for src, dst in _alias_map.items():
+            if src in ctx.results.columns and dst not in ctx.results.columns:
+                ctx.results[dst] = ctx.results[src]
+    except Exception as e:
+        logger.debug(f"Valuation/Quality column creation skipped: {e}")
+
+    # Compute fundamental scores
+    for idx, row in ctx.results.iterrows():
+        try:
+            fund_data = row.to_dict()
+            has_fund_data = any(pd.notna(fund_data.get(f)) for f in ['pe', 'roe', 'pb', 'margin', 'debt_equity'])
+            if not has_fund_data:
+                ctx.results.at[idx, "Fundamental_S"] = 50.0
+                continue
+            fund_score_obj = compute_fundamental_score_with_breakdown(fund_data)
+            ctx.results.at[idx, "Fundamental_S"] = fund_score_obj.total
+            ctx.results.at[idx, "Quality_Score_F"] = fund_score_obj.breakdown.quality_score
+            ctx.results.at[idx, "Growth_Score_F"] = fund_score_obj.breakdown.growth_score
+            ctx.results.at[idx, "Valuation_Score_F"] = fund_score_obj.breakdown.valuation_score
+        except Exception as e:
+            ctx.results.at[idx, "Fundamental_S"] = 50.0
+            logger.debug(f"Fundamental scoring failed for {row.get('Ticker')}: {e}")
+
+    # Sector from fundamentals
+    if "sector" in ctx.results.columns:
+        ctx.results["Sector"] = ctx.results["sector"].fillna("Unknown")
+    elif "Sector" not in ctx.results.columns:
+        ctx.results["Sector"] = "Unknown"
+
+    # Sector mapping fallback
+    _apply_sector_mapping(ctx)
+
+    # Recalculate FinalScore_20d with fundamentals
+    try:
+        for idx, row in ctx.results.iterrows():
+            try:
+                new_score = compute_final_score_20d(row)
+                ctx.results.at[idx, "FinalScore_20d"] = float(new_score)
+                ctx.results.at[idx, "Score"] = float(new_score)
+            except Exception as e:
+                logger.debug(f"FinalScore recalc failed for {row.get('Ticker')}: {e}")
+        logger.info(f"[PIPELINE] Recalculated FinalScore_20d with fundamentals for {len(ctx.results)} stocks")
+    except Exception as e:
+        logger.warning(f"FinalScore recalc skipped: {e}")
+
+    # Source metadata
+    try:
+        if "sources_used" in ctx.results.columns:
+            ctx.results["fund_sources_used_v2"] = ctx.results["sources_used"].apply(
+                lambda x: len(x) if isinstance(x, list) else 0,
+            )
+            ctx.results["Fundamental_Sources_Count"] = ctx.results["fund_sources_used_v2"]
+        if "price_sources" in ctx.results.columns:
+            ctx.results["price_sources_used_v2"] = ctx.results["price_sources"].fillna(0).astype(int)
+            ctx.results["Price_Sources_Count"] = ctx.results["price_sources_used_v2"]
+    except Exception as e:
+        logger.debug(f"Source metadata mapping skipped due to error: {e}")
+
+
+def _apply_sector_mapping(ctx: _PipelineContext) -> None:
+    """Apply sector_mapping fallback for unknown sectors."""
+    try:
+        for idx, row in ctx.results.iterrows():
+            ticker = row.get("Ticker", "")
+            mapped_sector = get_stock_sector(ticker)
+            if mapped_sector != "Unknown":
+                ctx.results.at[idx, "Sector"] = mapped_sector
+    except Exception as e:
+        logger.debug(f"Sector mapping fallback failed: {e}")
+
+
+def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
+    """Phases 15-22: classification, earnings, RR, signal filter, persist, meta.
+
+    Returns the final pipeline output dict.
+    """
+    # Classification & Allocation
+    if ctx.status_callback:
+        ctx.status_callback("Classifying & Allocating...")
+    ctx.results = apply_classification(ctx.results)
+
+    # Earnings blackout
+    if ctx.config.get("EARNINGS_BLACKOUT_DAYS", 0) > 0:
+        topk = int(ctx.config.get("EARNINGS_CHECK_TOPK", 30))
+        blackout_days = int(ctx.config.get("EARNINGS_BLACKOUT_DAYS", 7))
+        if ctx.status_callback:
+            ctx.status_callback(f"Checking earnings blackout (top {topk})...")
+        try:
+            top_indices = ctx.results.nlargest(topk, "Score").index
+            for idx in top_indices:
+                ticker = ctx.results.at[idx, "Ticker"]
+                if check_earnings_blackout(ticker, blackout_days):
+                    logger.info(f"[EARNINGS] {ticker} has earnings within {blackout_days} days - reducing allocation")
+                    if "buy_amount_v2" in ctx.results.columns:
+                        ctx.results.at[idx, "buy_amount_v2"] *= 0.5
+        except Exception as e:
+            logger.warning(f"Earnings blackout check failed: {e}")
+
+    # Allocation-Free Signal Engine
+    if False and "buy_amount_v2" not in ctx.results.columns:
+        ctx.results = allocate_budget(
+            ctx.results,
+            ctx.config.get("BUDGET_TOTAL", 5000),
+            ctx.config.get("MIN_POSITION", 500),
+            ctx.config.get("MAX_POSITION_PCT", 0.2),
+        )
+
+    # Score = FinalScore_20d (strict)
+    if "FinalScore_20d" in ctx.results.columns:
+        ctx.results["Score"] = ctx.results["FinalScore_20d"]
+        logger.info(f"[PIPELINE] Final check: Score column set to FinalScore_20d for all {len(ctx.results)} results")
+
+    # Tier debug columns
+    try:
+        ctx.results["Tier1_Passed"] = True
+        ctx.results["Tier1_Reasons"] = ""
+        t2_vals = ctx.results.apply(
+            lambda row: _t2_pass_and_reasons(row, ctx.diagnostics), axis=1, result_type="expand",
+        )
+        if isinstance(t2_vals, pd.DataFrame) and t2_vals.shape[1] == 2:
+            ctx.results["Tier2_Passed"] = t2_vals.iloc[:, 0]
+            ctx.results["Tier2_Reasons"] = t2_vals.iloc[:, 1]
+        else:
+            ctx.results["Tier2_Passed"] = True
+            ctx.results["Tier2_Reasons"] = ""
+    except Exception as e:
+        logger.debug(f"Tier debug columns setup skipped: {e}")
+
+    # Dynamic RR
+    try:
+        rr_updates = ctx.results.apply(
+            lambda row: _compute_rr_for_row(row, ctx.data_map), axis=1, result_type="expand",
+        )
+        for col in ["Entry_Price", "Target_Price", "Stop_Loss", "RewardRisk", "RR_Ratio", "RR", "Target_Source"]:
+            if col in rr_updates.columns:
+                ctx.results[col] = rr_updates[col]
+
+        if "FinalScore_20d" in ctx.results.columns and "RR" in ctx.results.columns:
+            low_mask = pd.to_numeric(ctx.results["RR"], errors="coerce") < 1.5
+            mid_mask = (~low_mask) & (pd.to_numeric(ctx.results["RR"], errors="coerce") < 2.0)
+            ctx.results.loc[low_mask, "FinalScore_20d"] = ctx.results.loc[low_mask, "FinalScore_20d"] - 8.0
+            ctx.results.loc[mid_mask, "FinalScore_20d"] = ctx.results.loc[mid_mask, "FinalScore_20d"] - 3.0
+            ctx.results["FinalScore"] = ctx.results["FinalScore_20d"]
+            ctx.results["Score"] = ctx.results["FinalScore_20d"]
+    except Exception as e:
+        logger.warning(f"[PIPELINE] Dynamic RR computation failed: {e}")
+
+    # Signal-first filtering & ranking
+    try:
+        orig_len = len(ctx.results)
+        score_col = (
+            "FinalScore_20d" if "FinalScore_20d" in ctx.results.columns
+            else ("Score" if "Score" in ctx.results.columns else None)
+        )
+        if score_col is not None and not ctx.results.empty:
+            sc = pd.to_numeric(ctx.results[score_col], errors="coerce")
+            mlp = pd.to_numeric(
+                ctx.results.get("ML_20d_Prob", pd.Series(index=ctx.results.index)), errors="coerce",
+            )
+            patt = pd.to_numeric(
+                ctx.results.get("Pattern_Score", pd.Series(index=ctx.results.index)), errors="coerce",
+            )
+            mask = (
+                (sc >= float(SIGNAL_MIN_SCORE))
+                | (mlp >= float(ML_PROB_THRESHOLD))
+                | (patt.fillna(0.0) > 0.0)
+            )
+            filtered = ctx.results[mask].copy() if isinstance(mask, pd.Series) else ctx.results.copy()
+
+            sort_cols = ["_score_numeric"]
+            asc = [False]
+            if "SignalReasons_Count" in filtered.columns:
+                sort_cols.append("SignalReasons_Count")
+                asc.append(False)
+            sort_cols.append("ML_20d_Prob")
+            asc.append(False)
+            filtered = (
+                filtered.assign(_score_numeric=pd.to_numeric(filtered[score_col], errors="coerce"))
+                .sort_values(by=sort_cols, ascending=asc)
+                .drop(columns=["_score_numeric"])
+            )
+
+            topn = int(ctx.config.get("topn_results", TOP_SIGNAL_K))
+            if filtered.empty:
+                sort_cols_fb = ["_score_numeric"]
+                asc_fb = [False]
+                if "SignalReasons_Count" in ctx.results.columns:
+                    sort_cols_fb.append("SignalReasons_Count")
+                    asc_fb.append(False)
+                sort_cols_fb.append("ML_20d_Prob")
+                asc_fb.append(False)
+                fallback = (
+                    ctx.results.assign(_score_numeric=pd.to_numeric(ctx.results[score_col], errors="coerce"))
+                    .sort_values(by=sort_cols_fb, ascending=asc_fb)
+                    .drop(columns=["_score_numeric"])
+                )
+                ctx.results = fallback.head(topn).reset_index(drop=True)
+                logger.info(f"[PIPELINE] Signal thresholds yielded no candidates; using top-{topn} by score as fallback")
+            else:
+                ctx.results = filtered.head(topn).reset_index(drop=True)
+                logger.info(
+                    f"[PIPELINE] Signal-First ranking applied: kept {len(ctx.results)} of {orig_len}; "
+                    f"thresholds: score>={SIGNAL_MIN_SCORE}, ml>={ML_PROB_THRESHOLD}"
+                )
+            ctx.postfilter_mode = "signal_only"
+        else:
+            logger.info("[PIPELINE] No score column for signal filter; keeping all")
+    except Exception as e:
+        logger.warning(f"[PIPELINE] Signal-first filtering failed: {e}")
+
+    # Persist latest results
+    try:
+        to_save = ctx.results.copy()
+        data_dir = Path("data")
+        data_dir.mkdir(parents=True, exist_ok=True)
+        to_save.to_json(data_dir / "latest_scan_live.json", orient="records", date_format="iso")
+        to_save.to_parquet(data_dir / "latest_scan_live.parquet", index=False)
+        logger.info(f"\u2705 Pipeline Finalized: Saved strict Top {len(to_save)} recommendations")
+    except Exception as e:
+        logger.warning(f"[PIPELINE] Failed to persist latest scan files: {e}")
+
+    # Attach Tier 1 filtered summary
+    try:
+        if isinstance(ctx.data_map, dict):
+            ctx.data_map = dict(ctx.data_map)
+            ctx.data_map["filtered_tier1_df"] = ctx.filtered_df
+    except (TypeError, KeyError):
+        pass
+
+    meta = _build_pipeline_meta(ctx)
+    return {
+        "result": {
+            "results_df": ctx.results,
+            "data_map": ctx.data_map,
+            "diagnostics": ctx.diagnostics,
+        },
+        "meta": meta,
+    }
+
+
 # --- Main Pipeline Runner ---
 
 def run_scan_pipeline(
@@ -1165,1087 +2208,37 @@ def run_scan_pipeline(
         - Score: Legacy alias for FinalScore_20d
     """
     # Log scope at entry
+    # Log scope at entry
     try:
-        logger.info(f"🌌 Starting pipeline with universe size: {len(universe)} tickers")
+        logger.info(f"\U0001f30c Starting pipeline with universe size: {len(universe)} tickers")
     except (TypeError, ValueError):
         pass
 
-    # Normalize config keys (support legacy uppercase keys)
-    config = _normalize_config(config)
-    # Initialize diagnostics store for filter reasons
-    diagnostics: Dict[str, Dict[str, Any]] = {}
-
-
-    if status_callback:
-        status_callback(f"Starting pipeline for {len(universe)} tickers...")
-
-    # Initialize telemetry
-    telemetry = Telemetry()
-    try:
-        telemetry.set_value("universe_provider", LAST_UNIVERSE_PROVIDER)
-    except (AttributeError, TypeError):
-        pass
-
-    # Initialize global market context caches (SPY + VIX) to avoid repeated provider hits
-    try:
-        # Enforce minimum market context window of 250 days
-        initialize_market_context(symbols=["SPY", "^VIX"], period_days=250)
-        logger.info("[PIPELINE] Global index cache initialized (SPY, VIX)")
-        # Record index provider telemetry (SPY, VIX)
-        try:
-            spy_src = get_last_index_source('SPY')
-            vix_src = get_last_index_source('^VIX') or get_last_index_source('VIX')
-            idx_map = {}
-            if spy_src:
-                idx_map['SPY'] = spy_src
-                # Also mark price domain if Polygon was used for SPY
-                try:
-                    if str(spy_src).upper() == 'POLYGON':
-                        telemetry.mark_used('price', 'POLYGON')
-                except (AttributeError, TypeError):
-                    pass
-            if vix_src:
-                idx_map['VIX'] = vix_src
-            telemetry.set_value('index', idx_map)
-            if vix_src and 'Synthetic' in vix_src:
-                telemetry.record_fallback('index', 'provider_chain', 'SYNTHETIC_VIX_PROXY', 'constructed proxy from SPY volatility')
-        except (AttributeError, TypeError, KeyError):
-            pass
-    except Exception as e:
-        logger.debug(f"[PIPELINE] Market context init skipped: {e}")
-
-    # Initialize ML-specific market and sector context (for build_all_ml_features_v3)
-    try:
-        _initialize_ml_context()
-    except Exception as e:
-        logger.debug(f"[PIPELINE] ML context init skipped: {e}")
-
-    # Run API preflight to determine active providers for this scan
-    try:
-        provider_status: Dict[str, Dict[str, Any]] = run_preflight()
-        run_mode = provider_status.get("SCAN_STATUS", "OK")
-        try:
-            telemetry.set_value("preflight_status", provider_status.get("ACTIVE_COUNTS", {}))
-        except (AttributeError, TypeError):
-            pass
-        # Apply global default provider status to v2 data layer
-        try:
-            set_default_provider_status(provider_status)
-            # Feed ProviderGuard with preflight baseline
-            try:
-                guard = get_provider_guard()
-                guard.update_from_preflight(provider_status)
-                # Snapshot into telemetry for meta visibility
-                telemetry.set_value("provider_states", guard.snapshot())
-            except (ImportError, AttributeError, TypeError):
-                pass
-            # If FMP index endpoint is not OK, disable for session
-            if not provider_status.get("FMP_INDEX", {"ok": True}).get("ok", True):
-                disable_provider_category("fmp", "index")
-            # Log dynamic smart routing order for fundamentals
-            try:
-                funcs = get_prioritized_fetch_funcs(provider_status)
-                # Map internal names to uppercase provider keys
-                name_map = {
-                    "fmp": "FMP",
-                    "finnhub": "FINNHUB",
-                    "tiingo": "TIINGO",
-                    "alpha": "ALPHAVANTAGE",
-                    "eodhd": "EODHD",
-                    "simfin": "SIMFIN",
-                }
-                parts = []
-                for internal_name, _func in funcs:
-                    up = name_map.get(internal_name, internal_name.upper())
-                    meta = provider_status.get(up, {})
-                    lat = meta.get("latency")
-                    if isinstance(lat, (int, float)):
-                        parts.append(f"{up} ({lat:.2f}s)")
-                    else:
-                        parts.append(f"{up} (n/a)")
-                if parts:
-                    logger.info("Smart Routing: " + " -> ".join(parts))
-            except (ImportError, KeyError, TypeError, AttributeError):
-                pass
-        except (ImportError, AttributeError):
-            pass
-    except (ImportError, KeyError) as exc:
-        logger.debug(f"API preflight skipped: {exc}")
-        provider_status = {}
-        run_mode = "OK"
-
-    # Reset fallback trackers for a clean run
-    try:
-        with _LEGACY_LOCK:
-            global _LEGACY_FALLBACK_USED, _LEGACY_FALLBACK_REASONS
-            _LEGACY_FALLBACK_USED = False
-            _LEGACY_FALLBACK_REASONS = []
-    except (RuntimeError, NameError):
-        pass
-
-    # Enforce preflight gating policy
-    try:
-        if run_mode == "BLOCKED":
-            meta = {
-                "engine_version": "pipeline_v2",
-                "sources_used": telemetry.export(),
-                "run_timestamp_utc": datetime.utcnow().isoformat(),
-                "postfilter_mode": "blocked",
-                "run_mode": "BLOCKED",
-            }
-            try:
-                meta.update(get_ml_health_meta())
-            except (ImportError, AttributeError, TypeError):
-                pass
-            logger.error("[PIPELINE] Preflight BLOCKED: no active price providers; aborting scan")
-            return {"result": {"results_df": pd.DataFrame(), "data_map": {}, "diagnostics": {}}, "meta": meta}
-        elif run_mode == "DEGRADED_TECH_ONLY":
-            config["fundamental_enabled"] = False
-            logger.warning("[PIPELINE] Preflight DEGRADED_TECH_ONLY: fundamentals disabled for this run")
-    except (KeyError, TypeError):
-        pass
-
-    start_universe = len(universe)
-    data_map, benchmark_df = _step_fetch_and_prepare_base_data(universe, config, status_callback, data_map)
-    # Benchmark status meta
-    benchmark_status = "OK"
-    try:
-        if benchmark_df is None or (hasattr(benchmark_df, "empty") and benchmark_df.empty):
-            benchmark_status = "UNAVAILABLE"
-            logger.warning("[PIPELINE] Benchmark unavailable; skipping RS/Beta dependent steps")
-    except (AttributeError, TypeError):
-        benchmark_status = "UNAVAILABLE"
-
-    # Decide postfilter mode early and keep it consistent across all exits
-    try:
-        small_universe_lenient = bool(start_universe < 50 or bool(config.get("smoke_mode", False)))
-    except (TypeError, AttributeError):
-        small_universe_lenient = bool(start_universe < 50)
-    postfilter_mode_global = "lenient_small_universe" if small_universe_lenient else "strict"
-
-    # Minimal price telemetry for per-ticker providers (mark for first ticker to avoid overhead)
-    try:
-        if universe:
-            tkr0 = str(universe[0])
-            _ = fetch_price_multi_source(tkr0, provider_status=provider_status, telemetry=telemetry)
-    except (ImportError, IndexError, TypeError) as exc:
-        logger.debug(f"Price telemetry sample skipped: {exc}")
-
-    # Early RS percentile ranking on full universe (Weighted RS = 0.7*RS_63d + 0.3*RS_21d)
-    # Controlled by env RS_RANKING/RS_RANKING_ENABLED and sample size (>100)
-    rs_enabled_env = os.getenv("RS_RANKING", os.getenv("RS_RANKING_ENABLED", "1"))
-    rs_enabled = bool(rs_enabled_env == "1")
-    if rs_enabled and start_universe > 100:
-        if status_callback:
-            status_callback("Ranking universe by blended RS (21/63d)...")
-        try:
-            bench_df = fetch_benchmark_data("SPY", days=200)
-            # Explicit DataFrame check to avoid ambiguous truth errors
-            if bench_df is None or bench_df.empty:
-                raise ValueError("Benchmark DataFrame is empty; skipping RS blended ranking")
-            rs_records = []
-            for tkr, df in (data_map or {}).items():
-                try:
-                    if df is None or df.empty:
-                        rs_records.append({"Ticker": tkr, "RS_blend": np.nan})
-                        continue
-                    rs = compute_relative_strength(df.rename(columns=str.title), bench_df.rename(columns=str.title), periods=[21, 63])
-                    # Support both lower-case and upper-case keys
-                    rs63 = rs.get("rs_63d", rs.get("RS_63d", np.nan))
-                    rs21 = rs.get("rs_21d", rs.get("RS_21d", np.nan))
-                    if pd.notna(rs63) and pd.notna(rs21):
-                        rs_blend = 0.7 * float(rs63) + 0.3 * float(rs21)
-                    else:
-                        rs_blend = rs63 if pd.notna(rs63) else rs21
-                    rs_records.append({"Ticker": tkr, "RS_blend": rs_blend})
-                except (KeyError, TypeError, ValueError):
-                    rs_records.append({"Ticker": tkr, "RS_blend": np.nan})
-            if rs_records:
-                # Compute RS percentiles for diagnostics/sorting only; do NOT filter out names
-                rs_df = pd.DataFrame(rs_records)
-                rs_df["RS_blend_Pctl"] = rs_df["RS_blend"].rank(pct=True, ascending=True)
-                logger.info(
-                    f"[PIPELINE] RS blended ranking computed for {len(rs_records)} tickers (no hard filter applied)"
-                )
-        except Exception as e:
-            logger.warning(f"RS blended ranking failed (continuing without): {e}")
-
-    # --- Tier 1: Fast Scan (OHLCV-only, relaxed=False) ---
-    if status_callback:
-        status_callback("Tier 1: applying OHLCV filters...")
-
-    tier1_pass: List[str] = []
-    filtered_rows: List[Dict[str, Any]] = []
-    for tkr, df in (data_map or {}).items():
-        try:
-            if df is None or df.empty:
-                # Record empty history as a Tier 1 reason
-                diagnostics.setdefault(tkr, {"tier1_reasons": [], "tier2_reasons": []})
-                diagnostics[tkr]["tier1_reasons"].append({
-                    "rule": "EMPTY_HISTORY",
-                    "message": "No historical OHLCV data",
-                })
-                diagnostics[tkr]["last_price"] = np.nan
-                diagnostics[tkr]["last_volume"] = np.nan
-                filtered_rows.append({
-                    "Ticker": tkr,
-                    "Tier1_Reasons": "EMPTY_HISTORY",
-                    "last_price": np.nan,
-                    "last_volume": np.nan,
-                })
-                continue
-            last = df.iloc[-1]
-            # Apply fast technical filter using only OHLCV
-            # Build structured Tier 1 reasons when excluded
-            # Mirror core.unified_logic.apply_technical_filters checks
-            # Compute last valid close/volume using canonical mapping
-            try:
-                cols_lower = {_canon_column_name(c): c for c in df.columns}
-            except (AttributeError, TypeError):
-                cols_lower = {}
-            close_series = None
-            vol_series = None
-            if "close" in cols_lower:
-                close_series = pd.to_numeric(df[cols_lower["close"]], errors="coerce")
-            elif "adj close" in cols_lower:
-                close_series = pd.to_numeric(df[cols_lower["adj close"]], errors="coerce")
-            if "volume" in cols_lower:
-                vol_series = pd.to_numeric(df[cols_lower["volume"]], errors="coerce")
-            elif "v" in cols_lower:
-                vol_series = pd.to_numeric(df[cols_lower["v"]], errors="coerce")
-
-            close = (close_series.dropna().iloc[-1] if isinstance(close_series, pd.Series) and not close_series.dropna().empty else np.nan)
-            volume = (vol_series.dropna().iloc[-1] if isinstance(vol_series, pd.Series) and not vol_series.dropna().empty else np.nan)
-            reasons: List[Dict[str, Any]] = []
-            # Missing data reasons take precedence and prevent min-threshold rules
-            if pd.isna(volume):
-                reasons.append({
-                    "rule": "MISSING_VOLUME_DATA",
-                    "message": "Missing Volume on last bar",
-                })
-            elif volume < 100000:
-                reasons.append({
-                    "rule": "VOLUME_MIN",
-                    "message": "Volume below minimum",
-                    "value": float(volume) if pd.notna(volume) else None,
-                    "threshold": 100000,
-                })
-            # Price sanity
-            if pd.isna(close):
-                reasons.append({
-                    "rule": "MISSING_PRICE_DATA",
-                    "message": "Missing Close price on last bar",
-                })
-            elif close < 1.0:
-                reasons.append({
-                    "rule": "PRICE_MIN",
-                    "message": "Price below $1",
-                    "value": float(close),
-                    "threshold": 1.0,
-                })
-            if pd.notna(close) and close > 10000:
-                reasons.append({
-                    "rule": "PRICE_MAX",
-                    "message": "Price above $10,000",
-                    "value": float(close),
-                    "threshold": 10000.0,
-                })
-
-            # Determine pass: must have no reasons and pass technical filter
-            # Use a surrogate row with canonical fields to avoid MultiIndex issues
-            row_for_filter = pd.Series({"Volume": volume, "Close": close})
-            if (not reasons) and apply_technical_filters(row_for_filter, relaxed=False):
-                tier1_pass.append(tkr)
-                diagnostics.setdefault(tkr, {"tier1_reasons": [], "tier2_reasons": []})
-                diagnostics[tkr]["last_price"] = float(close) if pd.notna(close) else np.nan
-                diagnostics[tkr]["last_volume"] = float(volume) if pd.notna(volume) else np.nan
-            else:
-                diagnostics.setdefault(tkr, {"tier1_reasons": [], "tier2_reasons": []})
-                # If no specific reason matched, add a generic rule for transparency
-                if not reasons:
-                    reasons.append({
-                        "rule": "TECH_FILTER_FAIL",
-                        "message": "Failed Tier 1 technical filter",
-                    })
-                diagnostics[tkr]["tier1_reasons"].extend(reasons)
-                diagnostics[tkr]["last_price"] = float(close) if pd.notna(close) else np.nan
-                diagnostics[tkr]["last_volume"] = float(volume) if pd.notna(volume) else np.nan
-                try:
-                    joined = ";".join([str(r.get("rule")) for r in reasons])
-                except (TypeError, AttributeError, KeyError):
-                    joined = ";".join([str(r) for r in reasons])
-                filtered_rows.append({
-                    "Ticker": tkr,
-                    "Tier1_Reasons": joined,
-                    "last_price": float(close) if pd.notna(close) else np.nan,
-                    "last_volume": float(volume) if pd.notna(volume) else np.nan,
-                })
-        except Exception as exc:
-            logger.debug(f"Tier1 filter failed for {tkr}: {exc}")
-            diagnostics.setdefault(tkr, {"tier1_reasons": [], "tier2_reasons": []})
-            diagnostics[tkr]["tier1_reasons"].append({
-                "rule": "EXCEPTION",
-                "message": f"Tier1 error: {exc.__class__.__name__}",
-            })
-            diagnostics[tkr]["last_price"] = np.nan
-            diagnostics[tkr]["last_volume"] = np.nan
-            filtered_rows.append({
-                "Ticker": tkr,
-                "Tier1_Reasons": "EXCEPTION",
-                "last_price": np.nan,
-                "last_volume": np.nan,
-            })
-            continue
-
-    filtered_count = start_universe - len(tier1_pass)
-    logger.info(
-        f"[PIPELINE] Tier 1: scanned={start_universe}, passed={len(tier1_pass)}, filtered={filtered_count}"
+    ctx = _PipelineContext(
+        config=config,
+        universe=list(universe),
+        status_callback=status_callback,
+        data_map=dict(data_map) if isinstance(data_map, dict) else {},
     )
 
-    # Build a separate small DataFrame for Tier 1 filtered tickers
-    try:
-        filtered_df = pd.DataFrame(filtered_rows)
-    except (TypeError, ValueError):
-        filtered_df = pd.DataFrame()
+    # Phase 1 — init, market context, preflight, gating
+    early = _phase_init_context(ctx)
+    if early is not None:
+        return early
 
-    # Build Tier 2 input map strictly from Tier 1 output
-    tier2_map: Dict[str, pd.DataFrame] = {t: data_map[t] for t in tier1_pass if t in data_map}
-    # Fallback: if nothing passed Tier 1, process all available histories (relaxed)
-    if not tier2_map and isinstance(data_map, dict) and data_map:
-        logger.warning("[PIPELINE] Tier 1 yielded no candidates; falling back to relaxed Tier 2 on full universe")
-        tier2_map = dict(data_map)
+    # Phase 2 — fetch data, RS ranking, Tier 1 OHLCV filter
+    _phase_fetch_and_tier1(ctx)
 
-    # --- Tier 2: Deep Dive (indicators + ML, fundamentals later) ---
-    results = _step_compute_scores_with_unified_logic(
-        tier2_map, config, status_callback, skip_tech_filter=True
-    )
+    # Phase 3 — Tier 2 scoring, beta, advanced filters, meteor
+    early = _phase_score_and_filter(ctx)
+    if early is not None:
+        return early
 
-    # Verify Tier 2 input list matches Tier 1 output (robust to missing Ticker column)
-    tier2_input_set = set(tier2_map.keys())
-    try:
-        if not results.empty:
-            if "Ticker" in results.columns:
-                tier2_output_set = set([str(x) for x in results["Ticker"].tolist() if pd.notna(x)])
-            elif results.index.name == "Ticker":
-                tier2_output_set = set([str(x) for x in results.index.tolist() if pd.notna(x)])
-            elif "ticker" in results.columns:
-                tier2_output_set = set([str(x).upper().replace('.', '-').replace('/', '-') for x in results["ticker"].tolist() if pd.notna(x)])
-            else:
-                tier2_output_set = set()
-        else:
-            tier2_output_set = set()
-    except (KeyError, AttributeError, TypeError):
-        tier2_output_set = set()
-    if tier2_input_set == tier2_output_set:
-        logger.info(
-            f"[PIPELINE] Tier 2 verification OK: input={len(tier2_input_set)} equals output tickers"
-        )
-    else:
-        missing = sorted(list(tier2_input_set - tier2_output_set))
-        extra = sorted(list(tier2_output_set - tier2_input_set))
-        logger.warning(
-            f"[PIPELINE] Tier 2 verification mismatch: input={len(tier2_input_set)}, output={len(tier2_output_set)}; "
-            f"missing={len(missing)}, extra={len(extra)}"
-        )
+    # Phase 4 — fundamentals, sector mapping, score recalc
+    _phase_enrich_fundamentals(ctx)
 
-    if results.empty:
-        # Return wrapped structure even on empty results, with meta
-        try:
-            telemetry.set_value("fundamentals_status", "not_requested")
-        except (AttributeError, TypeError):
-            pass
-        meta = {
-            "engine_version": "pipeline_v2",
-            "used_legacy_fallback": bool(_LEGACY_FALLBACK_USED),
-            "fallback_reason": ", ".join(sorted(set(_LEGACY_FALLBACK_REASONS))) if _LEGACY_FALLBACK_REASONS else None,
-            "sources_used": telemetry.export(),
-            "run_timestamp_utc": datetime.utcnow().isoformat(),
-            "postfilter_mode": postfilter_mode_global,
-            "run_mode": run_mode,
-            "benchmark_status": benchmark_status,
-        }
-        try:
-            meta.update(get_ml_health_meta())
-            try:
-                if meta.get("ml_bundle_version_warning"):
-                    meta["ml_mode"] = "DISABLED_VERSION_MISMATCH"
-                elif not ML_20D_AVAILABLE:
-                    meta["ml_mode"] = "DISABLED_NO_MODEL"
-                else:
-                    meta["ml_mode"] = "HYBRID"
-            except (KeyError, TypeError):
-                pass
-        except (ImportError, AttributeError, TypeError):
-            pass
-        # Include filtered_df summary in data_map
-        try:
-            if isinstance(data_map, dict):
-                data_map = dict(data_map)
-                data_map["filtered_tier1_df"] = filtered_df
-        except (TypeError, KeyError):
-            pass
-        return {"result": {"results_df": results, "data_map": data_map, "diagnostics": diagnostics}, "meta": meta}
-    
-    if "Score" not in results.columns and "FinalScore_20d" in results.columns:
-        results["Score"] = results["FinalScore_20d"]
-    
-    # 3b. Beta Filter
-    if config.get("beta_filter_enabled"):
-        if status_callback: status_callback("Applying Beta filter...")
-        beta_max = float(config.get("beta_max_allowed", 1.5))
-        top_k = int(config.get("beta_top_k", 50))
-        results = results.sort_values("Score", ascending=False)
-        to_check = results.head(top_k).index
-        for idx in to_check:
-            tkr = results.at[idx, "Ticker"]
-            b = fetch_beta_vs_benchmark(tkr, config.get("beta_benchmark", "SPY"))
-            results.at[idx, "Beta"] = b
-        results = results[~( (results["Beta"].notna()) & (results["Beta"] > beta_max) )]
-        logger.info(f"[PIPELINE] After beta filter: {len(results)} remain")
-    
-    # 4. Advanced Filters (Penalties)
-    if status_callback: status_callback("Applying advanced filters...")
-    signals_store = []
-    for idx, row in results.iterrows():
-        tkr = row["Ticker"]
-        if tkr in data_map:
-            df = data_map[tkr]
-            base_score = row["Score"]
-            # advanced_filters expects Title-case OHLCV column names
-            df_title = df.rename(columns=str.title)
-            # Ensure Date column exists for advanced_filters expectations
-            if "Date" not in df_title.columns:
-                try:
-                    df_title = df_title.reset_index()
-                    if "Date" not in df_title.columns and df_title.columns[0] not in ("Date", "date"):
-                        # Fallback: rename first column to Date
-                        first = df_title.columns[0]
-                        df_title = df_title.rename(columns={first: "Date"})
-                except (KeyError, IndexError, AttributeError):
-                    pass
-            bench_title = benchmark_df.rename(columns=str.title)
-            enhanced, sig = compute_advanced_score(
-                tkr,
-                df_title,
-                bench_title,
-                base_score / 100.0,
-            )
-            signals_store.append((idx, sig, enhanced))
-            
-    rs_vals = [s.get("rs_63d") for _, s, _ in signals_store if s.get("rs_63d") is not None]
-    mom_vals = [s.get("momentum_consistency") for _, s, _ in signals_store if s.get("momentum_consistency") is not None]
-    rr_vals = [s.get("risk_reward_ratio") for _, s, _ in signals_store if s.get("risk_reward_ratio") is not None]
-    
-    # Use more lenient percentiles to avoid over-filtering
-    # If we have fewer stocks, use even more lenient thresholds
-    num_stocks = len(signals_store)
-    if num_stocks < 20:
-        # Very small sample - use fixed defaults only
-        rs_thresh = -0.40  # More lenient
-        mom_thresh = 0.10
-        rr_thresh = 0.30   # More lenient
-        logger.info(f"[PIPELINE] Using fixed lenient thresholds for {num_stocks} stocks")
-    else:
-        # Use dynamic thresholds but more lenient percentiles
-        rs_thresh = min(_quantile_safe(rs_vals, 0.02, -0.40), -0.30)  # Cap at -0.30
-        mom_thresh = min(_quantile_safe(mom_vals, 0.05, 0.10), 0.12)  # Cap at 0.12
-        rr_thresh = min(_quantile_safe(rr_vals, 0.05, 0.30), 0.40)    # Cap at 0.40
-        logger.info(f"[PIPELINE] Using dynamic thresholds for {num_stocks} stocks")
-    
-    dyn_thresh = {"rs_63d": rs_thresh, "momentum_consistency": mom_thresh, "risk_reward_ratio": rr_thresh}
-    logger.info(f"[PIPELINE] Thresholds: RS={rs_thresh:.3f}, Mom={mom_thresh:.3f}, RR={rr_thresh:.3f}")
-    
-    for idx, sig, enhanced in signals_store:
-        catastrophic, reason = should_reject_ticker(sig, dynamic=dyn_thresh)
-        
-        results.at[idx, "RS_63d"] = sig.get("rs_63d")
-        results.at[idx, "Volume_Surge"] = sig.get("volume_surge")
-        results.at[idx, "MA_Aligned"] = sig.get("ma_aligned")
-        results.at[idx, "Quality_Score"] = sig.get("quality_score")
-        results.at[idx, "RR_Ratio"] = sig.get("risk_reward_ratio")
-        results.at[idx, "Momentum_Consistency"] = sig.get("momentum_consistency")
-        
-        if catastrophic:
-            # Absolute Hunter Override (Phase 13): do NOT zero technical score
-            # Preserve the true technical/VCP strength and annotate the reason
-            results.at[idx, "FinalScore_20d"] = float(enhanced)
-            results.at[idx, "RejectionReason"] = reason
-            try:
-                tkr = str(results.at[idx, "Ticker"]) if "Ticker" in results.columns else None
-                if tkr:
-                    diagnostics.setdefault(tkr, {"tier1_reasons": [], "tier2_reasons": []})
-                    diagnostics[tkr]["tier2_reasons"].append({
-                        "rule": "ADVANCED_REJECT",
-                        "message": str(reason) if reason else "Advanced filters rejection",
-                    })
-            except (KeyError, TypeError, AttributeError):
-                pass
-        else:
-            # Penalties are in [0, 4.5] scale (0-100 range), normalize to [0, 0.045]
-            penalty = 0.0
-            if sig.get("rs_63d", 0) < rs_thresh: penalty += 1.0  # Reduced from 2.0
-            if sig.get("momentum_consistency", 0) < mom_thresh: penalty += 1.0  # Reduced from 2.0
-            if sig.get("risk_reward_ratio", 0) < rr_thresh: penalty += 1.5  # Reduced from 3.0
-            
-            normalized_penalty = penalty / 100.0  # Convert from [0, 4.5] to [0, 0.045]
-            results.at[idx, "AdvPenalty"] = penalty
-            # Apply a mild penalty to FinalScore_20d, but never hard-zero it
-            # enhanced is in [0, 1] range; keep lower bound small but positive
-            results.at[idx, "FinalScore_20d"] = max(0.01, float(enhanced) - float(normalized_penalty))
-            # Optional Tier 2 diagnostics for threshold breaches
-            try:
-                tkr = str(results.at[idx, "Ticker"]) if "Ticker" in results.columns else None
-                if tkr:
-                    diagnostics.setdefault(tkr, {"tier1_reasons": [], "tier2_reasons": []})
-                    if sig.get("rs_63d", None) is not None and sig.get("rs_63d") < rs_thresh:
-                        diagnostics[tkr]["tier2_reasons"].append({
-                            "rule": "RS_BELOW_THRESH",
-                            "message": "RS_63d below threshold",
-                            "value": float(sig.get("rs_63d")),
-                            "threshold": float(rs_thresh),
-                        })
-                    if sig.get("momentum_consistency", None) is not None and sig.get("momentum_consistency") < mom_thresh:
-                        diagnostics[tkr]["tier2_reasons"].append({
-                            "rule": "MOM_BELOW_THRESH",
-                            "message": "Momentum consistency below threshold",
-                            "value": float(sig.get("momentum_consistency")),
-                            "threshold": float(mom_thresh),
-                        })
-                    if sig.get("risk_reward_ratio", None) is not None and sig.get("risk_reward_ratio") < rr_thresh:
-                        diagnostics[tkr]["tier2_reasons"].append({
-                            "rule": "RR_BELOW_THRESH",
-                            "message": "Risk/Reward below threshold",
-                            "value": float(sig.get("risk_reward_ratio")),
-                            "threshold": float(rr_thresh),
-                        })
-            except (KeyError, TypeError, AttributeError):
-                pass
-
-    # Scale FinalScore_20d back to 0-100 for consistency with rest of system
-    # (all other scoring is in 0-100 range, FinalScore_20d is canonical for display/filtering)
-    results["FinalScore_20d"] = results["FinalScore_20d"] * 100.0
-
-    # Ensure Score always matches the scaled FinalScore_20d after advanced filters
-    if "FinalScore_20d" in results.columns:
-        results["Score"] = results["FinalScore_20d"]
-    
-    # Do not filter out low scores here; the UI will label REJECTs but keep their scores visible
-    logger.info(f"[PIPELINE] Advanced filters applied without score-zeroing; total stocks: {len(results)}")
-    
-    # Optional: Meteor Mode filter (VCP + RS + Pocket Pivots)
-    # NOTE: Default to OFF - Meteor filters are very strict and may filter all stocks
-    meteor_mode = bool(config.get("meteor_mode", bool(os.getenv("METEOR_MODE", "0") == "1")))
-    if meteor_mode and not results.empty:
-        if status_callback: status_callback("Applying Meteor filters (VCP + RS + Pocket Pivots)...")
-        try:
-            # Use core.filters version to avoid local import shadowing
-            bench_df = fetch_benchmark_data("SPY", days=200)
-            if bench_df is None or bench_df.empty:
-                logger.warning("Benchmark DataFrame empty; skipping Meteor filters")
-            else:
-                kept_rows = []
-                for _, row in results.iterrows():
-                    tkr = str(row.get("Ticker"))
-                    # Avoid ambiguous truth-value evaluation of DataFrames when using `or`
-                    df = tier2_map.get(tkr)
-                    if df is None:
-                        df = data_map.get(tkr)
-                    if df is None or df.empty:
-                        continue
-                    base_score = float(row.get("FinalScore_20d", row.get("Score", 0.0)))
-                    new_score, details = compute_advanced_score(
-                        tkr,
-                        df.rename(columns=str.title),
-                        bench_df.rename(columns=str.title),
-                        base_score,
-                    )
-                    # Only keep Meteor passes
-                    if details.get("passed"):
-                        row = row.copy()
-                        row["FinalScore_20d"] = float(new_score)
-                        row["Score"] = float(new_score)
-                        row["Meteor_Passed"] = True
-                        row["Meteor_Reason"] = details.get("reason")
-                        kept_rows.append(row)
-                results = pd.DataFrame(kept_rows)
-                logger.info(f"[PIPELINE] Meteor Mode: {len(results)} candidates after filters")
-        except Exception as e:
-            logger.warning(f"Meteor filter application failed: {e}")
-
-    # 5. Fundamentals & Sector Enrichment (only for Tier 1 passed stocks)
-    # Track fundamentals status locally to enable TECH_ONLY fallback in allocation/meta
-    fundamentals_status_local = "not_requested"
-    if config.get("fundamental_enabled", True):
-        if status_callback: status_callback("Fetching fundamentals & sector data...")
-        # Choose scan date as the signal date (not wall-clock)
-        fund_as_of = None
-        try:
-            if "As_Of_Date" in results.columns and len(results) > 0:
-                fund_as_of = pd.to_datetime(results["As_Of_Date"].iloc[0]).date()
-            else:
-                # Fallback: derive from latest history across universe
-                dates = []
-                for df in (data_map or {}).values():
-                    if df is not None and not df.empty:
-                        try:
-                            dates.append(pd.to_datetime(df.index[-1]).date())
-                        except (IndexError, TypeError, ValueError):
-                            pass
-                if dates:
-                    fund_as_of = max(dates)
-        except (KeyError, TypeError, ValueError):
-            fund_as_of = None
-
-        # IMPORTANT: Only fetch fundamentals for high-Score candidates with an optional Top-N cap
-        try:
-            score_thr = float(config.get("fundamentals_score_threshold", float(os.getenv("FUNDAMENTALS_SCORE_THRESHOLD", "60"))))
-        except (TypeError, ValueError):
-            score_thr = 60.0
-        # Top-N cap from config/env - default 50 for wide scans; set 0 to disable cap
-        try:
-            top_n_cap = int(config.get("fundamentals_top_n_cap", int(os.getenv("FUNDAMENTALS_TOP_N_CAP", "50"))))
-        except (TypeError, ValueError):
-            top_n_cap = 50
-        if top_n_cap > 0:
-            logger.info(f"⚡ Fetching fundamentals for Top-{top_n_cap} stocks (score > {score_thr})")
-        else:
-            logger.info(f"⚡ Fetching fundamentals for ALL stocks with score > {score_thr} (no cap)")
-
-        # Filter and cap by top-N, prioritizing highest technical scores
-        # Ensure scoring columns exist to avoid KeyError in edge cases
-        try:
-            if ("Score" not in results.columns) and ("FinalScore_20d" in results.columns):
-                results["Score"] = results["FinalScore_20d"]
-            if "TechScore_20d" not in results.columns:
-                if "Score" in results.columns:
-                    results["TechScore_20d"] = results["Score"]
-                elif "FinalScore_20d" in results.columns:
-                    results["TechScore_20d"] = results["FinalScore_20d"]
-        except (KeyError, TypeError):
-            pass
-        # Pick safest available score column
-        score_col = "TechScore_20d" if "TechScore_20d" in results.columns else ("Score" if "Score" in results.columns else None)
-        if score_col is None or results.empty:
-            eligible = pd.DataFrame(columns=results.columns)
-        else:
-            eligible = results[results[score_col] > score_thr].sort_values(score_col, ascending=False)
-        if top_n_cap > 0:
-            eligible = eligible.head(top_n_cap)
-        try:
-            if "Ticker" in eligible.columns:
-                winners = eligible["Ticker"].tolist()
-            elif eligible.index.name == "Ticker":
-                winners = eligible.index.tolist()
-            elif "ticker" in eligible.columns:
-                winners = [str(x).upper().replace('.', '-').replace('/', '-') for x in eligible["ticker"].tolist()]
-            else:
-                winners = []
-        except (KeyError, AttributeError, TypeError):
-            winners = []
-
-        if not winners:
-            logger.info(f"No winners with Score > {score_thr:.0f}; skipping fundamentals fetch")
-            fund_df = pd.DataFrame()
-            try:
-                telemetry.set_value("fundamentals_status", "requested_empty")
-                fundamentals_status_local = "requested_empty"
-            except (AttributeError, TypeError):
-                pass
-        else:
-            logger.info(f"Fetching fundamentals for {len(winners)} winners ({score_col} > {score_thr:.0f}, TopN={top_n_cap})")
-            # Explicit progress log for batch size being sent to data layer
-            logger.info(f"[PIPELINE] Sending {len(winners)} tickers to fetch_fundamentals_batch")
-            # Pass provider_status so data layer strictly skips failed providers and promotes alternates
-            fund_df = fetch_fundamentals_batch(winners, provider_status=provider_status, as_of_date=fund_as_of, telemetry=telemetry)
-            try:
-                status_val = "used" if (isinstance(fund_df, pd.DataFrame) and not fund_df.empty) else "requested_empty"
-                telemetry.set_value("fundamentals_status", status_val)
-                fundamentals_status_local = status_val
-            except (AttributeError, TypeError):
-                pass
-        
-        # Properly handle index/column ambiguity
-        if isinstance(fund_df.index, pd.Index):
-            fund_df = fund_df.reset_index()
-            # Rename index column to Ticker if it exists
-            if 'ticker' in fund_df.columns:
-                fund_df = fund_df.rename(columns={'ticker': 'Ticker'})
-            elif 'index' in fund_df.columns and 'Ticker' not in fund_df.columns:
-                fund_df = fund_df.rename(columns={'index': 'Ticker'})
-        
-        # Ensure Ticker column exists
-        if "Ticker" not in fund_df.columns and len(fund_df) > 0:
-            # Last resort: use the first column as Ticker
-            if len(fund_df.columns) > 0:
-                first_col = fund_df.columns[0]
-                if fund_df[first_col].dtype == 'object':  # String column
-                    fund_df = fund_df.rename(columns={first_col: 'Ticker'})
-            
-        # Merge fundamentals (only if we have valid Ticker column)
-        if "Ticker" in fund_df.columns and len(fund_df) > 0:
-            results = pd.merge(results, fund_df, on="Ticker", how="left", suffixes=("", "_fund"))
-        else:
-            logger.warning("Fundamental data has no Ticker column, skipping merge")
-            # Treat as fundamentals unavailable for this run
-            try:
-                telemetry.set_value("fundamentals_status", "requested_empty")
-                fundamentals_status_local = "requested_empty"
-            except (AttributeError, TypeError):
-                pass
-        
-        # Map to UI-expected keys and fill missing via safe FMP fetch
-        try:
-            # First, derive canonical UI columns from aggregated fields when present
-            # Lowercase agg -> UI uppercase names
-            if "market_cap" in results.columns and "Market_Cap" not in results.columns:
-                results["Market_Cap"] = results["market_cap"]
-            if "beta" in results.columns and "Beta" not in results.columns:
-                results["Beta"] = results["beta"]
-            if "sector" in results.columns and "Sector" not in results.columns:
-                results["Sector"] = results["sector"]
-            if "pe" in results.columns and "PE_Ratio" not in results.columns:
-                results["PE_Ratio"] = results["pe"]
-            if "peg" in results.columns and "PEG_Ratio" not in results.columns:
-                results["PEG_Ratio"] = results["peg"]
-            if "debt_equity" in results.columns and "Debt_to_Equity" not in results.columns:
-                results["Debt_to_Equity"] = results["debt_equity"]
-
-            # Ensure numeric types or NaN
-            for col in ["Market_Cap", "PE_Ratio", "PEG_Ratio", "Beta", "Debt_to_Equity"]:
-                if col in results.columns:
-                    results[col] = pd.to_numeric(results[col], errors="coerce")
-
-            # Fill missing via get_fundamentals_safe per ticker
-            # OPTIMIZATION: Only fill for the top-N winners we already fetched fundamentals for
-            # This avoids API calls for 2000+ tickers when only top 50 need enrichment
-            ui_cols = [
-                "Market_Cap", "PE_Ratio", "PEG_Ratio", "PB_Ratio",
-                "Beta", "Sector", "Industry", "Debt_to_Equity",
-                "ROE", "Vol_Avg", "Dividend", "Price"
-            ]
-            # Only process tickers that were in the winners list (already fetched)
-            winners_set = set(winners) if winners else set()
-            fill_count = 0
-            for idx, row in results.iterrows():
-                tkr = row.get("Ticker")
-                if not tkr or tkr not in winners_set:
-                    continue  # Skip tickers not in winners - no API call
-                need_fill = any(pd.isna(row.get(c)) for c in ui_cols)
-                if not need_fill:
-                    continue
-                safe = get_fundamentals_safe(str(tkr))
-                if not safe:
-                    continue
-                fill_count += 1
-                for c in ui_cols:
-                    if pd.isna(row.get(c)) and (c in safe):
-                        results.at[idx, c] = safe.get(c)
-            if fill_count > 0:
-                logger.debug(f"Filled missing fundamentals for {fill_count} winners")
-
-            # Add explicit Valuation, Quality, and Leverage for UI
-            # Valuation: use PE_Ratio directly per spec
-            if "PE_Ratio" in results.columns:
-                results["Valuation"] = pd.to_numeric(results["PE_Ratio"], errors="coerce")
-            else:
-                results["Valuation"] = np.nan
-            # Quality: use ROE directly per spec
-            if "ROE" in results.columns:
-                results["Quality"] = pd.to_numeric(results["ROE"], errors="coerce")
-            elif "roe" in results.columns:
-                results["Quality"] = pd.to_numeric(results["roe"], errors="coerce")
-            else:
-                results["Quality"] = np.nan
-            # Leverage: use Debt_to_Equity
-            if "Debt_to_Equity" in results.columns:
-                results["Leverage"] = pd.to_numeric(results["Debt_to_Equity"], errors="coerce")
-            else:
-                results["Leverage"] = np.nan
-        except Exception as e:
-            logger.debug(f"UI mapping/Valuation-Leverage setup skipped: {e}")
-
-        # Add explicit Valuation and Quality helper columns to avoid NaN in UI cards
-        try:
-            # Raw metrics aliases
-            if "pe" in results.columns and "PE" not in results.columns:
-                results["PE"] = results["pe"]
-            if "peg" in results.columns and "PEG" not in results.columns:
-                results["PEG"] = results["peg"]
-            if "roe" in results.columns and "ROE" not in results.columns:
-                results["ROE"] = results["roe"]
-            if "debt_equity" in results.columns and "Debt_Equity" not in results.columns:
-                results["Debt_Equity"] = results["debt_equity"]
-
-            # _valuation_row / _quality_row removed — Quality/Valuation set directly above
-        except Exception as e:
-            logger.debug(f"Valuation/Quality column creation skipped: {e}")
-        
-        # Compute fundamental scores - always recalculate based on merged fund_df data
-        # The default 50.0 from fetch_fundamentals_batch needs to be replaced with actual calculation
-        for idx, row in results.iterrows():
-            try:
-                fund_data = row.to_dict()
-                # Only calculate if we have actual fundamental data (pe, roe, etc.)
-                has_fund_data = any(pd.notna(fund_data.get(f)) for f in ['pe', 'roe', 'pb', 'margin', 'debt_equity'])
-                if not has_fund_data:
-                    results.at[idx, "Fundamental_S"] = 50.0
-                    continue
-                fund_score_obj = compute_fundamental_score_with_breakdown(fund_data)
-                results.at[idx, "Fundamental_S"] = fund_score_obj.total
-                results.at[idx, "Quality_Score_F"] = fund_score_obj.breakdown.quality_score
-                results.at[idx, "Growth_Score_F"] = fund_score_obj.breakdown.growth_score
-                results.at[idx, "Valuation_Score_F"] = fund_score_obj.breakdown.valuation_score
-            except Exception as e:
-                results.at[idx, "Fundamental_S"] = 50.0  # Neutral default
-                logger.debug(f"Fundamental scoring failed for {row.get('Ticker')}: {e}")
-        
-        # Extract Sector from fundamentals (if available)
-        if "sector" in results.columns:
-            results["Sector"] = results["sector"].fillna("Unknown")
-        elif "Sector" not in results.columns:
-            results["Sector"] = "Unknown"
-    else:
-        results["Sector"] = "Unknown"
-        results["Fundamental_S"] = 50.0
-        try:
-            telemetry.set_value("fundamentals_status", "not_requested")
-            fundamentals_status_local = "not_requested"
-        except (AttributeError, TypeError):
-            pass
-
-    # Apply sector mapping fallback for unknown or potentially incorrect sectors
-    try:
-        for idx, row in results.iterrows():
-            ticker = row.get("Ticker", "")
-            current_sector = row.get("Sector", "Unknown")
-            # Apply mapping if sector is Unknown or if we have a known mapping
-            mapped_sector = get_stock_sector(ticker)
-            if mapped_sector != "Unknown":
-                # Use mapped sector (more reliable than API data)
-                results.at[idx, "Sector"] = mapped_sector
-            # Keep current sector if mapping returns Unknown and current is not Unknown
-    except Exception as e:
-        logger.debug(f"Sector mapping fallback failed: {e}")
-
-    # CRITICAL: Recalculate FinalScore_20d with fundamentals NOW integrated
-    # The scoring engine needs the Fundamental_S field which was just added
-    try:
-        for idx, row in results.iterrows():
-            try:
-                new_score = compute_final_score_20d(row)
-                results.at[idx, "FinalScore_20d"] = float(new_score)
-                results.at[idx, "Score"] = float(new_score)
-            except Exception as e:
-                logger.debug(f"FinalScore recalc failed for {row.get('Ticker')}: {e}")
-        logger.info(f"[PIPELINE] Recalculated FinalScore_20d with fundamentals for {len(results)} stocks")
-    except Exception as e:
-        logger.warning(f"FinalScore recalc skipped: {e}")
-    
-    # Preserve and map source metadata to canonical UI columns
-    try:
-        if "sources_used" in results.columns:
-            results["fund_sources_used_v2"] = results["sources_used"].apply(lambda x: len(x) if isinstance(x, list) else 0)
-            results["Fundamental_Sources_Count"] = results["fund_sources_used_v2"]
-        if "price_sources" in results.columns:
-            # price_sources is expected to be an integer count from the data layer
-            results["price_sources_used_v2"] = results["price_sources"].fillna(0).astype(int)
-            results["Price_Sources_Count"] = results["price_sources_used_v2"]
-    except Exception as e:
-        logger.debug(f"Source metadata mapping skipped due to error: {e}")
-        
-    # 7. Classification & Allocation
-    if status_callback: status_callback("Classifying & Allocating...")
-    results = apply_classification(results)
-    
-    # 8. Earnings Blackout Check (optional, for top candidates)
-    if config.get("EARNINGS_BLACKOUT_DAYS", 0) > 0:
-        topk = int(config.get("EARNINGS_CHECK_TOPK", 30))
-        blackout_days = int(config.get("EARNINGS_BLACKOUT_DAYS", 7))
-        if status_callback: status_callback(f"Checking earnings blackout (top {topk})...")
-        
-        try:
-            # Check top K stocks only (performance optimization)
-            top_indices = results.nlargest(topk, "Score").index
-            for idx in top_indices:
-                ticker = results.at[idx, "Ticker"]
-                if check_earnings_blackout(ticker, blackout_days):
-                    logger.info(f"[EARNINGS] {ticker} has earnings within {blackout_days} days - reducing allocation")
-                    # Reduce buy amount by 50% (conservative approach)
-                    if "buy_amount_v2" in results.columns:
-                        results.at[idx, "buy_amount_v2"] *= 0.5
-        except Exception as e:
-            logger.warning(f"Earnings blackout check failed: {e}")
-    
-    # Allocation-Free Signal Engine: skip allocation entirely
-    if False and "buy_amount_v2" not in results.columns:
-        results = allocate_budget(
-            results,
-            config.get("BUDGET_TOTAL", 5000),
-            config.get("MIN_POSITION", 500),
-            config.get("MAX_POSITION_PCT", 0.2),
-        )
-    
-    # STRICT ENFORCEMENT: Score must always equal FinalScore_20d
-    # This is the final safety check before returning results
-    if "FinalScore_20d" in results.columns:
-        results["Score"] = results["FinalScore_20d"]
-        logger.info(f"[PIPELINE] Final check: Score column set to FinalScore_20d for all {len(results)} results")
-
-    # --- Add Tier debug columns to results ---
-    try:
-        # Tier 1: all present rows passed Tier 1
-        results["Tier1_Passed"] = True
-        results["Tier1_Reasons"] = ""
-        # Tier 2: mark as False only if ADVANCED_REJECT present in diagnostics
-        t2_vals = results.apply(
-            lambda row: _t2_pass_and_reasons(row, diagnostics),
-            axis=1, result_type="expand",
-        )
-        if isinstance(t2_vals, pd.DataFrame) and t2_vals.shape[1] == 2:
-            results["Tier2_Passed"] = t2_vals.iloc[:,0]
-            results["Tier2_Reasons"] = t2_vals.iloc[:,1]
-        else:
-            results["Tier2_Passed"] = True
-            results["Tier2_Reasons"] = ""
-    except Exception as e:
-        logger.debug(f"Tier debug columns setup skipped: {e}")
-    
-    # --- Dynamic Risk/Reward based on resistance & Bollinger ---
-    try:
-        # Apply to all rows
-        rr_updates = results.apply(
-            lambda row: _compute_rr_for_row(row, data_map),
-            axis=1, result_type="expand",
-        )
-        for col in ["Entry_Price", "Target_Price", "Stop_Loss", "RewardRisk", "RR_Ratio", "RR", "Target_Source"]:
-            if col in rr_updates.columns:
-                results[col] = rr_updates[col]
-
-        # Adjust score for low RR
-        if "FinalScore_20d" in results.columns and "RR" in results.columns:
-            low_mask = pd.to_numeric(results["RR"], errors="coerce") < 1.5
-            mid_mask = (~low_mask) & (pd.to_numeric(results["RR"], errors="coerce") < 2.0)
-            results.loc[low_mask, "FinalScore_20d"] = results.loc[low_mask, "FinalScore_20d"] - 8.0
-            results.loc[mid_mask, "FinalScore_20d"] = results.loc[mid_mask, "FinalScore_20d"] - 3.0
-            # Keep alias in sync
-            results["FinalScore"] = results["FinalScore_20d"]
-            results["Score"] = results["FinalScore_20d"]
-    except Exception as e:
-        logger.warning(f"[PIPELINE] Dynamic RR computation failed: {e}")
-
-    # --- Signal-First Filtering & Ranking (Allocation-Free) ---
-    # Track postfilter mode for diagnostics/meta (initialized from early decision)
-    postfilter_mode: Optional[str] = postfilter_mode_global
-    try:
-        orig_len = len(results)
-        score_col = "FinalScore_20d" if "FinalScore_20d" in results.columns else ("Score" if "Score" in results.columns else None)
-        if score_col is not None and not results.empty:
-            sc = pd.to_numeric(results[score_col], errors="coerce")
-            mlp = pd.to_numeric(results.get("ML_20d_Prob", pd.Series(index=results.index)), errors="coerce")
-            patt = pd.to_numeric(results.get("Pattern_Score", pd.Series(index=results.index)), errors="coerce")
-            mask = (
-                (sc >= float(SIGNAL_MIN_SCORE)) |
-                (mlp >= float(ML_PROB_THRESHOLD)) |
-                (patt.fillna(0.0) > 0.0)
-            )
-            filtered = results[mask].copy() if isinstance(mask, pd.Series) else results.copy()
-            # Sort by final score desc, then ML prob desc
-            # Prefer sorting by score, then by number of signal reasons, then ML prob
-            sort_cols = ["_score_numeric"]
-            asc = [False]
-            if "SignalReasons_Count" in filtered.columns:
-                sort_cols.append("SignalReasons_Count")
-                asc.append(False)
-            sort_cols.append("ML_20d_Prob")
-            asc.append(False)
-            filtered = (
-                filtered.assign(_score_numeric=pd.to_numeric(filtered[score_col], errors="coerce"))
-                        .sort_values(by=sort_cols, ascending=asc)
-                        .drop(columns=["_score_numeric"])
-            )
-            topn = int(config.get("topn_results", TOP_SIGNAL_K))
-            if filtered.empty:
-                # Fallback: keep top-N by score only to avoid zero results
-                # Fallback: sort by score, reasons count if present, and ML prob
-                sort_cols_fb = ["_score_numeric"]
-                asc_fb = [False]
-                if "SignalReasons_Count" in results.columns:
-                    sort_cols_fb.append("SignalReasons_Count")
-                    asc_fb.append(False)
-                sort_cols_fb.append("ML_20d_Prob")
-                asc_fb.append(False)
-                fallback = (
-                    results.assign(_score_numeric=pd.to_numeric(results[score_col], errors="coerce"))
-                           .sort_values(by=sort_cols_fb, ascending=asc_fb)
-                           .drop(columns=["_score_numeric"])
-                )
-                results = fallback.head(topn).reset_index(drop=True)
-                logger.info(f"[PIPELINE] Signal thresholds yielded no candidates; using top-{topn} by score as fallback")
-            else:
-                results = filtered.head(topn).reset_index(drop=True)
-                logger.info(f"[PIPELINE] Signal-First ranking applied: kept {len(results)} of {orig_len}; thresholds: score>={SIGNAL_MIN_SCORE}, ml>={ML_PROB_THRESHOLD}")
-            postfilter_mode = "signal_only"
-        else:
-            logger.info("[PIPELINE] No score column for signal filter; keeping all")
-    except Exception as e:
-        logger.warning(f"[PIPELINE] Signal-first filtering failed: {e}")
-
-    # --- Persist latest results for Streamlit dashboard freshness ---
-    try:
-        # What-You-See-Is-What-You-Save: save exactly the final filtered results
-        to_save = results.copy()
-
-        data_dir = Path("data")
-        data_dir.mkdir(parents=True, exist_ok=True)
-        latest_json = data_dir / "latest_scan_live.json"
-        latest_parquet = data_dir / "latest_scan_live.parquet"
-
-        # Save JSON (records, ISO dates)
-        to_save.to_json(latest_json, orient="records", date_format="iso")
-        # Save Parquet
-        to_save.to_parquet(latest_parquet, index=False)
-        logger.info(f"✅ Pipeline Finalized: Saved strict Top {len(to_save)} recommendations")
-    except Exception as e:
-        logger.warning(f"[PIPELINE] Failed to persist latest scan files: {e}")
-
-    # Attach Tier 1 filtered summary to data_map for downstream/UI
-    try:
-        if isinstance(data_map, dict):
-            data_map = dict(data_map)
-            data_map["filtered_tier1_df"] = filtered_df
-    except (TypeError, KeyError):
-        pass
-
-    # --- Build meta wrapper ---
-    # --- Build meta wrapper ---
-    meta = {
-        "engine_version": "pipeline_v2",
-        "engine_mode": "SIGNAL_ONLY",
-        "used_legacy_fallback": bool(_LEGACY_FALLBACK_USED),
-        "fallback_reason": ", ".join(sorted(set(_LEGACY_FALLBACK_REASONS))) if _LEGACY_FALLBACK_REASONS else None,
-        "sources_used": telemetry.export(),
-        "run_timestamp_utc": datetime.utcnow().isoformat(),
-        "postfilter_mode": postfilter_mode,
-        # If fundamentals were unavailable, degrade run_mode for UI truthfulness
-        "run_mode": ("DEGRADED_TECH_ONLY" if (run_mode == "OK" and fundamentals_status_local in ("not_requested", "requested_empty")) else run_mode),
-        "benchmark_status": benchmark_status,
-    }
-    try:
-        meta.update(get_ml_health_meta())
-        try:
-            if meta.get("ml_bundle_version_warning"):
-                meta["ml_mode"] = "DISABLED_VERSION_MISMATCH"
-            elif not ML_20D_AVAILABLE:
-                meta["ml_mode"] = "DISABLED_NO_MODEL"
-            else:
-                meta["ml_mode"] = "HYBRID"
-        except (KeyError, TypeError):
-            pass
-    except (ImportError, AttributeError, TypeError):
-        pass
-
-    return {"result": {"results_df": results, "data_map": data_map, "diagnostics": diagnostics}, "meta": meta}
-
+    # Phase 5 — classification, RR, signal filter, persist, meta
+    return _phase_finalize(ctx)
 
 def run_scan(*args, **kwargs):
     """Backward-compatible wrapper for legacy imports expecting `run_scan`.

@@ -39,7 +39,7 @@ TECH_WEIGHTS: Dict[str, float] = {
     "relative_strength": 0.20,  # Increased from 0.17
 }
 
-# Final score combination weights
+# Final score combination weights (3-component: tech + fund + ML)
 # NOTE: ML weight increased from 0.20 to 0.35 (2026-02-03) to give ML
 # predictions more meaningful impact on final rankings.
 FINAL_SCORE_WEIGHTS: Dict[str, float] = {
@@ -48,8 +48,19 @@ FINAL_SCORE_WEIGHTS: Dict[str, float] = {
     "ml": 0.35,
 }
 
-# Conviction score weights (used by compute_conviction_score_v2)
-# These are different from final score - conviction focuses on reliability
+# Pattern-enhanced score weights (5-component, used by compute_final_score_with_patterns)
+# When Big Winner + Pattern data is available, ML share is redistributed.
+# Weights are auto-normalized to sum to 1.0 at runtime.
+PATTERN_SCORE_WEIGHTS: Dict[str, float] = {
+    "technical": 0.45,
+    "fundamental": 0.20,
+    "ml": 0.15,
+    "big_winner": 0.10,
+    "pattern": 0.10,
+}
+
+# Conviction score weights (used by compute_final_score_20d)
+# Row-level scoring after fundamentals merge: emphasizes reliability & risk/reward.
 CONVICTION_WEIGHTS: Dict[str, float] = {
     "fundamental": 0.30,
     "momentum": 0.30,
