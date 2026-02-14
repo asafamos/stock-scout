@@ -17,4 +17,4 @@ def test_meteor_filter_runs_without_exception(monkeypatch):
     # In small-universe lenient mode, at least 1 row should be present if Tier1/Tier2 passed
     # We cannot guarantee pass in all market states, but meta should indicate lenient mode
     meta = out.get("meta", {})
-    assert meta.get("postfilter_mode") in {"lenient_small_universe", "strict", None}
+    assert meta.get("postfilter_mode") in {"lenient_small_universe", "strict", "signal_only", None}

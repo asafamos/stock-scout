@@ -288,7 +288,7 @@ def _step_fetch_and_prepare_base_data(
     data_map: Optional[Dict[str, pd.DataFrame]],
 ) -> Tuple[Dict[str, pd.DataFrame], pd.DataFrame]:
     """Fetch historical OHLCV data and benchmark DataFrame."""
-    if data_map is None:
+    if not data_map:
         if status_callback:
             status_callback("Fetching historical data...")
         # Phase 13: Hard-code minimum lookback to 250 days for VCP/52-week calculations

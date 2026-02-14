@@ -82,3 +82,5 @@
 {"key": "MODEL_DRIFT", "message": "Model drift detected: mean=0.785 (baseline=0.508), drift=0.277", "severity": "high", "timestamp": "2026-02-14T18:11:58.922953"}
 {"key": "API_FAILURE:failing_api", "message": "API failing_api has failed 3 times", "severity": "high", "timestamp": "2026-02-14T18:15:04.976122"}
 {"key": "MODEL_DRIFT", "message": "Model drift detected: mean=0.785 (baseline=0.508), drift=0.277", "severity": "high", "timestamp": "2026-02-14T18:15:04.976814"}
+{"key": "API_FAILURE:failing_api", "message": "API failing_api has failed 3 times", "severity": "high", "timestamp": "2026-02-14T22:26:45.727372"}
+{"key": "MODEL_DRIFT", "message": "Model drift detected: mean=0.785 (baseline=0.508), drift=0.277", "severity": "high", "timestamp": "2026-02-14T22:26:45.728221"}

@@ -863,8 +863,10 @@ def _phase_score_and_filter(ctx: _PipelineContext) -> Optional[Dict[str, Any]]:
                 kept_rows = []
                 for _, row in ctx.results.iterrows():
                     tkr = str(row.get("Ticker"))
-                    df = tier2_map.get(tkr) or ctx.data_map.get(tkr)
-                    if df is None or df.empty:
+                    df = tier2_map.get(tkr)
+                    if df is None or (hasattr(df, "empty") and df.empty):
+                        df = ctx.data_map.get(tkr)
+                    if df is None or (hasattr(df, "empty") and df.empty):
                         continue
                     base_score = float(
                         row.get("FinalScore_20d", row.get("Score", 0.0))
