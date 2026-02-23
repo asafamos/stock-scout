@@ -752,7 +752,7 @@ def _phase_score_and_filter(ctx: _PipelineContext) -> Optional[Dict[str, Any]]:
         ctx.results.at[idx, "RS_63d"] = sig.get("rs_63d")
         ctx.results.at[idx, "Volume_Surge"] = sig.get("volume_surge")
         ctx.results.at[idx, "MA_Aligned"] = sig.get("ma_aligned")
-        ctx.results.at[idx, "Quality_Score"] = sig.get("quality_score")
+        ctx.results.at[idx, "Signal_Boost_Score"] = sig.get("signal_boost_score")
         ctx.results.at[idx, "RR_Ratio"] = sig.get("risk_reward_ratio")
         ctx.results.at[idx, "Momentum_Consistency"] = sig.get("momentum_consistency")
 
@@ -933,24 +933,28 @@ def _phase_enrich_fundamentals(ctx: _PipelineContext) -> None:
         fund_as_of = None
 
     # Score/cap thresholds
+    # NOTE: Threshold lowered from 60 → 35 (2026-02-15) to ensure speculative
+    # stocks (classified as SPEC at score >= 40) also receive fundamental data.
+    # Previously, SPEC stocks never got fundamentals, resulting in N/A for
+    # Quality/Growth/Valuation/Leverage and a reliability floor of 40.
     try:
         score_thr = float(
             ctx.config.get(
                 "fundamentals_score_threshold",
-                float(os.getenv("FUNDAMENTALS_SCORE_THRESHOLD", "60")),
+                float(os.getenv("FUNDAMENTALS_SCORE_THRESHOLD", "35")),
             )
         )
     except (TypeError, ValueError):
-        score_thr = 60.0
+        score_thr = 35.0
     try:
         top_n_cap = int(
             ctx.config.get(
                 "fundamentals_top_n_cap",
-                int(os.getenv("FUNDAMENTALS_TOP_N_CAP", "50")),
+                int(os.getenv("FUNDAMENTALS_TOP_N_CAP", "100")),
             )
         )
     except (TypeError, ValueError):
-        top_n_cap = 50
+        top_n_cap = 100
     if top_n_cap > 0:
         logger.info(
             "\u26a1 Fetching fundamentals for Top-%d stocks (score > %s)",
@@ -1222,6 +1226,79 @@ def _phase_enrich_fundamentals(ctx: _PipelineContext) -> None:
     except Exception as e:
         logger.debug("Source metadata mapping skipped due to error: %s", e)
 
+    # ── Reliability recomputation (2026-02-15) ──────────────────────────
+    # Reliability was originally computed in Tier 2 (ticker_scoring) BEFORE
+    # fundamentals were available, so Fundamental_Sources_Count was always 0
+    # and ReliabilityScore was capped at ~40. Now that we have real
+    # fundamental data merged, recompute reliability with actual source counts.
+    # This also unlocks the full ML boost (reliability >= 60 → full ±10).
+    try:
+        def _recompute_reliability(row):
+            """Recompute reliability with post-enrichment data."""
+            fund_sources = row.get("Fundamental_Sources_Count", 0)
+            if pd.isna(fund_sources):
+                fund_sources = 0
+            fund_sources = int(fund_sources)
+            # Base from fundamental sources: 20 (floor) + up to 60 (4 sources × 15)
+            fund_score = min(fund_sources, 4) * 15 + 20
+
+            price_bonus = 0
+            if pd.notna(row.get("Price_Yahoo", row.get("Close"))):
+                price_bonus += 10
+            if pd.notna(row.get("ATR")):
+                price_bonus += 5
+            if pd.notna(row.get("RSI")):
+                price_bonus += 5
+
+            # Bonus for having actual fundamental data (not just default 50)
+            fund_data_bonus = 0
+            fund_s = row.get("Fundamental_S", 50.0)
+            has_real_fund = any(
+                pd.notna(row.get(f))
+                for f in ["pe", "roe", "pb", "margin", "debt_equity",
+                           "PE_Ratio", "ROE", "PB_Ratio", "Debt_to_Equity"]
+            )
+            if has_real_fund and fund_s != 50.0:
+                fund_data_bonus = 10  # Real fundamental data available
+
+            return min(fund_score + price_bonus + fund_data_bonus, 100)
+
+        ctx.results["ReliabilityScore"] = ctx.results.apply(
+            _recompute_reliability, axis=1
+        )
+        # Sync aliases
+        ctx.results["Reliability_Score"] = ctx.results["ReliabilityScore"]
+
+        logger.info(
+            "[PIPELINE] Reliability recomputed post-enrichment: "
+            "mean=%.1f, min=%.0f, max=%.0f",
+            ctx.results["ReliabilityScore"].mean(),
+            ctx.results["ReliabilityScore"].min(),
+            ctx.results["ReliabilityScore"].max(),
+        )
+    except Exception as e:
+        logger.warning("Reliability recomputation failed: %s", e)
+
+    # ── Re-recalculate FinalScore_20d with updated reliability ──────────
+    # The first recalculation used stale reliability (40 for all).
+    # Now reliability is accurate, ML boost gating will be correct.
+    try:
+        for idx, row in ctx.results.iterrows():
+            try:
+                new_score = compute_final_score_20d(row)
+                ctx.results.at[idx, "FinalScore_20d"] = float(new_score)
+                ctx.results.at[idx, "Score"] = float(new_score)
+            except Exception as e:
+                logger.debug(
+                    "FinalScore re-recalc (post-reliability) failed for %s: %s",
+                    row.get("Ticker"), e,
+                )
+        logger.info(
+            "[PIPELINE] FinalScore_20d re-recalculated with updated reliability"
+        )
+    except Exception as e:
+        logger.warning("FinalScore re-recalc (post-reliability) skipped: %s", e)
+
 
 def _apply_sector_mapping(ctx: _PipelineContext) -> None:
     """Apply sector_mapping fallback for unknown sectors."""
@@ -1266,14 +1343,7 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
         except Exception as e:
             logger.warning("Earnings blackout check failed: %s", e)
 
-    # Allocation-Free Signal Engine
-    if False and "buy_amount_v2" not in ctx.results.columns:
-        ctx.results = allocate_budget(
-            ctx.results,
-            ctx.config.get("BUDGET_TOTAL", 5000),
-            ctx.config.get("MIN_POSITION", 500),
-            ctx.config.get("MAX_POSITION_PCT", 0.2),
-        )
+    # Allocation-Free Signal Engine — budget allocation disabled (signal-only mode)
 
     # Score = FinalScore_20d (strict)
     if "FinalScore_20d" in ctx.results.columns:

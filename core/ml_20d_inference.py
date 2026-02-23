@@ -161,13 +161,17 @@ def compute_ml_20d_probabilities_raw(row: pd.Series) -> float:
         # Load feature defaults from registry (with fallback to neutral values)
         try:
             from core.feature_registry import get_feature_defaults
-            defaults = get_feature_defaults("v3")
+            # Auto-detect version from loaded feature count
+            _version = "v3.1" if len(FEATURE_COLS_20D) >= 39 else "v3"
+            defaults = get_feature_defaults(_version)
         except Exception:
             defaults = {}
 
         # Map Return_1m → Return_20d when training expects 20d but row provides 1m
+        # NOTE: use a local alias instead of mutating the caller's row object
         try:
             if ("Return_20d" in FEATURE_COLS_20D) and ("Return_20d" not in row) and ("Return_1m" in row):
+                row = dict(row)  # shallow copy — avoids mutating caller's Series/dict
                 row["Return_20d"] = row.get("Return_1m")
         except Exception:
             pass
@@ -215,19 +219,14 @@ def compute_ml_20d_probabilities_raw(row: pd.Series) -> float:
         # Replace inf/-inf with 0.0 BEFORE clipping
         X = X.replace([np.inf, -np.inf], 0.0)
         
-        # Apply exact clipping rules from training (same as in train_ml_20d.py)
+        # Apply exact clipping rules matching training (train_ml_20d_v3_local.py)
         if "ATR_Pct" in X.columns:
             X["ATR_Pct"] = np.clip(X["ATR_Pct"], 0.0, 0.2)
-        if "RR" in X.columns:
-            X["RR"] = np.clip(X["RR"], 0.0, 10.0)
         if "RSI" in X.columns:
             X["RSI"] = np.clip(X["RSI"], 5.0, 95.0)
-        if "TechScore_20d" in X.columns:
-            X["TechScore_20d"] = np.clip(X["TechScore_20d"], 0.0, 100.0)
         
-        # Reshape to 2D array and predict
-        X_input = X.values.reshape(1, -1)
-        proba = BUNDLE_MODEL.predict_proba(X_input)
+        # Predict — pass DataFrame directly to preserve feature names (avoids sklearn warning)
+        proba = BUNDLE_MODEL.predict_proba(X)
         
         # Get positive class probability (class 1)
         prob = float(proba[0, 1])

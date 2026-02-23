@@ -194,32 +194,61 @@ def _process_single_ticker(
     # Ensure SignalReasons / SignalQuality exist even when using bridge path
     try:
         reasons: List[str] = []
+        # 1. Technical momentum (above median is meaningful)
         try:
             ts_val = float(rec_series.get("TechScore_20d", np.nan))
             if np.isfinite(ts_val) and ts_val >= float(TECH_STRONG_THRESHOLD):
                 reasons.append("Strong technical momentum")
+            elif np.isfinite(ts_val) and ts_val >= 45.0:
+                reasons.append("Positive technical setup")
         except (TypeError, ValueError):
             pass
+        # 2. ML probability
         try:
             mlp_val = float(rec_series.get("ML_20d_Prob", np.nan))
             if np.isfinite(mlp_val) and mlp_val >= float(ML_PROB_THRESHOLD):
                 reasons.append("High ML breakout probability")
+            elif np.isfinite(mlp_val) and mlp_val >= 0.50:
+                reasons.append("Moderate ML breakout probability")
         except (TypeError, ValueError):
             pass
+        # 3. Pattern signals
         try:
             ps_val = float(rec_series.get("Pattern_Score", 0.0) or 0.0)
             if np.isfinite(ps_val) and ps_val > 0.0:
                 reasons.append("Bullish pattern detected")
         except (TypeError, ValueError):
             pass
+        # 4. Market regime
         try:
             reg_val = str(rec_series.get("Market_Regime") or "").upper()
             if reg_val in ("TREND_UP", "BULLISH", "NEUTRAL", "SIDEWAYS"):
                 reasons.append("Supportive market regime")
         except (TypeError, ValueError, AttributeError):
             pass
+        # 5. Fundamental quality
+        try:
+            fund_val = float(rec_series.get("Fundamental_S", rec_series.get("Fundamental_Score", np.nan)))
+            if np.isfinite(fund_val) and fund_val >= 60.0:
+                reasons.append("Strong fundamentals")
+        except (TypeError, ValueError):
+            pass
+        # 6. Favorable risk/reward
+        try:
+            rr_val = float(rec_series.get("RR", rec_series.get("RR_Ratio", np.nan)))
+            if np.isfinite(rr_val) and rr_val >= 2.0:
+                reasons.append("Favorable risk/reward ratio")
+        except (TypeError, ValueError):
+            pass
+        # 7. Volume confirmation
+        try:
+            vol_surge = float(rec_series.get("VolSurge", rec_series.get("Volume_Surge_Ratio", np.nan)))
+            if np.isfinite(vol_surge) and vol_surge >= 1.3:
+                reasons.append("Volume surge confirmation")
+        except (TypeError, ValueError):
+            pass
         cnt = len(reasons)
-        quality = "High" if cnt >= 3 else ("Medium" if cnt == 2 else "Speculative")
+        quality = "High" if cnt >= 4 else ("Medium" if cnt >= 2 else "Speculative")
         if "SignalReasons" not in rec_series:
             rec_series["SignalReasons"] = "; ".join(reasons)
         if "SignalReasons_Count" not in rec_series:

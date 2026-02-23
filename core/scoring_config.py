@@ -40,12 +40,13 @@ TECH_WEIGHTS: Dict[str, float] = {
 }
 
 # Final score combination weights (3-component: tech + fund + ML)
-# NOTE: ML weight increased from 0.20 to 0.35 (2026-02-03) to give ML
-# predictions more meaningful impact on final rankings.
+# NOTE (2026-02-17): ML weight reduced from 0.35 to 0.15 because the production
+# model (V3.1) has AUC=0.553 (barely above random). Technical and fundamental
+# weights increased to compensate until a better model is trained.
 FINAL_SCORE_WEIGHTS: Dict[str, float] = {
-    "technical": 0.45,
-    "fundamental": 0.20,
-    "ml": 0.35,
+    "technical": 0.55,
+    "fundamental": 0.30,
+    "ml": 0.15,
 }
 
 # Pattern-enhanced score weights (5-component, used by compute_final_score_with_patterns)
@@ -71,25 +72,35 @@ CONVICTION_WEIGHTS: Dict[str, float] = {
 # Base score weights (tech/fund only, before ML boost is applied)
 # Used by UnifiedScorer and similar 2-component scoring
 # Derived from FINAL_SCORE_WEIGHTS by removing ML and renormalizing:
-# tech=0.45/(0.45+0.20)=0.69, fund=0.20/(0.45+0.20)=0.31
+# tech=0.55/(0.55+0.30)=0.647, fund=0.30/(0.55+0.30)=0.353
 BASE_SCORE_WEIGHTS: Dict[str, float] = {
-    "technical": 0.69,
-    "fundamental": 0.31,
+    "technical": 0.65,
+    "fundamental": 0.35,
 }
 
 # ML gate thresholds and multipliers (single source of truth)
+# NOTE (2026-02-17): Thresholds adjusted because V3.1 model outputs are
+# clustered in a narrow 0.46-0.74 range with AUC=0.553. The old bonus_gt
+# of 0.62 was giving a 15% bonus to almost every stock.
+# New thresholds: penalty only for truly negative signals, modest bonus
+# only for the most extreme positive signals. Effect is mild until a
+# better model is trained.
 ML_GATES: Dict[str, float] = {
-    "penalty_lt": 0.15,
-    "bonus_gt": 0.62,
-    "penalty_mult": 0.60,
-    "bonus_mult": 1.15,
+    "penalty_lt": 0.30,     # was 0.15 — more stocks penalized when model says NO
+    "bonus_gt": 0.75,       # was 0.62 — only exceptional ML confidence gets bonus
+    "penalty_mult": 0.85,   # was 0.60 — softer penalty (ML not reliable enough for harsh cut)
+    "bonus_mult": 1.08,     # was 1.15 — smaller bonus (ML doesn't warrant big boost)
 }
 
 # Market regime multipliers
 REGIME_MULTIPLIERS: Dict[str, float] = {
     "TREND_UP": 1.10,
+    "BULLISH": 1.10,    # alias used by detect_market_regime()
     "PANIC": 0.70,
     "CORRECTION": 0.70,
+    "BEARISH": 0.70,    # alias used by detect_market_regime()
+    "SIDEWAYS": 1.00,   # alias used by detect_market_regime()
+    "NEUTRAL": 1.00,    # alias used by detect_market_regime()
 }
 
 # ATR-based volatility rules used to adjust technical score and RR
