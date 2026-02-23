@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Point-in-time fundamentals store (SQLite).
 
@@ -19,7 +20,6 @@ Notes:
 - To ensure uniqueness when provider is omitted, this module stores provider=None
   as an empty string "" when saving and will match the same convention when loading.
 """
-from __future__ import annotations
 
 import os
 import json

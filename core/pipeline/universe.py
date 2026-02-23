@@ -36,20 +36,23 @@ def preflight_check() -> None:
         )
 
 
-def fetch_top_us_tickers_by_market_cap(limit: int = 2000) -> List[str]:
+def fetch_top_us_tickers_by_market_cap(limit: int = 3000) -> List[str]:
     """Fetch US tickers ordered by market cap with robust fallbacks.
 
+    A larger universe (default 3,000) helps capture non-obvious opportunities
+    beyond the usual mega-caps, including quality mid- and small-caps.
+
     Priority:
-    1) FMP stock/list (fast, preferred)
-    2) Local S&P 500 list from data/sp500_tickers.txt (sorted by market cap)
+    1) FMP company screener (fast, preferred)
+    2) Local S&P 500 list (sorted by market cap)
     3) EODHD (API fallback)
     4) Hardcoded Top 100
 
     Args:
-        limit: Hard cap of 2000 tickers (defaults to 2000)
+        limit: Maximum tickers to return (defaults to 3000)
 
     Returns:
-        List of ticker symbols
+        List of ticker symbols, sorted by market cap descending.
     """
     global LAST_UNIVERSE_PROVIDER
 
@@ -59,9 +62,9 @@ def fetch_top_us_tickers_by_market_cap(limit: int = 2000) -> List[str]:
         if api_key:
             url = "https://financialmodelingprep.com/stable/company-screener"
             try:
-                min_cap = int(os.getenv("MIN_MCAP", "300000000"))  # $300M minimum
+                min_cap = int(os.getenv("MIN_MCAP", "100000000"))  # $100M minimum (captures quality small-caps)
             except (TypeError, ValueError):
-                min_cap = 300_000_000
+                min_cap = 100_000_000
             try:
                 # Allow full range up to mega-caps for comprehensive scanning
                 max_cap = int(os.getenv("MAX_MCAP", "10000000000000"))  # $10T (effectively no limit)
@@ -73,7 +76,7 @@ def fetch_top_us_tickers_by_market_cap(limit: int = 2000) -> List[str]:
                 "isActivelyTrading": True,
                 "isEtf": False,
                 "isFund": False,
-                "limit": min(limit * 2, 3000),  # Request extra to filter
+                "limit": min(limit * 2, 6000),  # Request extra for filtering
                 "apikey": api_key,
             }
             resp = requests.get(url, params=params, timeout=8)

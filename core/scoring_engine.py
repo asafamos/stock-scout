@@ -1,13 +1,15 @@
 """
-Unified Scoring Engine for Stock Scout.
+Scoring Engine for Stock Scout — backward-compatibility layer.
 
-This module implements the final conviction score calculation.
-Weights are loaded from scoring_config.py for consistency:
-- See CONVICTION_WEIGHTS for fund/momentum/rr/reliability blend
-- See FINAL_SCORE_WEIGHTS for tech/fund/ml blend
+Core utilities (normalize_score, safe_divide, evaluate_rr_unified,
+ml_boost_component) have been relocated to :mod:`core.scoring.utils`.
+Reliability scoring is now in :mod:`core.scoring.reliability`.
 
-All scores are normalized 0-100 and monotonic (never negative).
-Deterministic sorting ensures reproducibility.
+This file re-exports them for callers that import from ``core.scoring_engine``.
+
+Remaining functions (compute_final_score_20d, compute_overall_score,
+calculate_quality_score, etc.) are kept here until full migration to
+:class:`core.scoring.UnifiedScorer`.
 """
 from __future__ import annotations
 import numpy as np
@@ -16,6 +18,17 @@ from typing import Dict, Tuple, Optional
 import logging
 
 from core.scoring_config import CONVICTION_WEIGHTS, FINAL_SCORE_WEIGHTS, PATTERN_SCORE_WEIGHTS
+
+# Re-export from new canonical locations
+from core.scoring.utils import (       # noqa: F401
+    normalize_score,
+    safe_divide,
+    evaluate_rr_unified,
+    ml_boost_component,
+)
+from core.scoring.reliability import (  # noqa: F401
+    calculate_reliability_score,
+)
 
 logger = logging.getLogger(__name__)
 

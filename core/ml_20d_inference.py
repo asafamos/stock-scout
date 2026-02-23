@@ -1,322 +1,413 @@
-import joblib
+"""ML 20-day inference module.
+
+Loads the trained model bundle at import time and provides:
+- ``predict_20d_prob_from_row(row)`` — single-row raw probability
+- ``apply_live_v3_adjustments(df)`` — batch probability adjustments
+- ``calibrate_ml_20d_prob(prob_raw, ...)`` — single-row calibration
+- ``get_ml_health_meta()`` — model health / diagnostics
+"""
+from __future__ import annotations
+
+import json
+import logging
 import os
-import numpy as np
-import pandas as pd
+import warnings
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-import logging
-import warnings
+
+import joblib
+import numpy as np
+import pandas as pd
 
 # Import EnsembleClassifier so pickle can find it when unpickling the model
-from core.ensemble import EnsembleClassifier  # noqa: F401 - needed for unpickling
+from core.ensemble import EnsembleClassifier  # noqa: F401 — needed for unpickling
 
 logger = logging.getLogger(__name__)
 
-ML_20D_AVAILABLE = True
-BUNDLE_HAS_MISSING_METEOR_FEATURES: bool = False
+# ---------------------------------------------------------------------------
+# Module-level state (populated by _load_bundle_cached at import time)
+# ---------------------------------------------------------------------------
+ML_20D_AVAILABLE: bool = False
 BUNDLE_MODEL: Any = None
 FEATURE_COLS_20D: list[str] = []
-PREFERRED_SCORING_MODE_20D: str = "hybrid"  # Default fallback
+PREFERRED_SCORING_MODE_20D: str = "hybrid"
 
-# ML health meta (global)
+# Health / diagnostics
 ML_VERSION_WARNING: bool = False
 ML_VERSION_WARNING_REASON: Optional[str] = None
 ML_MISSING_FEATURES: List[str] = []
+BUNDLE_HAS_MISSING_METEOR_FEATURES: bool = False
+BUNDLE_AUC: Optional[float] = None  # OOS AUC from metadata (for circuit breaker)
+
+# Feature aliases: maps expected_name → fallback_name(s) in row data
+_FEATURE_ALIASES: Dict[str, List[str]] = {
+    "ADR_Pct": ["ATR_Pct"],
+    "Return_20d": ["Return_1m"],
+}
 
 
-def _load_bundle_impl() -> tuple[bool, Any, list[str], str]:
-    """Load model bundle from absolute path for Streamlit Cloud compatibility.
+# ============================================================================
+# Model loading helpers
+# ============================================================================
 
-    Ensures we target the canonical path `models/model_20d_v3.pkl`.
-    If not found, logs the absolute path being attempted and lists contents
-    of the `models/` directory to aid debugging.
+def _capture_version_warnings(wlist: list) -> Optional[str]:
+    """Inspect captured warnings for sklearn version mismatch.
+
+    Returns the warning message string if found, else None.
+    """
+    for w in wlist or []:
+        name = getattr(w.category, "__name__", "")
+        msg = str(getattr(w, "message", ""))
+        if "InconsistentVersionWarning" in name or "InconsistentVersionWarning" in msg:
+            return msg
+    return None
+
+
+def _patch_sklearn_compat(model: Any) -> None:
+    """Patch sklearn version compatibility issues on a loaded model.
+
+    When a model is trained with a newer sklearn (e.g., 1.8.0) and loaded
+    with an older one (e.g., 1.6.1), some attributes may be missing.
     """
     try:
-        global ML_VERSION_WARNING, ML_VERSION_WARNING_REASON
-        # Use absolute path relative to this file's location
-        module_dir = Path(__file__).resolve().parent.parent  # stock-scout-2 root
-        # Prefer new bundle location with metadata
-        bundle_dir = Path(os.getenv("ML_BUNDLE_DIR", str(module_dir / "ml" / "bundles" / "latest")))
-        model_path = bundle_dir / "model.joblib"
-        meta_path = bundle_dir / "metadata.json"
-        if not model_path.exists():
-            # Fallback to legacy model path
-            models_dir = module_dir / "models"
-            legacy_path = models_dir / "model_20d_v3.pkl"
-            if legacy_path.exists():
-                logger.warning("Using legacy model bundle (no metadata)")
-                with warnings.catch_warnings(record=True) as wlist:
-                    warnings.simplefilter("always")
-                    bundle = joblib.load(legacy_path)
-                # Inspect warnings for version mismatch
-                try:
-                    for w in wlist or []:
-                        name = getattr(w.category, "__name__", "")
-                        msg = str(getattr(w, "message", ""))
-                        if "InconsistentVersionWarning" in name or "InconsistentVersionWarning" in msg:
-                            ML_VERSION_WARNING = True
-                            ML_VERSION_WARNING_REASON = msg
-                            logger.warning(f"ML bundle version warning: {msg}")
-                except Exception:
-                    pass
-                # Legacy bundle may be dict or a bare estimator
-                if isinstance(bundle, dict):
-                    model = bundle.get("model")
-                    feature_names = list(bundle.get("feature_names", []))
-                else:
-                    model = bundle
-                    feature_names = []
-                if model is None:
-                    return False, None, [], "hybrid"
-                return True, model, feature_names, "hybrid"
-            else:
-                logger.error(f"No model found at {model_path} and no legacy path available")
-                return False, None, [], "hybrid"
+        from sklearn.linear_model import LogisticRegression
+    except ImportError:
+        return
 
-        # Load new bundle with metadata
-        with warnings.catch_warnings(record=True) as wlist:
-            warnings.simplefilter("always")
-            model = joblib.load(model_path)
-        # Inspect warnings for version mismatch
-        try:
-            for w in wlist or []:
-                name = getattr(w.category, "__name__", "")
-                msg = str(getattr(w, "message", ""))
-                if "InconsistentVersionWarning" in name or "InconsistentVersionWarning" in msg:
-                    ML_VERSION_WARNING = True
-                    ML_VERSION_WARNING_REASON = msg
-                    logger.warning(f"ML bundle version warning: {msg}")
-        except Exception:
-            pass
-        # Read metadata feature list
-        feature_names: List[str] = []
-        preferred_scoring_mode = "hybrid"
-        try:
-            import json
-            with open(meta_path, "r", encoding="utf-8") as f:
-                meta_obj = json.load(f)
-            fl = meta_obj.get("feature_list") or []
-            if isinstance(fl, list):
-                feature_names = list(fl)
-            # Compare sklearn version from metadata vs runtime
-            try:
-                import sklearn  # type: ignore
-                meta_ver = str(meta_obj.get("sklearn_version") or "").strip()
-                rt_ver = str(getattr(sklearn, "__version__", "")).strip()
-                if meta_ver and rt_ver and meta_ver != rt_ver:
-                    ML_VERSION_WARNING = True
-                    ML_VERSION_WARNING_REASON = f"Bundle sklearn_version={meta_ver} but runtime={rt_ver}"
-                    logger.warning(ML_VERSION_WARNING_REASON)
-            except Exception:
-                pass
-        except Exception as e:
-            logger.warning(f"Failed to read bundle metadata: {e}")
-            feature_names = []
+    def _patch_one(est: Any) -> None:
+        if isinstance(est, LogisticRegression) and not hasattr(est, "multi_class"):
+            est.multi_class = "auto"
 
-        # Validate model
-        if model is None or not hasattr(model, "predict_proba"):
-            logger.error("Model missing or lacks predict_proba method")
-            return False, None, [], "hybrid"
+    _patch_one(model)
+    for sub in getattr(model, "models", []):
+        _patch_one(sub)
+    for est in getattr(model, "estimators_", []):
+        _patch_one(est[1] if isinstance(est, (list, tuple)) else est)
 
-        if not feature_names:
-            logger.warning("Bundle metadata missing feature_list; treating as degraded")
-            global BUNDLE_HAS_MISSING_METEOR_FEATURES
-            BUNDLE_HAS_MISSING_METEOR_FEATURES = True
 
-        logger.info(f"✓ Loaded ML model (new bundle) with {len(feature_names)} features")
-        return True, model, feature_names, preferred_scoring_mode
-    except Exception as e:
-        logger.error(f"Failed to load ML bundle: {e}", exc_info=True)
+def _extract_model_feature_names(model: Any) -> list[str]:
+    """Extract feature names from a fitted model/ensemble.
+
+    Checks the model itself first, then sub-models (for EnsembleClassifier).
+    """
+    if hasattr(model, "feature_names_in_"):
+        return list(model.feature_names_in_)
+    for sub in getattr(model, "models", []):
+        if hasattr(sub, "feature_names_in_"):
+            return list(sub.feature_names_in_)
+    for est in getattr(model, "estimators_", []):
+        item = est[1] if isinstance(est, (list, tuple)) else est
+        if hasattr(item, "feature_names_in_"):
+            return list(item.feature_names_in_)
+    return []
+
+
+def _load_joblib_safe(path: Path) -> tuple[Any, Optional[str]]:
+    """Load a joblib/pickle file, capturing version warnings.
+
+    Returns (loaded_object, version_warning_msg_or_None).
+    """
+    with warnings.catch_warnings(record=True) as wlist:
+        warnings.simplefilter("always")
+        obj = joblib.load(path)
+    return obj, _capture_version_warnings(wlist)
+
+
+def _finalize_model(
+    model: Any,
+    feature_names: list[str],
+    meta_auc: Optional[float] = None,
+) -> tuple[bool, Any, list[str], str]:
+    """Common post-load steps: patch, extract features, validate."""
+    if model is None or not hasattr(model, "predict_proba"):
+        logger.error("Model missing or lacks predict_proba method")
         return False, None, [], "hybrid"
 
+    _patch_sklearn_compat(model)
 
-from functools import lru_cache
+    # Prefer the model's own feature list over metadata (metadata can be stale)
+    model_features = _extract_model_feature_names(model)
+    if model_features:
+        if feature_names and set(model_features) != set(feature_names):
+            logger.warning(
+                "Metadata lists %d features but model expects %d — using model's own list.",
+                len(feature_names), len(model_features),
+            )
+        feature_names = model_features
+
+    if not feature_names:
+        logger.warning("No feature names found — treating as degraded")
+        global BUNDLE_HAS_MISSING_METEOR_FEATURES
+        BUNDLE_HAS_MISSING_METEOR_FEATURES = True
+
+    global BUNDLE_AUC
+    BUNDLE_AUC = meta_auc
+
+    logger.info(
+        "✓ ML model loaded: %d features, AUC=%s",
+        len(feature_names),
+        f"{meta_auc:.4f}" if meta_auc else "unknown",
+    )
+    return True, model, feature_names, "hybrid"
+
+
+# ============================================================================
+# Bundle loading
+# ============================================================================
+
+def _load_bundle_impl() -> tuple[bool, Any, list[str], str]:
+    """Load model bundle from disk.
+
+    Lookup order:
+    1. ``ml/bundles/latest/model.joblib``  (preferred, with metadata.json)
+    2. ``models/model_20d_v3.pkl``         (legacy fallback)
+
+    The directory can be overridden via the ``ML_BUNDLE_DIR`` env-var.
+    """
+    global ML_VERSION_WARNING, ML_VERSION_WARNING_REASON
+
+    try:
+        root = Path(__file__).resolve().parent.parent  # project root
+        bundle_dir = Path(os.getenv(
+            "ML_BUNDLE_DIR",
+            str(root / "ml" / "bundles" / "latest"),
+        ))
+        model_path = bundle_dir / "model.joblib"
+        meta_path = bundle_dir / "metadata.json"
+
+        # ----- New bundle (preferred) -----
+        if model_path.exists():
+            model, warn_msg = _load_joblib_safe(model_path)
+            if warn_msg:
+                ML_VERSION_WARNING = True
+                ML_VERSION_WARNING_REASON = warn_msg
+                logger.warning("ML bundle version warning: %s", warn_msg)
+
+            # Read metadata
+            feature_names: list[str] = []
+            meta_auc: Optional[float] = None
+            try:
+                meta_obj = json.loads(meta_path.read_text(encoding="utf-8"))
+                fl = meta_obj.get("feature_list") or []
+                if isinstance(fl, list):
+                    feature_names = list(fl)
+                # AUC for circuit breaker
+                metrics = meta_obj.get("metrics") or {}
+                raw_auc = metrics.get("oos_auc") or metrics.get("cv_auc_mean")
+                if raw_auc is not None:
+                    meta_auc = float(raw_auc)
+                # Version check
+                try:
+                    import sklearn
+                    meta_ver = str(meta_obj.get("sklearn_version") or "").strip()
+                    rt_ver = str(getattr(sklearn, "__version__", "")).strip()
+                    if meta_ver and rt_ver and meta_ver != rt_ver:
+                        ML_VERSION_WARNING = True
+                        ML_VERSION_WARNING_REASON = (
+                            f"Bundle sklearn_version={meta_ver} but runtime={rt_ver}"
+                        )
+                        logger.warning(ML_VERSION_WARNING_REASON)
+                except Exception:
+                    pass
+            except Exception as exc:
+                logger.warning("Failed to read bundle metadata: %s", exc)
+
+            return _finalize_model(model, feature_names, meta_auc)
+
+        # ----- Legacy fallback -----
+        legacy_path = root / "models" / "model_20d_v3.pkl"
+        if legacy_path.exists():
+            logger.warning("Using legacy model bundle (no metadata)")
+            bundle, warn_msg = _load_joblib_safe(legacy_path)
+            if warn_msg:
+                ML_VERSION_WARNING = True
+                ML_VERSION_WARNING_REASON = warn_msg
+                logger.warning("ML bundle version warning: %s", warn_msg)
+
+            if isinstance(bundle, dict):
+                model = bundle.get("model")
+                feature_names = list(bundle.get("feature_names", []))
+            else:
+                model = bundle
+                feature_names = []
+            return _finalize_model(model, feature_names)
+
+        logger.error("No ML model found at %s or legacy path", model_path)
+        return False, None, [], "hybrid"
+
+    except Exception as exc:
+        logger.error("Failed to load ML bundle: %s", exc, exc_info=True)
+        return False, None, [], "hybrid"
+
 
 @lru_cache(maxsize=1)
 def _load_bundle_cached():
     return _load_bundle_impl()
 
-_success, BUNDLE_MODEL, FEATURE_COLS_20D, PREFERRED_SCORING_MODE_20D = _load_bundle_cached()
-# Force hybrid mode globally regardless of bundle preference
-PREFERRED_SCORING_MODE_20D = "hybrid"
+
+# Initialise module globals at import time
+_success, BUNDLE_MODEL, FEATURE_COLS_20D, PREFERRED_SCORING_MODE_20D = (
+    _load_bundle_cached()
+)
+PREFERRED_SCORING_MODE_20D = "hybrid"  # always override to hybrid
 ML_20D_AVAILABLE = _success
 
-def compute_ml_20d_probabilities_raw(row: pd.Series) -> float:
+
+# ============================================================================
+# Circuit breaker: when model AUC is weak, reduce its influence
+# ============================================================================
+
+def get_ml_weight_multiplier() -> float:
+    """Return a weight multiplier (0.0–1.0) based on model quality.
+
+    AUC ≤ 0.52  → 0.1  (essentially disabled, barely better than random)
+    AUC ≤ 0.56  → 0.5  (halved — marginal signal)
+    AUC > 0.56  → 1.0  (full weight — meaningful signal)
+
+    The current model has AUC ≈ 0.553, so it gets 50% weight until retrained.
     """
-    Compute RAW ML 20d probability from GradientBoosting model.
-    This is the base signal before any live adjustments.
+    if BUNDLE_AUC is None:
+        return 1.0  # unknown AUC — trust the model
+    if BUNDLE_AUC <= 0.52:
+        return 0.1
+    if BUNDLE_AUC <= 0.56:
+        return 0.5
+    return 1.0
+
+
+# ============================================================================
+# Prediction
+# ============================================================================
+
+def compute_ml_20d_probabilities_raw(row: pd.Series) -> float:
+    """Compute RAW ML 20-day probability.
 
     Returns:
-        - float in [0, 1]: raw positive-class probability if model available
-        - np.nan: if model unavailable or prediction fails
-
-    Note: Missing features are now filled with sensible defaults from the feature
-    registry instead of failing completely. This allows ML to work even when some
-    features cannot be computed (e.g., missing market/sector context).
+        float in [0, 1] if model available, ``np.nan`` otherwise.
     """
     if not ML_20D_AVAILABLE or BUNDLE_MODEL is None or not FEATURE_COLS_20D:
         return np.nan
 
     try:
-        # Load feature defaults from registry (with fallback to neutral values)
+        # Feature defaults from registry (graceful if unavailable)
         try:
-            from core.feature_registry import get_feature_defaults
-            # Auto-detect version from loaded feature count
+            from core.feature_registry import get_feature_defaults, clip_features_to_range
             _version = "v3.1" if len(FEATURE_COLS_20D) >= 39 else "v3"
             defaults = get_feature_defaults(_version)
         except Exception:
             defaults = {}
+            clip_features_to_range = None  # type: ignore[assignment]
 
-        # Map Return_1m → Return_20d when training expects 20d but row provides 1m
-        # NOTE: use a local alias instead of mutating the caller's row object
-        try:
-            if ("Return_20d" in FEATURE_COLS_20D) and ("Return_20d" not in row) and ("Return_1m" in row):
-                row = dict(row)  # shallow copy — avoids mutating caller's Series/dict
-                row["Return_20d"] = row.get("Return_1m")
-        except Exception:
-            pass
-        # Build feature dict with exact columns from training, in exact order
-        feature_dict = {}
-        missing_features = []
+        # Build row dict (shallow copy to avoid mutating caller)
+        row_data: dict = dict(row) if isinstance(row, pd.Series) else dict(row)
+
+        # Apply known feature aliases
+        for expected, fallbacks in _FEATURE_ALIASES.items():
+            if expected in FEATURE_COLS_20D and expected not in row_data:
+                for fb in fallbacks:
+                    if fb in row_data:
+                        row_data[expected] = row_data[fb]
+                        break
+
+        # Build feature vector in exact training order
+        feature_dict: dict = {}
+        missing: list[str] = []
 
         for col in FEATURE_COLS_20D:
-            # Apply aliases/fallbacks for known features
-            if col == "ADR_Pct":
-                val = row.get("ADR_Pct", row.get("ATR_Pct", np.nan))
-            else:
-                val = row.get(col, np.nan)
-            if not isinstance(val, (int, float)) or np.isnan(val):
-                missing_features.append(col)
-                # Use default from registry, or neutral value if not found
+            val = row_data.get(col, np.nan)
+            if not isinstance(val, (int, float)) or (isinstance(val, float) and np.isnan(val)):
+                missing.append(col)
                 val = defaults.get(col, 0.0)
             feature_dict[col] = val
 
-        # Track missing features for health reporting, but continue with defaults
-        if missing_features:
+        # Track missing features for health reporting
+        if missing:
+            global ML_MISSING_FEATURES, BUNDLE_HAS_MISSING_METEOR_FEATURES
+            current = set(ML_MISSING_FEATURES or [])
+            current.update(missing)
+            ML_MISSING_FEATURES = sorted(current)
+            BUNDLE_HAS_MISSING_METEOR_FEATURES = True
+            if len(missing) > 10:
+                logger.debug("ML 20d: filled %d missing features with defaults", len(missing))
+
+        # Build DataFrame
+        X = pd.DataFrame([feature_dict])[FEATURE_COLS_20D]
+        X = X.fillna(0.0).replace([np.inf, -np.inf], 0.0)
+
+        # Clip features using registry ranges (if available)
+        if clip_features_to_range is not None:
             try:
-                # Update global health flags
-                global ML_MISSING_FEATURES, BUNDLE_HAS_MISSING_METEOR_FEATURES
-                # Merge unique missing features across rows
-                current = set(ML_MISSING_FEATURES or [])
-                current.update(missing_features)
-                ML_MISSING_FEATURES = list(sorted(current))
-                BUNDLE_HAS_MISSING_METEOR_FEATURES = True
+                X = clip_features_to_range(X, _version)
             except Exception:
-                pass
-            # Log only once per batch (first occurrence)
-            if len(missing_features) > 10:
-                logger.debug(f"ML 20d: filled {len(missing_features)} missing features with defaults")
-        
-        # Build DataFrame in exact feature order
-        X = pd.DataFrame([feature_dict])
-        
-        # Reorder columns to match training order (just in case)
-        X = X[FEATURE_COLS_20D]
-        
-        # Defensive: fill any residual NaN with 0.0 (should be none after strict check)
-        X = X.fillna(0.0)
-        
-        # Replace inf/-inf with 0.0 BEFORE clipping
-        X = X.replace([np.inf, -np.inf], 0.0)
-        
-        # Apply exact clipping rules matching training (train_ml_20d_v3_local.py)
-        if "ATR_Pct" in X.columns:
-            X["ATR_Pct"] = np.clip(X["ATR_Pct"], 0.0, 0.2)
-        if "RSI" in X.columns:
-            X["RSI"] = np.clip(X["RSI"], 5.0, 95.0)
-        
-        # Predict — pass DataFrame directly to preserve feature names (avoids sklearn warning)
+                # Fallback: minimal hardcoded clipping
+                if "ATR_Pct" in X.columns:
+                    X["ATR_Pct"] = np.clip(X["ATR_Pct"], 0.0, 0.2)
+                if "RSI" in X.columns:
+                    X["RSI"] = np.clip(X["RSI"], 5.0, 95.0)
+        else:
+            if "ATR_Pct" in X.columns:
+                X["ATR_Pct"] = np.clip(X["ATR_Pct"], 0.0, 0.2)
+            if "RSI" in X.columns:
+                X["RSI"] = np.clip(X["RSI"], 5.0, 95.0)
+
         proba = BUNDLE_MODEL.predict_proba(X)
-        
-        # Get positive class probability (class 1)
-        prob = float(proba[0, 1])
-        
-        # Ensure probability is in valid range [0, 1]
-        prob = float(np.clip(prob, 0.0, 1.0))
-        return prob
-    except Exception as e:
-        logger.warning(f"ML 20d prediction failed: {e}", exc_info=True)
+        return float(np.clip(proba[0, 1], 0.0, 1.0))
+
+    except Exception as exc:
+        logger.warning("ML 20d prediction failed: %s", exc, exc_info=True)
         return np.nan
 
 
 def predict_20d_prob_from_row(row: pd.Series) -> float:
-    """
-    Backward compatibility wrapper - returns raw probability.
-    For new code, use compute_ml_20d_probabilities_raw directly.
-    """
+    """Backward-compatible wrapper — delegates to ``compute_ml_20d_probabilities_raw``."""
     return compute_ml_20d_probabilities_raw(row)
 
+
+# ============================================================================
+# Probability adjustments (live_v3)
+# ============================================================================
 
 def apply_live_v3_adjustments(
     df: pd.DataFrame,
     prob_col: str = "ML_20d_Prob_raw",
     enable_adjustments: bool = False,
-
 ) -> pd.Series:
-    """
-    Apply live_v3 adjustments to raw ML probabilities (volatility/price/reliability buckets).
-    WARNING: These adjustments are not empirically validated and should be used only for research/backtest.
-    Set enable_adjustments=True to activate. By default, returns raw probabilities only.
+    """Apply live_v3 adjustments to raw ML probabilities.
+
+    WARNING: These adjustments are not empirically validated.
+    Set *enable_adjustments=True* to activate.
     """
     if prob_col not in df.columns:
-        logger.warning(f"Column {prob_col} not found, returning 0.5 for all rows")
+        logger.warning("Column %s not found — returning 0.5 for all rows", prob_col)
         return pd.Series(0.5, index=df.index)
-    # Start with raw probabilities
+
     adjusted = df[prob_col].copy()
     if not enable_adjustments:
-        # No adjustments, just clip to [0.01, 0.99]
         return pd.Series(np.clip(adjusted, 0.01, 0.99), index=df.index)
 
-    # --- ADJUSTMENTS BELOW ONLY IF ENABLED ---
-    # Apply volatility bucket adjustments
+    # Volatility bucket adjustments
     if "ATR_Pct_percentile" in df.columns:
-        vol_pct = df["ATR_Pct_percentile"].fillna(0.5)
-        # Low vol (0.00-0.25): slight penalty
-        adjusted = np.where(
-            (vol_pct >= 0.0) & (vol_pct < 0.25),
-            adjusted - 0.01,
-            adjusted
-        )
-        # Sweet spot (0.50-0.75): boost
-        adjusted = np.where(
-            (vol_pct >= 0.50) & (vol_pct < 0.75),
-            adjusted + 0.015,
-            adjusted
-        )
-        # High vol (0.75-1.00): slight penalty
-        adjusted = np.where(
-            vol_pct >= 0.75,
-            adjusted - 0.005,
-            adjusted
-        )
-    # Apply price bucket adjustments
+        vol = df["ATR_Pct_percentile"].fillna(0.5)
+        adjusted = np.where((vol < 0.25), adjusted - 0.01, adjusted)
+        adjusted = np.where((vol >= 0.50) & (vol < 0.75), adjusted + 0.015, adjusted)
+        adjusted = np.where((vol >= 0.75), adjusted - 0.005, adjusted)
+
+    # Price bucket adjustments
     if "Price_As_Of_Date" in df.columns:
         price = df["Price_As_Of_Date"].fillna(50.0)
-        # 0-20: boost only if raw prob is already high (avoid garbage)
         adjusted = np.where(
             (price > 0) & (price < 20) & (df[prob_col] > 0.55),
-            adjusted + 0.01,
-            adjusted
+            adjusted + 0.01, adjusted,
         )
-        # 20-50: mild boost
-        adjusted = np.where(
-            (price >= 20) & (price < 50),
-            adjusted + 0.01,
-            adjusted
-        )
-        # 150+: mild penalty
-        adjusted = np.where(
-            price >= 150,
-            adjusted - 0.01,
-            adjusted
-        )
-    # Apply ticker reliability multiplier (if available)
+        adjusted = np.where((price >= 20) & (price < 50), adjusted + 0.01, adjusted)
+        adjusted = np.where((price >= 150), adjusted - 0.01, adjusted)
+
+    # Reliability multiplier
     if "ReliabilityFactor" in df.columns:
-        reliability = df["ReliabilityFactor"].fillna(1.0)
-        adjusted = adjusted * reliability
-    # Clip final probability to [0.01, 0.99]
-    adjusted = np.clip(adjusted, 0.01, 0.99)
-    return pd.Series(adjusted, index=df.index)
+        adjusted = adjusted * df["ReliabilityFactor"].fillna(1.0)
+
+    return pd.Series(np.clip(adjusted, 0.01, 0.99), index=df.index)
 
 
 def calibrate_ml_20d_prob(
@@ -329,77 +420,66 @@ def calibrate_ml_20d_prob(
     rsi: float | None = None,
     enable_adjustments: bool = False,
 ) -> float:
-    """
-    Calibrate a single raw ML 20d probability using the same semantics as live_v3.
-    WARNING: Adjustments are not empirically validated. Set enable_adjustments=True to activate.
-    By default, returns raw probability (clipped).
+    """Calibrate a single raw ML 20d probability.
+
+    WARNING: Adjustments are not empirically validated.
+    Set *enable_adjustments=True* to activate.
     """
     try:
         if prob_raw is None or not np.isfinite(prob_raw):
-            # Explicit missing-value semantics; caller should handle fallback
             return np.nan
-        adjusted = float(prob_raw)
+        adj = float(prob_raw)
         if not enable_adjustments:
-            return float(np.clip(adjusted, 0.01, 0.99))
+            return float(np.clip(adj, 0.01, 0.99))
 
-        # --- ADJUSTMENTS BELOW ONLY IF ENABLED ---
-        # Volatility bucket adjustments
+        # Volatility
         if atr_pct_percentile is not None and np.isfinite(atr_pct_percentile):
             v = float(atr_pct_percentile)
-            if 0.0 <= v < 0.25:
-                adjusted -= 0.01
+            if v < 0.25:
+                adj -= 0.01
             elif 0.50 <= v < 0.75:
-                boost = 0.015
-                if isinstance(market_regime, str) and market_regime.upper() == 'BULLISH':
-                    boost = 0.035
-                adjusted += boost
+                boost = 0.035 if (isinstance(market_regime, str) and market_regime.upper() == "BULLISH") else 0.015
+                adj += boost
             elif v >= 0.75:
-                adjusted -= 0.005
+                adj -= 0.005
 
-        # Price bucket adjustments
+        # Price
         if price_as_of is not None and np.isfinite(price_as_of):
             p = float(price_as_of)
-            if 0 < p < 20 and adjusted > 0.55:
-                adjusted += 0.01
+            if 0 < p < 20 and adj > 0.55:
+                adj += 0.01
             elif 20 <= p < 50:
-                adjusted += 0.01
+                adj += 0.01
             elif p >= 150:
-                adjusted -= 0.01
+                adj -= 0.01
 
-        # Reliability handling
+        # Reliability
         if reliability_factor is not None and np.isfinite(reliability_factor):
-            adjusted *= float(reliability_factor)
+            adj *= float(reliability_factor)
         else:
-            adjusted = 0.95 * adjusted + 0.05 * 0.5
+            adj = 0.95 * adj + 0.05 * 0.5
 
-        # Regime Bonus/Penalty adjustments
-        try:
-            regime = (market_regime or '').upper()
-            rsi_val = float(rsi) if (rsi is not None and np.isfinite(rsi)) else 50.0
-            if regime in {'BEARISH', 'PANIC'}:
-                if rsi_val > 65.0:
-                    adjusted -= 0.06
-            if regime == 'CORRECTION':
-                if reliability_factor is not None and np.isfinite(reliability_factor):
-                    if float(reliability_factor) > 1.1:
-                        adjusted += 0.02
-        except Exception:
-            pass
+        # Regime
+        regime = (market_regime or "").upper()
+        rsi_val = float(rsi) if (rsi is not None and np.isfinite(rsi)) else 50.0
+        if regime in {"BEARISH", "PANIC"} and rsi_val > 65.0:
+            adj -= 0.06
+        if regime == "CORRECTION" and reliability_factor is not None:
+            if np.isfinite(reliability_factor) and float(reliability_factor) > 1.1:
+                adj += 0.02
 
-        adjusted = float(np.clip(adjusted, 0.01, 0.99))
-        return adjusted
+        return float(np.clip(adj, 0.01, 0.99))
     except Exception:
-        # Explicit missing-value semantics; caller should handle fallback
         logger.warning("calibrate_ml_20d_prob failed", exc_info=True)
         return np.nan
 
 
-def choose_rank_col_20d(df: pd.DataFrame) -> str:
-    """Select the ranking column for 20d scoring based on bundle policy.
+# ============================================================================
+# Ranking column selection
+# ============================================================================
 
-    Prefers ML-only when requested, otherwise hybrid/overlay fallbacks. Safe when
-    columns are missing by returning the first available technical score.
-    """
+def choose_rank_col_20d(df: pd.DataFrame) -> str:
+    """Select the ranking column for 20d scoring based on bundle policy."""
     cols = pd.Index(df.columns)
     mode = PREFERRED_SCORING_MODE_20D or "hybrid"
 
@@ -409,51 +489,39 @@ def choose_rank_col_20d(df: pd.DataFrame) -> str:
                 return c
         return cols[0] if len(cols) else ""
 
-    overlay_candidates = cols[cols.str.contains("OverlayV2_20d|AdjustedScore_20d", regex=True)]
-
     if mode == "ml_only":
-        return first_available([
-            "ML_20d_Prob",
-            "ML_20d_Prob_live_v3",
-            "ML_20d_Prob_raw",
-            "FinalScore_20d",
-            "FinalScore",
-        ])
-    if mode == "hybrid_overlay" and len(overlay_candidates):
-        return overlay_candidates[0]
-    if mode in {"hybrid", "hybrid_overlay"}:
-        return first_available([
-            "FinalScore_20d",
-            "HybridFinalScore_20d",
-            "FinalScore",
-        ])
-    # Fallbacks (legacy/tech-only or missing ML)
-    return first_available([
-        "FinalScore_20d",
-        "FinalScore",
-        "HybridFinalScore_20d",
-        "TechScore_20d_v2",
-        "TechScore_20d",
-    ])
+        return first_available(["ML_20d_Prob", "ML_20d_Prob_live_v3", "ML_20d_Prob_raw", "FinalScore_20d", "FinalScore"])
 
+    overlay = cols[cols.str.contains("OverlayV2_20d|AdjustedScore_20d", regex=True)]
+    if mode == "hybrid_overlay" and len(overlay):
+        return overlay[0]
+
+    if mode in {"hybrid", "hybrid_overlay"}:
+        return first_available(["FinalScore_20d", "HybridFinalScore_20d", "FinalScore"])
+
+    return first_available(["FinalScore_20d", "FinalScore", "HybridFinalScore_20d", "TechScore_20d_v2", "TechScore_20d"])
+
+
+# ============================================================================
+# Health / diagnostics
+# ============================================================================
 
 def get_ml_health_meta() -> Dict[str, Any]:
-    """Return ML health meta fields for pipeline.
-
-    Fields:
-      - ml_bundle_version_warning: bool
-      - ml_bundle_warning_reason: Optional[str]
-      - ml_degraded: bool (true if bundle missing features or unavailable)
-      - ml_missing_features: List[str]
-    """
+    """Return ML health metadata for pipeline diagnostics."""
     try:
-        degraded = (not ML_20D_AVAILABLE) or BUNDLE_HAS_MISSING_METEOR_FEATURES or bool(ML_VERSION_WARNING)
+        degraded = (
+            (not ML_20D_AVAILABLE)
+            or BUNDLE_HAS_MISSING_METEOR_FEATURES
+            or bool(ML_VERSION_WARNING)
+        )
         return {
             "ml_bundle_version_warning": bool(ML_VERSION_WARNING),
             "ml_bundle_warning_reason": ML_VERSION_WARNING_REASON,
             "ml_degraded": bool(degraded),
             "ml_missing_features": list(ML_MISSING_FEATURES or []),
-            "ml_required_features_count": int(len(FEATURE_COLS_20D or [])),
+            "ml_required_features_count": len(FEATURE_COLS_20D or []),
+            "ml_auc": BUNDLE_AUC,
+            "ml_weight_multiplier": get_ml_weight_multiplier(),
         }
     except Exception:
         return {
@@ -462,4 +530,6 @@ def get_ml_health_meta() -> Dict[str, Any]:
             "ml_degraded": not ML_20D_AVAILABLE,
             "ml_missing_features": [],
             "ml_required_features_count": 0,
+            "ml_auc": None,
+            "ml_weight_multiplier": 1.0,
         }

@@ -148,9 +148,17 @@ def _process_single_ticker(
         # Fallback to legacy logic (explicit, tracked)
         try:
             ml_meta = get_ml_health_meta()
-            ml_enable = bool(ML_20D_AVAILABLE) and not bool(
-                ml_meta.get("ml_bundle_version_warning")
-            )
+            # Enable ML if the model loaded successfully. A sklearn version
+            # mismatch is only a warning — the model still produces valid
+            # predictions in virtually all cases.  Disabling ML here caused
+            # every ticker to fall back to ML_20d_Prob = 0.5.
+            ml_enable = bool(ML_20D_AVAILABLE)
+            if ml_meta.get("ml_bundle_version_warning"):
+                logger.info(
+                    "ML bundle version mismatch detected (%s) — continuing "
+                    "with ML enabled (predictions are usually still valid).",
+                    ml_meta.get("ml_bundle_warning_reason", "unknown"),
+                )
         except (AttributeError, KeyError, TypeError):
             ml_enable = bool(ML_20D_AVAILABLE)
         rec_series = compute_recommendation_scores(
@@ -173,6 +181,16 @@ def _process_single_ticker(
         bw_signal = compute_big_winner_signal_20d(row_indicators)
         patt_eval = PatternMatcher.evaluate_stock(row_indicators)
 
+        # Extract RR and regime for scoring gates (must propagate!)
+        _rr_val = None
+        try:
+            _rr_raw = row_indicators.get("RR")
+            if _rr_raw is not None and pd.notna(_rr_raw):
+                _rr_val = float(_rr_raw)
+        except (TypeError, ValueError):
+            pass
+        _regime = rec_series.get("Market_Regime")
+
         final_score, breakdown = compute_final_score_with_patterns(
             tech_score=float(rec_series.get("TechScore_20d", 0.0)),
             fundamental_score=float(rec_series.get("Fundamental_Score", 0.0)),
@@ -181,6 +199,8 @@ def _process_single_ticker(
             pattern_score=float(patt_eval.get("pattern_score", 0.0)),
             bw_weight=0.10,
             pattern_weight=0.10,
+            market_regime=_regime,
+            rr_ratio=_rr_val,
         )
 
         rec_series["FinalScore_20d"] = float(final_score)
@@ -190,6 +210,10 @@ def _process_single_ticker(
         rec_series["Score_Breakdown_Patterns"] = breakdown
     except Exception as exc:
         logger.debug(f"Pattern/BW enhancement failed for {tkr}: {exc}")
+
+    # NOTE: RR gate is applied in runner.py AFTER _compute_rr_for_row sets
+    # the actual Risk/Reward ratio. At this point, row_indicators["RR"] is
+    # a technical indicator, not the final R/R ratio.
 
     # Ensure SignalReasons / SignalQuality exist even when using bridge path
     try:
@@ -287,7 +311,7 @@ def _step_compute_scores_with_unified_logic(
         status_callback("Computing technical indicators (parallel)...")
 
     rows: List[pd.Series] = []
-    max_workers = min(10, max(1, len(data_map)))
+    max_workers = min(16, max(1, len(data_map)))  # Increased for larger universes
     batch_size = max(10, max_workers * 2)
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_map: dict = {}
