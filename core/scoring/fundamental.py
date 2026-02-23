@@ -378,20 +378,24 @@ def compute_fundamental_score_with_breakdown(data: dict[str, object], coverage_p
     )
     
     # === Coverage Adjustments ===
-    # Low coverage limits max score to prevent overconfidence
-    # Also apply small penalty for single-source fundamentals
-    if coverage_pct < 0.25:  # Very low coverage: cap at 40
-        total = min(total, 40.0)
-    elif coverage_pct < 0.40:  # Low coverage: cap at 50
-        total = min(total, 50.0)
-    elif coverage_pct < 0.60:  # Moderate coverage: cap at 65
-        total = min(total, 65.0)
-    
-    # Single-source penalty: reduce by 5%
+    # Low coverage limits max score to prevent overconfidence, but we allow
+    # reasonable scores when partial data is available.  Previous caps were
+    # too tight (40/50/65), compressing the entire distribution into a
+    # narrow 43-73 band.  Relaxed caps still prevent wild over-scoring
+    # while allowing real differentiation between strong & weak fundamentals.
+    if coverage_pct < 0.15:  # Almost no data: cap at 45
+        total = min(total, 45.0)
+    elif coverage_pct < 0.30:  # Very low coverage: cap at 60
+        total = min(total, 60.0)
+    elif coverage_pct < 0.50:  # Low-moderate coverage: cap at 75
+        total = min(total, 75.0)
+    # 50%+ coverage: no cap — let the actual data drive the score
+
+    # Single-source penalty: reduce by 3% (was 5% — too harsh)
     if sources_count == 1:
-        total = total * 0.95
+        total = total * 0.97
     elif sources_count == 0:  # No sources: use very conservative score
-        total = min(total, 35.0)
+        total = min(total, 40.0)
     
     return FundamentalScore(
         total=float(np.clip(total, 0, 100)),
