@@ -243,7 +243,8 @@ def build_row_from_multi_source(
     # === PORTFOLIO ALLOCATION FIELDS ===
     # Placeholders for downstream allocation logic
     row["Risk_Level"] = "speculative"  # Default, may be updated by filters
-    row["Quality_Level"] = "medium"
+    # Set Quality_Level from actual fundamental quality label (if computed)
+    row["Quality_Level"] = str(row.get("Quality_Label", "Medium")).lower()
     row["סכום קנייה ($)"] = np.nan  # Hebrew column name as used in live app
     row["Unit_Price"] = row.get("Close")  # Alias for price
     

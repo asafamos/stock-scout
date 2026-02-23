@@ -199,7 +199,7 @@ def run_preflight(timeout: float = 3.0) -> Dict[str, Dict[str, any]]:
     counts = {
         "price_active": len(active_price),
         "fund_active": len(active_fundamentals),
-        "total_providers": 11,
+        "total_providers": 9,  # Actual provider count (was 11 erroneously)
     }
     if counts["price_active"] == 0:
         scan_status = "BLOCKED"

@@ -182,6 +182,7 @@ _PROVIDER_DISABLED: Dict[str, bool] = {
 
 # Session-level endpoint-category blacklist (e.g., "fmp:fundamentals")
 DISABLED_PROVIDERS: set[str] = set()
+_DISABLED_PROVIDERS_LOCK = threading.Lock()  # guards DISABLED_PROVIDERS and _PROVIDER_DISABLED
 
 _FMP_KEY_METRICS_RESTRICTED_MSG_SHOWN: bool = False
 _PRIMARY_FUND_ROTATE: int = 0  # round-robin between finnhub and alpha
@@ -189,7 +190,8 @@ def disable_provider_category(provider: str, category: str) -> None:
     """Disable a specific category (e.g. 'price', 'fundamentals') for a provider."""
     try:
         key = f"{provider.lower()}:{category.lower()}"
-        DISABLED_PROVIDERS.add(key)
+        with _DISABLED_PROVIDERS_LOCK:
+            DISABLED_PROVIDERS.add(key)
         logger.warning(f"Disabled provider category: {key}")
     except Exception as e:
         logger.error(f"Failed to disable provider category {provider}:{category}: {e}")
@@ -198,7 +200,8 @@ def disable_provider(provider: str) -> None:
     """Disable an entire provider for the session."""
     try:
         p = provider.lower()
-        _PROVIDER_DISABLED[p] = True
+        with _DISABLED_PROVIDERS_LOCK:
+            _PROVIDER_DISABLED[p] = True
         logger.warning(f"Disabled provider completely: {p}")
     except Exception as e:
         logger.error(f"Failed to disable provider {provider}: {e}")
@@ -1103,15 +1106,14 @@ def fetch_fundamentals_eodhd(ticker: str, provider_status: Dict | None = None) -
     params = {"api_token": (EODHD_KEY_RUNTIME or EODHD_API_KEY), "fmt": "json"}
     start = time.time()
     try:
-        resp = requests.get(url, params=params, timeout=4)
-        if resp.status_code in (401, 403):
-            disable_provider_category("eodhd", "fundamentals")
-            record_api_call("EODHD", "fundamentals", "http_forbidden", time.time()-start, {"ticker": ticker})
+        data = _http_get_with_retry(url, params=params, timeout=5, provider="EODHD", capability="fundamentals")
+        if data is None:
+            record_api_call("EODHD", "fundamentals", "empty", time.time()-start, {"ticker": ticker})
             return None
-        if resp.status_code != 200:
-            record_api_call("EODHD", "fundamentals", f"http_{resp.status_code}", time.time()-start, {"ticker": ticker})
+        if not isinstance(data, dict):
+            record_api_call("EODHD", "fundamentals", "invalid_response", time.time()-start, {"ticker": ticker})
             return None
-        data = resp.json() if resp.content else None
+        record_api_call("EODHD", "fundamentals", "ok", time.time()-start, {"ticker": ticker})
     except Exception as e:
         record_api_call("EODHD", "fundamentals", "exception", time.time()-start, {"ticker": ticker, "error": str(e)[:200]})
         return None
@@ -1144,8 +1146,13 @@ def fetch_fundamentals_eodhd(ticker: str, provider_status: Dict | None = None) -
 
 
 def fetch_fundamentals_simfin(ticker: str, provider_status: Dict | None = None) -> Optional[Dict]:
-    """Fetch fundamentals from SimFin (secondary group)."""
-    # Preflight advisory only; proceed if key present
+    """Fetch fundamentals from SimFin (secondary group).
+
+    SimFin v2 API returns data as parallel arrays: a ``columns`` list and
+    a ``data`` list-of-lists.  We fetch both the income statement (``pl``)
+    and the balance sheet (``bs``) for the trailing-twelve-months period
+    and extract the fields we need.
+    """
     SIMFIN_KEY_RUNTIME = get_secret("SIMFIN_API_KEY", os.getenv("SIMFIN_API_KEY", ""))
     if not (SIMFIN_KEY_RUNTIME or SIMFIN_API_KEY) or ("simfin:fundamentals" in DISABLED_PROVIDERS):
         return None
@@ -1154,46 +1161,105 @@ def fetch_fundamentals_simfin(ticker: str, provider_status: Dict | None = None) 
     if cached:
         return cached
     _rate_limit("simfin")
-    # Note: SimFin API specifics vary; implement a guarded request to a common endpoint.
-    url = "https://simfin.com/api/v2/companies/statements"
-    params = {
-        "api-key": (SIMFIN_KEY_RUNTIME or SIMFIN_API_KEY),
-        "ticker": ticker,
-        "statement": "pl",
-        "period": "ttm",
-        "fyear": datetime.utcnow().year,
-    }
-    start = time.time()
-    try:
-        data = _http_get_with_retry(url, params=params, timeout=5, provider="SIMFIN", capability="fundamentals")
-        status = "ok" if isinstance(data, dict) else ("empty" if data is None else "empty")
-        record_api_call("SimFin", "statements", status, time.time()-start, {"ticker": ticker})
-        if not data:
-            return None
-    except Exception as e:
-        record_api_call("SimFin", "statements", "exception", time.time()-start, {"ticker": ticker, "error": str(e)[:200]})
-        return None
-    # Best-effort parse; if structure unknown, return None gracefully
-    try:
-        # Simplified extraction; real mapping would depend on API response schema
-        result = {
-            "source": "simfin",
-            "pe": None,
-            "ps": None,
-            "pb": None,
-            "roe": None,
-            "margin": None,
-            "market_cap": None,
-            "beta": None,
-            "debt_equity": None,
-            "rev_yoy": None,
-            "eps_yoy": None,
-            "timestamp": time.time(),
+
+    api_key = SIMFIN_KEY_RUNTIME or SIMFIN_API_KEY
+
+    def _simfin_row(statement: str) -> Optional[Dict]:
+        """Fetch one SimFin statement and return as a flat dict."""
+        url = "https://simfin.com/api/v2/companies/statements"
+        params = {
+            "api-key": api_key,
+            "ticker": ticker,
+            "statement": statement,
+            "period": "ttm",
+            "fyear": datetime.utcnow().year,
         }
-        _put_in_cache(cache_key, result)
-        return result
-    except (requests.RequestException, ValueError, KeyError):
+        try:
+            resp_data = _http_get_with_retry(
+                url, params=params, timeout=6,
+                provider="SIMFIN", capability="fundamentals",
+            )
+            if not resp_data:
+                return None
+            # SimFin v2 format: [{"columns": [...], "data": [[...]]}]
+            if isinstance(resp_data, list) and len(resp_data) > 0:
+                entry = resp_data[0] if isinstance(resp_data[0], dict) else resp_data
+            elif isinstance(resp_data, dict):
+                entry = resp_data
+            else:
+                return None
+            columns = entry.get("columns", [])
+            rows = entry.get("data", [])
+            if not columns or not rows:
+                return None
+            # Use the last (most recent) row
+            row_vals = rows[-1] if isinstance(rows[-1], list) else rows[0]
+            return dict(zip(columns, row_vals))
+        except Exception:
+            return None
+
+    start = time.time()
+    pl_row = _simfin_row("pl")
+    bs_row = _simfin_row("bs")
+    elapsed = time.time() - start
+
+    if not pl_row and not bs_row:
+        record_api_call("SimFin", "statements", "empty", elapsed, {"ticker": ticker})
         return None
+
+    record_api_call("SimFin", "statements", "ok", elapsed, {"ticker": ticker})
+
+    def _safe_float(d: Optional[Dict], *keys):
+        if d is None:
+            return None
+        for k in keys:
+            v = d.get(k)
+            if v is not None:
+                try:
+                    fv = float(v)
+                    if np.isfinite(fv):
+                        return fv
+                except (TypeError, ValueError):
+                    pass
+        return None
+
+    # Extract fields from income statement and balance sheet
+    revenue = _safe_float(pl_row, "Revenue", "Total Revenue")
+    net_income = _safe_float(pl_row, "Net Income", "Net Income (Common)")
+    total_equity = _safe_float(bs_row, "Total Equity", "Shareholders Equity")
+    total_debt = _safe_float(bs_row, "Total Debt", "Long Term Debt", "Total Liabilities")
+    shares = _safe_float(pl_row, "Shares (Diluted)", "Shares (Basic)")
+
+    # Derived metrics
+    margin = None
+    if revenue and net_income and revenue > 0:
+        margin = net_income / revenue
+
+    roe = None
+    if net_income and total_equity and total_equity > 0:
+        roe = net_income / total_equity
+
+    debt_equity = None
+    if total_debt is not None and total_equity and total_equity > 0:
+        debt_equity = total_debt / total_equity
+
+    result = {
+        "source": "simfin",
+        "pe": None,  # SimFin statements don't directly provide PE
+        "ps": None,
+        "pb": None,
+        "roe": roe,
+        "margin": margin,
+        "market_cap": None,  # Not available from statements
+        "beta": None,
+        "debt_equity": debt_equity,
+        "rev_yoy": None,  # Would need prior year data
+        "eps_yoy": None,
+        "timestamp": time.time(),
+    }
+
+    _put_in_cache(cache_key, result)
+    return result
 
 def get_prioritized_fetch_funcs(provider_status: Dict | None = None) -> List[Tuple[str, Any]]:
     """
@@ -1519,6 +1585,8 @@ def aggregate_fundamentals(
     aggregated["Fund_from_Finnhub"] = "finnhub" in sources_data
     aggregated["Fund_from_Tiingo"] = "tiingo" in sources_data
     aggregated["Fund_from_Alpha"] = "alpha" in sources_data
+    aggregated["Fund_from_EODHD"] = "eodhd" in sources_data
+    aggregated["Fund_from_SimFin"] = "simfin" in sources_data
 
     # Compute coverage percentage across fundamental fields
     covered_fields = sum(1 for f in fields if (f in aggregated and pd.notna(aggregated.get(f))) )

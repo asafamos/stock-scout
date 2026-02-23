@@ -684,8 +684,8 @@ def compute_advanced_score(
         boost += 0.05
 
     enhanced_score = float(np.clip(base_score + boost, 0.0, 1.0))
-    # Add a quality indicator on 0-100 scale compatible with pipeline
-    signals["quality_score"] = float(np.clip(boost * 100.0, 0.0, 50.0))
+    # Signal boost indicator on 0-100 scale (NOT fundamental quality)
+    signals["signal_boost_score"] = float(np.clip(boost * 100.0, 0.0, 50.0))
     return enhanced_score, signals
 
 

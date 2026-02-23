@@ -94,14 +94,21 @@ def apply_safety_filters(row: pd.Series, earnings_window_days: int = 7) -> Dict[
 # -----------------------------
 def assign_risk_class(row: pd.Series) -> str:
     """
-    Assign a simple risk class using FinalScore_20d and a few risk metrics.
+    Assign a simple risk class using FinalScore_20d and risk metrics.
 
     Returns one of: 'CORE', 'SPEC', 'REJECT'.
     Policy:
     - If safety filters block → 'REJECT'.
-    - Else if FinalScore_20d is high and volatility/beta are moderate → 'CORE'.
-    - Else if FinalScore_20d is decent → 'SPEC'.
+    - Else if FinalScore_20d >= 55, vol/beta moderate, and R/R >= 0.8 → 'CORE'.
+    - Else if FinalScore_20d >= 40 → 'SPEC'.
     - Else → 'REJECT'.
+
+    NOTE (2026-02-15): Added minimum R/R ratio check for CORE classification.
+    Stocks with very poor risk/reward (R/R < 0.8) are demoted to SPEC even
+    if their score and volatility qualify, since the downside exceeds the
+    upside significantly. The threshold of 0.8 is lenient enough to avoid
+    rejecting stocks with moderate setups but strict enough to filter out
+    clearly unfavorable risk profiles (e.g., R/R = 0.26).
     """
     safety = apply_safety_filters(row)
     if safety.get("blocked", False):
@@ -120,11 +127,21 @@ def assign_risk_class(row: pd.Series) -> str:
     vol_ok = (vol is None) or (isinstance(vol, (int, float)) and np.isfinite(vol) and vol <= 0.06)
     beta_ok = (beta is None) or (isinstance(beta, (int, float)) and np.isfinite(beta) and beta <= 1.6)
 
-    # Clear thresholds; adjust as needed based on backtests
-    # CORE: High quality stocks with strong scores (lowered from 65 to 55 for better balance)
+    # Risk/Reward gate for CORE (2026-02-15)
+    # Missing R/R is tolerated (rr_ok defaults True) to avoid penalizing data gaps.
+    # Only stocks with a *known* poor R/R are demoted.
+    rr = row.get("RR", row.get("RR_Ratio", row.get("RewardRisk", None)))
+    rr_ok = True  # default: pass if R/R data unavailable
+    try:
+        if rr is not None and isinstance(rr, (int, float)) and np.isfinite(rr):
+            rr_ok = float(rr) >= 0.8
+    except (TypeError, ValueError):
+        pass
+
+    # CORE: High quality stocks with strong scores, moderate risk, acceptable R/R
     # SPEC: Speculative but promising stocks
     # REJECT: Below threshold or blocked by safety filters
-    if np.isfinite(score_val) and score_val >= 55 and vol_ok and beta_ok:
+    if np.isfinite(score_val) and score_val >= 55 and vol_ok and beta_ok and rr_ok:
         return "CORE"
     if np.isfinite(score_val) and score_val >= 40:
         return "SPEC"

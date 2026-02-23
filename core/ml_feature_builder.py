@@ -1,8 +1,13 @@
 """
-ML Feature Builder - Builds all 34 features required by ML model v3.
+ML Feature Builder - Builds all 39 features required by ML model v3.1.
 
 This module provides the critical bridge between raw indicators and the ML model.
 It ensures all features are computed with EXACT names matching the model metadata.
+
+v3.1 changes:
+  - Removed: Market_Trend, Market_Volatility, High_Volatility (market-timing)
+  - Added: Vol_Contraction_Ratio, Squeeze_On_Flag, RS_vs_SPY_60d, RS_Momentum,
+           UpStreak_Days, DownStreak_Days, Range_Pct_10d, OvernightGap_Avg
 
 Usage:
     from core.ml_feature_builder import build_all_ml_features_v3
@@ -14,13 +19,15 @@ Usage:
         sector_context=sector_data,  # Optional
     )
 
-    # features is a dict with all 34 feature names ready for ML inference
+    # features is a dict with all 39 feature names ready for ML inference
 """
 
 import pandas as pd
 import numpy as np
 from typing import Dict, Optional, Any
 import logging
+
+from core.feature_registry import get_feature_names
 
 logger = logging.getLogger(__name__)
 
@@ -32,24 +39,16 @@ def build_all_ml_features_v3(
     sector_context: Optional[Dict[str, float]] = None,
 ) -> Dict[str, float]:
     """
-    Build all 34 ML features with exact names matching model_20d_v3.metadata.json.
+    Build all 39 ML features with exact names matching model v3.1.
 
     Args:
         row: Series with basic technical indicators from build_technical_indicators()
         df_hist: Historical OHLCV DataFrame for computing additional features
-        market_context: Optional dict with Market_Regime, Market_Volatility, Market_Trend, SPY_20d_ret
-        sector_context: Optional dict with Sector_RS, Sector_Momentum, Sector_Rank for this stock's sector
+        market_context: Optional dict with Market_Regime, SPY_20d_ret, SPY_60d_ret
+        sector_context: Optional dict with Sector_RS, Sector_Momentum, Sector_Rank
 
     Returns:
-        Dict with all 34 features named exactly as expected by the model:
-        RSI, ATR_Pct, Return_20d, Return_10d, Return_5d, VCP_Ratio, Tightness_Ratio,
-        Dist_From_52w_High, MA_Alignment, Volume_Surge, Up_Down_Volume_Ratio,
-        Momentum_Consistency, RS_vs_SPY_20d, Market_Regime, Market_Volatility,
-        Market_Trend, High_Volatility, Sector_RS, Sector_Momentum, Sector_Rank,
-        Volume_Ratio_20d, Volume_Trend, Up_Volume_Ratio, Volume_Price_Confirm,
-        Relative_Volume_Rank, Distance_From_52w_Low, Consolidation_Tightness,
-        Days_Since_52w_High, Price_vs_SMA50, Price_vs_SMA200, SMA50_vs_SMA200,
-        MA_Slope_20d, Distance_To_Resistance, Support_Strength
+        Dict with all 39 features named exactly as expected by the model.
     """
     features = {}
 
@@ -145,13 +144,19 @@ def build_all_ml_features_v3(
     if features['Volume_Surge'] == 1.0:
         features['Volume_Surge'] = safe_get('Volume_Surge_Ratio', 1.0)
 
-    # Up_Down_Volume_Ratio - compute from history
+    # Up_Down_Volume_Ratio - avg up-day volume / avg down-day volume (match training)
     try:
         if len(df_hist) >= 20:
-            price_change = close.diff()
-            up_vol = volume[price_change > 0].tail(20).sum()
-            down_vol = volume[price_change < 0].tail(20).sum()
-            features['Up_Down_Volume_Ratio'] = float(up_vol / down_vol) if down_vol > 0 else 1.0
+            daily_return = close.pct_change()
+            up_day = daily_return > 0
+            down_day = daily_return < 0
+            up_volume_sum = (volume * up_day).tail(20).sum()
+            down_volume_sum = (volume * down_day).tail(20).sum()
+            up_days_count = up_day.tail(20).sum()
+            down_days_count = down_day.tail(20).sum()
+            avg_up_vol = up_volume_sum / up_days_count if up_days_count > 0 else 0.0
+            avg_down_vol = down_volume_sum / down_days_count if down_days_count > 0 else 1.0
+            features['Up_Down_Volume_Ratio'] = float(avg_up_vol / avg_down_vol) if avg_down_vol > 0 else 1.0
         else:
             features['Up_Down_Volume_Ratio'] = 1.0
     except Exception:
@@ -161,7 +166,7 @@ def build_all_ml_features_v3(
     features['Momentum_Consistency'] = safe_get('MomCons', 0.5)
 
     # ========================================================================
-    # GROUP 4: RELATIVE STRENGTH (1 feature)
+    # GROUP 4: RELATIVE STRENGTH (3 features — expanded in v3.1)
     # ========================================================================
 
     # RS_vs_SPY_20d - requires market context
@@ -172,22 +177,31 @@ def build_all_ml_features_v3(
     else:
         features['RS_vs_SPY_20d'] = 0.0  # Neutral default
 
+    # RS_vs_SPY_60d - longer-horizon relative strength
+    try:
+        if len(close) >= 60:
+            stock_ret_60d = float(close.iloc[-1] / close.iloc[-60] - 1.0) if close.iloc[-60] != 0 else 0.0
+        else:
+            stock_ret_60d = 0.0
+        if market_context and 'SPY_60d_ret' in market_context:
+            spy_ret_60d = market_context['SPY_60d_ret']
+            features['RS_vs_SPY_60d'] = stock_ret_60d - spy_ret_60d if pd.notna(spy_ret_60d) else 0.0
+        else:
+            features['RS_vs_SPY_60d'] = 0.0
+    except Exception:
+        features['RS_vs_SPY_60d'] = 0.0
+
+    # RS_Momentum - acceleration of relative strength (20d RS - 60d RS)
+    features['RS_Momentum'] = features['RS_vs_SPY_20d'] - features['RS_vs_SPY_60d']
+
     # ========================================================================
-    # GROUP 5: MARKET REGIME (4 features)
+    # GROUP 5: MARKET REGIME (1 feature — v3.1 stripped market-timing)
     # ========================================================================
 
     if market_context:
         features['Market_Regime'] = market_context.get('Market_Regime', 0.0)
-        features['Market_Volatility'] = market_context.get('Market_Volatility', 0.15)
-        features['Market_Trend'] = market_context.get('Market_Trend', 0.0)
     else:
         features['Market_Regime'] = 0.0  # Neutral
-        features['Market_Volatility'] = 0.15  # Average
-        features['Market_Trend'] = 0.0  # Flat
-
-    # High_Volatility - based on ATR percentile
-    atr_pct = features['ATR_Pct']
-    features['High_Volatility'] = 1.0 if atr_pct > 0.04 else 0.0  # Above 4% is high vol
 
     # ========================================================================
     # GROUP 6: SECTOR RELATIVE (3 features)
@@ -216,13 +230,16 @@ def build_all_ml_features_v3(
     except Exception:
         features['Volume_Ratio_20d'] = 1.0
 
-    # Volume_Trend - OBV slope normalized
+    # Volume_Trend - linear regression slope of volume normalized by mean (match training)
     try:
         if len(df_hist) >= 20:
-            price_change = close.diff()
-            obv = (np.sign(price_change) * volume).cumsum()
-            obv_slope = (obv.iloc[-1] - obv.iloc[-20]) / (obv.iloc[-20] if obv.iloc[-20] != 0 else 1)
-            features['Volume_Trend'] = float(np.clip(obv_slope, -1.0, 1.0))
+            vol_window = volume.tail(20).values
+            if len(vol_window) >= 20:
+                slope = np.polyfit(range(len(vol_window)), vol_window, 1)[0]
+                vol_mean = vol_window.mean()
+                features['Volume_Trend'] = float(slope / (vol_mean + 1e-8))
+            else:
+                features['Volume_Trend'] = 0.0
         else:
             features['Volume_Trend'] = 0.0
     except Exception:
@@ -240,22 +257,23 @@ def build_all_ml_features_v3(
     except Exception:
         features['Up_Volume_Ratio'] = 0.5
 
-    # Volume_Price_Confirm - price up AND volume up
+    # Volume_Price_Confirm - rolling 5d mean of (price_up & vol_up) binary (match training)
     try:
         if len(df_hist) >= 5:
-            price_up = close.iloc[-1] > close.iloc[-5]
-            vol_up = volume.iloc[-1] > volume.tail(20).mean()
-            features['Volume_Price_Confirm'] = 1.0 if (price_up and vol_up) else 0.0
+            price_up = close > close.shift(1)
+            vol_up = volume > volume.shift(1)
+            confirm = (price_up & vol_up).astype(float)
+            features['Volume_Price_Confirm'] = float(confirm.tail(5).mean())
         else:
             features['Volume_Price_Confirm'] = 0.5
     except Exception:
         features['Volume_Price_Confirm'] = 0.5
 
-    # Relative_Volume_Rank - volume percentile vs 60d
+    # Relative_Volume_Rank - pd.rank(pct=True) on rolling 60d window (match training)
     try:
         if len(volume) >= 60:
-            vol_pctile = (volume.tail(60) <= volume.iloc[-1]).sum() / 60
-            features['Relative_Volume_Rank'] = float(vol_pctile)
+            vol_window = volume.tail(60)
+            features['Relative_Volume_Rank'] = float(vol_window.rank(pct=True).iloc[-1])
         else:
             features['Relative_Volume_Rank'] = 0.5
     except Exception:
@@ -334,14 +352,14 @@ def build_all_ml_features_v3(
     except Exception:
         features['SMA50_vs_SMA200'] = 0.0
 
-    # MA_Slope_20d - slope of 20d MA
+    # MA_Slope_20d - 20d delta of MA20 (match training: ma20.diff(20) / ma20.shift(20))
     try:
-        if len(close) >= 25:
+        if len(close) >= 40:  # Need 20 for MA + 20 for diff
             ma20_series = close.rolling(20).mean()
             ma_now = ma20_series.iloc[-1]
-            ma_5d_ago = ma20_series.iloc[-5]
-            if pd.notna(ma_now) and pd.notna(ma_5d_ago) and ma_5d_ago > 0:
-                features['MA_Slope_20d'] = float((ma_now - ma_5d_ago) / ma_5d_ago)
+            ma_20d_ago = ma20_series.iloc[-20]
+            if pd.notna(ma_now) and pd.notna(ma_20d_ago) and ma_20d_ago > 0:
+                features['MA_Slope_20d'] = float((ma_now - ma_20d_ago) / ma_20d_ago)
             else:
                 features['MA_Slope_20d'] = 0.0
         else:
@@ -360,12 +378,12 @@ def build_all_ml_features_v3(
     except Exception:
         features['Distance_To_Resistance'] = 0.05
 
-    # Support_Strength - fraction of days near support (within 5% of 20d low)
+    # Support_Strength - fraction of days near support (within 2% of 20d low, match training)
     try:
         if len(df_hist) >= 20:
             low_20 = low.tail(20).min()
-            support_threshold = low_20 * 1.05
-            days_near_support = (close.tail(20) <= support_threshold).sum()
+            support_threshold = low_20 * 1.02  # Training uses 1.02, not 1.05
+            days_near_support = (low.tail(20) <= support_threshold).sum()  # Training uses Low, not Close
             features['Support_Strength'] = float(days_near_support / 20)
         else:
             features['Support_Strength'] = 0.2
@@ -373,25 +391,113 @@ def build_all_ml_features_v3(
         features['Support_Strength'] = 0.2
 
     # ========================================================================
-    # VALIDATION: Ensure all 34 features exist with valid values
+    # GROUP 9: VOLATILITY ADDITIONS (v3.1 — 2 features)
     # ========================================================================
 
-    expected_features = [
-        'RSI', 'ATR_Pct', 'Return_20d', 'Return_10d', 'Return_5d',
-        'VCP_Ratio', 'Tightness_Ratio', 'Dist_From_52w_High', 'MA_Alignment',
-        'Volume_Surge', 'Up_Down_Volume_Ratio', 'Momentum_Consistency',
-        'RS_vs_SPY_20d', 'Market_Regime', 'Market_Volatility', 'Market_Trend',
-        'High_Volatility', 'Sector_RS', 'Sector_Momentum', 'Sector_Rank',
-        'Volume_Ratio_20d', 'Volume_Trend', 'Up_Volume_Ratio', 'Volume_Price_Confirm',
-        'Relative_Volume_Rank', 'Distance_From_52w_Low', 'Consolidation_Tightness',
-        'Days_Since_52w_High', 'Price_vs_SMA50', 'Price_vs_SMA200', 'SMA50_vs_SMA200',
-        'MA_Slope_20d', 'Distance_To_Resistance', 'Support_Strength'
-    ]
+    # Vol_Contraction_Ratio: ATR(20) / ATR(50) — tighter = breakout setup
+    try:
+        if len(df_hist) >= 50:
+            tr_series = pd.concat([
+                high - low,
+                (high - close.shift(1)).abs(),
+                (low - close.shift(1)).abs(),
+            ], axis=1).max(axis=1)
+            atr_20 = tr_series.rolling(20).mean().iloc[-1]
+            atr_50 = tr_series.rolling(50).mean().iloc[-1]
+            features['Vol_Contraction_Ratio'] = float(atr_20 / atr_50) if atr_50 > 0 else 1.0
+        else:
+            features['Vol_Contraction_Ratio'] = 1.0
+    except Exception:
+        features['Vol_Contraction_Ratio'] = 1.0
+
+    # Squeeze_On_Flag: Bollinger Bands inside Keltner Channels (pre-breakout)
+    try:
+        if len(close) >= 20:
+            ma20_val = close.rolling(20).mean().iloc[-1]
+            bb_std = close.rolling(20).std().iloc[-1]
+            bb_upper = ma20_val + 2 * bb_std
+            bb_lower = ma20_val - 2 * bb_std
+            # Need ATR_20 for Keltner
+            tr_series = pd.concat([
+                high - low,
+                (high - close.shift(1)).abs(),
+                (low - close.shift(1)).abs(),
+            ], axis=1).max(axis=1)
+            kc_atr = tr_series.rolling(20).mean().iloc[-1]
+            kc_upper = ma20_val + 1.5 * kc_atr
+            kc_lower = ma20_val - 1.5 * kc_atr
+            features['Squeeze_On_Flag'] = 1.0 if (bb_upper < kc_upper and bb_lower > kc_lower) else 0.0
+        else:
+            features['Squeeze_On_Flag'] = 0.0
+    except Exception:
+        features['Squeeze_On_Flag'] = 0.0
+
+    # ========================================================================
+    # GROUP 10: STREAK & PATTERN FEATURES (v3.1 — 4 features)
+    # ========================================================================
+
+    # UpStreak_Days: consecutive up-close days (capped at 10)
+    try:
+        # Check if already computed by build_technical_indicators
+        up_streak = safe_get('UpStreak_Days', np.nan)
+        if pd.notna(up_streak):
+            features['UpStreak_Days'] = min(float(up_streak), 10.0)
+        elif len(close) >= 2:
+            up_close = (close > close.shift(1)).astype(int)
+            streak_break = (up_close == 0).cumsum()
+            streaks = up_close.groupby(streak_break).cumsum()
+            features['UpStreak_Days'] = min(float(streaks.iloc[-1]), 10.0)
+        else:
+            features['UpStreak_Days'] = 0.0
+    except Exception:
+        features['UpStreak_Days'] = 0.0
+
+    # DownStreak_Days: consecutive down-close days (capped at 10)
+    try:
+        down_streak = safe_get('DownStreak_Days', np.nan)
+        if pd.notna(down_streak):
+            features['DownStreak_Days'] = min(float(down_streak), 10.0)
+        elif len(close) >= 2:
+            down_close = (close < close.shift(1)).astype(int)
+            streak_break = (down_close == 0).cumsum()
+            streaks = down_close.groupby(streak_break).cumsum()
+            features['DownStreak_Days'] = min(float(streaks.iloc[-1]), 10.0)
+        else:
+            features['DownStreak_Days'] = 0.0
+    except Exception:
+        features['DownStreak_Days'] = 0.0
+
+    # Range_Pct_10d: average intraday range as pct of close (10d)
+    try:
+        if len(df_hist) >= 10:
+            intraday_range = (high - low) / close.replace(0, np.nan)
+            features['Range_Pct_10d'] = float(intraday_range.tail(10).mean())
+        else:
+            features['Range_Pct_10d'] = 0.02
+    except Exception:
+        features['Range_Pct_10d'] = 0.02
+
+    # OvernightGap_Avg: average overnight gap pct over 5 days
+    try:
+        open_col = df_hist['Open'] if 'Open' in df_hist.columns else close
+        if len(df_hist) >= 6:
+            overnight_gap = (open_col - close.shift(1)) / close.shift(1).replace(0, np.nan)
+            features['OvernightGap_Avg'] = float(overnight_gap.tail(5).mean())
+        else:
+            features['OvernightGap_Avg'] = 0.0
+    except Exception:
+        features['OvernightGap_Avg'] = 0.0
+
+    # ========================================================================
+    # VALIDATION: Ensure all 39 features exist with valid values
+    # ========================================================================
+
+    expected_features = get_feature_names("v3.1")
 
     # Import defaults from registry
     try:
         from core.feature_registry import get_feature_defaults
-        defaults = get_feature_defaults("v3")
+        defaults = get_feature_defaults("v3.1")
     except Exception:
         defaults = {}
 
@@ -403,7 +509,7 @@ def build_all_ml_features_v3(
     # Clip to valid ranges
     try:
         from core.feature_registry import get_feature_ranges
-        ranges = get_feature_ranges("v3")
+        ranges = get_feature_ranges("v3.1")
         for feat, (lo, hi) in ranges.items():
             if feat in features:
                 features[feat] = float(np.clip(features[feat], lo, hi))
@@ -425,9 +531,8 @@ def get_market_context_from_row(row: pd.Series) -> Dict[str, float]:
     """
     context = {
         'Market_Regime': 0.0,
-        'Market_Volatility': 0.15,
-        'Market_Trend': 0.0,
         'SPY_20d_ret': 0.0,
+        'SPY_60d_ret': 0.0,
     }
 
     # Try to extract from row
