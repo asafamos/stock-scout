@@ -1,5 +1,6 @@
 {
   "sklearn_version": "1.8.0",
+  "feature_version": "v3.1",
   "feature_list": [
     "RSI",
     "ATR_Pct",
@@ -10,14 +11,15 @@
     "Tightness_Ratio",
     "Dist_From_52w_High",
     "MA_Alignment",
+    "Vol_Contraction_Ratio",
+    "Squeeze_On_Flag",
     "Volume_Surge",
     "Up_Down_Volume_Ratio",
     "Momentum_Consistency",
     "RS_vs_SPY_20d",
+    "RS_vs_SPY_60d",
+    "RS_Momentum",
     "Market_Regime",
-    "Market_Volatility",
-    "Market_Trend",
-    "High_Volatility",
     "Sector_RS",
     "Sector_Momentum",
     "Sector_Rank",
@@ -34,15 +36,21 @@
     "SMA50_vs_SMA200",
     "MA_Slope_20d",
     "Distance_To_Resistance",
-    "Support_Strength"
+    "Support_Strength",
+    "UpStreak_Days",
+    "DownStreak_Days",
+    "Range_Pct_10d",
+    "OvernightGap_Avg"
   ],
-  "training_timestamp_utc": "2026-02-06T22:57:36.184736",
-  "model_type": "CalibratedEnsemble(HistGB+RF+LR)",
+  "training_timestamp_utc": "2026-02-15T13:59:11.784064",
+  "model_type": "Ensemble(HistGB+RF+LR, no calibration)",
+  "cv_method": "PurgedWalkForwardCV(embargo=20d, expanding_window)",
+  "target": "Forward_Return_20d >= 5%",
   "metrics": {
-    "oos_auc": 0.5524723204717538,
-    "cv_auc_mean": 0.5524723204717538,
-    "cv_auc_std": 0.01840444452321415,
-    "precision_at_20": 0.45,
-    "note": "Trained on 34 features (113361 samples)"
+    "oos_auc": 0.5533919090984801,
+    "cv_auc_mean": 0.5533919090984801,
+    "cv_auc_std": 0.01563324003230618,
+    "precision_at_20": 0.43999999999999995,
+    "note": "Trained on 39 features (560420 samples)"
   }
 }

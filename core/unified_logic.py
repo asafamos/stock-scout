@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 
 from core.classifier import apply_classification
+from core.pattern_matcher import PatternMatcher
 from core.scoring_engine import (
     calculate_reliability_score,
     calculate_risk_meter,

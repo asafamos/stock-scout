@@ -711,7 +711,7 @@ else:
                             })
                     if filtered_rows:
                         with st.expander("Filtered Out (Tier 1)", expanded=False):
-                            st.dataframe(pd.DataFrame(filtered_rows), use_container_width=True)
+                            st.dataframe(pd.DataFrame(filtered_rows), width="stretch")
             except Exception as e:
                 logger.debug("_fmt_reason: %s", e)
             if used_fb:

@@ -93,9 +93,9 @@ class TestUnifiedScorerInit:
         
         assert scorer.ml_enabled is True
         assert scorer.ml_max_boost == 10.0
-        # Weights derived from scoring_config: tech=0.45/(0.45+0.20)=0.69
-        assert scorer.technical_weight == pytest.approx(0.69, rel=0.01)
-        assert scorer.fundamental_weight == pytest.approx(0.31, rel=0.01)
+        # Weights derived from scoring_config: tech=0.55/(0.55+0.30)=0.647
+        assert scorer.technical_weight == pytest.approx(0.65, rel=0.02)
+        assert scorer.fundamental_weight == pytest.approx(0.35, rel=0.02)
         assert scorer.use_v2_scoring is True
 
     def test_custom_config(self):

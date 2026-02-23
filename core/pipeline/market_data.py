@@ -34,12 +34,14 @@ def _compute_global_market_context() -> Dict[str, float]:
         - Market_Volatility: VIX-based volatility (0.0-0.5)
         - Market_Trend: 1 if SPY > MA20 > MA50, else 0
         - SPY_20d_ret: SPY 20-day return
+        - SPY_60d_ret: SPY 60-day return (for RS_vs_SPY_60d / RS_Momentum)
     """
     context = {
         'Market_Regime': 0.0,
         'Market_Volatility': 0.15,
         'Market_Trend': 0.0,
         'SPY_20d_ret': 0.0,
+        'SPY_60d_ret': 0.0,
     }
     try:
         spy_df = get_benchmark_series("SPY", period="3mo")
@@ -54,6 +56,11 @@ def _compute_global_market_context() -> Dict[str, float]:
         if len(close) >= 20:
             spy_ret = (close.iloc[-1] / close.iloc[-20] - 1.0)
             context['SPY_20d_ret'] = float(spy_ret)
+
+        # Compute SPY 60d return (for RS_vs_SPY_60d / RS_Momentum in v3.1)
+        if len(close) >= 60:
+            spy_ret_60 = (close.iloc[-1] / close.iloc[-60] - 1.0)
+            context['SPY_60d_ret'] = float(spy_ret_60)
 
         # Market trend: SPY > MA20 > MA50
         ma20 = close.rolling(20).mean().iloc[-1]

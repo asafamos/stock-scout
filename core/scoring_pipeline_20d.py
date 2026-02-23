@@ -232,11 +232,23 @@ def score_universe_20d(
         # Build ALL 34 ML features using the new feature builder
         # This ensures proper name mapping and complete feature set
         market_ctx = get_market_context_from_row(row) if benchmark_df is not None else None
+
+        # Compute sector context for proper ML feature alignment
+        sector_ctx = None
+        try:
+            from core.pipeline.market_data import _get_sector_context_for_ticker
+            stock_20d_return = 0.0
+            if len(df_hist) >= 20:
+                stock_20d_return = float(df_hist["Close"].iloc[-1] / df_hist["Close"].iloc[-20] - 1.0)
+            sector_ctx = _get_sector_context_for_ticker(tkr, stock_20d_return)
+        except Exception:
+            pass  # Graceful degradation: defaults (0, 0, 0.5) via feature builder
+
         ml_features = build_all_ml_features_v3(
             row=row,
             df_hist=df_hist,
             market_context=market_ctx,
-            sector_context=None,  # TODO: Add sector context when available
+            sector_context=sector_ctx,
         )
 
         # Add all ML features to rec (these will be passed to compute_ml_20d_probabilities_raw)

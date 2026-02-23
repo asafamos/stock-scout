@@ -30,7 +30,7 @@ def test_full_inference_and_risk_flow():
     tf = engine.make_features(raw)
     decision = risk.evaluate(tf, mo)
 
-    assert decision.action in {Action.BUY, Action.REJECT}
+    assert decision.action in {Action.BUY, Action.HOLD, Action.REDUCE, Action.REJECT}
 
     # Rejection case: low liquidity
     raw_low = dict(raw)

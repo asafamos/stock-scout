@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Any, Dict, List
 
+import numpy as np
+
 from core.interfaces import (
     Action,
     TickerFeatures,
@@ -17,14 +19,26 @@ class RiskEngine:
     def __init__(self) -> None:
         pass
 
+    # ------------------------------------------------------------------
+    # Action thresholds (conviction 0-100)
+    # ------------------------------------------------------------------
+    BUY_THRESHOLD = 65.0       # conviction >= 65 → BUY
+    HOLD_THRESHOLD = 45.0      # conviction >= 45 → HOLD (watch list)
+    # below HOLD_THRESHOLD      → REDUCE  (marginal / risky)
+    # hard rejections            → REJECT
+
     def evaluate(self, features: TickerFeatures, model_output: ModelOutput) -> TradeDecision:
         """Apply risk rules and produce a TradeDecision.
 
         Rules:
         1. Hard Rejection: Low Liquidity if volume_avg (fallback to volume) < 200,000
         2. Hard Rejection: Earnings Risk if days_to_earnings < 3
-        3. Penalty: High Volatility if atr_pct_raw > 0.05 -> conviction -20, add penalty tag
-        4. Sizing: conviction (0-100) derived from model_output.prediction_prob minus penalties
+        3. Penalty: High Volatility if atr_pct_raw > 0.05 -> conviction -20
+        4. Penalty: Very High Volatility if atr_pct_raw > 0.08 -> conviction -35
+        5. Penalty: Extreme beta (> 1.8) -> conviction -10
+        6. Penalty: Poor R/R ratio (< 1.0) -> conviction -15
+        7. Action determined by conviction thresholds (BUY/HOLD/REDUCE)
+        8. Sizing: quantity scaled by conviction
         """
         rm: Dict[str, Any] = features.risk_metadata or {}
 
@@ -48,6 +62,18 @@ class RiskEngine:
             atr_val = float(atr_pct_raw) if atr_pct_raw is not None else 0.0
         except Exception:
             atr_val = 0.0
+
+        beta = rm.get("beta")
+        try:
+            beta_val = float(beta) if beta is not None else 1.0
+        except Exception:
+            beta_val = 1.0
+
+        rr_ratio = rm.get("rr_ratio", rm.get("RR", rm.get("RewardRisk")))
+        try:
+            rr_val = float(rr_ratio) if rr_ratio is not None else np.nan
+        except Exception:
+            rr_val = np.nan
 
         risk_penalties: List[str] = []
         active_filters: List[str] = []
@@ -104,31 +130,75 @@ class RiskEngine:
             earnings_adjustment = 3.0
             active_filters.append("pre_earnings_run")
 
-        # Volatility penalty
+        # Volatility penalty (graduated)
         conviction_penalty = 0.0
-        if atr_val > 0.05:
+        if atr_val > 0.08:
+            conviction_penalty += 35.0
+            risk_penalties.append("Extreme Volatility")
+            active_filters.append("volatility_penalty")
+        elif atr_val > 0.05:
             conviction_penalty += 20.0
             risk_penalties.append("High Volatility")
             active_filters.append("volatility_penalty")
+        elif atr_val > 0.04:
+            conviction_penalty += 8.0
+            risk_penalties.append("Elevated Volatility")
+            active_filters.append("volatility_penalty")
+
+        # Beta penalty
+        if beta_val > 1.8:
+            conviction_penalty += 10.0
+            risk_penalties.append("High Beta")
+            active_filters.append("beta_penalty")
+        elif beta_val > 1.5:
+            conviction_penalty += 5.0
+            risk_penalties.append("Elevated Beta")
+            active_filters.append("beta_penalty")
+
+        # Risk/Reward penalty
+        if np.isfinite(rr_val):
+            if rr_val < 0.8:
+                conviction_penalty += 20.0
+                risk_penalties.append("Very Poor R/R")
+                active_filters.append("rr_penalty")
+            elif rr_val < 1.0:
+                conviction_penalty += 15.0
+                risk_penalties.append("Poor R/R")
+                active_filters.append("rr_penalty")
+            elif rr_val < 1.5:
+                conviction_penalty += 5.0
+                risk_penalties.append("Low R/R")
+                active_filters.append("rr_penalty")
 
         # Base conviction from model prediction probability
         base_conviction = float(model_output.prediction_prob) * 100.0
-        # Apply volatility penalty and earnings adjustment
+        # Apply penalties and earnings adjustment
         conviction = max(0.0, min(100.0, base_conviction - conviction_penalty + earnings_adjustment))
 
+        # Determine action based on conviction thresholds
+        if conviction >= self.BUY_THRESHOLD:
+            action = Action.BUY
+            primary_reason = "Model-driven"
+        elif conviction >= self.HOLD_THRESHOLD:
+            action = Action.HOLD
+            primary_reason = "Moderate conviction — watch list"
+        else:
+            action = Action.REDUCE
+            primary_reason = "Low conviction — high risk"
+
         # Simple sizing: quantity scaled by conviction
-        quantity = max(1, int(conviction // 10))
+        quantity = max(1, int(conviction // 10)) if action == Action.BUY else 0
 
         decision = TradeDecision(
             ticker=features.ticker,
-            action=Action.BUY,  # default BUY if not rejected; sizing via conviction
+            action=action,
             quantity=quantity,
             limit_price=None,
             stop_loss_price=0.0,
             target_price=0.0,
             conviction=conviction,
             estimated_commission=0.0,
-            primary_reason="Model-driven",
+            primary_reason=primary_reason,
             active_filters=active_filters,
             risk_penalties=risk_penalties,
             explain_id=None,
