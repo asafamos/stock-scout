@@ -414,8 +414,9 @@ if CONFIG.get("USE_REMOTE_AUTOSCAN", True):
                     logger.debug(f"Scan mtime read failed: {exc}")
                     ts_current = None
 
-            # Only prefer remote if it's newer than current
-            if ts_remote and (ts_current is None or ts_remote > ts_current) and not force_live_scan_once:
+            # Only prefer remote if it's newer than current AND non-empty
+            remote_result_count = meta_remote.get("results_count", meta_remote.get("total_tickers", -1))
+            if ts_remote and (ts_current is None or ts_remote > ts_current) and not force_live_scan_once and remote_result_count != 0:
                 r_pq = requests.get(f"{base}/latest_scan.parquet", timeout=20)
                 if r_pq.ok:
                     try:

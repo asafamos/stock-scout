@@ -147,7 +147,17 @@ def run_pipeline_full(universe: List[str], cfg: dict, batch_size: int = 200) -> 
     for i in range(0, len(universe), batch_size):
         batch = universe[i : i + batch_size]
         try:
-            df, _ = run_scan_pipeline(batch, cfg)
+            out = run_scan_pipeline(batch, cfg)
+            # run_scan_pipeline returns a Dict {result, meta} — unpack properly
+            payload = out.get("result") if isinstance(out, dict) else out
+            if isinstance(payload, dict) and "results_df" in payload:
+                df = payload.get("results_df")
+            elif isinstance(payload, (tuple, list)) and len(payload) >= 1:
+                df = payload[0]
+            elif isinstance(payload, pd.DataFrame):
+                df = payload
+            else:
+                df = None
             if df is not None and not df.empty:
                 results_list.append(df)
             batches_ok += 1
