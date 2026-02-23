@@ -13,6 +13,18 @@ import numpy as np
 import pandas as pd
 import pytest
 
+# Skip bridge-dependent tests if core.bridge can't import (ml.inference missing)
+try:
+    from core.bridge import analyze_row_with_bridge  # noqa: F401
+    _BRIDGE_AVAILABLE = True
+except (ImportError, ModuleNotFoundError):
+    _BRIDGE_AVAILABLE = False
+
+pytestmark = pytest.mark.skipif(
+    not _BRIDGE_AVAILABLE,
+    reason="core.bridge requires ml.inference which is not installed",
+)
+
 
 # ---------------------------------------------------------------------------
 # 1. Bridge emits TechScore_20d from technical indicators

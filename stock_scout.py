@@ -1817,54 +1817,88 @@ else:
                 ml_prob_prob = r.get("ML_Probability", None)
                 ml_rank_20d = r.get("ML_rank_20d", None)
                 st.sidebar.write(f"[ML BADGE DEBUG] Ticker: {r.get('Ticker','N/A')} | ml_prob_final: {ml_prob} | ML_20d_Prob: {r.get('ML_20d_Prob', None)} | ML_Probability: {ml_prob_prob} | ML_20d_Prob_live_v3: {ml_prob_live_v3} | ML_20d_Prob_raw: {ml_prob_raw} | ML_rank_20d: {ml_rank_20d}")
-            # (move the rest of the card rendering here, using ml_prob as before)
-            t1, t2, t3, t4 = st.columns(4)
-            with t1:
-                st.text("RSI")
-                st.code(_fmt_num(r.get('RSI', np.nan), '.1f'))
-            with t2:
-                atrv = r.get('ATR_Price', r.get('ATR_Pct', np.nan))
-                st.text("ATR/Price")
-                st.code(_fmt_num(atrv, '.3f'))
-            with t3:
-                st.text("Momentum (Tech)")
-                momv = r.get('MomentumScore', r.get('TechScore_20d', np.nan))
-                st.code(_fmt_num(momv, '.0f'))
-            with t4:
-                st.text("ML Prob")
-                st.code(_fmt_num(ml_prob, '.3f'))
 
-            f1, f2, f3, f4 = st.columns(4)
-            with f1:
-                st.text("Fundamental")
-                fsv = r.get('FundamentalScore', r.get('Fundamental_S', np.nan))
-                st.code(_fmt_num(fsv, '.0f'))
-            with f2:
-                st.text("Quality/Growth")
-                q_score = r.get('Quality_Score_F', np.nan)
-                g_score = r.get('Growth_Score_F', np.nan)
-                st.code(f"{_fmt_num(q_score, '.0f')} / {_fmt_num(g_score, '.0f')}")
-            with f3:
-                st.text("Valuation")
-                st.code(_fmt_num(r.get('Valuation_Score_F', np.nan), '.0f'))
-            with f4:
-                st.text("Leverage (D/E)")
+            ticker = r.get("Ticker", "N/A")
+            sector = r.get("Sector", r.get("sector", "Unknown"))
+            company = r.get("shortName", r.get("Company", r.get("Name", "")))
+            if sector in (None, "", "Unknown") and isinstance(ticker, str) and ticker and ticker != "N/A":
+                sector = _fallback_sector_yf(ticker)
+            risk_c = _risk_class(r)
 
-                st.code(_fmt_num(r.get('DE_f', r.get('debt_to_equity', np.nan)), '.2f'))
+            # Headline compact view (same structure as Core cards)
+            with st.container(border=True):
+                c1, c2, c3, c4, c5 = st.columns([2, 1, 1, 1, 2])
+                with c1:
+                    title = ticker if not company else f"{ticker} · {company}"
+                    st.subheader(title)
+                    st.caption(f"Sector: {sector}")
+                with c2:
+                    st.metric(score_label, _fmt_num(final_score, '.0f'))
+                with c3:
+                    st.metric("Risk", risk_c)
+                with c4:
+                    st.metric("ML", _ml_badge(ml_prob))
+                with c5:
+                    rr_val = _to_float(rr)
+                    rr_fmt = f"{rr_val:.2f}x" if isinstance(rr_val, float) and np.isfinite(rr_val) else "N/A"
+                    st.metric("R/R", rr_fmt)
 
-            rel1, rel2, rel3, rel4 = st.columns(4)
-            with rel1:
-                st.text("Reliability")
-                st.code(_fmt_num(rel, '.0f'))
-            with rel2:
-                st.text("Fund sources")
-                st.code(_fmt_num(r.get('Fundamental_Sources_Count', r.get('fund_sources_used_v2', np.nan)), '.0f'))
-            with rel3:
-                st.text("Price sources")
-                st.code(_fmt_num(r.get('Price_Sources_Count', r.get('price_sources_used_v2', np.nan)), '.0f'))
-            with rel4:
-                st.text("Price STD")
-                st.code(_fmt_num(r.get('Price_STD', r.get('price_std', np.nan)), '.2f'))
+                # Short storyline
+                storyline = _headline_story(r)
+                if storyline:
+                    st.caption(storyline)
+
+                # Details expander: deep-dive fields
+                with st.expander("Details", expanded=False):
+                    # Technical indicators
+                    t1, t2, t3, t4 = st.columns(4)
+                    with t1:
+                        st.text("RSI")
+                        st.code(_fmt_num(r.get('RSI', np.nan), '.1f'))
+                    with t2:
+                        atrv = r.get('ATR_Price', r.get('ATR_Pct', np.nan))
+                        st.text("ATR/Price")
+                        st.code(_fmt_num(atrv, '.3f'))
+                    with t3:
+                        st.text("Momentum (Tech)")
+                        momv = r.get('MomentumScore', r.get('TechScore_20d', np.nan))
+                        st.code(_fmt_num(momv, '.0f'))
+                    with t4:
+                        st.text("ML Prob")
+                        st.code(_fmt_num(ml_prob, '.3f'))
+
+                    # Fundamentals breakdown
+                    f1, f2, f3, f4 = st.columns(4)
+                    with f1:
+                        st.text("Fundamental")
+                        fsv = r.get('FundamentalScore', r.get('Fundamental_S', np.nan))
+                        st.code(_fmt_num(fsv, '.0f'))
+                    with f2:
+                        st.text("Quality/Growth")
+                        q_score = r.get('Quality_Score_F', np.nan)
+                        g_score = r.get('Growth_Score_F', np.nan)
+                        st.code(f"{_fmt_num(q_score, '.0f')} / {_fmt_num(g_score, '.0f')}")
+                    with f3:
+                        st.text("Valuation")
+                        st.code(_fmt_num(r.get('Valuation_Score_F', np.nan), '.0f'))
+                    with f4:
+                        st.text("Leverage (D/E)")
+                        st.code(_fmt_num(r.get('DE_f', r.get('debt_to_equity', np.nan)), '.2f'))
+
+                    # Reliability breakdown
+                    rel1, rel2, rel3, rel4 = st.columns(4)
+                    with rel1:
+                        st.text("Reliability")
+                        st.code(_fmt_num(rel, '.0f'))
+                    with rel2:
+                        st.text("Fund sources")
+                        st.code(_fmt_num(r.get('Fundamental_Sources_Count', r.get('fund_sources_used_v2', np.nan)), '.0f'))
+                    with rel3:
+                        st.text("Price sources")
+                        st.code(_fmt_num(r.get('Price_Sources_Count', r.get('price_sources_used_v2', np.nan)), '.0f'))
+                    with rel4:
+                        st.text("Price STD")
+                        st.code(_fmt_num(r.get('Price_STD', r.get('price_std', np.nan)), '.2f'))
 
     # Export section (single, unified)
 show_order = [

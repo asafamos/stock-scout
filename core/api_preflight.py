@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 API Preflight Module
 Robust pre-check of external data providers before full scan.

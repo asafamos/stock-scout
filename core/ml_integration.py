@@ -163,6 +163,17 @@ def load_ml_model(model_path: Optional[str] = None) -> bool:
                     EXPECTED_FEATURES = DEFAULT_FEATURES.copy()
                     logger.warning("Model has no feature_names_in_, using defaults")
 
+            # Patch sklearn version compatibility (e.g., missing multi_class on LR)
+            try:
+                from core.ml_20d_inference import _patch_sklearn_compat, _extract_model_feature_names
+                _patch_sklearn_compat(_ML_MODEL)
+                # Also prefer model's own feature names
+                model_features = _extract_model_feature_names(_ML_MODEL)
+                if model_features:
+                    EXPECTED_FEATURES = model_features
+            except Exception:
+                pass
+
             # Validate the model against expected features
             if not validate_model_features(_ML_MODEL, EXPECTED_FEATURES):
                 logger.error("Model features don't match expected features!")

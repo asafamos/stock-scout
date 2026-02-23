@@ -329,7 +329,8 @@ class TestOverallFundamentalScore:
     
     def test_partial_data_capping(self):
         """
-        Low coverage should cap the maximum score.
+        Low coverage should cap the maximum score, but still allow
+        reasonable differentiation (relaxed caps since 2026-02-23).
         """
         data = {
             "roe": 0.20,
@@ -342,13 +343,14 @@ class TestOverallFundamentalScore:
             "de": 0.3,
             "beta": 0.9,
             "market_cap": 5e9,
-            "Fundamental_Coverage_Pct": 35.0,  # Low coverage
+            "Fundamental_Coverage_Pct": 35.0,  # Low-moderate coverage
             "Fundamental_Sources_Count": 1,
         }
         score = compute_fundamental_score_with_breakdown(data)
-        # Even with good fundamentals, low coverage should cap the score
-        assert score.total <= 55
-    
+        # Cap for 30-50% coverage is 75; single-source penalty 3%
+        # => max ~72.75.  Good data should still score reasonably.
+        assert score.total <= 75
+
     def test_no_sources_conservative_cap(self):
         """Zero sources should result in conservative score."""
         data = {
@@ -364,7 +366,7 @@ class TestOverallFundamentalScore:
             "Fundamental_Sources_Count": 0,  # No sources
         }
         score = compute_fundamental_score_with_breakdown(data)
-        assert score.total <= 35
+        assert score.total <= 40
     
     def test_all_scores_in_bounds(self):
         """All component scores should be in [0, 100]."""

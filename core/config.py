@@ -53,7 +53,7 @@ class Config:
     max_position_pct: float = 15.0
     
     # Universe & Data
-    universe_limit: int = int(_get_config_value('UNIVERSE_LIMIT', '2000'))
+    universe_limit: int = int(_get_config_value('UNIVERSE_LIMIT', '3000'))
     lookback_days: int = int(_get_config_value('LOOKBACK_DAYS', '250'))
     smart_scan: bool = _get_config_value('SMART_SCAN', 'true').lower() in ('true', '1', 'yes')
     
@@ -111,29 +111,55 @@ class Config:
     top_validate_k: int = 50  # Verify prices for ALL displayed stocks (was 12)
     
     # Results
-    topn_results: int = int(_get_config_value('TOPN_RESULTS', '15'))
-    topk_recommend: int = int(_get_config_value('TOPK_RECOMMEND', '5'))
-    
+    topn_results: int = int(_get_config_value('TOPN_RESULTS', '25'))
+    topk_recommend: int = int(_get_config_value('TOPK_RECOMMEND', '10'))
+
+    # Performance / Fast Mode
+    perf_fast_mode: bool = False
+    perf_multi_source_top_n: int = 8
+    perf_alpha_enabled: bool = True
+    perf_fund_timeout: int = 15
+    perf_fund_timeout_fast: int = 6
+
+    # Debug / Developer
+    debug_mode: bool = os.getenv("STOCK_SCOUT_DEBUG", "false").lower() in ("true", "1", "yes")
+
+    # Remote Autoscan
+    use_remote_autoscan: bool = True
+    remote_autoscan_repo: str = os.getenv("REMOTE_AUTOSCAN_REPO", "asafamos/stock-scout")
+    remote_autoscan_branch: str = os.getenv("REMOTE_AUTOSCAN_BRANCH", "main")
+
     def to_dict(self) -> dict:
-        """Convert config to dictionary."""
-        return {
-            "budget_total": self.budget_total,
-            "min_position": self.min_position,
-            "max_position_pct": self.max_position_pct,
-            "universe_limit": self.universe_limit,
-            "lookback_days": self.lookback_days,
-            "smart_scan": self.smart_scan,
-            # Expose MA windows so downstream logic doesn't fallback to wrong defaults
-            "ma_short": self.ma_short,
-            "ma_long": self.ma_long,
-            "min_price": self.min_price,
-            "min_avg_volume": self.min_avg_volume,
-            "min_dollar_volume": self.min_dollar_volume,
-            "min_market_cap": self.min_market_cap,
-            "sector_cap_max": self.sector_cap_max,
-            "max_sector_allocation_pct": self.max_sector_allocation_pct,
-            "max_positions_per_sector": self.max_positions_per_sector,
-        }
+        """Convert config to flat dictionary for backward compatibility.
+
+        Includes both snake_case (canonical) and UPPER_CASE (legacy) keys
+        so callers using either convention continue to work.
+        """
+        d: Dict[str, Any] = {}
+        for k in dir(self):
+            if k.startswith("_") or callable(getattr(self, k)):
+                continue
+            d[k] = getattr(self, k)
+            d[k.upper()] = getattr(self, k)
+        return d
+
+    def validate(self) -> None:
+        """Validate config values at startup. Raises ValueError for invalid settings."""
+        errors = []
+        if self.budget_total <= 0:
+            errors.append("budget_total must be positive")
+        if self.min_position <= 0:
+            errors.append("min_position must be positive")
+        if not (0 < self.max_position_pct <= 100):
+            errors.append("max_position_pct must be between 0 and 100")
+        if self.universe_limit < 10:
+            errors.append("universe_limit must be at least 10")
+        if self.lookback_days < 50:
+            errors.append("lookback_days must be at least 50")
+        if self.min_price < 0:
+            errors.append("min_price must be non-negative")
+        if errors:
+            raise ValueError(f"Config validation failed: {'; '.join(errors)}")
 
 
 @dataclass
@@ -170,39 +196,26 @@ class APIKeys:
             simfin=_get_key("SIMFIN_API_KEY"),
         )
     
-    def has_alpha_vantage(self) -> bool:
-        """Check if Alpha Vantage key is available."""
-        return self.alpha_vantage is not None and len(self.alpha_vantage) > 0
-    
-    def has_finnhub(self) -> bool:
-        """Check if Finnhub key is available."""
-        return self.finnhub is not None and len(self.finnhub) > 0
-    
-    def has_polygon(self) -> bool:
-        """Check if Polygon key is available."""
-        return self.polygon is not None and len(self.polygon) > 0
-    
-    def has_tiingo(self) -> bool:
-        """Check if Tiingo key is available."""
-        return self.tiingo is not None and len(self.tiingo) > 0
+    def has(self, provider: str) -> bool:
+        """Check if a specific provider API key is available.
 
-    def has_fmp(self) -> bool:
-        return self.fmp is not None and len(self.fmp) > 0
+        Args:
+            provider: Provider name matching an attribute (e.g. 'fmp', 'finnhub', 'openai').
+        """
+        val = getattr(self, provider, None)
+        return val is not None and len(str(val)) > 0
 
-    def has_openai(self) -> bool:
-        return self.openai is not None and len(self.openai) > 0
-
-    def has_marketstack(self) -> bool:
-        return self.marketstack is not None and len(self.marketstack) > 0
-
-    def has_nasdaq(self) -> bool:
-        return self.nasdaq is not None and len(self.nasdaq) > 0
-
-    def has_eodhd(self) -> bool:
-        return self.eodhd is not None and len(self.eodhd) > 0
-
-    def has_simfin(self) -> bool:
-        return self.simfin is not None and len(self.simfin) > 0
+    # Backward-compatible convenience methods
+    def has_alpha_vantage(self) -> bool: return self.has("alpha_vantage")
+    def has_finnhub(self) -> bool: return self.has("finnhub")
+    def has_polygon(self) -> bool: return self.has("polygon")
+    def has_tiingo(self) -> bool: return self.has("tiingo")
+    def has_fmp(self) -> bool: return self.has("fmp")
+    def has_openai(self) -> bool: return self.has("openai")
+    def has_marketstack(self) -> bool: return self.has("marketstack")
+    def has_nasdaq(self) -> bool: return self.has("nasdaq")
+    def has_eodhd(self) -> bool: return self.has("eodhd")
+    def has_simfin(self) -> bool: return self.has("simfin")
 
 
 # Global config instance

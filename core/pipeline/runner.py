@@ -154,10 +154,12 @@ def _build_pipeline_meta(ctx: _PipelineContext, **overrides) -> Dict[str, Any]:
     meta.update(overrides)
     try:
         meta.update(get_ml_health_meta())
-        if meta.get("ml_bundle_version_warning"):
-            meta["ml_mode"] = "DISABLED_VERSION_MISMATCH"
-        elif not ML_20D_AVAILABLE:
+        if not ML_20D_AVAILABLE:
             meta["ml_mode"] = "DISABLED_NO_MODEL"
+        elif meta.get("ml_bundle_version_warning"):
+            # Model loaded and producing predictions despite version mismatch.
+            # Mark as degraded hybrid, not disabled — ML IS working.
+            meta["ml_mode"] = "HYBRID_DEGRADED"
         else:
             meta["ml_mode"] = "HYBRID"
     except (ImportError, AttributeError, TypeError, KeyError):
@@ -462,13 +464,13 @@ def _phase_fetch_and_tier1(ctx: _PipelineContext) -> None:
                 reasons.append(
                     {"rule": "MISSING_VOLUME_DATA", "message": "Missing Volume on last bar"}
                 )
-            elif volume < 100000:
+            elif volume < 50000:
                 reasons.append(
                     {
                         "rule": "VOLUME_MIN",
                         "message": "Volume below minimum",
                         "value": float(volume) if pd.notna(volume) else None,
-                        "threshold": 100000,
+                        "threshold": 50000,
                     }
                 )
             if pd.isna(close):
@@ -1390,16 +1392,35 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
             if col in rr_updates.columns:
                 ctx.results[col] = rr_updates[col]
 
+        # ── Multiplicative RR gate (replaces old linear -8/-3 adjustments) ──
+        # Stocks with poor R/R are penalized; stocks with great R/R are boosted.
+        # This is the AUTHORITATIVE RR adjustment applied after actual RR computation.
         if "FinalScore_20d" in ctx.results.columns and "RR" in ctx.results.columns:
-            low_mask = pd.to_numeric(ctx.results["RR"], errors="coerce") < 1.5
-            mid_mask = (~low_mask) & (
-                pd.to_numeric(ctx.results["RR"], errors="coerce") < 2.0
-            )
-            ctx.results.loc[low_mask, "FinalScore_20d"] = (
-                ctx.results.loc[low_mask, "FinalScore_20d"] - 8.0
-            )
-            ctx.results.loc[mid_mask, "FinalScore_20d"] = (
-                ctx.results.loc[mid_mask, "FinalScore_20d"] - 3.0
+            from core.scoring_config import RR_GATES
+            rr_numeric = pd.to_numeric(ctx.results["RR"], errors="coerce")
+
+            def _rr_multiplier(rr_val):
+                if pd.isna(rr_val) or rr_val < 0:
+                    return 1.0
+                if rr_val < float(RR_GATES.get("harsh_penalty_lt", 0.5)):
+                    return float(RR_GATES.get("harsh_penalty_mult", 0.80))
+                if rr_val < float(RR_GATES.get("mild_penalty_lt", 1.0)):
+                    return float(RR_GATES.get("mild_penalty_mult", 0.90))
+                if rr_val > float(RR_GATES.get("strong_bonus_gt", 4.0)):
+                    return float(RR_GATES.get("strong_bonus_mult", 1.12))
+                if rr_val > float(RR_GATES.get("mild_bonus_gt", 2.5)):
+                    return float(RR_GATES.get("mild_bonus_mult", 1.06))
+                return 1.0
+
+            rr_mults = rr_numeric.apply(_rr_multiplier)
+            ctx.results["FinalScore_20d"] = (
+                ctx.results["FinalScore_20d"] * rr_mults
+            ).clip(0, 100)
+            logger.info(
+                "[PIPELINE] RR gate applied: %d penalized, %d boosted, %d unchanged",
+                (rr_mults < 1.0).sum(),
+                (rr_mults > 1.0).sum(),
+                (rr_mults == 1.0).sum(),
             )
             ctx.results["FinalScore"] = ctx.results["FinalScore_20d"]
             ctx.results["Score"] = ctx.results["FinalScore_20d"]

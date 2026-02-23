@@ -92,15 +92,30 @@ ML_GATES: Dict[str, float] = {
     "bonus_mult": 1.08,     # was 1.15 — smaller bonus (ML doesn't warrant big boost)
 }
 
+# Risk/Reward gate thresholds and multipliers
+# Stocks with poor R/R should never be top recommendations.
+# A stock with RR < 1 means expected loss > expected gain — that's a bad trade.
+RR_GATES: Dict[str, float] = {
+    "harsh_penalty_lt": 0.5,   # RR < 0.5: terrible trade setup
+    "harsh_penalty_mult": 0.80,
+    "mild_penalty_lt": 1.0,    # RR < 1.0: expected loss > expected gain
+    "mild_penalty_mult": 0.90,
+    "mild_bonus_gt": 2.5,      # RR > 2.5: good asymmetric trade
+    "mild_bonus_mult": 1.06,
+    "strong_bonus_gt": 4.0,    # RR > 4.0: excellent risk/reward
+    "strong_bonus_mult": 1.12,
+}
+
 # Market regime multipliers
 REGIME_MULTIPLIERS: Dict[str, float] = {
     "TREND_UP": 1.10,
-    "BULLISH": 1.10,    # alias used by detect_market_regime()
+    "MODERATE_UP": 1.05,  # new: moderate uptrend between SIDEWAYS and TREND_UP
+    "BULLISH": 1.10,      # alias used by detect_market_regime()
     "PANIC": 0.70,
     "CORRECTION": 0.70,
-    "BEARISH": 0.70,    # alias used by detect_market_regime()
-    "SIDEWAYS": 1.00,   # alias used by detect_market_regime()
-    "NEUTRAL": 1.00,    # alias used by detect_market_regime()
+    "BEARISH": 0.70,      # alias used by detect_market_regime()
+    "SIDEWAYS": 1.00,     # alias used by detect_market_regime()
+    "NEUTRAL": 1.00,      # alias used by detect_market_regime()
 }
 
 # ATR-based volatility rules used to adjust technical score and RR
