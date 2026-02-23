@@ -6,10 +6,15 @@ on:
   pull_request:
     branches: [ main ]
 
+# Cancel in-progress CI runs when a new push arrives on the same branch
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 10  # Fast tests only
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -24,29 +29,27 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest pytest-timeout
 
-      - name: Pytest sanity
+      - name: Pytest discovery check
         run: |
-          python -c "import pytest, sys; print('pytest ok')"
-
-      - name: Pytest discovery
-        run: |
-          pytest -q --collect-only tests > .pytest_collect.txt || true
+          pytest -q --collect-only tests > .pytest_collect.txt 2>&1 || true
           echo 'Collected:'
-          head -50 .pytest_collect.txt
-          grep -E "collected [1-9][0-9]* items" .pytest_collect.txt || (echo "No tests collected" && exit 1)
+          head -20 .pytest_collect.txt
+          grep -E "collected [1-9][0-9]* items" .pytest_collect.txt || \
+            (echo "No tests collected — check imports" && cat .pytest_collect.txt && exit 1)
 
       - name: Run fast unit tests (no API calls)
         run: |
-          # Run only pure unit tests that don't require external API calls
-          pytest -q -x --timeout=30 \
+          pytest -q -x --timeout=60 \
             tests/test_pure_functions.py \
             tests/test_allocate.py \
             tests/test_edge_cases.py \
             tests/test_feature_registry.py \
             tests/test_contracts.py \
-            tests/test_ml_contract_latest.py
+            tests/test_ml_contract_latest.py \
+            tests/test_v31_features.py \
+            tests/test_v4_modules.py \
+            tests/test_deep_fixes.py
 
       - name: Verify core imports
         run: |
@@ -55,6 +58,26 @@ from core.config import get_config
 from core.data import fetch_price_multi_source
 from core.scoring import compute_technical_score
 from core.price_verify import fetch_prices_for_ticker
+from core.feature_registry import get_feature_names, FEATURE_COUNT_V3_1
+from core.ml_feature_builder import build_all_ml_features_v3
 from app_config import CONFIG
+assert FEATURE_COUNT_V3_1 == 39, f'Expected 39 v3.1 features, got {FEATURE_COUNT_V3_1}'
+assert len(get_feature_names('v3.1')) == 39
 print('✓ All core imports verified')
+print(f'✓ Feature registry v3.1: {FEATURE_COUNT_V3_1} features')
+          "
+
+      - name: Verify training script imports cleanly
+        run: |
+          python -c "
+import sys, os
+sys.path.insert(0, '.')
+# Import without running (lazy API key check)
+from scripts.train_rolling_ml_20d import (
+    calculate_features, calculate_market_regime,
+    PurgedWalkForwardCV, FEATURE_NAMES_V3
+)
+assert len(FEATURE_NAMES_V3) == 39, f'Expected 39, got {len(FEATURE_NAMES_V3)}'
+print(f'✓ train_rolling_ml_20d uses v3.1 ({len(FEATURE_NAMES_V3)} features)')
+print('✓ PurgedWalkForwardCV available')
           "

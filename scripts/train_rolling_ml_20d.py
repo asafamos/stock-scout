@@ -15,14 +15,13 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.metrics import roc_auc_score, log_loss
-from sklearn.model_selection import TimeSeriesSplit, train_test_split
 from sklearn.calibration import CalibratedClassifierCV
 
 # Sector mapping for sector-relative features
 from core.sector_mapping import get_stock_sector, get_sector_etf, get_all_sector_etfs
 from core.api_keys import get_api_key
 # Feature registry - Single Source of Truth for ML features
-from core.feature_registry import get_feature_names, FEATURE_COUNT_V3
+from core.feature_registry import get_feature_names, FEATURE_COUNT_V3_1
 # Unified labelling logic
 from core.ml_targets import make_label_20d
 from core.ml_target_config import UP_THRESHOLD, DOWN_THRESHOLD
@@ -39,8 +38,9 @@ MODELS_DIR = Path("models")
 REPORTS_DIR = Path("reports")
 DATA_DIR = Path("data")
 
-# Get canonical feature list from registry
-FEATURE_NAMES_V3 = get_feature_names("v3")
+# Get canonical feature list from registry (v3.1: 39 stock-picking features, no market-timers)
+FEATURE_NAMES_V3 = get_feature_names("v3.1")
+print(f"📋 Feature Registry v3.1: {len(FEATURE_NAMES_V3)} features")
 
 
 def precision_at_k(y_true, y_pred_proba, k=20):
@@ -345,111 +345,33 @@ def get_universe_tickers(limit=2000):
         except:
             return ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "TSLA", "META", "AMD", "NFLX", "INTC"] # Minimal fallback
 
-# --- FEATURE ENGINEERING ---
-def calculate_features(df, spy_returns: pd.Series = None, market_regime_df: pd.DataFrame = None,
+# --- FEATURE ENGINEERING (v3.1 — 39 features, stock-picking focused) ---
+def calculate_features(df, spy_returns: pd.Series = None, spy_returns_60d: pd.Series = None,
+                       market_regime_df: pd.DataFrame = None,
                        sector_etf_returns: pd.DataFrame = None, ticker: str = None):
-    """Generate 20d ML features (expanded set).
-    
+    """Generate all 39 ML features from feature registry v3.1.
+
+    v3.1 vs v3 changes:
+      REMOVED (market-timing, distorted predictions):
+        - Market_Trend, Market_Volatility, High_Volatility
+      ADDED (stock-specific, all from OHLCV):
+        - Vol_Contraction_Ratio, Squeeze_On_Flag
+        - RS_vs_SPY_60d, RS_Momentum
+        - UpStreak_Days, DownStreak_Days
+        - Range_Pct_10d, OvernightGap_Avg
+
     Args:
-        df: DataFrame with OHLCV data
-        spy_returns: Series of SPY 20-day returns indexed by date (for relative strength)
-        market_regime_df: DataFrame with market regime indicators (optional)
-        sector_etf_returns: DataFrame with sector ETF returns, columns=ETF symbols (optional)
-        ticker: Stock ticker for sector lookup (optional)
+        df: DataFrame with OHLCV columns (Open, High, Low, Close, Volume)
+        spy_returns: SPY 20-day returns Series (for RS_vs_SPY_20d)
+        spy_returns_60d: SPY 60-day returns Series (for RS_vs_SPY_60d)
+        market_regime_df: DataFrame with Market_Regime column only
+        sector_etf_returns: DataFrame, columns=ETF symbols, values=20d returns
+        ticker: Stock ticker for sector lookup
     """
     df = df.copy()
-    
-    # === BASIC RETURNS ===
-    df['Return_20d'] = df['Close'].pct_change(20)
-    df['Return_10d'] = df['Close'].pct_change(10)
-    df['Return_5d'] = df['Close'].pct_change(5)
-    
-    # === VOLATILITY ===
-    df['ATR'] = (df['High'] - df['Low']).rolling(14).mean()
-    df['ATR_Pct'] = df['ATR'] / df['Close']
-    
-    # VCP_Ratio: ATR(10) / ATR(30) - volatility contraction pattern
-    atr_10 = (df['High'] - df['Low']).rolling(10).mean()
-    atr_30 = (df['High'] - df['Low']).rolling(30).mean()
-    df['VCP_Ratio'] = atr_10 / atr_30.replace(0, np.nan)
-    
-    # Tightness_Ratio: (High-Low range last 5 days) / (range last 20 days)
-    range_5d = df['High'].rolling(5).max() - df['Low'].rolling(5).min()
-    range_20d = df['High'].rolling(20).max() - df['Low'].rolling(20).min()
-    df['Tightness_Ratio'] = range_5d / range_20d.replace(0, np.nan)
-    
-    # Dist_From_52w_High: (Close / 52-week High) - 1
-    high_52w = df['High'].rolling(252).max()
-    df['Dist_From_52w_High'] = (df['Close'] / high_52w.replace(0, np.nan)) - 1
-    
-    # === MOVING AVERAGE ALIGNMENT ===
-    ma20 = df['Close'].rolling(20).mean()
-    ma50 = df['Close'].rolling(50).mean()
-    ma200 = df['Close'].rolling(200).mean()
-    # MA_Alignment: 1 if Close > MA20 > MA50 > MA200, else 0
-    df['MA_Alignment'] = ((df['Close'] > ma20) & (ma20 > ma50) & (ma50 > ma200)).astype(int)
-    
-    # === VOLUME ===
-    # Volume_Surge: Volume(5-day avg) / Volume(20-day avg)
-    vol_5d = df['Volume'].rolling(5).mean()
-    vol_20d = df['Volume'].rolling(20).mean()
-    df['Volume_Surge'] = vol_5d / vol_20d.replace(0, np.nan)
-    
-    # Up_Down_Volume_Ratio: avg volume on up days / avg volume on down days (last 20 days)
-    daily_return = df['Close'].pct_change()
-    up_day = daily_return > 0
-    down_day = daily_return < 0
-    # Calculate rolling sums for up/down volume
-    up_volume = (df['Volume'] * up_day).rolling(20).sum()
-    down_volume = (df['Volume'] * down_day).rolling(20).sum()
-    up_days_count = up_day.rolling(20).sum()
-    down_days_count = down_day.rolling(20).sum()
-    avg_up_vol = up_volume / up_days_count.replace(0, np.nan)
-    avg_down_vol = down_volume / down_days_count.replace(0, np.nan)
-    df['Up_Down_Volume_Ratio'] = avg_up_vol / avg_down_vol.replace(0, np.nan)
-    
-    # === INSTITUTIONAL ACCUMULATION VOLUME FEATURES ===
-    # Volume_Ratio_20d: current volume / 20-day avg (spike detection)
-    df['Volume_Ratio_20d'] = df['Volume'] / vol_20d.replace(0, np.nan)
-    
-    # Volume_Trend: linear regression slope of volume over 20 days (accumulation trend)
-    def volume_slope(x):
-        if len(x) < 20:
-            return 0.0
-        try:
-            slope = np.polyfit(range(len(x)), x, 1)[0]
-            return slope / (x.mean() + 1e-8)  # Normalize by mean volume
-        except:
-            return 0.0
-    df['Volume_Trend'] = df['Volume'].rolling(20).apply(volume_slope, raw=True)
-    
-    # Up_Volume_Ratio: sum of volume on up days / total volume (buying pressure)
-    total_vol_20d = df['Volume'].rolling(20).sum()
-    df['Up_Volume_Ratio'] = up_volume / total_vol_20d.replace(0, np.nan)
-    
-    # Volume_Price_Confirm: price up AND volume up over last 5 days avg
-    price_up = df['Close'] > df['Close'].shift(1)
-    vol_up = df['Volume'] > df['Volume'].shift(1)
-    df['Volume_Price_Confirm'] = (price_up & vol_up).astype(float).rolling(5).mean()
-    
-    # Relative_Volume_Rank: rolling rank of today's volume vs last 60 days
-    def vol_rolling_rank(x):
-        if len(x) < 60:
-            return 0.5
-        return (x.rank(pct=True).iloc[-1] if hasattr(x, 'rank') else 
-                pd.Series(x).rank(pct=True).iloc[-1])
-    df['Relative_Volume_Rank'] = df['Volume'].rolling(60).apply(
-        lambda x: pd.Series(x).rank(pct=True).iloc[-1] if len(x) == 60 else 0.5, raw=False
-    )
-    
-    # Handle inf/nan in volume features
-    volume_features = ['Volume_Ratio_20d', 'Volume_Trend', 'Up_Volume_Ratio', 
-                       'Volume_Price_Confirm', 'Relative_Volume_Rank']
-    for vf in volume_features:
-        df[vf] = df[vf].replace([np.inf, -np.inf], np.nan)
-        df[vf] = df[vf].fillna(df[vf].median() if df[vf].notna().any() else 0.5)
-    
-    # === RSI ===
+
+    # === BASIC TECHNICAL ===
+    # RSI (14)
     delta = df['Close'].diff()
     up = delta.clip(lower=0)
     down = -1 * delta.clip(upper=0)
@@ -457,195 +379,280 @@ def calculate_features(df, spy_returns: pd.Series = None, market_regime_df: pd.D
     ma_down = down.rolling(14).mean()
     rs = ma_up / ma_down
     df['RSI'] = 100 - (100 / (1 + rs))
-    
+
+    # True Range for ATR
+    tr = pd.concat([
+        df['High'] - df['Low'],
+        abs(df['High'] - df['Close'].shift(1)),
+        abs(df['Low'] - df['Close'].shift(1))
+    ], axis=1).max(axis=1)
+    df['ATR_Pct'] = tr.rolling(14).mean() / df['Close']
+
+    # Returns
+    df['Return_20d'] = df['Close'].pct_change(20)
+    df['Return_10d'] = df['Close'].pct_change(10)
+    df['Return_5d'] = df['Close'].pct_change(5)
+    df['Return_60d'] = df['Close'].pct_change(60)
+
+    # === VOLATILITY PATTERNS ===
+    atr_10 = tr.rolling(10).mean()
+    atr_20 = tr.rolling(20).mean()
+    atr_30 = tr.rolling(30).mean()
+    atr_50 = tr.rolling(50).mean()
+
+    df['VCP_Ratio'] = atr_10 / atr_30.replace(0, np.nan)
+
+    range_5d = df['High'].rolling(5).max() - df['Low'].rolling(5).min()
+    range_20d = df['High'].rolling(20).max() - df['Low'].rolling(20).min()
+    df['Tightness_Ratio'] = range_5d / range_20d.replace(0, np.nan)
+
+    high_52w = df['High'].rolling(252, min_periods=100).max()
+    df['Dist_From_52w_High'] = (df['Close'] / high_52w.replace(0, np.nan)) - 1
+
+    ma20 = df['Close'].rolling(20).mean()
+    ma50 = df['Close'].rolling(50).mean()
+    ma200 = df['Close'].rolling(200, min_periods=100).mean()
+    df['MA_Alignment'] = ((df['Close'] > ma20) & (ma20 > ma50) & (ma50 > ma200)).astype(float)
+
+    # v3.1 VOLATILITY ADDITIONS
+    # Vol_Contraction_Ratio: ATR(20)/ATR(50) — tighter consolidation = breakout setup
+    df['Vol_Contraction_Ratio'] = atr_20 / atr_50.replace(0, np.nan)
+
+    # Squeeze_On_Flag: Bollinger Bands inside Keltner Channels (pre-breakout compression)
+    bb_std = df['Close'].rolling(20).std()
+    bb_upper = ma20 + 2 * bb_std
+    bb_lower = ma20 - 2 * bb_std
+    kc_upper = ma20 + 1.5 * atr_20
+    kc_lower = ma20 - 1.5 * atr_20
+    df['Squeeze_On_Flag'] = ((bb_upper < kc_upper) & (bb_lower > kc_lower)).astype(float)
+
+    # === VOLUME ===
+    vol_5d = df['Volume'].rolling(5).mean()
+    vol_20d = df['Volume'].rolling(20).mean()
+    df['Volume_Surge'] = vol_5d / vol_20d.replace(0, np.nan)
+
+    daily_return = df['Close'].pct_change()
+    up_day = daily_return > 0
+    down_day = daily_return < 0
+    up_volume = (df['Volume'] * up_day).rolling(20).sum()
+    down_volume = (df['Volume'] * down_day).rolling(20).sum()
+    up_days_count = up_day.rolling(20).sum()
+    down_days_count = down_day.rolling(20).sum()
+    avg_up_vol = up_volume / up_days_count.replace(0, np.nan)
+    avg_down_vol = down_volume / down_days_count.replace(0, np.nan)
+    df['Up_Down_Volume_Ratio'] = avg_up_vol / avg_down_vol.replace(0, np.nan)
+
     # === MOMENTUM ===
-    # Momentum_Consistency: % of last 20 days with positive returns
     positive_return = (daily_return > 0).astype(int)
     df['Momentum_Consistency'] = positive_return.rolling(20).mean()
-    
-    # RS_vs_SPY_20d: stock return(20d) - SPY return(20d)
+
+    # === RELATIVE STRENGTH (v3.1: 3 features including 60d and momentum) ===
     if spy_returns is not None:
-        # Ensure SPY series has datetime index
-        spy_series = spy_returns.copy()
-        if not isinstance(spy_series.index, pd.DatetimeIndex):
-            spy_series.index = pd.to_datetime(spy_series.index)
-        
-        # Reindex to stock's dates with forward-fill for missing SPY dates
-        # This handles holidays, trading halts, and minor date mismatches
-        spy_aligned = spy_series.reindex(df.index, method='ffill')
-        
+        spy_aligned = spy_returns.reindex(df.index, method='ffill')
         df['RS_vs_SPY_20d'] = df['Return_20d'] - spy_aligned.fillna(0)
-        
-        # Log alignment quality (only warn if significant mismatch)
-        aligned_pct = (spy_aligned.notna().sum() / len(df)) * 100
-        if aligned_pct < 90:
-            import warnings
-            warnings.warn(f"SPY alignment: {aligned_pct:.1f}% of dates matched")
     else:
-        df['RS_vs_SPY_20d'] = 0.0  # Fallback if no SPY data
-    
-    # === MARKET REGIME FEATURES ===
-    if market_regime_df is not None:
-        # Align market regime data with stock dates using forward-fill
-        for col in ['Market_Regime', 'Market_Volatility', 'Market_Trend', 'High_Volatility']:
-            if col in market_regime_df.columns:
-                aligned = market_regime_df[col].reindex(df.index, method='ffill')
-                default_val = 0.15 if col == 'Market_Volatility' else 0.0
-                df[col] = aligned.fillna(default_val)
+        df['RS_vs_SPY_20d'] = 0.0
+
+    if spy_returns_60d is not None:
+        spy_60_aligned = spy_returns_60d.reindex(df.index, method='ffill')
+        df['RS_vs_SPY_60d'] = df['Return_60d'] - spy_60_aligned.fillna(0)
     else:
-        # Defaults if no regime data available
+        df['RS_vs_SPY_60d'] = 0.0
+
+    # RS_Momentum: short-term RS minus long-term RS (acceleration)
+    df['RS_Momentum'] = df['RS_vs_SPY_20d'] - df['RS_vs_SPY_60d']
+
+    # === MARKET REGIME (v3.1: only Market_Regime, no market-timing) ===
+    if market_regime_df is not None and 'Market_Regime' in market_regime_df.columns:
+        df['Market_Regime'] = market_regime_df['Market_Regime'].reindex(df.index, method='ffill').fillna(0)
+    else:
         df['Market_Regime'] = 0
-        df['Market_Volatility'] = 0.15
-        df['Market_Trend'] = 0.0
-        df['High_Volatility'] = 0
-    
-    # === SECTOR-RELATIVE FEATURES ===
-    # Compare stock performance to its sector ETF
+
+    # === SECTOR RELATIVE ===
     if sector_etf_returns is not None and ticker is not None:
         sector = get_stock_sector(ticker)
         sector_etf = get_sector_etf(sector)
-        
         if sector_etf is not None and sector_etf in sector_etf_returns.columns:
-            # Get sector ETF returns aligned to stock dates
-            sector_ret = sector_etf_returns[sector_etf].reindex(df.index, method='ffill')
-            
-            # Sector_RS: stock 20d return - sector ETF 20d return
-            df['Sector_RS'] = df['Return_20d'] - sector_ret.fillna(0)
-            
-            # Sector_Momentum: sector ETF 20d return (absolute sector strength)
-            df['Sector_Momentum'] = sector_ret.fillna(0)
-            
-            # Sector_Rank: rolling rank of stock vs sector (simplified proxy)
-            # This measures if stock is outperforming sector consistently
-            # 1 if stock beats sector in return_5d, else 0
-            sector_ret_5d = sector_etf_returns[sector_etf].pct_change(5).reindex(df.index, method='ffill')
-            df['Sector_Rank'] = (df['Return_5d'] > sector_ret_5d.fillna(0)).astype(float)
+            sector_ret = sector_etf_returns[sector_etf].reindex(df.index, method='ffill').fillna(0)
+            df['Sector_RS'] = df['Return_20d'] - sector_ret
+            df['Sector_Momentum'] = sector_ret
+            sector_ret_5d = sector_etf_returns[sector_etf].pct_change(5).reindex(df.index, method='ffill').fillna(0)
+            df['Sector_Rank'] = (df['Return_5d'] > sector_ret_5d).astype(float)
         else:
-            # Unknown sector or missing ETF data - use neutral defaults
             df['Sector_RS'] = 0.0
             df['Sector_Momentum'] = 0.0
             df['Sector_Rank'] = 0.5
     else:
-        # No sector data available - use neutral defaults
         df['Sector_RS'] = 0.0
         df['Sector_Momentum'] = 0.0
         df['Sector_Rank'] = 0.5
-    
-    # === PRICE ACTION PATTERN FEATURES (Breakout Detection) ===
-    # 52-week features for breakout proximity
-    low_52w = df['Low'].rolling(252).min()
+
+    # === VOLUME ADVANCED ===
+    df['Volume_Ratio_20d'] = df['Volume'] / vol_20d.replace(0, np.nan)
+
+    def volume_slope(x):
+        if len(x) < 20:
+            return 0.0
+        try:
+            slope = np.polyfit(range(len(x)), x, 1)[0]
+            return slope / (x.mean() + 1e-8)
+        except Exception:
+            return 0.0
+    df['Volume_Trend'] = df['Volume'].rolling(20).apply(volume_slope, raw=True)
+
+    total_vol_20d = df['Volume'].rolling(20).sum()
+    df['Up_Volume_Ratio'] = up_volume / total_vol_20d.replace(0, np.nan)
+
+    price_up = df['Close'] > df['Close'].shift(1)
+    vol_up = df['Volume'] > df['Volume'].shift(1)
+    df['Volume_Price_Confirm'] = (price_up & vol_up).astype(float).rolling(5).mean()
+
+    df['Relative_Volume_Rank'] = df['Volume'].rolling(60).apply(
+        lambda x: pd.Series(x).rank(pct=True).iloc[-1] if len(x) == 60 else 0.5, raw=False
+    )
+
+    # === PRICE ACTION ===
+    low_52w = df['Low'].rolling(252, min_periods=100).min()
     df['Distance_From_52w_Low'] = (df['Close'] - low_52w) / low_52w.replace(0, np.nan)
-    
-    # Consolidation tightness (lower = tighter = more explosive potential)
+
     h20 = df['High'].rolling(20).max()
     l20 = df['Low'].rolling(20).min()
     avg20 = df['Close'].rolling(20).mean()
     df['Consolidation_Tightness'] = (h20 - l20) / avg20.replace(0, np.nan)
-    
-    # Days since 52w high (lower = momentum, higher = recovery potential)
+
     def days_since_high(s):
         if len(s) < 252:
-            return 126  # Default to half year
-        try:
-            max_idx = np.argmax(s.values)
-            return len(s) - max_idx - 1
-        except:
             return 126
-    df['Days_Since_52w_High'] = df['High'].rolling(252).apply(days_since_high, raw=False)
-    # Normalize to 0-1 range (0 = just hit high, 1 = 252 days ago)
+        try:
+            return len(s) - np.argmax(s.values) - 1
+        except Exception:
+            return 126
+    df['Days_Since_52w_High'] = df['High'].rolling(252, min_periods=100).apply(days_since_high, raw=False)
     df['Days_Since_52w_High'] = df['Days_Since_52w_High'] / 252.0
-    
-    # Moving average trend features
+
     sma50 = df['Close'].rolling(50).mean()
-    sma200 = df['Close'].rolling(200).mean()
+    sma200 = df['Close'].rolling(200, min_periods=100).mean()
     df['Price_vs_SMA50'] = (df['Close'] - sma50) / sma50.replace(0, np.nan)
     df['Price_vs_SMA200'] = (df['Close'] - sma200) / sma200.replace(0, np.nan)
-    df['SMA50_vs_SMA200'] = (sma50 - sma200) / sma200.replace(0, np.nan)  # Golden/death cross
-    
-    # MA slope (trend strength/direction)
+    df['SMA50_vs_SMA200'] = (sma50 - sma200) / sma200.replace(0, np.nan)
     df['MA_Slope_20d'] = ma20.diff(20) / ma20.shift(20).replace(0, np.nan)
-    
-    # Distance to resistance (recent 20d high)
     df['Distance_To_Resistance'] = (h20 - df['Close']) / df['Close'].replace(0, np.nan)
-    
-    # Support strength: count of times price touched 20d low level (within 1%)
-    def support_touches(prices, lows):
-        if len(prices) < 20:
-            return 0
-        support_level = lows.iloc[-1]
-        tolerance = support_level * 0.01  # 1% tolerance
-        touches = ((prices >= support_level - tolerance) & 
-                   (prices <= support_level + tolerance)).sum()
-        return min(touches / 5.0, 1.0)  # Normalize: 5+ touches = 1.0
-    
-    # Simpler approach: rolling count of days near 20d low
-    near_low = (df['Low'] <= l20 * 1.02).astype(float)  # Within 2% of 20d low
-    df['Support_Strength'] = near_low.rolling(20).mean()  # Fraction of days near support
-    
-    # Handle inf/nan in price action features
-    price_action_features = ['Distance_From_52w_Low', 'Consolidation_Tightness', 
-                             'Days_Since_52w_High', 'Price_vs_SMA50', 'Price_vs_SMA200',
-                             'SMA50_vs_SMA200', 'MA_Slope_20d', 'Distance_To_Resistance',
-                             'Support_Strength']
-    for pf in price_action_features:
-        df[pf] = df[pf].replace([np.inf, -np.inf], np.nan)
-        df[pf] = df[pf].fillna(df[pf].median() if df[pf].notna().any() else 0.0)
-    
+
+    near_low = (df['Low'] <= l20 * 1.02).astype(float)
+    df['Support_Strength'] = near_low.rolling(20).mean()
+
+    # === v3.1 STREAK & PATTERN FEATURES ===
+    # UpStreak_Days: consecutive up-close days (capped at 10)
+    up_close = (df['Close'] > df['Close'].shift(1)).astype(int)
+    streak_break_up = (up_close == 0).cumsum()
+    df['UpStreak_Days'] = up_close.groupby(streak_break_up).cumsum().clip(upper=10)
+
+    # DownStreak_Days: consecutive down-close days (capped at 10)
+    down_close = (df['Close'] < df['Close'].shift(1)).astype(int)
+    streak_break_down = (down_close == 0).cumsum()
+    df['DownStreak_Days'] = down_close.groupby(streak_break_down).cumsum().clip(upper=10)
+
+    # Range_Pct_10d: average intraday range as % of close (energy measure)
+    intraday_range_pct = (df['High'] - df['Low']) / df['Close'].replace(0, np.nan)
+    df['Range_Pct_10d'] = intraday_range_pct.rolling(10).mean()
+
+    # OvernightGap_Avg: average overnight gap % last 5 days (institutional interest)
+    overnight_gap = (df['Open'] - df['Close'].shift(1)) / df['Close'].shift(1).replace(0, np.nan)
+    df['OvernightGap_Avg'] = overnight_gap.rolling(5).mean()
+
     # === TARGET ===
     df['Forward_Return_20d'] = df['Close'].shift(-20) / df['Close'] - 1.0
-    
-    return df.dropna()
+
+    # Clean up: replace inf/nan in all feature columns
+    for col in FEATURE_NAMES_V3:
+        if col in df.columns:
+            df[col] = df[col].replace([np.inf, -np.inf], np.nan)
+
+    # Clip to match inference clipping (ml_20d_inference.py)
+    if 'ATR_Pct' in df.columns:
+        df['ATR_Pct'] = df['ATR_Pct'].clip(0.0, 0.2)
+    if 'RSI' in df.columns:
+        df['RSI'] = df['RSI'].clip(5.0, 95.0)
+
+    return df.dropna(subset=['Forward_Return_20d'] + [f for f in FEATURE_NAMES_V3 if f in df.columns])
 
 
 def calculate_market_regime(spy_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Calculate market regime indicators from SPY data.
-    
-    Identifies Bull, Bear, or Sideways market conditions to provide
-    context for the model - meteoric rises behave differently in each regime.
-    
-    Returns DataFrame with:
-    - Market_Regime: 1=Bull, 0=Sideways, -1=Bear
-    - Market_Volatility: 20-day rolling volatility (annualized)
-    - Market_Trend: 50-day return (momentum)
-    - High_Volatility: 1 if volatility > Q3
+    """Calculate market regime from SPY data.
+
+    v3.1: Only returns Market_Regime (1=Bull, 0=Sideways, -1=Bear).
+    Removed: Market_Volatility, Market_Trend, High_Volatility — these caused
+    the model to become a market timer rather than a stock picker.
     """
     if spy_df is None or len(spy_df) < 200:
         return None
-    
+
     regime_df = pd.DataFrame(index=spy_df.index)
-    
-    # Moving averages
     spy_close = spy_df['Close']
     ma50 = spy_close.rolling(50).mean()
-    ma200 = spy_close.rolling(200).mean()
-    
-    # Regime based on MA alignment and momentum
-    # Bull: SPY > MA50 > MA200 and positive 20d return
-    # Bear: SPY < MA50 < MA200 and negative 20d return
-    # Sideways: Everything else
+    ma200 = spy_close.rolling(200, min_periods=100).mean()
     ret_20d = spy_close.pct_change(20)
-    
-    regime_df['Market_Regime'] = 0  # Default: Sideways
-    
-    bull_condition = (spy_close > ma50) & (ma50 > ma200) & (ret_20d > 0.02)
-    bear_condition = (spy_close < ma50) & (ma50 < ma200) & (ret_20d < -0.02)
-    
-    regime_df.loc[bull_condition, 'Market_Regime'] = 1
-    regime_df.loc[bear_condition, 'Market_Regime'] = -1
-    
-    # Market volatility (annualized)
-    daily_returns = spy_close.pct_change()
-    regime_df['Market_Volatility'] = daily_returns.rolling(20).std() * np.sqrt(252)
-    
-    # Market trend (50-day momentum)
-    regime_df['Market_Trend'] = spy_close.pct_change(50)
-    
-    # VIX proxy: high volatility regime
-    vol_75th = regime_df['Market_Volatility'].describe()['75%']
-    regime_df['High_Volatility'] = (regime_df['Market_Volatility'] > vol_75th).astype(int)
-    
+
+    regime_df['Market_Regime'] = 0
+    bull = (spy_close > ma50) & (ma50 > ma200) & (ret_20d > 0.02)
+    bear = (spy_close < ma50) & (ma50 < ma200) & (ret_20d < -0.02)
+    regime_df.loc[bull, 'Market_Regime'] = 1
+    regime_df.loc[bear, 'Market_Regime'] = -1
+
     return regime_df
+
+
+# =============================================================================
+# PURGED WALK-FORWARD CROSS-VALIDATION
+# =============================================================================
+
+class PurgedWalkForwardCV:
+    """Walk-forward CV with purge embargo to prevent label leakage.
+
+    Critical for 20-day forward return targets: a row at date T uses price
+    data up to T+20. Without the 20-day embargo, rows near the train/val
+    boundary contaminate validation via overlapping future prices.
+
+    Expanding training window (walk-forward) simulates real retraining cycles.
+    """
+
+    def __init__(self, n_splits: int = 5, embargo_td: int = 20, min_train_pct: float = 0.3):
+        self.n_splits = n_splits
+        self.embargo_td = embargo_td
+        self.min_train_pct = min_train_pct
+
+    def split(self, X, y=None, groups=None, dates=None):
+        n = len(X)
+        if dates is not None and hasattr(dates, 'unique'):
+            unique_dates = np.sort(dates.unique())
+            n_dates = len(unique_dates)
+            min_train_dates = int(n_dates * self.min_train_pct)
+            remaining_dates = n_dates - min_train_dates
+            val_size = remaining_dates // self.n_splits
+            if val_size < 5:
+                raise ValueError(f"Not enough dates for {self.n_splits} folds")
+            for fold in range(self.n_splits):
+                train_end_date = unique_dates[min_train_dates + fold * val_size - 1]
+                val_start_date = unique_dates[min(min_train_dates + fold * val_size + self.embargo_td,
+                                                   n_dates - 1)]
+                val_end_idx = min(min_train_dates + (fold + 1) * val_size, n_dates)
+                val_end_date = unique_dates[val_end_idx - 1]
+                train_mask = dates <= train_end_date
+                val_mask = (dates >= val_start_date) & (dates <= val_end_date)
+                train_idx = np.where(train_mask)[0]
+                val_idx = np.where(val_mask)[0]
+                if len(train_idx) > 0 and len(val_idx) > 0:
+                    yield train_idx, val_idx
+        else:
+            # Fallback: index-based embargo
+            min_train = int(n * self.min_train_pct)
+            val_size = (n - min_train) // self.n_splits
+            for fold in range(self.n_splits):
+                train_end = min_train + fold * val_size
+                val_start = train_end + self.embargo_td
+                val_end = min(train_end + val_size + self.embargo_td, n)
+                if val_start < val_end and train_end > 0:
+                    yield np.arange(train_end), np.arange(val_start, val_end)
 
 
 # --- MAIN PIPELINE ---
@@ -691,45 +698,46 @@ def train_and_save_bundle():
     start_str = start_date.strftime("%Y-%m-%d")
     end_str = end_date.strftime("%Y-%m-%d")
     
-    # Fetch SPY data once for relative strength calculation
+    # Fetch SPY data once for relative strength calculation (20d + 60d)
     print("📥 Fetching SPY benchmark data...")
     spy_df = fetch_polygon_history("SPY", start_str, end_str)
     spy_returns = None
+    spy_returns_60d = None
     market_regime_df = None
-    
-    if spy_df is not None and len(spy_df) > 50:
-        # Create SPY returns as a proper Series for date-aligned merging
+
+    if spy_df is not None and len(spy_df) > 60:
         spy_returns = spy_df['Close'].pct_change(20)
         spy_returns.name = 'SPY_Return_20d'
-        print(f"   ✅ SPY data loaded ({len(spy_df)} days, {spy_returns.notna().sum()} valid returns)")
-        
-        # Calculate market regime
+        spy_returns_60d = spy_df['Close'].pct_change(60)
+        spy_returns_60d.name = 'SPY_Return_60d'
+        print(f"   ✅ SPY data loaded ({len(spy_df)} days, {spy_returns.notna().sum()} valid 20d returns)")
+
         market_regime_df = calculate_market_regime(spy_df)
         if market_regime_df is not None:
             bull_days = (market_regime_df['Market_Regime'] == 1).sum()
             bear_days = (market_regime_df['Market_Regime'] == -1).sum()
             sideways_days = (market_regime_df['Market_Regime'] == 0).sum()
-            print(f"   📊 Market regime distribution: Bull={bull_days}, Sideways={sideways_days}, Bear={bear_days}")
+            print(f"   📊 Market regime: Bull={bull_days}, Sideways={sideways_days}, Bear={bear_days}")
     else:
-        print("   ⚠️  SPY data unavailable, RS_vs_SPY_20d will be 0")
-    
+        print("   ⚠️  SPY data unavailable — RS features default to 0")
+
     # Fetch sector ETF data for sector-relative features
     sector_etf_returns = fetch_sector_etf_data(start_str, end_str)
-    
+
     all_data = []
     print("📥 Downloading data from Polygon (Threads=15)...")
-    
+
     with ThreadPoolExecutor(max_workers=15) as executor:
         future_to_ticker = {executor.submit(fetch_polygon_history, t, start_str, end_str): t for t in tickers}
         completed = 0
         for future in as_completed(future_to_ticker):
             completed += 1
             if completed % 100 == 0: print(f"   ... processed {completed}/{len(tickers)}")
-            
+
             t = future_to_ticker[future]
             df = future.result()
-            if df is not None and len(df) > 50:
-                df = calculate_features(df, spy_returns, market_regime_df, sector_etf_returns, t)
+            if df is not None and len(df) > 60:
+                df = calculate_features(df, spy_returns, spy_returns_60d, market_regime_df, sector_etf_returns, t)
                 df['Ticker'] = t
                 all_data.append(df)
 
@@ -757,32 +765,32 @@ def train_and_save_bundle():
             regime_winners = full_df.loc[mask, 'Label'].mean()
             print(f"   {regime_name:10s}: {mask.sum():6d} samples, {regime_winners:.1%} winners")
 
-    # 4. Time-Series Cross-Validation (proper OOS evaluation)
-    # Use feature registry as SINGLE SOURCE OF TRUTH to ensure alignment with inference
-    features = get_feature_names("v3")  # 34 features from feature_registry.py
-    
+    # 4. Purged Walk-Forward Cross-Validation (prevents label leakage)
+    # Use feature registry v3.1 as SINGLE SOURCE OF TRUTH
+    features = get_feature_names("v3.1")  # 39 features from feature_registry.py
+
     # Verify all features are present in training data
+    available_features = [f for f in features if f in full_df.columns]
     missing_features = [f for f in features if f not in full_df.columns]
     if missing_features:
         print(f"⚠️  Missing features in data: {missing_features}")
-        print("    This indicates a mismatch between feature calculation and registry.")
-        # Remove missing features from the list
-        features = [f for f in features if f in full_df.columns]
+        features = available_features
         print(f"    Proceeding with {len(features)} available features.")
-    
+
     # Sort by date for proper time-series split
     full_df = full_df.sort_index()
     X = full_df[features]
     y = full_df['Label']
-    
-    print("📊 Running Time-Series Cross-Validation (5 folds)...")
-    tscv = TimeSeriesSplit(n_splits=5)
+    dates = full_df.index
+
+    print("📊 Running Purged Walk-Forward CV (5 folds, 20-day embargo)...")
+    pwf_cv = PurgedWalkForwardCV(n_splits=5, embargo_td=20, min_train_pct=0.3)
     oos_aucs = []
     oos_logloss = []
     oos_p20 = []  # Precision@20
     oos_p50 = []  # Precision@50
-    
-    for fold, (train_idx, val_idx) in enumerate(tscv.split(X), 1):
+
+    for fold, (train_idx, val_idx) in enumerate(pwf_cv.split(X, y, dates=dates), 1):
         X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
         y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
         
@@ -1086,7 +1094,9 @@ def train_and_save_bundle():
             "class_weighting": "balanced",
         },
         "model_type": "CalibratedEnsemble(HistGB+RF+LR)",
-        "model_name": "ml_20d_v3_ensemble_calibrated",
+        "model_name": "ml_20d_v3.1_ensemble_calibrated",
+        "feature_version": "v3.1",
+        "cv_method": "PurgedWalkForwardCV(embargo=20d, expanding_window)",
         "ensemble": {
             "models": ["HistGradientBoostingClassifier", "RandomForestClassifier", "LogisticRegression"],
             "weights": ensemble_weights,

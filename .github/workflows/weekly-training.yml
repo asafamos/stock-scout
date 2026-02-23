@@ -1,7 +1,7 @@
 name: Weekly ML Training (20d)
 
-# Single consolidated training workflow - runs weekly to retrain ML model
-# with 2000 tickers and 5 years of history from Polygon API.
+# Retrains ML model weekly with 2000 tickers × 5 years history from Polygon API.
+# Uses feature registry v3.1 (39 features) + PurgedWalkForwardCV (no leakage).
 
 permissions:
   contents: write  # allow committing trained model back to repo
@@ -12,10 +12,15 @@ on:
     - cron: '0 22 * * 0'
   workflow_dispatch: {}  # Manual trigger for testing
 
+# Only one training run at a time; new dispatch waits for current to finish
+concurrency:
+  group: weekly-training
+  cancel-in-progress: false
+
 jobs:
   train:
     runs-on: ubuntu-latest
-    timeout-minutes: 180  # Training 2000 tickers with 5 years of data needs more time
+    timeout-minutes: 180  # Training 2000 tickers with 5 years of data needs time
     env:
       # REQUIRED: Polygon API key for historical data
       POLYGON_API_KEY: ${{ secrets.POLYGON_API_KEY }}
@@ -88,51 +93,82 @@ jobs:
           echo "============================="
           python -m scripts.run_daily_training
 
-      - name: Backtest Precision@K
-        env:
-          MIN_PRECISION_THRESHOLD: '0.55'
-        continue-on-error: true  # Don't fail workflow if no test data available
+      - name: Model quality gate (Precision@20 ≥ 40%)
         run: |
-          # Validate model meets minimum precision threshold (if test data exists)
-          if ls data/test_20d_v3_*.csv 1> /dev/null 2>&1; then
-            python -m scripts.backtest_precision_at_k
-            echo "✓ Model validation passed"
-          else
-            echo "⚠️ Skipping backtest - no test CSV found (first training run)"
-          fi
+          python - <<'PYEOF'
+          import json, sys, glob, os
+          from pathlib import Path
+
+          reports = sorted(
+              glob.glob("reports/rolling_train_report_*.json"),
+              key=lambda p: Path(p).stat().st_mtime,
+              reverse=True,
+          )
+          if not reports:
+              # Also check metadata from latest bundle
+              meta_path = Path("ml/bundles/latest/metadata.json")
+              if meta_path.exists():
+                  with open(meta_path) as f:
+                      meta = json.load(f)
+                  p20 = meta.get("evaluation", {}).get("precision_at_20", 0.0)
+              else:
+                  print("⚠️  No training report found — skipping quality gate (first run)")
+                  sys.exit(0)
+          else:
+              with open(reports[0]) as f:
+                  report = json.load(f)
+              p20 = report.get("precision_at_20") or report.get("metrics", {}).get("precision_at_20", 0.0)
+
+          min_p20 = float(os.getenv("MIN_PRECISION_AT_20", "0.40"))
+          print(f"Precision@20: {p20:.3f}  (threshold: {min_p20:.3f})")
+          if p20 < min_p20:
+              print(f"❌ Model quality gate FAILED — P@20={p20:.3f} < {min_p20:.3f}")
+              sys.exit(1)
+          else:
+              print(f"✅ Model quality gate PASSED")
+          PYEOF
+        env:
+          MIN_PRECISION_AT_20: '0.40'
 
       - name: Monitor Drift (PSI/KS)
-        continue-on-error: true  # Optional step
+        continue-on-error: true
         run: |
           python -m scripts.monitor_drift || true
 
       - name: Upload model bundle artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ml-bundle-${{ github.run_number }}
+          name: ml-bundle-v3.1-${{ github.run_number }}
           path: |
             models/model_20d_v3.pkl
             models/model_20d_v3_*.pkl
+            models/*.metadata.json
+            ml/bundles/latest/model.joblib
+            ml/bundles/latest/metadata.json
             reports/rolling_train_report_*.json
+          retention-days: 90
 
-      - name: Upload training reports
+      - name: Upload drift report
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: training-reports-${{ github.run_number }}
-          path: reports/
+          name: drift-report-${{ github.run_number }}
+          path: reports/drift_report.json
+          if-no-files-found: ignore
+          retention-days: 30
 
       - name: Commit and push updated model bundle
         run: |
           set -e
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # Add canonical model and timestamped bundles
-          git add models/model_20d_v3.pkl models/model_20d_v3_*.pkl || true
-          # Include latest training report for traceability
+          # Stage canonical model, timestamped bundles, metadata, and latest bundle
+          git add models/model_20d_v3.pkl models/model_20d_v3_*.pkl models/*.metadata.json || true
+          git add ml/bundles/latest/model.joblib ml/bundles/latest/metadata.json || true
           git add reports/rolling_train_report_*.json || true
           if git diff --cached --quiet; then
             echo "No model changes to commit."
           else
-            git commit -m "chore(ml): weekly training - update 20d model bundle [skip ci]"
+            git commit -m "chore(ml): weekly v3.1 training — $(date +%Y-%m-%d) [skip ci]"
             git push
           fi

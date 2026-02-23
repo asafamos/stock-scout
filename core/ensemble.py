@@ -36,20 +36,32 @@ class EnsembleClassifier(BaseEstimator, ClassifierMixin):
         return self
     
     def predict_proba(self, X):
-        """Average probability predictions from all models."""
+        """Average probability predictions from all models.
+
+        Preserves DataFrame feature names for tree-based models to avoid
+        sklearn feature-name warnings. Only converts to numpy array for
+        models that require scaling (LogisticRegression).
+        """
+        import pandas as pd
         X_arr = np.array(X)
+        # Keep DataFrame form for tree models that were fitted with named features
+        X_df = X if isinstance(X, pd.DataFrame) else None
+
         weighted_probas = np.zeros((len(X_arr), 2))
-        
+
         for model, weight in zip(self.models, self.weights):
-            # Check if this model needs scaled input
             if hasattr(model, '_needs_scaling') and model._needs_scaling and self.scaler:
+                # LogisticRegression: always use scaled numpy array
                 X_input = self.scaler.transform(X_arr)
+            elif X_df is not None and hasattr(model, 'feature_names_in_'):
+                # Tree model fitted with feature names — pass DataFrame to avoid warnings
+                X_input = X_df
             else:
                 X_input = X_arr
-            
+
             proba = model.predict_proba(X_input)
             weighted_probas += proba * weight
-        
+
         return weighted_probas
     
     def predict(self, X):

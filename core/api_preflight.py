@@ -5,6 +5,7 @@ Prioritizes API key presence; only flags providers "down" on clear auth errors.
 Network timeouts or 5xx errors are treated as transient (assume provider up).
 Used in LIVE Streamlit runs only (not offline audits).
 """
+from __future__ import annotations
 
 import os
 import requests

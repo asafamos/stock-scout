@@ -20,6 +20,11 @@ on:
 
   workflow_dispatch:  # Allow manual trigger
 
+# Prevent concurrent scans — cancel any in-progress run when a new one starts
+concurrency:
+  group: auto-scan
+  cancel-in-progress: false  # Let current scan finish; queue at most one follow-up
+
 jobs:
   scan:
     runs-on: ubuntu-latest
@@ -31,6 +36,8 @@ jobs:
       ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
       TIINGO_API_KEY: ${{ secrets.TIINGO_API_KEY }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      EODHD_API_KEY: ${{ secrets.EODHD_API_KEY }}
+      ALERT_WEBHOOK: ${{ secrets.ALERT_WEBHOOK }}
 
     steps:
       - name: Checkout repository
@@ -38,26 +45,44 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Check if market is open
-        id: market_check
-        run: |
-          # Simple holiday check (expand this list as needed)
-          TODAY=$(date +%Y-%m-%d)
-          HOLIDAYS="2026-01-01 2026-01-19 2026-02-16 2026-04-03 2026-05-25 2026-07-03 2026-09-07 2026-11-26 2026-12-25"
-
-          if echo "$HOLIDAYS" | grep -q "$TODAY"; then
-            echo "market_closed=true" >> $GITHUB_OUTPUT
-            echo "Today is a US market holiday - skipping scan"
-          else
-            echo "market_closed=false" >> $GITHUB_OUTPUT
-          fi
-
       - name: Set up Python 3.11
-        if: steps.market_check.outputs.market_closed != 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Check if market is open
+        id: market_check
+        run: |
+          python - <<'PYEOF'
+          import sys
+          try:
+              import pandas_market_calendars as mcal
+              nyse = mcal.get_calendar('NYSE')
+              from datetime import date
+              today = date.today().strftime('%Y-%m-%d')
+              schedule = nyse.schedule(start_date=today, end_date=today)
+              if schedule.empty:
+                  print(f"market_closed=true", file=open('/dev/stdout', 'w'))
+                  with open('/tmp/market_status.txt', 'w') as f:
+                      f.write('closed')
+                  print(f"Today ({today}) is a NYSE holiday or weekend — skipping scan")
+              else:
+                  print(f"Market is open on {today}")
+                  with open('/tmp/market_status.txt', 'w') as f:
+                      f.write('open')
+          except Exception as e:
+              print(f"Calendar check failed ({e}), assuming market is open")
+              with open('/tmp/market_status.txt', 'w') as f:
+                  f.write('open')
+          PYEOF
+          STATUS=$(cat /tmp/market_status.txt 2>/dev/null || echo open)
+          echo "market_closed=$([ "$STATUS" = "closed" ] && echo true || echo false)" >> $GITHUB_OUTPUT
 
       - name: Verify API keys are set
         if: steps.market_check.outputs.market_closed != 'true'
@@ -68,12 +93,6 @@ jobs:
           if [ -z "$POLYGON_API_KEY" ]; then
             echo "⚠️ Warning: POLYGON_API_KEY not set"
           fi
-
-      - name: Install dependencies
-        if: steps.market_check.outputs.market_closed != 'true'
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
 
       - name: Prepare directories
         if: steps.market_check.outputs.market_closed != 'true'

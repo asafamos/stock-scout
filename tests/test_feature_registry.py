@@ -253,13 +253,15 @@ class TestTrainingInferenceConsistency:
             "ml_integration.py DEFAULT_FEATURES must match feature_registry!"
     
     def test_training_imports_registry(self):
-        """Training script must import from registry."""
-        # Import at test time
+        """Training script must import from registry (v3.1 — 39 stock-picker features)."""
         from scripts.train_rolling_ml_20d import FEATURE_NAMES_V3
-        registry_features = get_feature_names("v3")
-        
-        assert FEATURE_NAMES_V3 == registry_features, \
-            "train_rolling_ml_20d.py must use features from registry!"
+        # Production training now uses v3.1 (39 features, no market-timing)
+        registry_features = get_feature_names("v3.1")
+
+        assert FEATURE_NAMES_V3 == registry_features, (
+            "train_rolling_ml_20d.py must use v3.1 features from registry! "
+            f"Got {len(FEATURE_NAMES_V3)} features, expected {len(registry_features)}"
+        )
 
 
 class TestFeatureOrdering:
