@@ -49,6 +49,14 @@ FINAL_SCORE_WEIGHTS: Dict[str, float] = {
     "ml": 0.15,
 }
 
+# V4 weights — activated when V4 model achieves AUC > 0.60
+# ML gets higher weight because the model actually works with 72 features
+FINAL_SCORE_WEIGHTS_V4: Dict[str, float] = {
+    "technical": 0.40,
+    "fundamental": 0.25,
+    "ml": 0.35,
+}
+
 # Pattern-enhanced score weights (5-component, used by compute_final_score_with_patterns)
 # When Big Winner + Pattern data is available, ML share is redistributed.
 # Weights are auto-normalized to sum to 1.0 at runtime.

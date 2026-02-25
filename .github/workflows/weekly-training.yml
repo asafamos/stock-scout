@@ -106,6 +106,17 @@ jobs:
         run: |
           python -m scripts.monitor_drift || true
 
+      - name: Train V4 model (if training data available)
+        continue-on-error: true
+        run: |
+          if [ -f ml/data/training_data.parquet ]; then
+            echo "=== Training V4 Model ==="
+            python scripts/train_ml_v4.py --min-auc 0.55
+            echo "✓ V4 model training complete"
+          else
+            echo "⚠️ Skipping V4 training - no training_data.parquet found"
+          fi
+
       - name: Upload model bundle artifact
         uses: actions/upload-artifact@v4
         with:
@@ -113,6 +124,7 @@ jobs:
           path: |
             models/model_20d_v3.pkl
             models/model_20d_v3_*.pkl
+            ml/bundles/latest/
             reports/rolling_train_report_*.json
 
       - name: Upload training reports
@@ -128,6 +140,8 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           # Add canonical model and timestamped bundles
           git add models/model_20d_v3.pkl models/model_20d_v3_*.pkl || true
+          # Add V4 model bundle
+          git add ml/bundles/latest/ || true
           # Include latest training report for traceability
           git add reports/rolling_train_report_*.json || true
           if git diff --cached --quiet; then

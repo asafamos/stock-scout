@@ -519,6 +519,217 @@ def build_all_ml_features_v3(
     return features
 
 
+def build_all_ml_features_v4(
+    row: pd.Series,
+    df_hist: pd.DataFrame,
+    market_context: Optional[Dict[str, float]] = None,
+    sector_context: Optional[Dict[str, float]] = None,
+    fundamental_data: Optional[Dict[str, Any]] = None,
+    universe_stats: Optional[Dict[str, float]] = None,
+) -> Dict[str, float]:
+    """Build 72-feature vector for V4 model.
+
+    Builds on V3.1 (39 features) and adds:
+    - 15 fundamental features
+    - 8 cross-sectional rank features
+    - 6 temporal delta features
+    - 4 interaction features
+
+    Args:
+        row: Series with technical indicators from build_technical_indicators()
+        df_hist: Historical OHLCV DataFrame
+        market_context: Optional market regime/SPY data
+        sector_context: Optional sector relative data
+        fundamental_data: Dict with fundamental scores and metrics
+        universe_stats: Dict with universe-level percentiles for this stock
+
+    Returns:
+        Dict with all 72 features.
+    """
+    # Start with all V3.1 features
+    features = build_all_ml_features_v3(row, df_hist, market_context, sector_context)
+
+    # Add fundamental features
+    features.update(_build_fundamental_features(fundamental_data))
+
+    # Add cross-sectional ranks
+    features.update(_build_rank_features(row, universe_stats))
+
+    # Add temporal deltas
+    features.update(_build_delta_features(row, df_hist, features))
+
+    # Add interactions
+    features.update(_build_interaction_features(features))
+
+    # Validate and fill missing with defaults
+    expected_features = get_feature_names("v4")
+    try:
+        from core.feature_registry import get_feature_defaults, get_feature_ranges
+        defaults = get_feature_defaults("v4")
+        ranges = get_feature_ranges("v4")
+    except Exception:
+        defaults, ranges = {}, {}
+
+    for feat in expected_features:
+        val = features.get(feat)
+        if val is None or (isinstance(val, float) and (np.isnan(val) or np.isinf(val))):
+            features[feat] = defaults.get(feat, 0.0)
+
+    for feat, (lo, hi) in ranges.items():
+        if feat in features:
+            features[feat] = float(np.clip(features[feat], lo, hi))
+
+    return features
+
+
+def _build_fundamental_features(
+    fundamental_data: Optional[Dict[str, Any]],
+) -> Dict[str, float]:
+    """Build 15 fundamental features from score data."""
+    features: Dict[str, float] = {}
+    fd = fundamental_data or {}
+
+    def _safe(key: str, default: float = 0.0) -> float:
+        val = fd.get(key)
+        if val is None or (isinstance(val, float) and (np.isnan(val) or np.isinf(val))):
+            return default
+        try:
+            return float(val)
+        except (TypeError, ValueError):
+            return default
+
+    features["Fund_Quality_Score"] = _safe("quality_score", 50.0)
+    features["Fund_Growth_Score"] = _safe("growth_score", 50.0)
+    features["Fund_Valuation_Score"] = _safe("valuation_score", 50.0)
+    features["PE_Percentile"] = _safe("pe_percentile", 0.5)
+    features["PS_Percentile"] = _safe("ps_percentile", 0.5)
+    features["ROE_Percentile"] = _safe("roe_percentile", 0.5)
+
+    rev_g = _safe("rev_g_yoy", 0.0)
+    features["Revenue_Growth_Bucket"] = (
+        0.0 if rev_g < -0.05 else 1.0 if rev_g < 0.05 else 2.0 if rev_g < 0.20 else 3.0
+    )
+    eps_g = _safe("eps_g_yoy", 0.0)
+    features["EPS_Growth_Bucket"] = (
+        0.0 if eps_g < -0.05 else 1.0 if eps_g < 0.05 else 2.0 if eps_g < 0.20 else 3.0
+    )
+
+    de = _safe("debt_equity", 0.5)
+    features["Debt_Risk"] = float(np.clip(de / 3.0, 0, 1))
+
+    mc = _safe("market_cap", 1e10)
+    features["MarketCap_Log"] = float(np.log10(max(mc, 1e6)))
+
+    features["Fund_Coverage"] = _safe("coverage_pct", 0.5)
+    features["Fund_Disagreement"] = _safe("disagreement_score", 0.2)
+
+    quality = features["Fund_Quality_Score"]
+    valuation = features["Fund_Valuation_Score"]
+    growth = features["Fund_Growth_Score"]
+    mom_cons = _safe("momentum_consistency", 0.5)
+
+    features["Quality_Value_Combo"] = quality * (100 - valuation) / 100.0
+    features["Growth_Momentum_Combo"] = growth * mom_cons / 100.0
+    features["Earnings_Proximity"] = _safe("earnings_proximity", 0.0)
+
+    return features
+
+
+def _build_rank_features(
+    row: pd.Series,
+    universe_stats: Optional[Dict[str, float]],
+) -> Dict[str, float]:
+    """Build 8 cross-sectional rank features."""
+    us = universe_stats or {}
+    return {
+        "RSI_Rank": us.get("rsi_pctl", 0.5),
+        "ATR_Rank": us.get("atr_pctl", 0.5),
+        "Momentum_Rank": us.get("momentum_pctl", 0.5),
+        "Volume_Rank": us.get("volume_pctl", 0.5),
+        "TechScore_Rank": us.get("tech_score_pctl", 0.5),
+        "FundScore_Rank": us.get("fund_score_pctl", 0.5),
+        "RS_Rank": us.get("rs_pctl", 0.5),
+        "RR_Rank": us.get("rr_pctl", 0.5),
+    }
+
+
+def _build_delta_features(
+    row: pd.Series,
+    df_hist: pd.DataFrame,
+    current_features: Dict[str, float],
+) -> Dict[str, float]:
+    """Build 6 temporal delta features."""
+    features: Dict[str, float] = {}
+    close = df_hist["Close"] if "Close" in df_hist.columns else pd.Series(dtype=float)
+
+    # RSI delta 5d
+    try:
+        from core.indicators import compute_rsi
+        if len(close) >= 20:
+            rsi_series = compute_rsi(close, 14)
+            rsi_now = rsi_series.iloc[-1]
+            rsi_5d = rsi_series.iloc[-5] if len(rsi_series) >= 5 else rsi_now
+            features["RSI_Delta_5d"] = float(rsi_now - rsi_5d)
+        else:
+            features["RSI_Delta_5d"] = 0.0
+    except Exception:
+        features["RSI_Delta_5d"] = 0.0
+
+    # ATR delta 5d
+    try:
+        atr_now = current_features.get("ATR_Pct", 0.02)
+        if len(df_hist) >= 20:
+            from core.indicators import compute_atr
+            atr_series = compute_atr(df_hist, 14)
+            atr_pct_series = atr_series / close
+            atr_5d = float(atr_pct_series.iloc[-5]) if len(atr_pct_series) >= 5 else atr_now
+            features["ATR_Delta_5d"] = float(atr_now - atr_5d)
+        else:
+            features["ATR_Delta_5d"] = 0.0
+    except Exception:
+        features["ATR_Delta_5d"] = 0.0
+
+    # Volume delta 5d
+    try:
+        vol_surge_now = current_features.get("Volume_Surge", 1.0)
+        if len(df_hist) >= 25:
+            vol = df_hist["Volume"] if "Volume" in df_hist.columns else pd.Series(dtype=float)
+            vol_avg_20 = vol.rolling(20).mean()
+            vol_surge_5d = float(vol.iloc[-5] / vol_avg_20.iloc[-5]) if vol_avg_20.iloc[-5] > 0 else 1.0
+            features["Volume_Delta_5d"] = float(vol_surge_now - vol_surge_5d)
+        else:
+            features["Volume_Delta_5d"] = 0.0
+    except Exception:
+        features["Volume_Delta_5d"] = 0.0
+
+    features["RS_Acceleration"] = current_features.get("RS_Momentum", 0.0)
+
+    ret_5d = current_features.get("Return_5d", 0.0)
+    ret_20d = current_features.get("Return_20d", 0.0)
+    features["Momentum_Acceleration"] = ret_5d - (ret_20d - ret_5d) / 3.0
+
+    features["Breadth_Delta_5d"] = 0.0  # Requires market-level data
+
+    return features
+
+
+def _build_interaction_features(features: Dict[str, float]) -> Dict[str, float]:
+    """Build 4 interaction features from existing features."""
+    vcp = features.get("VCP_Ratio", 1.0)
+    rs = features.get("RS_vs_SPY_20d", 0.0)
+    mom_cons = features.get("Momentum_Consistency", 0.5)
+    vol_surge = features.get("Volume_Surge", 1.0)
+    quality = features.get("Fund_Quality_Score", 50.0)
+    squeeze = features.get("Squeeze_On_Flag", 0.0)
+
+    return {
+        "VCP_x_RS": vcp * rs,
+        "Momentum_x_Volume": mom_cons * vol_surge,
+        "Quality_x_Momentum": (quality / 100.0) * mom_cons,
+        "Squeeze_x_Volume": squeeze * vol_surge,
+    }
+
+
 def get_market_context_from_row(row: pd.Series) -> Dict[str, float]:
     """
     Extract market context from a row that might have SPY data.

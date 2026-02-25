@@ -293,7 +293,8 @@ def compute_ml_20d_probabilities_raw(row: pd.Series) -> float:
         # Feature defaults from registry (graceful if unavailable)
         try:
             from core.feature_registry import get_feature_defaults, clip_features_to_range
-            _version = "v3.1" if len(FEATURE_COLS_20D) >= 39 else "v3"
+            _n = len(FEATURE_COLS_20D)
+            _version = "v4" if _n >= 72 else ("v3.1" if _n >= 39 else "v3")
             defaults = get_feature_defaults(_version)
         except Exception:
             defaults = {}
