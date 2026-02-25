@@ -188,6 +188,8 @@ def get_feature_names(version: str = "v3") -> List[str]:
         return [f.name for f in FEATURE_SPECS_V3]
     if version == "v3.1":
         return [f.name for f in FEATURE_SPECS_V3_1]
+    if version == "v4":
+        return [f.name for f in FEATURE_SPECS_V4]
     raise ValueError(f"Unknown feature version: {version}")
 
 
@@ -205,6 +207,8 @@ def get_feature_specs(version: str = "v3") -> List[FeatureSpec]:
         return FEATURE_SPECS_V3.copy()
     if version == "v3.1":
         return FEATURE_SPECS_V3_1.copy()
+    if version == "v4":
+        return FEATURE_SPECS_V4.copy()
     raise ValueError(f"Unknown feature version: {version}")
 
 
@@ -309,6 +313,62 @@ def fill_missing_with_defaults(features_dict: Dict[str, float], version: str = "
 
 
 # =============================================================================
+# FEATURE DEFINITIONS V4 (72 features) — fundamental + cross-sectional + delta
+#
+# Changes from v3.1:
+#   ADDED 15 fundamental features (ML has ZERO fundamental input in v3.1)
+#   ADDED 8 cross-sectional rank features (relative positioning vs peers)
+#   ADDED 6 temporal delta features (acceleration/deceleration)
+#   ADDED 4 interaction features (non-linear combinations)
+# =============================================================================
+FEATURE_SPECS_V4: List[FeatureSpec] = [
+    # ── All 39 from v3.1 ─────────────────────────────────────────────
+    *FEATURE_SPECS_V3_1,
+
+    # ── 15 Fundamental Features (NEW — biggest gap in v3.1) ──────────
+    FeatureSpec("Fund_Quality_Score", "ROE/ROIC/margin composite (0-100)", 50.0, (0, 100), "fundamental"),
+    FeatureSpec("Fund_Growth_Score", "Revenue/EPS YoY composite (0-100)", 50.0, (0, 100), "fundamental"),
+    FeatureSpec("Fund_Valuation_Score", "PE/PS composite (0-100, high=cheap)", 50.0, (0, 100), "fundamental"),
+    FeatureSpec("PE_Percentile", "PE rank within sector (0-1)", 0.5, (0, 1), "fundamental"),
+    FeatureSpec("PS_Percentile", "PS rank within sector (0-1)", 0.5, (0, 1), "fundamental"),
+    FeatureSpec("ROE_Percentile", "ROE rank within universe (0-1)", 0.5, (0, 1), "fundamental"),
+    FeatureSpec("Revenue_Growth_Bucket", "Discretized: 0=declining,1=flat,2=moderate,3=strong", 1.0, (0, 3), "fundamental"),
+    FeatureSpec("EPS_Growth_Bucket", "Discretized: 0=declining,1=flat,2=moderate,3=strong", 1.0, (0, 3), "fundamental"),
+    FeatureSpec("Debt_Risk", "D/E ratio normalised (0-1, higher=riskier)", 0.3, (0, 1), "fundamental"),
+    FeatureSpec("MarketCap_Log", "log10(market_cap)", 10.0, (6, 13), "fundamental"),
+    FeatureSpec("Fund_Coverage", "Fundamental_Coverage_Pct / 100 (0-1)", 0.5, (0, 1), "fundamental"),
+    FeatureSpec("Fund_Disagreement", "Data disagreement score (0-1)", 0.2, (0, 1), "fundamental"),
+    FeatureSpec("Quality_Value_Combo", "Quality × (100-Valuation)/100", 25.0, (0, 100), "fundamental"),
+    FeatureSpec("Growth_Momentum_Combo", "Growth × Momentum_Consistency", 25.0, (0, 100), "fundamental"),
+    FeatureSpec("Earnings_Proximity", "1/(1+days_to_earnings) or 0", 0.0, (0, 1), "fundamental"),
+
+    # ── 8 Cross-Sectional Rank Features ──────────────────────────────
+    FeatureSpec("RSI_Rank", "RSI percentile within universe (0-1)", 0.5, (0, 1), "rank"),
+    FeatureSpec("ATR_Rank", "ATR_Pct percentile within universe (0-1)", 0.5, (0, 1), "rank"),
+    FeatureSpec("Momentum_Rank", "Return_20d percentile within universe (0-1)", 0.5, (0, 1), "rank"),
+    FeatureSpec("Volume_Rank", "Volume_Surge percentile within universe (0-1)", 0.5, (0, 1), "rank"),
+    FeatureSpec("TechScore_Rank", "TechScore_20d percentile within universe (0-1)", 0.5, (0, 1), "rank"),
+    FeatureSpec("FundScore_Rank", "Fundamental_Score percentile within universe (0-1)", 0.5, (0, 1), "rank"),
+    FeatureSpec("RS_Rank", "RS_vs_SPY_20d percentile within universe (0-1)", 0.5, (0, 1), "rank"),
+    FeatureSpec("RR_Rank", "RR_Ratio percentile within universe (0-1)", 0.5, (0, 1), "rank"),
+
+    # ── 6 Temporal Delta Features ────────────────────────────────────
+    FeatureSpec("RSI_Delta_5d", "RSI_now - RSI_5d_ago", 0.0, (-50, 50), "delta"),
+    FeatureSpec("ATR_Delta_5d", "ATR_Pct_now - ATR_Pct_5d_ago", 0.0, (-0.1, 0.1), "delta"),
+    FeatureSpec("Volume_Delta_5d", "Volume_Surge_now - Volume_Surge_5d_ago", 0.0, (-5, 5), "delta"),
+    FeatureSpec("RS_Acceleration", "RS_20d - RS_60d", 0.0, (-0.5, 0.5), "delta"),
+    FeatureSpec("Momentum_Acceleration", "Return_5d - (Return_20d-Return_5d)/3", 0.0, (-0.3, 0.3), "delta"),
+    FeatureSpec("Breadth_Delta_5d", "Market breadth today - 5d ago", 0.0, (-0.5, 0.5), "delta"),
+
+    # ── 4 Interaction Features ───────────────────────────────────────
+    FeatureSpec("VCP_x_RS", "VCP_Ratio × RS_vs_SPY_20d", 0.0, (-5, 5), "interaction"),
+    FeatureSpec("Momentum_x_Volume", "Momentum_Consistency × Volume_Surge", 0.5, (0, 10), "interaction"),
+    FeatureSpec("Quality_x_Momentum", "Fund_Quality_Score/100 × Momentum_Consistency", 0.25, (0, 1), "interaction"),
+    FeatureSpec("Squeeze_x_Volume", "Squeeze_On_Flag × Volume_Surge", 0.0, (0, 10), "interaction"),
+]
+
+
+# =============================================================================
 # CONSTANTS
 # =============================================================================
 
@@ -319,8 +379,11 @@ assert FEATURE_COUNT_V3 == 34, f"Expected 34 features, got {FEATURE_COUNT_V3}"
 FEATURE_COUNT_V3_1 = len(FEATURE_SPECS_V3_1)
 assert FEATURE_COUNT_V3_1 == 39, f"Expected 39 features, got {FEATURE_COUNT_V3_1}"
 
+FEATURE_COUNT_V4 = len(FEATURE_SPECS_V4)
+assert FEATURE_COUNT_V4 == 72, f"Expected 72 features, got {FEATURE_COUNT_V4}"
+
 # List of all supported versions
-SUPPORTED_VERSIONS = ["v3", "v3.1"]
+SUPPORTED_VERSIONS = ["v3", "v3.1", "v4"]
 
 # Current default version
 DEFAULT_VERSION = "v3.1"

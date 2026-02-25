@@ -1529,6 +1529,32 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
     except Exception as e:
         logger.warning("[PIPELINE] Failed to persist latest scan files: %s", e)
 
+    # Persist to DuckDB + register for outcome tracking
+    try:
+        from core.db.store import get_scan_store
+        from core.db.outcome_tracker import OutcomeTracker
+
+        store = get_scan_store()
+        scan_id = store.generate_scan_id()
+        scan_meta = {
+            "universe_name": ctx.config.get("universe_name", "unknown"),
+            "universe_size": ctx.config.get("universe_size", len(ctx.results)),
+            "market_regime": ctx.results["Market_Regime"].mode().iloc[0]
+            if "Market_Regime" in ctx.results.columns and not ctx.results.empty
+            else None,
+            "total_scored": ctx.config.get("total_scored"),
+            "ml_model_version": ctx.config.get("ml_model_version"),
+        }
+        n_saved = store.save_scan(scan_id, ctx.results, ctx.config, scan_meta)
+        tracker = OutcomeTracker(store)
+        n_registered = tracker.register_recommendations(scan_id, ctx.results)
+        logger.info(
+            "[PIPELINE] DuckDB: saved %d recs, registered %d for outcome tracking (scan %s)",
+            n_saved, n_registered, scan_id,
+        )
+    except Exception as e:
+        logger.warning("[PIPELINE] DuckDB persistence skipped: %s", e)
+
     # Attach Tier 1 filtered summary
     try:
         if isinstance(ctx.data_map, dict):

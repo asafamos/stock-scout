@@ -101,6 +101,11 @@ jobs:
               "run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             }'
 
+      - name: Update outcome tracking
+        if: steps.market_check.outputs.market_closed != 'true'
+        run: python scripts/update_outcomes.py
+        continue-on-error: true
+
       - name: Commit and push updated scan artifacts
         if: steps.market_check.outputs.market_closed != 'true'
         run: |

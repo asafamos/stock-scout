@@ -20,3 +20,37 @@ def make_label_20d(forward_ret: pd.Series) -> pd.Series:
     label = np.where(forward_ret >= UP_THRESHOLD, 1,
                      np.where(forward_ret <= DOWN_THRESHOLD, 0, np.nan))
     return pd.Series(label, index=forward_ret.index)
+
+
+def make_label_20d_ranked(
+    forward_returns: pd.Series,
+    dates: pd.Series,
+    top_pct: float = 0.20,
+    bottom_pct: float = 0.40,
+) -> pd.Series:
+    """Cross-sectional rank-based labeling.
+
+    For each date:
+      - Rank all stocks by forward_return_20d
+      - Top 20% = label 1 (winner)
+      - Bottom 40% = label 0 (loser)
+      - Middle 40% = NaN (ambiguous, skip)
+
+    This is better than absolute thresholds because:
+    1. Class balance is consistent across market regimes
+    2. In bear markets, "winners" are stocks that fall least
+    3. Makes the model a STOCK PICKER, not a market timer
+    """
+    labels = pd.Series(np.nan, index=forward_returns.index)
+
+    for dt in dates.unique():
+        mask = dates == dt
+        rets = forward_returns[mask].dropna()
+        if len(rets) < 20:
+            continue
+        top_thresh = rets.quantile(1 - top_pct)
+        bottom_thresh = rets.quantile(bottom_pct)
+        labels.loc[mask & (forward_returns >= top_thresh)] = 1
+        labels.loc[mask & (forward_returns <= bottom_thresh)] = 0
+
+    return labels
