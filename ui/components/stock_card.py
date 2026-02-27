@@ -112,8 +112,11 @@ def render_stock_card(row: pd.Series, rank: int, score_label: str = "FinalScore_
     entry_str = f"${entry_price:.2f}" if np.isfinite(entry_price) else "—"
     target_str = f"${target_price:.2f}" if np.isfinite(target_price) else "—"
 
-    # Target date (20 trading days ≈ 28 calendar days from scan date)
+    # Target date — per-stock based on ATR/volatility holding period
     target_date_str = ""
+    holding_days_val = to_float(row.get("Holding_Days", np.nan))
+    holding_days = int(holding_days_val) if np.isfinite(holding_days_val) else 20
+
     # First check if pipeline provided a target date
     _target_date_col = row.get("Target_Date", None)
     if _target_date_col is not None and str(_target_date_col) not in ("", "nan", "None", "NaT"):
@@ -123,7 +126,7 @@ def render_stock_card(row: pd.Series, rank: int, score_label: str = "FinalScore_
                 target_date_str = _td.strftime("%b %d")
         except Exception:
             pass
-    # Fallback: compute from As_Of_Date + 20 business days
+    # Fallback: compute from As_Of_Date + per-stock holding days
     if not target_date_str:
         _as_of = row.get("As_Of_Date", row.get("timestamp", None))
         if _as_of is not None:
@@ -133,8 +136,7 @@ def render_stock_card(row: pd.Series, rank: int, score_label: str = "FinalScore_
                     _scan_dt = pd.Timestamp(_dt.datetime.fromtimestamp(_as_of))
                 else:
                     _scan_dt = pd.Timestamp(_as_of)
-                # 20 business days from scan date
-                _target_dt = _scan_dt + pd.offsets.BDay(20)
+                _target_dt = _scan_dt + pd.offsets.BDay(holding_days)
                 target_date_str = _target_dt.strftime("%b %d")
             except Exception:
                 pass
@@ -160,15 +162,15 @@ def render_stock_card(row: pd.Series, rank: int, score_label: str = "FinalScore_
 
     # Detail items
     atr_pct = to_float(row.get("ATR_Price", row.get("ATR_Pct", row.get("ADR_Pct", np.nan))))
-    de = to_float(row.get("DE_f", row.get("debt_to_equity", row.get("Debt_to_Equity", row.get("Debt_Equity", row.get("Leverage", np.nan))))))
+    de = to_float(row.get("DE_f", row.get("debt_to_equity", row.get("Debt_to_Equity", row.get("Debt_Equity", row.get("debt_equity", row.get("Leverage", np.nan)))))))
     fund_src = to_float(row.get("Fundamental_Sources_Count", row.get("fund_sources_used_v2", row.get("sources_used_count", np.nan))))
     price_src = to_float(row.get("Price_Sources_Count", row.get("price_sources_used_v2", row.get("Sources_Used", np.nan))))
     price_std = to_float(row.get("Price_STD", row.get("price_std", row.get("Historical_StdDev", np.nan))))
     quality = to_float(row.get("Quality_Score_F", row.get("Quality", np.nan)))
     growth = to_float(row.get("Growth_Score_F", np.nan))
     valuation = to_float(row.get("Valuation_Score_F", row.get("Valuation", np.nan)))
-    pe = to_float(row.get("PE", row.get("pe", row.get("PE_Ratio", np.nan))))
-    roe = to_float(row.get("ROE", row.get("roe", np.nan)))
+    pe = to_float(row.get("PE", row.get("pe", row.get("PE_Ratio", row.get("PE_f", np.nan)))))
+    roe = to_float(row.get("ROE", row.get("roe", row.get("ROE_f", row.get("Quality", np.nan)))))
     beta = to_float(row.get("Beta", row.get("beta", np.nan)))
     market_cap = to_float(row.get("Market_Cap", row.get("market_cap", np.nan)))
     fund_cov = to_float(row.get("Fund_Coverage_Pct", row.get("Fundamental_Coverage_Pct", np.nan)))
@@ -203,7 +205,7 @@ def render_stock_card(row: pd.Series, rank: int, score_label: str = "FinalScore_
         f'<div class="ss-metric"><span class="ss-metric-value">{upside_str}</span><span class="ss-metric-label">Upside</span></div>'
         f'<div class="ss-metric"><span class="ss-metric-value">{target_str}</span><span class="ss-metric-label">Target</span></div>'
         f'<div class="ss-metric"><span class="ss-metric-value">{entry_str}</span><span class="ss-metric-label">Entry</span></div>'
-        f'<div class="ss-metric"><span class="ss-metric-value">{target_date_str if target_date_str else "—"}</span><span class="ss-metric-label">Target Date</span></div>'
+        f'<div class="ss-metric"><span class="ss-metric-value">{target_date_str if target_date_str else "—"}</span><span class="ss-metric-label">Target ({holding_days}d)</span></div>'
         f'</div>'
         f'<div class="ss-breakdown">'
         f'<div class="ss-bar-row"><span class="ss-bar-label">Technical</span><div class="ss-bar-track"><div class="ss-bar-fill tech" style="width:{tech_bar:.0f}%"></div></div><span class="ss-bar-value">{fmt_num(tech_score_raw, ".0f")}</span></div>'
