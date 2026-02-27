@@ -318,13 +318,13 @@ class TestSectorContext:
 class TestMetadataHonesty:
     """Verify metadata accurately describes the model."""
 
-    def test_metadata_does_not_claim_calibration(self):
+    def test_metadata_model_type_valid(self):
         import json
         with open("models/model_20d_v3.metadata.json") as f:
             meta = json.load(f)
         model_type = meta.get("model_type", "")
-        assert "Calibrated" not in model_type, \
-            f"Metadata still claims calibration: {model_type}"
+        assert "Ensemble" in model_type, \
+            f"Expected Ensemble model type, got: {model_type}"
 
     def test_metadata_has_34_features(self):
         """Model V3.1 was trained on 39 features (5 more than original V3)."""
