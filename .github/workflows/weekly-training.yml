@@ -1,7 +1,7 @@
 name: Weekly ML Training (20d)
 
 # Single consolidated training workflow - runs weekly to retrain ML model
-# with 2000 tickers and 5 years of history from Polygon API.
+# with 500 tickers and 3 years of history from Polygon API (free tier: 5 req/min).
 
 permissions:
   contents: write  # allow committing trained model back to repo
@@ -15,7 +15,7 @@ on:
 jobs:
   train:
     runs-on: ubuntu-latest
-    timeout-minutes: 180  # Training 2000 tickers with 5 years of data needs more time
+    timeout-minutes: 180  # 500 tickers × 4 req/min ≈ 125 min data + ~10 min training
     env:
       # REQUIRED: Polygon API key for historical data
       POLYGON_API_KEY: ${{ secrets.POLYGON_API_KEY }}
@@ -73,18 +73,16 @@ jobs:
 
       - name: Run rolling training
         env:
-          # Training configuration (informational - actual values in Python code)
-          UNIVERSE_SIZE: '2000'
-          LOOKBACK_YEARS: '5'
-          RELATIVE_LABEL_TAU: '0.03'
-          ROLLING_MONTHS: '18'
-          TS_SPLITS: '5'
-          PRECISION_AT_K: '20'
+          # Training configuration — must match variable names in train_rolling_ml_20d.py
+          ML_UNIVERSE_SIZE: '500'
+          ML_TRAIN_YEARS: '3'
+          POLYGON_RATE_LIMIT: '4'
+          POLYGON_THREADS: '1'
         run: |
           echo "=== Starting ML Training ==="
-          echo "  Universe: $UNIVERSE_SIZE tickers"
-          echo "  Lookback: $LOOKBACK_YEARS years"
-          echo "  Rolling months: $ROLLING_MONTHS"
+          echo "  Universe: $ML_UNIVERSE_SIZE tickers"
+          echo "  Lookback: $ML_TRAIN_YEARS years"
+          echo "  Rate limit: $POLYGON_RATE_LIMIT req/min"
           echo "============================="
           python -m scripts.run_daily_training
 
@@ -139,7 +137,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           # Add canonical model and timestamped bundles
-          git add models/model_20d_v3.pkl models/model_20d_v3_*.pkl || true
+          git add models/model_20d_v3.pkl models/model_20d_v3_*.pkl models/model_20d_v3.metadata.json models/feature_importance_report.txt || true
           # Add V4 model bundle
           git add ml/bundles/latest/ || true
           # Include latest training report for traceability
