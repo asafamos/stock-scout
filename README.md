@@ -1,24 +1,23 @@
 # 📈 Stock Scout
 
-**AI-powered stock recommendation system** combining technical analysis, fundamental scoring, and **machine learning (XGBoost)** to identify high-probability trading opportunities in US equities.
+**AI-powered stock recommendation system** combining technical analysis, fundamental scoring, and **machine learning** to identify high-probability trading opportunities in US equities.
 
 [![Python](https://img.shields.io/badge/Python-3.11-blue.svg)](https://www.python.org/)
-[![Streamlit](https://img.shields.io/badge/Streamlit-1.40-red.svg)](https://streamlit.io/)
-[![XGBoost](https://img.shields.io/badge/XGBoost-2.1-orange.svg)](https://xgboost.readthedocs.io/)
+[![Streamlit](https://img.shields.io/badge/Streamlit-1.36-red.svg)](https://streamlit.io/)
+[![scikit--learn](https://img.shields.io/badge/scikit--learn-1.8-orange.svg)](https://scikit-learn.org/)
+[![DuckDB](https://img.shields.io/badge/DuckDB-1.1-yellow.svg)](https://duckdb.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-
----
 
 ---
 
 ## 🎯 What Makes This Different?
 
 ### 1. **ML-Powered Confidence Scoring** 🤖
-- **XGBoost model** trained on 231 historical signals (5-day forward returns)
-- **61% improvement** over baseline logistic regression (AUC 0.534 vs 0.332)
-- **Time-tested**: Successfully identified AAPL with 69.4% confidence before actual price move
+- **Ensemble model (v3.1)**: HistGradientBoosting + RandomForest + LogisticRegression
+- **39 engineered features** across 7 categories (technical, volatility, volume, market regime, sector, price action)
 - **Confidence tiers**: High (🟢 >50%), Medium (🟡 30-50%), Low (🔴 <30%)
-- **Explainable AI**: SHAP values show which factors drive each prediction
+- **Calibrated probabilities** via Isotonic Regression
+- **Time-Series Cross-Validation** (5 folds) for robust evaluation
 
 ### 2. **Comprehensive Multi-Source Data** 📊
 - **10 data providers**: Yahoo Finance, Alpha Vantage, Finnhub, Polygon, Tiingo, FMP, SimFin, Marketstack, Nasdaq Data Link, EODHD
@@ -26,7 +25,6 @@
 - **Price verification**: Cross-validates prices across multiple sources
 - **Reliability scoring**: Tracks data completeness and source agreement
 
-### 3. **Advanced Technical & Fundamental Analysis** 📈
 ### 3. **Advanced Technical & Fundamental Analysis** 📈
 
 **Technical Indicators:**
@@ -38,7 +36,7 @@
 
 **Fundamental Scoring (Transparent Breakdown):**
 - **Quality** (High/Medium/Low): ROE, ROIC, Gross Margin
-- **Growth** (Fast/Moderate/Slow): Revenue YoY, EPS YoY  
+- **Growth** (Fast/Moderate/Slow): Revenue YoY, EPS YoY
 - **Valuation** (Cheap/Fair/Expensive): P/E, P/S ratios
 - **Leverage** (Low/Medium/High): Debt-to-Equity
 - Color-coded labels in UI for instant assessment
@@ -50,9 +48,11 @@
 - ATR-based position sizing
 - Min/max position constraints
 
----
+### 4. **DuckDB-Powered Outcome Tracking** 🦆
+- **Persistent storage** for scan results and outcome tracking
+- **Walk-forward backtesting** with full pipeline simulation
+- **Portfolio attribution** analysis for performance decomposition
 
-## 🚀 Quick Start
 ---
 
 ## 🚀 Quick Start
@@ -101,13 +101,14 @@ Open browser at: http://localhost:8501
 
 ## 📊 ML Model Performance
 
-### Model Architecture (v3)
+### Model Architecture (v3.1)
 - **Ensemble**: HistGradientBoosting (45%) + RandomForest (35%) + LogisticRegression (20%)
-- **Features**: 34 engineered features across 7 categories
+- **Features**: 39 engineered features across 7 categories
 - **Calibration**: Isotonic regression for reliable probabilities
 - **Validation**: Time-Series Cross-Validation (5 folds)
+- **Scoring weights**: Technical 55% + Fundamental 25% + ML 20%
 
-### Feature Categories (34 total)
+### Feature Categories (39 total)
 | Category | Count | Examples |
 |----------|-------|----------|
 | Technical | 5 | RSI, ATR_Pct, Returns (5d/10d/20d) |
@@ -117,50 +118,100 @@ Open browser at: http://localhost:8501
 | Sector Relative | 3 | Sector_RS, Sector_Momentum |
 | Volume Advanced | 5 | Volume_Trend, Accumulation signals |
 | Price Action | 9 | 52w positioning, Support/Resistance |
+| Additional (v3.1) | 6 | Extended momentum & breadth features |
 
-### Validation Metrics
-- **Out-of-Sample AUC**: Check `models/model_20d_v3.pkl.metadata.json`
-- **Precision@20**: Top 20 predictions accuracy
-- **Lift**: Improvement over random baseline
+### Experimental: ML V4
+- **54 features** with expanded feature engineering
+- Training script: `scripts/train_ml_v4.py`
+- Model: `models/ml_20d_v4.pkl`
 
 ### Key Files
-- `core/feature_registry.py` - Single source of truth for 34 features
+- `core/feature_registry.py` - Single source of truth for feature definitions
 - `core/ml_integration.py` - Model loading with validation
-- `scripts/train_rolling_ml_20d.py` - Training script
-- `models/model_20d_v3.pkl` - Latest trained model
+- `scripts/train_rolling_ml_20d.py` - Primary training script
+- `models/model_20d_v3.pkl` - Current production model (v3.1)
 
 ---
 
 ## 🏗️ Architecture
 
 ```
-stock-scout-2/
-├── stock_scout.py              # Main Streamlit app
-├── models/model_20d_v3.pkl     # Latest ML model bundle (sklearn)
-├── backtest_recommendations.py # Historical signal generator
-├── train_recommender.py        # Model training script
+stock-scout/
+├── stock_scout.py              # Main Streamlit app (entry point)
 ├── core/                       # Business logic
 │   ├── config.py               # Configuration management
+│   ├── unified_logic.py        # Single entry point for scoring
+│   ├── scoring_engine.py       # Scoring pipeline
 │   ├── data_sources_v2.py      # Multi-provider data fetching (canonical)
 │   ├── data/                   # Unified data API
+│   ├── db/                     # DuckDB integration
+│   │   ├── store.py            # Persistent scan storage
+│   │   ├── outcome_tracker.py  # Outcome tracking
+│   │   └── schema.py           # Database schema
+│   ├── backtest/               # Walk-forward backtest engine
+│   │   ├── engine.py           # Backtest orchestrator
+│   │   ├── portfolio_sim.py    # Portfolio simulation
+│   │   ├── attribution.py      # Performance attribution
+│   │   └── stats.py            # Statistical analysis
 │   ├── classification.py       # Risk classification (Core/Speculative)
 │   ├── portfolio.py            # Position sizing & allocation
-│   ├── scoring/                # Scoring modules
-│   └── legacy/                 # Deprecated modules (do not use)
+│   ├── scoring/                # Scoring modules (fundamental, recommendation)
+│   ├── feature_registry.py     # ML feature definitions
+│   ├── ml_integration.py       # ML model loading & inference
+│   ├── filters/                # Filtering logic
+│   ├── providers/              # Data providers
+│   └── risk/                   # Risk management
+├── ui/                         # UI layer
+│   ├── design_system.py        # Modern design system
+│   ├── stock_ui.py             # Main UI components
+│   ├── components/             # Card components
+│   └── styles/                 # CSS & RTL support
+├── models/                     # Trained ML models
+│   ├── model_20d_v3.pkl        # Production model (v3.1, 39 features)
+│   └── ml_20d_v4.pkl           # Experimental V4 (54 features)
+├── scripts/                    # Training, backtesting & scanning scripts
+│   ├── backtest_recommendations.py
+│   ├── train_recommender.py
+│   ├── train_ml_v4.py
+│   └── run_2000_meteor_scan.py
+├── pipeline/                   # Data pipeline modules
 ├── tools/                      # Debug, audit, benchmark scripts
-└── tests/                      # Unit tests
+├── tests/                      # Unit & integration tests (75+ files)
+└── data/                       # Scan history & ticker lists
 ```
+
+---
+
+## 🔄 CI/CD & Automation
+
+### Automated Daily Scans
+GitHub Actions runs **4 scans daily** aligned with NYSE trading hours:
+- **8:30 AM ET** - Pre-market scan
+- **10:00 AM ET** - Early session scan
+- **3:00 PM ET** - Late session scan
+- **4:30 PM ET** - End of day scan
+
+Includes US market holiday detection to skip non-trading days.
+
+### Additional Workflows
+- **`ci.yml`** - Unit & integration tests on every push
+- **`weekly-training.yml`** - Automated ML model retraining
+- **`ml-a2-contract.yml`** - ML model validation contract
+- **`weekly_backtest.yml`** - Historical backtest validation
+- **`track_outcomes.yml`** - Outcome tracking for past recommendations
 
 ---
 
 ## 📖 Documentation
 
-- **[SUMMARY_HE.md](SUMMARY_HE.md)** - Hebrew summary of ML improvements
-- **[MODEL_COMPARISON.md](MODEL_COMPARISON.md)** - XGBoost vs Logistic performance
-- **[PRODUCTION_INTEGRATION.md](PRODUCTION_INTEGRATION.md)** - Deployment guide
-- **[INTEGRATION_SUCCESS.md](INTEGRATION_SUCCESS.md)** - Usage examples & monitoring
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - System design overview
-- **[DATA_SOURCES_REPORT.md](DATA_SOURCES_REPORT.md)** - Provider capabilities
+- **[CHANGELOG.md](CHANGELOG.md)** - Version history and changes
+- **[REFACTORING_SUMMARY.md](REFACTORING_SUMMARY.md)** - Recent refactoring details
+- **[docs/archive/](docs/archive/)** - Historical documentation
+  - [SUMMARY_HE.md](docs/archive/SUMMARY_HE.md) - Hebrew summary of ML improvements
+  - [MODEL_COMPARISON.md](docs/archive/MODEL_COMPARISON.md) - XGBoost vs Logistic performance
+  - [PRODUCTION_INTEGRATION.md](docs/archive/PRODUCTION_INTEGRATION.md) - Deployment guide
+  - [DATA_SOURCES_REPORT.md](docs/archive/DATA_SOURCES_REPORT.md) - Provider capabilities
 
 ---
 
@@ -177,7 +228,7 @@ stock-scout-2/
 - Runner example:
 
 ```bash
-python run_2000_meteor_scan.py
+python scripts/run_2000_meteor_scan.py
 ```
 
 Outputs CSV at `reports/meteor_results_YYYYMMDD.csv` including `Meteor_Confidence_Score`.
@@ -185,7 +236,7 @@ Outputs CSV at `reports/meteor_results_YYYYMMDD.csv` including `Meteor_Confidenc
 ### Backtesting on Custom Date Range
 
 ```bash
-python backtest_recommendations.py \
+python scripts/backtest_recommendations.py \
     --use-finnhub \
     --limit 500 \
     --start 2024-01-01 \
@@ -197,19 +248,17 @@ python backtest_recommendations.py \
 
 ```bash
 # Generate new signals
-python backtest_recommendations.py --use-finnhub --limit 500
+python scripts/backtest_recommendations.py --use-finnhub --limit 500
 
-# Train model
-python train_recommender.py \
+# Train model (v3.1)
+python scripts/train_recommender.py \
     --signals backtest_signals_latest.csv \
     --horizon 5 \
     --model xgboost \
     --cv
 
-# Validate on known movers
-python time_test_validation.py \
-    --model models/model_20d_v3.pkl \
-    --cases cases_example.csv
+# Train V4 model (experimental)
+python scripts/train_ml_v4.py
 ```
 
 ### Running Tests
@@ -224,10 +273,10 @@ pytest tests/ -v
 
 - **Modern design system** with dark mode support
 - **Hebrew RTL support** for local market
+- **Card-based layout** with confidence badges
 - **Interactive charts** (Plotly)
 - **CSV export** with ML scores
 - **Real-time filtering** by risk level, sector, score range
-- **Confidence badges** showing ML probability
 - **Data quality indicators** for each stock
 
 ---
@@ -263,9 +312,9 @@ Contributions welcome! Please:
 
 ## 📧 Contact
 
-**Author**: Asaf  
+**Author**: Asaf
 **Repository**: [github.com/asafamos/stock-scout](https://github.com/asafamos/stock-scout)
 
 ---
 
-**Built with ❤️ using Python, Streamlit, XGBoost, and lots of data**
+**Built with ❤️ using Python, Streamlit, scikit-learn, DuckDB, and lots of data**
