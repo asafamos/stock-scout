@@ -95,15 +95,28 @@ def load_latest_scan(path_latest: Path) -> Tuple[Optional[pd.DataFrame], Optiona
         results_df = pd.read_parquet(path_latest, engine="pyarrow")
         logger.info(f"Loaded scan from {path_latest} ({len(results_df)} tickers)")
         
-        # Load metadata
+        # Load metadata — prefer .meta.json, fallback to .json
+        meta_json_path = path_latest.with_suffix(".meta.json")
         meta_path = path_latest.with_suffix(".json")
         metadata = {}
-        if meta_path.exists():
-            with open(meta_path, "r") as f:
-                metadata = json.load(f)
-            logger.info(f"Loaded metadata from {meta_path}")
+        _loaded_meta_path = None
+        for _mp in [meta_json_path, meta_path]:
+            if _mp.exists():
+                try:
+                    with open(_mp, "r") as f:
+                        _data = json.load(f)
+                    if isinstance(_data, dict):
+                        metadata = _data
+                        _loaded_meta_path = _mp
+                        break
+                    else:
+                        logger.debug("Skipping %s — not a dict (got %s)", _mp, type(_data).__name__)
+                except Exception:
+                    pass
+        if _loaded_meta_path:
+            logger.info(f"Loaded metadata from {_loaded_meta_path}")
         else:
-            logger.warning(f"Metadata file not found: {meta_path}")
+            logger.warning(f"No valid metadata file found for {path_latest}")
             # Create minimal metadata from DataFrame
             metadata = {
                 "timestamp": "unknown",
