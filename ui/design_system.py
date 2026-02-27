@@ -270,9 +270,11 @@ input, textarea, code, pre,
     border-top: 3px solid var(--ss-spec-accent);
 }
 
-/* Card inner layout */
+/* Card inner layout — force LTR since all card content is English/numbers */
 .ss-card-body {
     padding: 16px 20px;
+    direction: ltr;
+    text-align: left;
 }
 
 /* Row 1: Header (ticker + score) */
@@ -430,7 +432,7 @@ input, textarea, code, pre,
 /* Row 2: Metrics grid */
 .ss-metrics-grid {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(5, 1fr);
     gap: 8px;
     margin-bottom: 12px;
 }
