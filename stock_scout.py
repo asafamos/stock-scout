@@ -84,18 +84,15 @@ logger = logging.getLogger(__name__)
 # Original load (kept for backwards compatibility); `_force_load_env` above already tried explicit paths.
 load_dotenv(find_dotenv(usecwd=True))
 
-# Display ML 20d readiness using unified inference loader
+# ML 20d readiness — log only, no visible clutter on main page
 try:
     from core.ml_20d_inference import ML_20D_AVAILABLE, FEATURE_COLS_20D, PREFERRED_SCORING_MODE_20D
     if ML_20D_AVAILABLE:
-        try:
-            st.info(f"✓ ML 20d ready (features: {len(FEATURE_COLS_20D)}; mode: {PREFERRED_SCORING_MODE_20D})")
-        except Exception as e:
-            logger.debug("unknown: %s", e)
+        logger.info(f"ML 20d ready (features: {len(FEATURE_COLS_20D)}; mode: {PREFERRED_SCORING_MODE_20D})")
     else:
-        st.info("ML 20d model not found; ML scoring will be neutral.")
+        logger.info("ML 20d model not found; ML scoring will be neutral.")
 except Exception as _e:
-    st.warning(f"ML 20d loader issue: {_e}")
+    logger.warning(f"ML 20d loader issue: {_e}")
 
 
 
@@ -164,35 +161,19 @@ from core.price_verify import (
 
 # ==================== UI ====================
 st.set_page_config(
-    page_title="סקאוט מניות — 2026", page_icon="📈", layout="wide"
+    page_title="Stock Scout 2026", page_icon="📈", layout="wide"
 )
 
-# === HEBREW RTL STYLING WITH LTR ENGLISH TEXT ===
+# === Design System CSS (supports light + dark mode, RTL, responsive) ===
+from ui.design_system import get_design_css
+st.markdown(get_design_css(), unsafe_allow_html=True)
+
 st.markdown("""
-<style>
-/* Global RTL direction */
-body, .stApp, .main, .block-container {
-    direction: rtl;
-    text-align: right;
-}
-/* Streamlit overrides */
-/* RTL text alignment */
-h1, h2, h3, h4, h5, h6 { text-align: right; }
-/* Force LTR for English text, tickers, numbers, provider names */
-span.ltr, .ltr, .stMetricDelta, [class*="st-emotion"] {
-    direction: ltr !important;
-    text-align: left !important;
-    unicode-bidi: embed;
-}
-
-
-</style>
+<div class="ss-page-header">
+  <h1>📈 Stock Scout — 2026</h1>
+  <p class="ss-subtitle">Real-time stock scanner &amp; ML-powered recommendations &nbsp;|&nbsp; Research only, not investment advice</p>
+</div>
 """, unsafe_allow_html=True)
-
-st.title("📈 סקאוט מניות — 2026 אסף")
-st.caption("🇮🇱 סקאן מניות אישי בעברית | כלי למחקר בלבד. לא ייעוץ השקעות.")
-
-st.markdown("### 📊 Read-Only Dashboard")
 st.session_state["enable_openai_targets"] = False
 
 # Force ML always on (no visible toggle)
@@ -201,7 +182,7 @@ st.session_state["USE_FINAL_SCORE_SORT"] = True
 
 # ==================== SIDEBAR: Scan History & ML Health ====================
 with st.sidebar:
-    st.header("📁 היסטוריית סריקות")
+    st.header("📁 Scan History")
     _scan_dir = Path(__file__).parent / "data" / "scans"
     try:
         _all_scans = []
@@ -224,26 +205,26 @@ with st.sidebar:
             })
         if _all_scans:
             _selected_scan = st.selectbox(
-                "בחר סריקה",
+                "Select scan",
                 range(len(_all_scans)),
                 format_func=lambda i: f"{_all_scans[i]['timestamp']} ({_all_scans[i]['count']} results, {_all_scans[i]['source']})",
                 key="scan_history_select",
             )
-            if st.button("טען סריקה זו", key="load_historical_scan"):
+            if st.button("Load this scan", key="load_historical_scan"):
                 try:
                     _hist_path = Path(_all_scans[_selected_scan]["path"])
                     _hist_df = pd.read_parquet(_hist_path, engine="pyarrow")
                     st.session_state["precomputed_results"] = _hist_df
                     st.session_state["skip_pipeline"] = True
                     st.session_state["force_live_scan_once"] = False
-                    st.success(f"נטענה סריקה: {_all_scans[_selected_scan]['file']}")
+                    st.success(f"Loaded: {_all_scans[_selected_scan]['file']}")
                     st.rerun()
                 except Exception as _hist_e:
-                    st.error(f"שגיאה בטעינה: {_hist_e}")
+                    st.error(f"Load error: {_hist_e}")
         else:
-            st.caption("אין סריקות זמינות עדיין")
+            st.caption("No scans available yet")
     except Exception as _scan_hist_e:
-        st.caption(f"שגיאה בטעינת היסטוריה: {_scan_hist_e}")
+        st.caption(f"History error: {_scan_hist_e}")
 
     st.markdown("---")
     # ML Model Health
@@ -367,12 +348,12 @@ if "av_calls" not in st.session_state:
 
 # ==================== DATA SOURCE MODE ====================
 st.markdown("---")
-st.markdown("### ⚡ מצב נתונים")
+st.markdown("### Data Mode")
 
 # One-shot Live Scan button:
 # - By default, the app prefers precomputed scan (if it exists).
 # - If the user clicks the button, we force a single live run and ignore the snapshot for this run only.
-if st.button("🔄 הרץ לייב סריקה עכשיו", key="live_scan_button"):
+if st.button("🔄 Run Live Scan Now", key="live_scan_button", type="primary"):
     st.session_state["force_live_scan_once"] = True
     st.session_state["skip_pipeline"] = False  # ensure live path
     st.rerun()
@@ -542,17 +523,17 @@ def _render_snapshot_banner(meta: Dict[str, Any], path_obj: Path, age_hours: Opt
     commit = meta.get("build_commit", "unknown")
     saved = meta.get("total_tickers")
     uni = meta.get("universe_size")
-    age_txt = f"{age_hours:.1f} שעות" if isinstance(age_hours, (int, float)) else "unknown"
+    age_txt = f"{age_hours:.1f}h" if isinstance(age_hours, (int, float)) else "unknown"
     if saved is not None and uni is not None:
-        st.caption(f"🧾 מקור: {src} • קומיט: {commit} • זמן: {ts} • גיל: {age_txt} • מניות נשמרו: {saved} מתוך נסקרו: {uni}")
+        st.markdown(f"""<div class="ss-banner"><span class="ss-banner-dot live"></span>Source: {src} &bull; Commit: {commit} &bull; Time: {ts} &bull; Age: {age_txt} &bull; Saved: {saved} / Scanned: {uni}</div>""", unsafe_allow_html=True)
     else:
         size = saved or uni or "unknown"
-        st.caption(f"🧾 מקור: {src} • קומיט: {commit} • זמן: {ts} • גיל: {age_txt} • מניות: {size}")
+        st.markdown(f"""<div class="ss-banner"><span class="ss-banner-dot cached"></span>Source: {src} &bull; Commit: {commit} &bull; Time: {ts} &bull; Age: {age_txt} &bull; Stocks: {size}</div>""", unsafe_allow_html=True)
 
 if force_live_scan_once:
     # User explicitly forced a live run: ignore any snapshot age/status
-    st.info("🔄 סריקה חיה נכפית - מתעלם מסריקה אוטומטית.")
-    st.caption(f"📊 סריקה אוטומטית מ-{timestamp_str} מתעלמת עבור הרצה זו.")
+    st.info("🔄 Live scan forced — ignoring cached snapshot.")
+    st.caption(f"Cached scan from {timestamp_str} will be skipped for this run.")
     use_precomputed = False
     st.session_state["skip_pipeline"] = False
 elif precomputed_df is not None and precomputed_meta is not None and not scan_too_old:
@@ -561,9 +542,9 @@ elif precomputed_df is not None and precomputed_meta is not None and not scan_to
         f"Precomputed scan loaded: {universe_size} tickers (last updated: {timestamp_str})"
     )
     age_display = f"{scan_age_hours:.1f}" if isinstance(scan_age_hours, (int, float)) else "unknown"
-    st.success(f"✅ נתונים עדכניים מסריקה אוטומטית ({age_display} שעות)")
+    st.success(f"Fresh scan loaded ({age_display}h old)")
     _render_snapshot_banner(precomputed_meta, scan_path, scan_age_hours)
-    st.caption(f"📊 {universe_size} מניות נותחו | ⏰ סריקה אוטומטית פעמיים ביום (8:00 + 20:00 UTC)")
+    st.caption(f"{universe_size} stocks analyzed | Auto-scan runs 4x daily via GitHub Actions")
 
     st.session_state["skip_pipeline"] = True
     st.session_state["precomputed_results"] = precomputed_df
@@ -577,9 +558,9 @@ else:
     # Either no snapshot exists, or scan is too old
     if scan_too_old and precomputed_df is not None:
         age_display = f"{scan_age_hours:.1f}" if isinstance(scan_age_hours, (int, float)) else "unknown"
-        st.warning(f"⚠️ הסריקה הקיימת ישנה מדי ({age_display} שעות) - מחכה לסריקה אוטומטית הבאה")
+        st.warning(f"Scan is stale ({age_display}h old) — showing cached data, next auto-scan coming soon")
         _render_snapshot_banner(precomputed_meta, scan_path, scan_age_hours)
-        st.info("💡 סריקה אוטומטית חדשה תתבצע תוך מספר שעות (פעמיים ביום: 8:00 + 20:00 UTC)")
+        st.caption("Auto-scans run 4x daily via GitHub Actions. Use 'Run Live Scan Now' for fresh data.")
         # Use old scan anyway but warn user
         st.session_state["skip_pipeline"] = True
         st.session_state["precomputed_results"] = precomputed_df
@@ -589,8 +570,8 @@ else:
             logger.debug("unknown: %s", e)
         use_precomputed = True
     else:
-        st.info("📊 אין סריקה זמינה - מחכה לסריקה אוטומטית הבאה.")
-        st.caption("💡 סריקות אוטומטיות רצות פעמיים ביום דרך GitHub Actions.")
+        st.info("No scan data available yet — click 'Run Live Scan Now' or wait for the next auto-scan.")
+        st.caption("Auto-scans run 4x daily via GitHub Actions.")
         use_precomputed = False
         st.session_state["skip_pipeline"] = False
     
@@ -670,8 +651,8 @@ if skip_pipeline:
     except Exception as exc:
         logger.debug(f"original_count fallback: {exc}")
         original_count = len(results)
-    st.info(f"⚡ **{len(results)} מניות מובילות** מתוך {original_count} שעברו סריקה מלאה")
-    st.caption("✅ כולל: ML model, Technical scoring, Fundamental data, Risk assessment, Classification")
+    st.info(f"**{len(results)} top candidates** from {original_count} stocks fully scanned")
+    st.caption("Includes: ML model, Technical scoring, Fundamental data, Risk assessment, Classification")
     
     t1_stage3 = time.perf_counter()
     logger.info(f"[PERF] Precomputed stage 3/10 (post-load to recommendations) time: {t1_stage3-t0_stage3:.3f}s")
@@ -804,12 +785,12 @@ else:
             st.session_state["precomputed_results"] = results
             st.success(f"✅ Scan complete: {len(results)} results found (will apply sector cap)")
         else:
-            st.error("❌ סריקה חיה החזירה 0 תוצאות.")
+            st.error("Live scan returned 0 results.")
             st.info(
-                "💡 **מה אפשר לעשות?**\n"
-                "1. בדוק שמפתחות ה-API פעילים (FMP, Finnhub, Polygon)\n"
-                "2. נסה שוב — ייתכן שזה כשל רשת זמני\n"
-                "3. בדוק את ה-logs ב-GitHub Actions לפרטים"
+                "**What to try:**\n"
+                "1. Check that API keys are active (FMP, Finnhub, Polygon)\n"
+                "2. Try again — could be a transient network issue\n"
+                "3. Check GitHub Actions logs for details"
             )
 
 # Debug logging if enabled
@@ -1712,12 +1693,32 @@ if not rec_df.empty:
                 f"  Market Regime: {regime_data.get('regime', 'N/A')} ({regime_data.get('confidence', 0)}%)"
             )
 
-# CSS now loaded from design_system.py - no need for separate CARD_CSS
-
+# CSS now loaded from design_system.py via get_design_css()
+from ui.components.stock_card import (
+    render_stock_card,
+    render_kpi_strip,
+    render_section_header,
+    render_ml_legend,
+)
+from ui.card_helpers import (
+    to_float as _to_float,
+    normalize_prob as _normalize_prob,
+    ml_badge as _ml_badge,
+    get_ml_prob_from_row as _get_ml_prob_from_row,
+    risk_class as _risk_class,
+    headline_story as _headline_story,
+    fmt_num as _fmt_num,
+)
 
 
 if rec_df.empty:
-    st.info("No strong signals found in this scan.")
+    st.markdown("""
+    <div style="text-align:center; padding:48px 24px; color:var(--ss-text-muted);">
+      <div style="font-size:3rem; margin-bottom:12px;">📭</div>
+      <h3 style="color:var(--ss-text-secondary); text-align:center;">No signals found in this scan</h3>
+      <p style="text-align:center;">Try running a live scan or loading a historical snapshot from the sidebar.</p>
+    </div>
+    """, unsafe_allow_html=True)
 else:
     # Split into Core and Speculative
     if "Risk_Level" in rec_df.columns:
@@ -1728,260 +1729,42 @@ else:
         core_df = rec_df.copy()
         spec_df = pd.DataFrame()
 
-    # Summary info
-    total_candidates = len(core_df) + len(spec_df)
-    # UI does not compute or display allocation-based funding metrics
-    st.info(
-        f"📊 Showing {total_candidates} candidates — {len(core_df)} Core, {len(spec_df)} Speculative"
-    )
-
-    # Legend for ML badge thresholds
-    st.caption("ML badge legend: 🟢 >60% · 🟡 40–60% · 🔴 <40%")
-
     # Determine score label based on schema
     score_label = "FinalScore_20d" if "FinalScore_20d" in rec_df.columns else "Score"
 
-    # Small helpers for compact card rendering — imported from ui.card_helpers
-    from ui.card_helpers import (
-        to_float as _to_float,
-        normalize_prob as _normalize_prob,
-        ml_badge as _ml_badge,
-        get_ml_prob_from_row as _get_ml_prob_from_row,
-        risk_class as _risk_class,
-        headline_story as _headline_story,
-        fmt_num as _fmt_num,
+    # KPI strip
+    total_candidates = len(core_df) + len(spec_df)
+    avg_score = None
+    if score_label in rec_df.columns:
+        avg_score = float(rec_df[score_label].mean())
+    regime = st.session_state.get("market_regime", {}).get("regime", "neutral")
+    st.markdown(
+        render_kpi_strip(total_candidates, len(core_df), len(spec_df), avg_score, regime),
+        unsafe_allow_html=True,
     )
 
-    # UI displays exactly what the pipeline provided (no extra slicing)
-    st.write(f"Showing {len(rec_df)} candidates")
-
-    show_ml_debug = st.checkbox("Show ML Debug", value=False)
+    # ML legend
+    st.markdown(render_ml_legend(), unsafe_allow_html=True)
 
     # Core recommendations
     if not core_df.empty:
-        st.markdown("### 🛡️ Core Stocks — Lower Relative Risk")
-        st.caption(f"Showing {len(core_df)} candidates")
-
-        @st.cache_data(ttl=3600)
-        def _fallback_sector_yf(ticker: str) -> str:
-            try:
-                info = yf.Ticker(ticker).info
-                sec = info.get('sector') or info.get('industry')
-                return sec or 'Unknown'
-            except Exception as exc:
-                logger.debug(f"yfinance sector lookup failed for {ticker}: {exc}")
-                return 'Unknown'
-
-        for idx, r in core_df.iterrows():
-            final_score = r.get("FinalScore_20d", r.get("Score", np.nan))
-            ml_prob = _get_ml_prob_from_row(r)
-            if show_ml_debug and idx < 10:
-                ml_prob_live_v3 = r.get("ML_20d_Prob_live_v3", None)
-                ml_prob_raw = r.get("ML_20d_Prob_raw", None)
-                ml_prob_prob = r.get("ML_Probability", None)
-                ml_rank_20d = r.get("ML_rank_20d", None)
-                st.sidebar.write(f"[ML BADGE DEBUG] Ticker: {r.get('Ticker','N/A')} | ml_prob_final: {ml_prob} | ML_20d_Prob: {r.get('ML_20d_Prob', None)} | ML_Probability: {ml_prob_prob} | ML_20d_Prob_live_v3: {ml_prob_live_v3} | ML_20d_Prob_raw: {ml_prob_raw} | ML_rank_20d: {ml_rank_20d}")
-            # (move the rest of the card rendering here, using ml_prob as before)
-            ticker = r.get("Ticker", "N/A")
-            sector = r.get("Sector", r.get("sector", "Unknown"))
-            company = r.get("shortName", r.get("Company", r.get("Name", "")))
-            if sector in (None, "", "Unknown") and isinstance(ticker, str) and ticker and ticker != "N/A":
-                sector = _fallback_sector_yf(ticker)
-
-
-            final_score = r.get("FinalScore_20d", r.get("Score", np.nan))
-            # --- DEBUG: Print ML badge source info for first 10 rows ---
-            ml_prob = r.get("ML_20d_Prob", r.get("ML_Probability", np.nan))
-            if idx < 10:
-                ml_prob_live_v3 = r.get("ML_20d_Prob_live_v3", None)
-                ml_prob_raw = r.get("ML_20d_Prob_raw", None)
-                ml_prob_prob = r.get("ML_Probability", None)
-                ml_rank_20d = r.get("ML_rank_20d", None)
-                print(f"[ML BADGE DEBUG] Ticker: {r.get('Ticker','N/A')} | ml_prob: {ml_prob} | Source: 'ML_20d_Prob'→'ML_Probability' | ML_20d_Prob: {r.get('ML_20d_Prob', None)} | ML_Probability: {ml_prob_prob} | ML_20d_Prob_live_v3: {ml_prob_live_v3} | ML_20d_Prob_raw: {ml_prob_raw} | ML_rank_20d: {ml_rank_20d}")
-            rr = r.get("RR", r.get("RR_Ratio", r.get("RewardRisk", np.nan)))
-            rel = r.get("ReliabilityScore", r.get("Reliability_Score", r.get("Reliability_v2", np.nan)))
-            risk_c = _risk_class(r)
-
-            # Headline compact view
-            with st.container(border=True):
-                c1, c2, c3, c4, c5 = st.columns([2, 1, 1, 1, 2])
-                with c1:
-                    title = ticker if not company else f"{ticker} · {company}"
-                    st.subheader(title)
-                    st.caption(f"Sector: {sector}")
-                with c2:
-                    st.metric(score_label, _fmt_num(final_score, '.0f'))
-                with c3:
-                    st.metric("Risk", risk_c)
-                with c4:
-                    st.metric("ML", _ml_badge(ml_prob))
-                with c5:
-                    rr_val = _to_float(rr)
-                    rr_fmt = f"{rr_val:.2f}x" if isinstance(rr_val, float) and np.isfinite(rr_val) else "N/A"
-                    st.metric("R/R", rr_fmt)
-
-                # Short storyline
-                storyline = _headline_story(r)
-                if storyline:
-                    st.caption(storyline)
-
-                # Details expander: deep-dive fields
-                with st.expander("Details", expanded=False):
-                    # Technical indicators
-                    t1, t2, t3, t4 = st.columns(4)
-                    with t1:
-                        st.text("RSI")
-                        st.code(_fmt_num(r.get('RSI', np.nan), '.1f'))
-                    with t2:
-                        atrv = r.get('ATR_Price', r.get('ATR_Pct', np.nan))
-                        st.text("ATR/Price")
-                        st.code(_fmt_num(atrv, '.3f'))
-                    with t3:
-                        st.text("Momentum (Tech)")
-                        momv = r.get('MomentumScore', r.get('TechScore_20d', np.nan))
-                        st.code(_fmt_num(momv, '.0f'))
-                    with t4:
-                        st.text("ML Prob")
-                        st.code(_fmt_num(ml_prob, '.3f'))
-
-                    # Fundamentals breakdown
-                    f1, f2, f3, f4 = st.columns(4)
-                    with f1:
-                        st.text("Fundamental")
-                        fsv = r.get('FundamentalScore', r.get('Fundamental_S', np.nan))
-                        st.code(_fmt_num(fsv, '.0f'))
-                    with f2:
-                        st.text("Quality/Growth")
-                        q_score = r.get('Quality_Score_F', np.nan)
-                        g_score = r.get('Growth_Score_F', np.nan)
-                        st.code(f"{_fmt_num(q_score, '.0f')} / {_fmt_num(g_score, '.0f')}")
-                    with f3:
-                        st.text("Valuation")
-                        st.code(_fmt_num(r.get('Valuation_Score_F', np.nan), '.0f'))
-                    with f4:
-                        st.text("Leverage (D/E)")
-                        _de = r.get('DE_f', r.get('debt_to_equity', r.get('Debt_to_Equity', r.get('Leverage', np.nan))))
-                        st.code(_fmt_num(_de, '.2f'))
-
-                    # Reliability breakdown
-                    rel1, rel2, rel3, rel4 = st.columns(4)
-                    with rel1:
-                        st.text("Reliability")
-                        st.code(_fmt_num(rel, '.0f'))
-                    with rel2:
-                        st.text("Fund sources")
-                        _fs = r.get('Fundamental_Sources_Count', r.get('fund_sources_used_v2', r.get('sources_used_count', np.nan)))
-                        st.code(_fmt_num(_fs, '.0f'))
-                    with rel3:
-                        st.text("Price sources")
-                        _ps = r.get('Price_Sources_Count', r.get('price_sources_used_v2', r.get('price_sources', np.nan)))
-                        st.code(_fmt_num(_ps, '.0f'))
-                    with rel4:
-                        st.text("Price STD")
-                        _pstd = r.get('Price_STD', r.get('price_std', np.nan))
-                        st.code(_fmt_num(_pstd, '.2f'))
+        st.markdown(
+            render_section_header("Core Stocks — Lower Relative Risk", len(core_df), "core"),
+            unsafe_allow_html=True,
+        )
+        for rank, (idx, r) in enumerate(core_df.iterrows(), 1):
+            card_html = render_stock_card(r, rank=rank, score_label=score_label)
+            st.markdown(card_html, unsafe_allow_html=True)
 
     # Speculative candidates
     if not spec_df.empty:
-        st.markdown("### 🚀 Speculative Stocks — Higher Risk/Reward")
-        st.caption(f"Showing {len(spec_df)} candidates")
-        for idx, r in spec_df.iterrows():
-            final_score = r.get("FinalScore_20d", r.get("Score", np.nan))
-            ml_prob = _get_ml_prob_from_row(r)
-            rr = r.get("RR", r.get("RR_Ratio", r.get("RewardRisk", np.nan)))
-            rel = r.get("ReliabilityScore", r.get("Reliability_Score", r.get("Reliability_v2", np.nan)))
-            if show_ml_debug and idx < 10:
-                ml_prob_live_v3 = r.get("ML_20d_Prob_live_v3", None)
-                ml_prob_raw = r.get("ML_20d_Prob_raw", None)
-                ml_prob_prob = r.get("ML_Probability", None)
-                ml_rank_20d = r.get("ML_rank_20d", None)
-                st.sidebar.write(f"[ML BADGE DEBUG] Ticker: {r.get('Ticker','N/A')} | ml_prob_final: {ml_prob} | ML_20d_Prob: {r.get('ML_20d_Prob', None)} | ML_Probability: {ml_prob_prob} | ML_20d_Prob_live_v3: {ml_prob_live_v3} | ML_20d_Prob_raw: {ml_prob_raw} | ML_rank_20d: {ml_rank_20d}")
-
-            ticker = r.get("Ticker", "N/A")
-            sector = r.get("Sector", r.get("sector", "Unknown"))
-            company = r.get("shortName", r.get("Company", r.get("Name", "")))
-            if sector in (None, "", "Unknown") and isinstance(ticker, str) and ticker and ticker != "N/A":
-                sector = _fallback_sector_yf(ticker)
-            risk_c = _risk_class(r)
-
-            # Headline compact view (same structure as Core cards)
-            with st.container(border=True):
-                c1, c2, c3, c4, c5 = st.columns([2, 1, 1, 1, 2])
-                with c1:
-                    title = ticker if not company else f"{ticker} · {company}"
-                    st.subheader(title)
-                    st.caption(f"Sector: {sector}")
-                with c2:
-                    st.metric(score_label, _fmt_num(final_score, '.0f'))
-                with c3:
-                    st.metric("Risk", risk_c)
-                with c4:
-                    st.metric("ML", _ml_badge(ml_prob))
-                with c5:
-                    rr_val = _to_float(rr)
-                    rr_fmt = f"{rr_val:.2f}x" if isinstance(rr_val, float) and np.isfinite(rr_val) else "N/A"
-                    st.metric("R/R", rr_fmt)
-
-                # Short storyline
-                storyline = _headline_story(r)
-                if storyline:
-                    st.caption(storyline)
-
-                # Details expander: deep-dive fields
-                with st.expander("Details", expanded=False):
-                    # Technical indicators
-                    t1, t2, t3, t4 = st.columns(4)
-                    with t1:
-                        st.text("RSI")
-                        st.code(_fmt_num(r.get('RSI', np.nan), '.1f'))
-                    with t2:
-                        atrv = r.get('ATR_Price', r.get('ATR_Pct', np.nan))
-                        st.text("ATR/Price")
-                        st.code(_fmt_num(atrv, '.3f'))
-                    with t3:
-                        st.text("Momentum (Tech)")
-                        momv = r.get('MomentumScore', r.get('TechScore_20d', np.nan))
-                        st.code(_fmt_num(momv, '.0f'))
-                    with t4:
-                        st.text("ML Prob")
-                        st.code(_fmt_num(ml_prob, '.3f'))
-
-                    # Fundamentals breakdown
-                    f1, f2, f3, f4 = st.columns(4)
-                    with f1:
-                        st.text("Fundamental")
-                        fsv = r.get('FundamentalScore', r.get('Fundamental_S', np.nan))
-                        st.code(_fmt_num(fsv, '.0f'))
-                    with f2:
-                        st.text("Quality/Growth")
-                        q_score = r.get('Quality_Score_F', np.nan)
-                        g_score = r.get('Growth_Score_F', np.nan)
-                        st.code(f"{_fmt_num(q_score, '.0f')} / {_fmt_num(g_score, '.0f')}")
-                    with f3:
-                        st.text("Valuation")
-                        st.code(_fmt_num(r.get('Valuation_Score_F', np.nan), '.0f'))
-                    with f4:
-                        st.text("Leverage (D/E)")
-                        _de = r.get('DE_f', r.get('debt_to_equity', r.get('Debt_to_Equity', r.get('Leverage', np.nan))))
-                        st.code(_fmt_num(_de, '.2f'))
-
-                    # Reliability breakdown
-                    rel1, rel2, rel3, rel4 = st.columns(4)
-                    with rel1:
-                        st.text("Reliability")
-                        st.code(_fmt_num(rel, '.0f'))
-                    with rel2:
-                        st.text("Fund sources")
-                        _fs = r.get('Fundamental_Sources_Count', r.get('fund_sources_used_v2', r.get('sources_used_count', np.nan)))
-                        st.code(_fmt_num(_fs, '.0f'))
-                    with rel3:
-                        st.text("Price sources")
-                        _ps = r.get('Price_Sources_Count', r.get('price_sources_used_v2', r.get('price_sources', np.nan)))
-                        st.code(_fmt_num(_ps, '.0f'))
-                    with rel4:
-                        st.text("Price STD")
-                        _pstd = r.get('Price_STD', r.get('price_std', np.nan))
-                        st.code(_fmt_num(_pstd, '.2f'))
+        st.markdown(
+            render_section_header("Speculative Stocks — Higher Risk/Reward", len(spec_df), "spec"),
+            unsafe_allow_html=True,
+        )
+        for rank, (idx, r) in enumerate(spec_df.iterrows(), 1):
+            card_html = render_stock_card(r, rank=rank, score_label=score_label)
+            st.markdown(card_html, unsafe_allow_html=True)
 
     # Export section (single, unified)
 show_order = [
@@ -2201,10 +1984,12 @@ export_fields = full_export_fields if use_full_export else lean_export_fields
 csv_bytes = csv_df[export_fields].to_csv(index=False).encode("utf-8-sig")
 
 # Download buttons side by side
+st.markdown("---")
+st.markdown("### Export Results")
 col_csv, col_json = st.columns(2)
 with col_csv:
     st.download_button(
-        "📥 Download Results (CSV)",
+        "📥 Download CSV",
         data=csv_bytes,
         file_name=f"stock_scout_results_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}.csv",
         mime="text/csv",
@@ -2215,23 +2000,11 @@ with col_json:
         orient="records", force_ascii=False, indent=2
     )
     st.download_button(
-        "📊 Download Results (JSON)",
+        "📊 Download JSON",
         data=json_data.encode("utf-8"),
         file_name=f"stock_scout_results_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}.json",
         mime="application/json",
     )
-
-# Force button text color override with inline styles
-st.markdown(
-    """
-    <style>
-    button, button p, button div, button span {
-        color: white !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
 
 st.dataframe(
     csv_df[[c for c in show_order_unique if c in csv_df.columns]],
@@ -2240,7 +2013,8 @@ st.dataframe(
 )
 
 # ==================== Quick chart ====================
-st.subheader("🔍 Chart Ticker from Results")
+st.markdown("---")
+st.markdown("### Interactive Chart")
 # Choose a safe ticker column for charting
 _ticker_candidates = ["Ticker", "symbol", "Symbol", "ticker"]
 _tcol = None
@@ -2300,14 +2074,18 @@ else:
         st.plotly_chart(fig2, width='stretch')
 
 # ==================== Notes ====================
-with st.expander("ℹ️ Methodology (Summary)"):
-        st.markdown(
+st.markdown("---")
+with st.expander("Methodology"):
+    st.markdown("""
+**Data Sources:** Yahoo Finance (primary), Alpha Vantage, Finnhub, Polygon, Tiingo, FMP (verification & fundamentals)
+
+**Technical Scoring:** Moving averages, momentum (1/3/6M sigmoid), RSI range, near-high bell curve,
+overextension vs MA, pullback detection, ATR/Price ratio, R/R, MACD/ADX
+
+**Fundamental Scoring:** Multi-source aggregation (Growth / Quality / Valuation metrics + leverage penalty)
+
+**ML Model:** 20-day forward return prediction (Ensemble: HistGB + RF + LR, PurgedWalkForwardCV)
+
+**Filters:** Minimum dollar-volume, ATR/Price caps, earnings blackout, beta filter, sector diversification caps
 """
-- **Historical Data**: Yahoo Finance (`yfinance`). Price verification: Alpha Vantage, Finnhub, Polygon, Tiingo.
-- **Technical Scoring**: Moving averages, momentum (1/3/6 months with Sigmoid), RSI range, Near-High bell curve, 
-    Overextension vs MA_L, Pullback detection, ATR/Price ratio, Reward/Risk, MACD/ADX.
-- **Fundamental Scoring**: Alpha Vantage OVERVIEW with Finnhub fallback (Growth/Quality/Valuation metrics + high leverage penalty).
-- **Filters & Rules**: Minimum dollar-volume, ATR/Price and Overextension caps (hard disqualification), earnings blackout period, 
-    beta filter, sector diversification caps, and budget allocation with maximum position size limits.
-"""
-        )
+    )
