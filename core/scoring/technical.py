@@ -154,9 +154,9 @@ def compute_tech_score_20d_v2_components(row: pd.Series) -> dict:
 
     Components and weights:
         - TrendScore (40%): price vs MA50, MA50 vs MA200, MA50 slope
-        - MomentumScore (35%): 1m/3m/6m returns (de-emphasize parabolic)
-        - VolatilityScore (15%): ATR_Pct sweet-spot
-        - LocationScore (10%): penalize extreme RSI / near-highs
+        - MomentumScore (35%): 5d/10d/20d returns (swing-trade aligned)
+        - VolatilityScore (15%): ATR_Pct sweet-spot (3-6% for swing trades)
+        - LocationScore (10%): RSI sweet spot + breakout proximity bonus
 
     Uses continuous smooth scoring (sigmoid/bell-curve) instead of discrete
     buckets to maximize differentiation across similar-quality stocks.
@@ -191,29 +191,39 @@ def compute_tech_score_20d_v2_components(row: pd.Series) -> dict:
 
     trend_score = 0.40 * price_sub + 0.35 * ma_sub + 0.25 * slope_sub
 
-    # Momentum (35%) — bell curve centered at sweet-spot return
-    rets = [r for r in [row.get("Return_1m"), row.get("Return_3m"), row.get("Return_6m")] if pd.notna(r)]
-    if rets:
-        avg_ret = float(np.mean(rets))
-        # Sweet spot: 5-20% returns score highest; parabolic (>50%) penalized
-        # Use asymmetric scoring: gentle rise from 0%, peak at 12%, slow decay above 25%
+    # Momentum (35%) — swing-trade aligned: 5d/10d/20d returns
+    # Weight recent more heavily: 5d=40%, 10d=35%, 20d=25%
+    r5 = row.get("Return_5d", np.nan)
+    r10 = row.get("Return_10d", np.nan)
+    r20 = row.get("Return_20d", np.nan)
+    rets = [(r5, 0.40), (r10, 0.35), (r20, 0.25)]
+    valid = [(float(r), w) for r, w in rets if pd.notna(r)]
+    if not valid:
+        # Fallback to legacy columns if short-term returns unavailable
+        legacy = [r for r in [row.get("Return_1m"), row.get("Return_3m")] if pd.notna(r)]
+        if legacy:
+            valid = [(float(r), 1.0 / len(legacy)) for r in legacy]
+    if valid:
+        total_w = sum(w for _, w in valid)
+        avg_ret = sum(r * w for r, w in valid) / total_w
+        # Sweet spot: ~8% return in 20 days (annualized ~100%). Peak at 8%, width 12%.
         if avg_ret >= 0:
-            momentum_score = _smooth(avg_ret, 0.12, 0.15)  # Peak at 12%, width 15%
+            momentum_score = _smooth(avg_ret, 0.08, 0.12)
             # Floor: even small positive returns get decent score
-            momentum_score = max(momentum_score, _ramp(avg_ret, -0.02, 0.05) * 0.6)
+            momentum_score = max(momentum_score, _ramp(avg_ret, -0.02, 0.04) * 0.6)
         else:
-            # Negative returns: linear decay from 0 to -15%
-            momentum_score = max(0.1, _ramp(avg_ret, -0.15, 0.0) * 0.5)
+            # Negative returns: linear decay from 0 to -10%
+            momentum_score = max(0.1, _ramp(avg_ret, -0.10, 0.0) * 0.5)
     else:
         momentum_score = 0.5
 
-    # Volatility (15%) — bell curve around sweet spot ATR_Pct
+    # Volatility (15%) — swing-trade sweet spot: 3-6% daily ATR
     atr_pct = row.get("ATR_Pct", np.nan)
     if pd.notna(atr_pct):
-        # Sweet spot: 2-4% daily ATR. Too low = no movement, too high = risky
-        volatility_score = _smooth(atr_pct, 0.028, 0.018)
-        # Floor: moderate volatility still okay
-        volatility_score = max(volatility_score, 0.15)
+        # Peak at 4.5% ATR (enough movement to profit in 20 days), width 2.5%
+        volatility_score = _smooth(atr_pct, 0.045, 0.025)
+        # Floor: even low-vol stocks get a base score (don't eliminate them)
+        volatility_score = max(volatility_score, 0.20)
     else:
         volatility_score = 0.5
 
@@ -229,10 +239,10 @@ def compute_tech_score_20d_v2_components(row: pd.Series) -> dict:
         location_score = 0.5
 
     near_52w = row.get("Near52w", np.nan)
-    if pd.notna(near_52w) and near_52w > 90:
-        # Gradual penalty as stock approaches 52-week high
-        penalty = _ramp(near_52w, 90.0, 100.0) * 0.35
-        location_score *= (1.0 - penalty)
+    if pd.notna(near_52w) and near_52w > 85:
+        # Breakout proximity bonus: stocks near 52w high are breakout candidates
+        breakout_bonus = _ramp(near_52w, 85.0, 98.0) * 0.15
+        location_score = min(1.0, location_score + breakout_bonus)
 
     raw_score = 0.40 * trend_score + 0.35 * momentum_score + 0.15 * volatility_score + 0.10 * location_score
     return {

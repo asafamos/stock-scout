@@ -320,11 +320,11 @@ class TestMLBoostReliabilityGating:
 
     def test_ml_boost_high(self):
         from core.scoring_engine import ml_boost_component
-        assert ml_boost_component(1.0) == pytest.approx(10.0)
+        assert ml_boost_component(1.0) == pytest.approx(6.0)
 
     def test_ml_boost_low(self):
         from core.scoring_engine import ml_boost_component
-        assert ml_boost_component(0.0) == pytest.approx(-10.0)
+        assert ml_boost_component(0.0) == pytest.approx(-6.0)
 
     def test_ml_boost_none(self):
         from core.scoring_engine import ml_boost_component

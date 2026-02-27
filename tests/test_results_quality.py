@@ -156,9 +156,9 @@ class TestConvictionScoreIndependence:
             reliability_score=85.0,
             ml_probability=0.6,
         )
-        # TechScore would be ~50, but conviction should be significantly higher
-        # because of strong fundamentals, good RR, and high reliability
-        assert conviction > 60, f"Expected conviction > 60 (not just tech=50), got {conviction}"
+        # TechScore would be ~50, but conviction should be higher
+        # because of good RR and high reliability (fund weight reduced in swing mode)
+        assert conviction > 55, f"Expected conviction > 55 (not just tech=50), got {conviction}"
 
     def test_conviction_varies_with_fundamentals(self):
         """Two stocks with same tech but different fundamentals → different conviction."""

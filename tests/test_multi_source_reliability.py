@@ -127,7 +127,7 @@ def test_reliability_bounds_and_monotonicity():
     })
     r1, _ = calculate_reliability_v2(row1)
     assert 0.0 <= r1 <= 100.0
-    assert r1 < 35.0
+    assert r1 < 55.0  # With swing-trade weights (fund=15%), low fund doesn't tank score as much
 
     # Case 2: Single fundamental source, partial coverage, moderate variance → medium reliability
     row2 = pd.Series({
