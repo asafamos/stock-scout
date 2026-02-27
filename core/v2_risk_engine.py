@@ -248,33 +248,31 @@ def calculate_reliability_v2(
         variance_penalty = 20.0 if price_sources_count <= 1 else 10.0  # Unknown variance penalty
     details["price_variance_penalty"] = variance_penalty
     
-    # 4) VOLATILITY PENALTY (inverse ATR/Price)
-    # Lower volatility = higher reliability
+    # 4) VOLATILITY PENALTY — swing-trade aligned
+    # 3-6% ATR is expected and neutral for swing trading; only penalize extremes.
     atr_price = row.get("ATR_Price", row.get("ATR_Pct", np.nan))
     if pd.notna(atr_price) and atr_price > 0:
-        # Ideal band roughly 2-4%; harsher outside
-        if atr_price > 0.08:
-            volatility_penalty = 45.0
-        elif atr_price > 0.05:
-            volatility_penalty = 30.0
-        elif atr_price > 0.03:
-            volatility_penalty = 15.0
+        if atr_price > 0.10:
+            volatility_penalty = 35.0   # truly extreme — unreliable
+        elif atr_price > 0.06:
+            volatility_penalty = 15.0   # high but acceptable for swing
+        elif atr_price > 0.025:
+            volatility_penalty = 5.0    # sweet spot — minimal penalty
         elif atr_price > 0.015:
-            volatility_penalty = 5.0
+            volatility_penalty = 10.0   # low vol — less opportunity
         else:
-            volatility_penalty = 10.0  # Too quiet can also reduce trust
+            volatility_penalty = 20.0   # too quiet — may be illiquid
         details["volatility_penalty"] = volatility_penalty
     else:
         volatility_penalty = 15.0  # Unknown volatility = small penalty
         details["volatility_penalty"] = volatility_penalty
     
     # 5) CALCULATE RELIABILITY V2 (0-100)
-    # Weights:
-    # - 30% completeness
-    # - 25% fund sources
-    # - 20% price sources
-    # - 15% volatility (inverse)
-    # - 10% price variance
+    # Swing-trade aligned weights:
+    # - fund=15% (reduced — fundamentals don't drive 20d prices)
+    # - price=45% (increased — technical data quality is critical)
+    # - vol=25% (increased — vol data matters for swing trades)
+    # - quality=15% (slight increase)
     
     # Fundamentals component: coverage scaled by sources
     # source_factor: 0 sources → 0; 1 → 0.6; 2 → 0.8; 3+ → 1.0
@@ -314,12 +312,15 @@ def calculate_reliability_v2(
         quality_component = 50.0
     details["quality_component"] = quality_component
 
-    # Weighted combination
+    # Weighted combination — swing-trade aligned:
+    # Price data quality is most important (we rely on technical signals).
+    # Fundamentals reduced (they don't drive 20-day price action).
+    # Volatility neutral/positive (high ATR is expected for swing trades).
     reliability_v2 = (
-        0.40 * fund_component +
-        0.35 * price_component +
-        0.15 * vol_component +
-        0.10 * quality_component
+        0.15 * fund_component +
+        0.45 * price_component +
+        0.25 * vol_component +
+        0.15 * quality_component
     ) / 100.0 * 100.0
     
     reliability_v2 = float(np.clip(reliability_v2, 0, 100))

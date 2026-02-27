@@ -29,17 +29,17 @@ class TestMlBoostComponent:
     def test_neutral_returns_zero(self):
         assert ml_boost_component(0.5) == 0.0
 
-    def test_max_returns_plus_ten(self):
-        assert ml_boost_component(1.0) == pytest.approx(10.0)
+    def test_max_returns_plus_six(self):
+        assert ml_boost_component(1.0) == pytest.approx(6.0)
 
-    def test_min_returns_minus_ten(self):
-        assert ml_boost_component(0.0) == pytest.approx(-10.0)
+    def test_min_returns_minus_six(self):
+        assert ml_boost_component(0.0) == pytest.approx(-6.0)
 
     def test_above_neutral(self):
-        assert 0 < ml_boost_component(0.75) <= 10
+        assert 0 < ml_boost_component(0.75) <= 6
 
     def test_below_neutral(self):
-        assert -10 <= ml_boost_component(0.25) < 0
+        assert -6 <= ml_boost_component(0.25) < 0
 
     def test_none_returns_zero(self):
         assert ml_boost_component(None) == 0.0
@@ -51,11 +51,11 @@ class TestMlBoostComponent:
         assert ml_boost_component(float("inf")) == 0.0
 
     def test_clipped_above_one(self):
-        # prob > 1 should be clipped to 1.0 → +10
-        assert ml_boost_component(1.5) == pytest.approx(10.0)
+        # prob > 1 should be clipped to 1.0 → +6
+        assert ml_boost_component(1.5) == pytest.approx(6.0)
 
     def test_clipped_below_zero(self):
-        assert ml_boost_component(-0.5) == pytest.approx(-10.0)
+        assert ml_boost_component(-0.5) == pytest.approx(-6.0)
 
 
 # ── normalize_score ─────────────────────────────────────────────────

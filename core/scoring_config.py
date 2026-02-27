@@ -69,11 +69,12 @@ PATTERN_SCORE_WEIGHTS: Dict[str, float] = {
 }
 
 # Conviction score weights (used by compute_final_score_20d)
-# Row-level scoring after fundamentals merge: emphasizes reliability & risk/reward.
+# Swing-trade aligned: momentum dominates for 20-day horizon.
+# Fundamentals are a minor quality check — they don't move price in 20 days.
 CONVICTION_WEIGHTS: Dict[str, float] = {
-    "fundamental": 0.30,
-    "momentum": 0.30,
-    "risk_reward": 0.20,
+    "fundamental": 0.10,
+    "momentum": 0.45,
+    "risk_reward": 0.25,
     "reliability": 0.20,
 }
 
@@ -126,12 +127,14 @@ REGIME_MULTIPLIERS: Dict[str, float] = {
     "NEUTRAL": 1.00,      # alias used by detect_market_regime()
 }
 
-# ATR-based volatility rules used to adjust technical score and RR
+# ATR-based volatility rules — swing-trade aligned.
+# 3-6% ATR is the sweet spot: enough daily movement to profit in 20 days.
+# Higher thresholds than value-investing (where 2-4% was "sweet spot").
 ATR_RULES = {
-    "extreme_high": {"min": 0.06, "factor": 0.5, "penalty": 0.15},
-    "high": {"min": 0.05, "max": 0.06, "factor": 0.7},
-    "sweet_spot": {"min": 0.02, "max": 0.05, "factor": 1.1},
-    "low": {"max": 0.02, "factor": 0.8},
+    "extreme_high": {"min": 0.10, "factor": 0.6, "penalty": 0.10},
+    "high": {"min": 0.06, "max": 0.10, "factor": 0.9},
+    "sweet_spot": {"min": 0.025, "max": 0.06, "factor": 1.1},
+    "low": {"max": 0.025, "factor": 0.7},
 }
 
 # Advanced filter defaults (lenient so pipeline can prune later)

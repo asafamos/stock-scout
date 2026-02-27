@@ -46,21 +46,22 @@ def compute_final_score_20d(row: pd.Series) -> float:
     - ReliabilityScore or Reliability_Score (0-100)
     - ML_20d_Prob (0-1) optional adjustment via ml_boost_component
 
-    Weights (explicit):
-    - Fundamentals: 35%
-    - Momentum: 35%
-    - Risk/Reward: 15%
-    - Reliability: 15%
+    Weights from CONVICTION_WEIGHTS (swing-trade aligned):
+    - Fundamentals: 10%  (minor quality check for 20d trades)
+    - Momentum: 45%      (primary driver for swing trades)
+    - Risk/Reward: 25%   (directly controls profit/loss)
+    - Reliability: 20%   (data quality gate)
     """
     try:
         # Use _safe_score with canonical column name fallback chains
         fund = _safe_score(row, "Fundamental_S", "FundamentalScore", "Fundamental_Score", "fund_score")
         mom = _safe_score(row, "TechScore_20d_raw", "MomentumScore", "TechScore_20d", "tech_score")
         # Hunter amplification: if Coil_Bonus is active, amplify technical/momentum
+        # Capped at 1.25x (was 1.5x) to prevent coil setups from dominating score
         try:
             coil_bonus_active = bool(row.get("Coil_Bonus", 0)) or str(row.get("Coil_Bonus", "0")) in ("1", "True")
             if coil_bonus_active:
-                mom = float(mom) * 1.5
+                mom = float(mom) * 1.25
         except Exception:
             pass
         # Try multiple field names for reliability
@@ -79,16 +80,25 @@ def compute_final_score_20d(row: pd.Series) -> float:
             w["reliability"] * rel
         )
         
-        # Optional ML adjustment with reliability gating
+        # Optional ML adjustment with AUC gate + reliability gating
         ml_prob = row.get("ML_20d_Prob", None)
-        delta = ml_boost_component(ml_prob)
-        # Determine reliability level (prefer canonical 'ReliabilityScore')
+        delta = ml_boost_component(ml_prob)  # now ±6 range
+        # AUC gate: disable ML noise when model is weak
+        try:
+            from core.ml_20d_inference import get_ml_weight_multiplier
+            ml_mult = get_ml_weight_multiplier()
+            if ml_mult < 0.5:
+                delta = 0.0  # AUC too low — don't add noise
+            else:
+                delta *= ml_mult
+        except Exception:
+            pass  # if import fails, keep raw delta
+        # Reliability gating on top of AUC gate
         reliability = float(row.get("ReliabilityScore", row.get("Reliability_Score", 50.0)))
         if reliability < 40:
             delta *= 0.25  # very low reliability → heavily clamp ML boost
         elif reliability < 60:
             delta *= 0.50  # medium-low reliability → half boost
-        # else: full ±10 applies for Medium and above
 
         # Pattern bonus: emphasize VCP/tight coiling (capped)
         try:
@@ -106,19 +116,15 @@ def compute_final_score_20d(row: pd.Series) -> float:
             bonus = 0.0
 
         final_score = float(np.clip(base + delta + bonus, 0.0, 100.0))
-        # Ensure a minimum floor for high-quality pre-jump setups
+        # Hunter floor: coil/VCP setups get a minimum score, but ONLY if RR is acceptable.
+        # This prevents the floor from overriding genuinely bad risk/reward trades.
         try:
             vcp_score = row.get("Volatility_Contraction_Score", 0.0)
             coil_bonus_active = bool(row.get("Coil_Bonus", 0)) or str(row.get("Coil_Bonus", "0")) in ("1", "True")
             vcp_good = isinstance(vcp_score, (int, float)) and np.isfinite(vcp_score) and float(vcp_score) > 0.6
-            if coil_bonus_active or vcp_good:
-                final_score = max(final_score, 40.0)
-        except Exception:
-            pass
-        # Phase 14: Hunter floor enforcement for springs/coils
-        try:
-            if row.get('Coil_Bonus') == 1 or float(row.get('Volatility_Contraction_Score', 0) or 0) > 0.6:
-                final_score = max(final_score, 55.0)
+            rr_ok = isinstance(rr_ratio, (int, float)) and np.isfinite(rr_ratio) and float(rr_ratio) >= 1.0
+            if (coil_bonus_active or vcp_good) and rr_ok:
+                final_score = max(final_score, 45.0)  # was 55 — reduced to avoid score inflation
         except Exception:
             pass
         return final_score

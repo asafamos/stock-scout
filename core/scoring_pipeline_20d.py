@@ -89,31 +89,34 @@ def _canonical_tech(df: pd.DataFrame) -> pd.Series:
 def _compute_dynamic_holding_days(row: pd.Series, median_atr: float) -> int:
     """Compute per-stock holding period based on ATR/volatility.
 
-    Lower volatility → longer hold (up to 40 BDays).
-    Higher volatility → shorter hold (down to 10 BDays).
-    Adjusted by RR, RSI, and ML confidence.
+    Swing-trade logic (inverted from value-investing):
+    Higher volatility + momentum → hold 20-25 days (ride the wave).
+    Lower volatility → hold 15-18 days (exit fast if no movement).
+    Range: 12-25 business days.
     """
     atr_pct = row.get("ATR_Pct", np.nan)
     if not (isinstance(atr_pct, (int, float)) and np.isfinite(atr_pct)):
         atr_pct = median_atr  # fallback to universe median
 
-    # Volatility ratio: stocks calmer than median get longer hold
-    vol_ratio = median_atr / max(atr_pct, 0.005)
-    base_days = 20.0 * np.clip(vol_ratio, 0.5, 2.0)  # 10-40 range
+    # Higher vol = slightly longer hold (momentum trades need room to play out)
+    vol_ratio = atr_pct / max(median_atr, 0.005)
+    base_days = 15.0 + 5.0 * np.clip(vol_ratio, 0.5, 2.0)  # 17.5-25 range
 
-    # RR adjustment: higher RR = slightly shorter (higher conviction exit)
+    # RR adjustment: higher RR = slightly longer (let winners run)
     rr = row.get("RR", np.nan)
     if isinstance(rr, (int, float)) and np.isfinite(rr) and rr > 0:
-        rr_mult = np.clip(1.5 / max(rr, 0.5), 0.7, 1.3)
-        base_days *= rr_mult
+        if rr > 3.0:
+            base_days *= 1.1   # great RR → hold longer
+        elif rr < 1.0:
+            base_days *= 0.85  # poor RR → cut short
 
-    # RSI adjustment: overbought stocks = shorter hold
+    # RSI adjustment: overbought = shorter, but less aggressive than before
     rsi = row.get("RSI", np.nan)
     if isinstance(rsi, (int, float)) and np.isfinite(rsi):
-        if rsi > 70:
-            base_days *= 0.8
-        elif rsi < 35:
-            base_days *= 1.15
+        if rsi > 75:
+            base_days *= 0.9
+        elif rsi < 30:
+            base_days *= 1.1
 
     # ML confidence: high prob = slightly shorter (faster expected move)
     ml_prob = row.get("ML_20d_Prob", np.nan)
@@ -123,7 +126,7 @@ def _compute_dynamic_holding_days(row: pd.Series, median_atr: float) -> int:
         elif ml_prob < 0.35:
             base_days *= 1.1
 
-    return int(np.clip(round(base_days), 10, 40))
+    return int(np.clip(round(base_days), 12, 25))
 
 
 def compute_final_scores_20d(df: pd.DataFrame, include_ml: bool = True) -> pd.DataFrame:
