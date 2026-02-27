@@ -1527,6 +1527,10 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
         to_save.to_json(
             scans_dir / "latest_scan_live.json", orient="records", date_format="iso"
         )
+        # Timestamped backup for scan history
+        from datetime import datetime as _dt2
+        _ts_str = _dt2.utcnow().strftime("%Y%m%d_%H%M")
+        to_save.to_parquet(scans_dir / f"scan_live_{_ts_str}.parquet", index=False)
         # Save scan metadata alongside results
         import json as _json
         from datetime import datetime as _dt

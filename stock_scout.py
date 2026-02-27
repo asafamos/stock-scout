@@ -215,7 +215,7 @@ with st.sidebar:
                 "path": str(_pq),
                 "timestamp": _meta_info.get("timestamp", _mtime.strftime("%Y-%m-%d %H:%M")),
                 "count": _meta_info.get("results_count", _meta_info.get("total_tickers", _meta_info.get("universe_size", "?"))),
-                "source": "CI" if "latest_scan." in _pq.name and "live" not in _pq.name else "Local",
+                "source": "CI" if ("latest_scan." in _pq.name or _pq.name.startswith("scan_2")) and "live" not in _pq.name else "Local",
             })
         if _all_scans:
             _selected_scan = st.selectbox(

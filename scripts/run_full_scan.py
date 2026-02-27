@@ -235,6 +235,10 @@ def main():
                 if not sample.empty and not isinstance(sample.iloc[0], (str, list, dict, int, float, bool)):
                     save_df = save_df.drop(columns=[col])
         save_df.to_parquet(parquet_path, index=False)
+        # Also save a timestamped backup for scan history
+        ts_str = datetime.utcnow().strftime("%Y%m%d_%H%M")
+        ts_path = out_dir / f"scan_{ts_str}.parquet"
+        save_df.to_parquet(ts_path, index=False)
     except Exception as e:
         print(json.dumps({"warning": f"parquet_save_failed: {e}"}))
 
@@ -251,6 +255,9 @@ def main():
     }
     try:
         meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+        # Also save timestamped metadata for history
+        ts_meta_path = out_dir / f"scan_{datetime.utcnow().strftime('%Y%m%d_%H%M')}.meta.json"
+        ts_meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
     except Exception as e:
         print(json.dumps({"warning": f"meta_save_failed: {e}"}))
 
