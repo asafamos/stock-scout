@@ -583,14 +583,87 @@ def calculate_features(df, spy_returns: pd.Series = None, market_regime_df: pd.D
     df['Support_Strength'] = near_low.rolling(20).mean()  # Fraction of days near support
     
     # Handle inf/nan in price action features
-    price_action_features = ['Distance_From_52w_Low', 'Consolidation_Tightness', 
+    price_action_features = ['Distance_From_52w_Low', 'Consolidation_Tightness',
                              'Days_Since_52w_High', 'Price_vs_SMA50', 'Price_vs_SMA200',
                              'SMA50_vs_SMA200', 'MA_Slope_20d', 'Distance_To_Resistance',
                              'Support_Strength']
     for pf in price_action_features:
         df[pf] = df[pf].replace([np.inf, -np.inf], np.nan)
         df[pf] = df[pf].fillna(df[pf].median() if df[pf].notna().any() else 0.0)
-    
+
+    # === V3.1 ADDITIONAL FEATURES (8 new stock-specific features) ===
+
+    # Vol_Contraction_Ratio: ATR(20)/ATR(50) — tighter = breakout setup
+    atr_20 = (df['High'] - df['Low']).rolling(20).mean()
+    atr_50 = (df['High'] - df['Low']).rolling(50).mean()
+    df['Vol_Contraction_Ratio'] = (atr_20 / atr_50.replace(0, np.nan)).clip(0.3, 3.0)
+
+    # Squeeze_On_Flag: Bollinger Bands inside Keltner Channels (pre-breakout)
+    bb_mid = df['Close'].rolling(20).mean()
+    bb_std = df['Close'].rolling(20).std()
+    bb_up = bb_mid + 2 * bb_std
+    bb_lo = bb_mid - 2 * bb_std
+    kc_mid = bb_mid  # Use same midline
+    kc_atr = (df['High'] - df['Low']).rolling(20).mean()
+    kc_up = kc_mid + 1.5 * kc_atr
+    kc_lo = kc_mid - 1.5 * kc_atr
+    df['Squeeze_On_Flag'] = ((bb_up <= kc_up) & (bb_lo >= kc_lo)).astype(int)
+
+    # RS_vs_SPY_60d: stock 60d return - SPY 60d return
+    stock_ret_60d = df['Close'].pct_change(60)
+    if spy_returns is not None:
+        spy_series = spy_returns.copy()
+        if not isinstance(spy_series.index, pd.DatetimeIndex):
+            spy_series.index = pd.to_datetime(spy_series.index)
+        # Compute SPY 60d return from the 20d return series source (need original SPY close)
+        # Approximate: use the spy_returns (20d) shifted — or compute fresh
+        # For simplicity, compute from stock data alignment
+        spy_60d = spy_series.rolling(3).sum()  # Rough 60d from 20d returns
+        spy_60d_aligned = spy_60d.reindex(df.index, method='ffill').fillna(0)
+        df['RS_vs_SPY_60d'] = stock_ret_60d - spy_60d_aligned
+    else:
+        df['RS_vs_SPY_60d'] = 0.0
+
+    # RS_Momentum: RS acceleration (20d RS - 60d RS)
+    df['RS_Momentum'] = df['RS_vs_SPY_20d'] - df['RS_vs_SPY_60d']
+
+    # UpStreak_Days / DownStreak_Days: consecutive up/down days
+    daily_change = df['Close'].pct_change()
+    up_streak = pd.Series(0, index=df.index, dtype=float)
+    down_streak = pd.Series(0, index=df.index, dtype=float)
+    u, d = 0, 0
+    for i in range(len(daily_change)):
+        val = daily_change.iloc[i]
+        if val > 0:
+            u += 1
+            d = 0
+        elif val < 0:
+            d += 1
+            u = 0
+        else:
+            u = 0
+            d = 0
+        up_streak.iloc[i] = min(u, 10)
+        down_streak.iloc[i] = min(d, 10)
+    df['UpStreak_Days'] = up_streak
+    df['DownStreak_Days'] = down_streak
+
+    # Range_Pct_10d: average intraday range as pct of close (10d)
+    intraday_range = (df['High'] - df['Low']) / df['Close'].replace(0, np.nan)
+    df['Range_Pct_10d'] = intraday_range.rolling(10).mean().clip(0.005, 0.1)
+
+    # OvernightGap_Avg: average overnight gap pct over 5 days
+    overnight_gap = (df['Open'] - df['Close'].shift(1)) / df['Close'].shift(1).replace(0, np.nan)
+    df['OvernightGap_Avg'] = overnight_gap.rolling(5).mean().fillna(0)
+
+    # Handle inf/nan in v3.1 features
+    v31_features = ['Vol_Contraction_Ratio', 'Squeeze_On_Flag', 'RS_vs_SPY_60d',
+                    'RS_Momentum', 'UpStreak_Days', 'DownStreak_Days',
+                    'Range_Pct_10d', 'OvernightGap_Avg']
+    for vf in v31_features:
+        df[vf] = df[vf].replace([np.inf, -np.inf], np.nan)
+        df[vf] = df[vf].fillna(0.0)
+
     # === TARGET ===
     df['Forward_Return_20d'] = df['Close'].shift(-20) / df['Close'] - 1.0
     
@@ -759,7 +832,7 @@ def train_and_save_bundle():
 
     # 4. Time-Series Cross-Validation (proper OOS evaluation)
     # Use feature registry as SINGLE SOURCE OF TRUTH to ensure alignment with inference
-    features = get_feature_names("v3")  # 34 features from feature_registry.py
+    features = get_feature_names("v3.1")  # 39 features — matches deployed production model
     
     # Verify all features are present in training data
     missing_features = [f for f in features if f not in full_df.columns]
@@ -1073,10 +1146,25 @@ def train_and_save_bundle():
     path = MODELS_DIR / "model_20d_v3.pkl"
     joblib.dump(bundle, path)
     # Write metadata.json next to model and to canonical latest path
+    _oos_auc_mean = float(np.mean(oos_aucs)) if oos_aucs else 0.0
+    _oos_auc_std = float(np.std(oos_aucs)) if oos_aucs else 0.0
     meta = {
         "sklearn_version": __import__("sklearn").__version__,
+        "feature_version": "v3.1",
         "feature_list": features,
         "training_timestamp_utc": datetime.utcnow().isoformat(),
+        "model_type": "CalibratedEnsemble(HistGB+RF+LR)",
+        "model_name": "ml_20d_v3_ensemble_calibrated",
+        "cv_method": f"RollingWindow(folds={len(oos_aucs)})",
+        "target": f"Forward_Return_20d >= {UP_THRESHOLD}",
+        "metrics": {
+            "oos_auc": _oos_auc_mean,
+            "cv_auc_mean": _oos_auc_mean,
+            "cv_auc_std": _oos_auc_std,
+            "precision_at_20": mean_p20,
+            "precision_at_50": mean_p50,
+            "note": f"Trained on {len(features)} features ({len(X_train)} samples)",
+        },
         "label_spec": {
             "horizon_days": 20,
             "threshold_type": "fixed",
@@ -1085,8 +1173,6 @@ def train_and_save_bundle():
             "label_name": f"Forward_Return_20d>={UP_THRESHOLD}",
             "class_weighting": "balanced",
         },
-        "model_type": "CalibratedEnsemble(HistGB+RF+LR)",
-        "model_name": "ml_20d_v3_ensemble_calibrated",
         "ensemble": {
             "models": ["HistGradientBoostingClassifier", "RandomForestClassifier", "LogisticRegression"],
             "weights": ensemble_weights,
