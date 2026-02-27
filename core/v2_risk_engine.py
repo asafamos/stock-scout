@@ -370,13 +370,21 @@ def calculate_risk_gate_v2(
         "quality_gate": "unknown"
     }
     
-    # Check R/R ratio (strict)
-    if rr_ratio < 1.0:
+    # Check R/R ratio
+    # NOTE: Changed from hard-block to severe reduction for RR < 1.0.
+    # Hard-blocking was causing 0 results when combined with conservative
+    # target calculations. A severe reduction still heavily penalizes poor
+    # RR setups while keeping them in the candidate pool.
+    if rr_ratio < 0.5:
         rr_gate = "blocked"
         rr_penalty = 0.0
         if coil_vcp_override:
-            # Bypass hard block for coil/VCP; treat as reduced
             rr_gate = "reduced"
+            rr_penalty = 0.4
+    elif rr_ratio < 1.0:
+        rr_gate = "reduced"
+        rr_penalty = 0.3
+        if coil_vcp_override:
             rr_penalty = 0.6
     elif rr_ratio < 1.5:
         rr_gate = "reduced"

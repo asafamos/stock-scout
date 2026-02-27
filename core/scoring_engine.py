@@ -32,26 +32,8 @@ from core.scoring.reliability import (  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
-def ml_boost_component(prob: float) -> float:
-    """Return a bounded adjustment (±10) based on ML_20d_Prob in [0,1].
-
-    Concept: ML contributes as a mild confidence tilt to the final score,
-    not as a standalone component. Neutral (0.5) adds 0, high confidence
-    nudges up to +10, low confidence down to -10. Calibration (if any)
-    happens upstream; this function expects a probabilistic input.
-
-    - prob = 0.5 → 0
-    - prob = 1.0 → +10
-    - prob = 0.0 → -10
-    """
-    try:
-        if prob is None or not np.isfinite(prob):
-            return 0.0
-        p = float(np.clip(prob, 0.0, 1.0))
-        delta = (p - 0.5) * 2.0 * 10.0
-        return float(np.clip(delta, -10.0, 10.0))
-    except Exception:
-        return 0.0
+# NOTE: ml_boost_component is imported from core.scoring.utils (line 27).
+# A duplicate local definition was removed (2026-02-27) to avoid shadowing.
 
 
 def compute_final_score_20d(row: pd.Series) -> float:

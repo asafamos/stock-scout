@@ -27,11 +27,11 @@ def test_apply_v2_conviction_mix_rr_ml():
     assert pytest.approx(final, rel=1e-6) == 85.0
 
 
-def test_calculate_risk_gate_block_and_no_fund_sources():
-    # Case 1: RR < 1 -> should be blocked
+def test_calculate_risk_gate_reduced_and_no_fund_sources():
+    # Case 1: RR 0.5-1.0 -> 'reduced' with severe penalty (not blocked)
     status, penalty, details = v2.calculate_risk_gate_v2(0.8, 50.0, fund_sources_count=1, quality_score=50.0)
-    assert status == 'blocked'
-    assert penalty == 0.0
+    assert status == 'reduced'
+    assert penalty == 0.3  # Severe reduction, not full block
 
     # Case 2: no fund sources -> immediate block regardless of rr/reliability
     status2, penalty2, details2 = v2.calculate_risk_gate_v2(5.0, 90.0, fund_sources_count=0, quality_score=80.0)

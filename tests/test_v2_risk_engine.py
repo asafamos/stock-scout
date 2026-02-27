@@ -49,12 +49,13 @@ def make_row(base=None):
     return pd.Series(row)
 
 
-def test_rr_less_than_one_blocked():
+def test_rr_less_than_one_reduced():
+    """RR 0.5-1.0 is now 'reduced' (not blocked) with severe penalty."""
     row = make_row({"RR_Ratio": 0.9, "RewardRisk": 0.9})
     res = score_ticker_v2_enhanced("TST", row, budget_total=5000.0, min_position=50.0, enable_ml=False)
-    assert res["risk_gate_status_v2"] == "blocked"
-    assert res["buy_amount_v2"] == 0.0
-    assert res["shares_to_buy_v2"] == 0
+    assert res["risk_gate_status_v2"] == "reduced"
+    # Penalty = 0.3 (severe reduction, not full block)
+    assert res["risk_gate_penalty_v2"] > 0.0
 
 
 def test_zero_fund_sources_blocked():
