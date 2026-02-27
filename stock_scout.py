@@ -253,7 +253,8 @@ with st.sidebar:
             _ver = _ml_meta.get("feature_version", "?")
             _auc_color = "🟢" if _auc >= 0.60 else ("🟡" if _auc >= 0.55 else "🔴")
             st.metric("AUC (OOS)", f"{_auc:.3f} {_auc_color}")
-            st.metric("Features", f"{_features} (v{_ver})")
+            _ver_display = _ver if _ver.startswith("v") else f"v{_ver}"
+            st.metric("Features", f"({_ver_display}) {_features}")
             _trained = _ml_meta.get("training_timestamp_utc", "?")
             st.caption(f"Trained: {_trained[:10] if len(str(_trained)) >= 10 else _trained}")
             if _auc < 0.56:
