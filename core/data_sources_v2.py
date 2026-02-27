@@ -2159,29 +2159,32 @@ def get_index_series(
             # historical-chart returns list of bars directly
             if data and isinstance(data, list) and len(data) > 0:
                 df = pd.DataFrame(data)
-                df = df.rename(columns={
-                    "date": "date",
-                    "open": "open",
-                    "high": "high", 
-                    "low": "low",
-                    "close": "close",
-                    "volume": "volume"
-                })
-                df["date"] = pd.to_datetime(df["date"])
-                df = df.sort_values("date").reset_index(drop=True)
-                df_result = df[["date", "open", "high", "low", "close", "volume"]]
-                logger.info(f"✓ FMP: Fetched {len(df_result)} days for {symbol}")
-                _LAST_INDEX_SOURCE[symbol] = "FMP"
-                try:
-                    if telemetry is not None:
-                        telemetry.mark_index(symbol, "FMP")
-                except (AttributeError, TypeError):
-                    pass
-                _put_in_cache(cache_key, df_result)
-                return df_result
-            elif data is not None:
-                # FMP responded but with no data — proceed to paid fallback (Polygon)
-                logger.error(f"FMP returned no data for {symbol}; attempting Polygon fallback")
+                df.columns = [c.lower() for c in df.columns]
+                # Guard: FMP may return data without OHLCV columns for some symbols
+                required_cols = {"date", "open", "high", "low", "close", "volume"}
+                if not required_cols.issubset(set(df.columns)):
+                    missing = required_cols - set(df.columns)
+                    logger.debug(
+                        "FMP index data for %s missing columns %s; skipping to fallback",
+                        symbol, missing,
+                    )
+                    data = None  # fall through to next provider
+                else:
+                    df["date"] = pd.to_datetime(df["date"])
+                    df = df.sort_values("date").reset_index(drop=True)
+                    df_result = df[["date", "open", "high", "low", "close", "volume"]]
+                    logger.info(f"✓ FMP: Fetched {len(df_result)} days for {symbol}")
+                    _LAST_INDEX_SOURCE[symbol] = "FMP"
+                    try:
+                        if telemetry is not None:
+                            telemetry.mark_index(symbol, "FMP")
+                    except (AttributeError, TypeError):
+                        pass
+                    _put_in_cache(cache_key, df_result)
+                    return df_result
+            if data is not None and df_result is None:
+                # FMP responded but with no usable data — proceed to fallback
+                logger.debug(f"FMP returned no usable data for {symbol}; trying next provider")
                 
         except Exception as e:
             logger.warning(f"FMP index series failed for {symbol}: {e}")
@@ -2386,7 +2389,7 @@ def get_index_series(
     if df_result is not None:
         _put_in_cache(cache_key, df_result)
     else:
-        logger.error(f"❌ All sources failed for index series {symbol}")
+        logger.warning(f"All sources failed for index series {symbol}")
     
     return df_result
 

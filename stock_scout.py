@@ -199,6 +199,75 @@ st.session_state["enable_openai_targets"] = False
 st.session_state["ENABLE_ML"] = True
 st.session_state["USE_FINAL_SCORE_SORT"] = True
 
+# ==================== SIDEBAR: Scan History & ML Health ====================
+with st.sidebar:
+    st.header("📁 היסטוריית סריקות")
+    _scan_dir = Path(__file__).parent / "data" / "scans"
+    try:
+        _all_scans = []
+        for _pq in sorted(_scan_dir.glob("*.parquet"), key=lambda p: p.stat().st_mtime, reverse=True):
+            _meta_path = _pq.with_suffix(".json")
+            _meta_info = {}
+            if _meta_path.exists():
+                try:
+                    import json as _json_sidebar
+                    _meta_info = _json_sidebar.loads(_meta_path.read_text())
+                except Exception:
+                    pass
+            _mtime = datetime.datetime.fromtimestamp(_pq.stat().st_mtime)
+            _all_scans.append({
+                "file": _pq.name,
+                "path": str(_pq),
+                "timestamp": _meta_info.get("timestamp", _mtime.strftime("%Y-%m-%d %H:%M")),
+                "count": _meta_info.get("results_count", _meta_info.get("total_tickers", _meta_info.get("universe_size", "?"))),
+                "source": "CI" if "latest_scan." in _pq.name and "live" not in _pq.name else "Local",
+            })
+        if _all_scans:
+            _selected_scan = st.selectbox(
+                "בחר סריקה",
+                range(len(_all_scans)),
+                format_func=lambda i: f"{_all_scans[i]['timestamp']} ({_all_scans[i]['count']} results, {_all_scans[i]['source']})",
+                key="scan_history_select",
+            )
+            if st.button("טען סריקה זו", key="load_historical_scan"):
+                try:
+                    _hist_path = Path(_all_scans[_selected_scan]["path"])
+                    _hist_df = pd.read_parquet(_hist_path, engine="pyarrow")
+                    st.session_state["precomputed_results"] = _hist_df
+                    st.session_state["skip_pipeline"] = True
+                    st.session_state["force_live_scan_once"] = False
+                    st.success(f"נטענה סריקה: {_all_scans[_selected_scan]['file']}")
+                    st.rerun()
+                except Exception as _hist_e:
+                    st.error(f"שגיאה בטעינה: {_hist_e}")
+        else:
+            st.caption("אין סריקות זמינות עדיין")
+    except Exception as _scan_hist_e:
+        st.caption(f"שגיאה בטעינת היסטוריה: {_scan_hist_e}")
+
+    st.markdown("---")
+    # ML Model Health
+    st.header("🤖 ML Model Health")
+    try:
+        import json as _json_ml
+        _ml_meta_path = Path(__file__).parent / "ml" / "bundles" / "latest" / "metadata.json"
+        if _ml_meta_path.exists():
+            _ml_meta = _json_ml.loads(_ml_meta_path.read_text())
+            _auc = _ml_meta.get("metrics", {}).get("oos_auc", 0)
+            _features = len(_ml_meta.get("feature_list", []))
+            _ver = _ml_meta.get("feature_version", "?")
+            _auc_color = "🟢" if _auc >= 0.60 else ("🟡" if _auc >= 0.55 else "🔴")
+            st.metric("AUC (OOS)", f"{_auc:.3f} {_auc_color}")
+            st.metric("Features", f"{_features} (v{_ver})")
+            _trained = _ml_meta.get("training_timestamp_utc", "?")
+            st.caption(f"Trained: {_trained[:10] if len(str(_trained)) >= 10 else _trained}")
+            if _auc < 0.56:
+                st.warning("ML weight reduced (circuit breaker active)")
+        else:
+            st.caption("ML model not found")
+    except Exception as _ml_e:
+        st.caption(f"ML info unavailable: {_ml_e}")
+
 st.markdown("---")
 
 
@@ -735,7 +804,13 @@ else:
             st.session_state["precomputed_results"] = results
             st.success(f"✅ Scan complete: {len(results)} results found (will apply sector cap)")
         else:
-            st.error("❌ Live scan returned 0 results. Check logs/filtering.")
+            st.error("❌ סריקה חיה החזירה 0 תוצאות.")
+            st.info(
+                "💡 **מה אפשר לעשות?**\n"
+                "1. בדוק שמפתחות ה-API פעילים (FMP, Finnhub, Polygon)\n"
+                "2. נסה שוב — ייתכן שזה כשל רשת זמני\n"
+                "3. בדוק את ה-logs ב-GitHub Actions לפרטים"
+            )
 
 # Debug logging if enabled
 create_debug_expander({
@@ -1785,7 +1860,8 @@ else:
                         st.code(_fmt_num(r.get('Valuation_Score_F', np.nan), '.0f'))
                     with f4:
                         st.text("Leverage (D/E)")
-                        st.code(_fmt_num(r.get('DE_f', r.get('debt_to_equity', np.nan)), '.2f'))
+                        _de = r.get('DE_f', r.get('debt_to_equity', r.get('Debt_to_Equity', r.get('Leverage', np.nan))))
+                        st.code(_fmt_num(_de, '.2f'))
 
                     # Reliability breakdown
                     rel1, rel2, rel3, rel4 = st.columns(4)
@@ -1794,13 +1870,16 @@ else:
                         st.code(_fmt_num(rel, '.0f'))
                     with rel2:
                         st.text("Fund sources")
-                        st.code(_fmt_num(r.get('Fundamental_Sources_Count', r.get('fund_sources_used_v2', np.nan)), '.0f'))
+                        _fs = r.get('Fundamental_Sources_Count', r.get('fund_sources_used_v2', r.get('sources_used_count', np.nan)))
+                        st.code(_fmt_num(_fs, '.0f'))
                     with rel3:
                         st.text("Price sources")
-                        st.code(_fmt_num(r.get('Price_Sources_Count', r.get('price_sources_used_v2', np.nan)), '.0f'))
+                        _ps = r.get('Price_Sources_Count', r.get('price_sources_used_v2', r.get('price_sources', np.nan)))
+                        st.code(_fmt_num(_ps, '.0f'))
                     with rel4:
                         st.text("Price STD")
-                        st.code(_fmt_num(r.get('Price_STD', r.get('price_std', np.nan)), '.2f'))
+                        _pstd = r.get('Price_STD', r.get('price_std', np.nan))
+                        st.code(_fmt_num(_pstd, '.2f'))
 
     # Speculative candidates
     if not spec_df.empty:
@@ -1883,7 +1962,8 @@ else:
                         st.code(_fmt_num(r.get('Valuation_Score_F', np.nan), '.0f'))
                     with f4:
                         st.text("Leverage (D/E)")
-                        st.code(_fmt_num(r.get('DE_f', r.get('debt_to_equity', np.nan)), '.2f'))
+                        _de = r.get('DE_f', r.get('debt_to_equity', r.get('Debt_to_Equity', r.get('Leverage', np.nan))))
+                        st.code(_fmt_num(_de, '.2f'))
 
                     # Reliability breakdown
                     rel1, rel2, rel3, rel4 = st.columns(4)
@@ -1892,13 +1972,16 @@ else:
                         st.code(_fmt_num(rel, '.0f'))
                     with rel2:
                         st.text("Fund sources")
-                        st.code(_fmt_num(r.get('Fundamental_Sources_Count', r.get('fund_sources_used_v2', np.nan)), '.0f'))
+                        _fs = r.get('Fundamental_Sources_Count', r.get('fund_sources_used_v2', r.get('sources_used_count', np.nan)))
+                        st.code(_fmt_num(_fs, '.0f'))
                     with rel3:
                         st.text("Price sources")
-                        st.code(_fmt_num(r.get('Price_Sources_Count', r.get('price_sources_used_v2', np.nan)), '.0f'))
+                        _ps = r.get('Price_Sources_Count', r.get('price_sources_used_v2', r.get('price_sources', np.nan)))
+                        st.code(_fmt_num(_ps, '.0f'))
                     with rel4:
                         st.text("Price STD")
-                        st.code(_fmt_num(r.get('Price_STD', r.get('price_std', np.nan)), '.2f'))
+                        _pstd = r.get('Price_STD', r.get('price_std', np.nan))
+                        st.code(_fmt_num(_pstd, '.2f'))
 
     # Export section (single, unified)
 show_order = [

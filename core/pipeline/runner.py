@@ -1184,6 +1184,20 @@ def _phase_enrich_fundamentals(ctx: _PipelineContext) -> None:
             ctx.results.at[idx, "Fundamental_S"] = 50.0
             logger.debug("Fundamental scoring failed for %s: %s", row.get("Ticker"), e)
 
+    # Card-compatible aliases for fundamental raw metrics
+    # The UI cards expect DE_f, Price_STD, Price_Sources_Count, etc.
+    try:
+        if "debt_equity" in ctx.results.columns and "DE_f" not in ctx.results.columns:
+            ctx.results["DE_f"] = pd.to_numeric(ctx.results["debt_equity"], errors="coerce")
+        elif "Debt_to_Equity" in ctx.results.columns and "DE_f" not in ctx.results.columns:
+            ctx.results["DE_f"] = pd.to_numeric(ctx.results["Debt_to_Equity"], errors="coerce")
+        if "price_std" in ctx.results.columns and "Price_STD" not in ctx.results.columns:
+            ctx.results["Price_STD"] = pd.to_numeric(ctx.results["price_std"], errors="coerce")
+        if "price_mean" in ctx.results.columns and "Price_Mean" not in ctx.results.columns:
+            ctx.results["Price_Mean"] = pd.to_numeric(ctx.results["price_mean"], errors="coerce")
+    except Exception as e:
+        logger.debug("Card alias mapping skipped: %s", e)
+
     # Sector from fundamentals
     if "sector" in ctx.results.columns:
         ctx.results["Sector"] = ctx.results["sector"].fillna("Unknown")
@@ -1193,23 +1207,9 @@ def _phase_enrich_fundamentals(ctx: _PipelineContext) -> None:
     # Sector mapping fallback
     _apply_sector_mapping(ctx)
 
-    # Recalculate FinalScore_20d with fundamentals
-    try:
-        for idx, row in ctx.results.iterrows():
-            try:
-                new_score = compute_final_score_20d(row)
-                ctx.results.at[idx, "FinalScore_20d"] = float(new_score)
-                ctx.results.at[idx, "Score"] = float(new_score)
-            except Exception as e:
-                logger.debug(
-                    "FinalScore recalc failed for %s: %s", row.get("Ticker"), e
-                )
-        logger.info(
-            "[PIPELINE] Recalculated FinalScore_20d with fundamentals for %d stocks",
-            len(ctx.results),
-        )
-    except Exception as e:
-        logger.warning("FinalScore recalc skipped: %s", e)
+    # NOTE: FinalScore_20d is computed ONCE after reliability recomputation below.
+    # Do NOT add a compute_final_score_20d() call here — it was removed to
+    # eliminate duplication (the result was immediately overwritten anyway).
 
     # Source metadata
     try:
@@ -1281,9 +1281,9 @@ def _phase_enrich_fundamentals(ctx: _PipelineContext) -> None:
     except Exception as e:
         logger.warning("Reliability recomputation failed: %s", e)
 
-    # ── Re-recalculate FinalScore_20d with updated reliability ──────────
-    # The first recalculation used stale reliability (40 for all).
-    # Now reliability is accurate, ML boost gating will be correct.
+    # ── Compute FinalScore_20d (SINGLE authoritative computation) ────────
+    # All enrichment is complete: fundamentals, reliability, ML inference.
+    # This is the ONE AND ONLY place FinalScore_20d is set from components.
     try:
         for idx, row in ctx.results.iterrows():
             try:
@@ -1292,14 +1292,15 @@ def _phase_enrich_fundamentals(ctx: _PipelineContext) -> None:
                 ctx.results.at[idx, "Score"] = float(new_score)
             except Exception as e:
                 logger.debug(
-                    "FinalScore re-recalc (post-reliability) failed for %s: %s",
+                    "FinalScore_20d computation failed for %s: %s",
                     row.get("Ticker"), e,
                 )
         logger.info(
-            "[PIPELINE] FinalScore_20d re-recalculated with updated reliability"
+            "[PIPELINE] FinalScore_20d computed (single pass) for %d stocks",
+            len(ctx.results),
         )
     except Exception as e:
-        logger.warning("FinalScore re-recalc (post-reliability) skipped: %s", e)
+        logger.warning("FinalScore_20d computation skipped: %s", e)
 
 
 def _apply_sector_mapping(ctx: _PipelineContext) -> None:
@@ -1392,36 +1393,12 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
             if col in rr_updates.columns:
                 ctx.results[col] = rr_updates[col]
 
-        # ── Multiplicative RR gate (replaces old linear -8/-3 adjustments) ──
-        # Stocks with poor R/R are penalized; stocks with great R/R are boosted.
-        # This is the AUTHORITATIVE RR adjustment applied after actual RR computation.
-        if "FinalScore_20d" in ctx.results.columns and "RR" in ctx.results.columns:
-            from core.scoring_config import RR_GATES
-            rr_numeric = pd.to_numeric(ctx.results["RR"], errors="coerce")
-
-            def _rr_multiplier(rr_val):
-                if pd.isna(rr_val) or rr_val < 0:
-                    return 1.0
-                if rr_val < float(RR_GATES.get("harsh_penalty_lt", 0.5)):
-                    return float(RR_GATES.get("harsh_penalty_mult", 0.80))
-                if rr_val < float(RR_GATES.get("mild_penalty_lt", 1.0)):
-                    return float(RR_GATES.get("mild_penalty_mult", 0.90))
-                if rr_val > float(RR_GATES.get("strong_bonus_gt", 4.0)):
-                    return float(RR_GATES.get("strong_bonus_mult", 1.12))
-                if rr_val > float(RR_GATES.get("mild_bonus_gt", 2.5)):
-                    return float(RR_GATES.get("mild_bonus_mult", 1.06))
-                return 1.0
-
-            rr_mults = rr_numeric.apply(_rr_multiplier)
-            ctx.results["FinalScore_20d"] = (
-                ctx.results["FinalScore_20d"] * rr_mults
-            ).clip(0, 100)
-            logger.info(
-                "[PIPELINE] RR gate applied: %d penalized, %d boosted, %d unchanged",
-                (rr_mults < 1.0).sum(),
-                (rr_mults > 1.0).sum(),
-                (rr_mults == 1.0).sum(),
-            )
+        # NOTE: Multiplicative RR gate REMOVED (2026-02-27) to eliminate double-gating.
+        # RR is already included as 20% of the conviction score inside
+        # compute_final_score_20d() via evaluate_rr_unified(). Applying a second
+        # multiplicative gate on top was double-penalizing poor RR and double-
+        # rewarding good RR. The RR component in the scoring function is sufficient.
+        if "FinalScore_20d" in ctx.results.columns:
             ctx.results["FinalScore"] = ctx.results["FinalScore_20d"]
             ctx.results["Score"] = ctx.results["FinalScore_20d"]
     except Exception as e:
@@ -1516,14 +1493,66 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
     # Persist latest results
     try:
         to_save = ctx.results.copy()
+        # Drop non-serializable object columns (e.g. dataclass instances, dicts,
+        # and complex structs) that cause Arrow/Parquet conversion failures
+        obj_cols_to_drop = []
+        for col in to_save.columns:
+            if to_save[col].dtype == object:
+                sample = to_save[col].dropna().head(1)
+                if sample.empty:
+                    continue
+                val = sample.iloc[0]
+                # Drop: dataclass instances, dicts (Parquet struct issues), other non-primitives
+                if isinstance(val, dict):
+                    obj_cols_to_drop.append(col)
+                elif not isinstance(val, (str, list, int, float, bool)):
+                    obj_cols_to_drop.append(col)
+        # Also drop known problematic columns
+        for known_bad in ["coverage", "FundamentalBreakdown", "prices_by_source"]:
+            if known_bad in to_save.columns and known_bad not in obj_cols_to_drop:
+                obj_cols_to_drop.append(known_bad)
+        if obj_cols_to_drop:
+            logger.info("[PIPELINE] Dropping non-serializable columns for Parquet: %s", obj_cols_to_drop)
+            to_save = to_save.drop(columns=obj_cols_to_drop, errors="ignore")
         data_dir = Path("data")
         data_dir.mkdir(parents=True, exist_ok=True)
         to_save.to_json(
             data_dir / "latest_scan_live.json", orient="records", date_format="iso"
         )
         to_save.to_parquet(data_dir / "latest_scan_live.parquet", index=False)
+        # Also persist to data/scans/ so the Streamlit app and CI find the same files
+        scans_dir = data_dir / "scans"
+        scans_dir.mkdir(parents=True, exist_ok=True)
+        to_save.to_parquet(scans_dir / "latest_scan_live.parquet", index=False)
+        to_save.to_json(
+            scans_dir / "latest_scan_live.json", orient="records", date_format="iso"
+        )
+        # Save scan metadata alongside results
+        import json as _json
+        from datetime import datetime as _dt
+        _regime = "unknown"
+        if "Market_Regime" in to_save.columns and not to_save.empty:
+            try:
+                _regime = str(to_save["Market_Regime"].mode().iloc[0])
+            except Exception:
+                pass
+        _scan_meta = {
+            "results_count": len(to_save),
+            "timestamp": _dt.utcnow().isoformat(),
+            "scoring_mode": ctx.postfilter_mode if hasattr(ctx, "postfilter_mode") else "signal_only",
+            "ml_enabled": "ML_20d_Prob" in to_save.columns,
+            "fundamental_enabled": "Fundamental_S" in to_save.columns,
+            "market_regime": _regime,
+            "universe_size": ctx.config.get("universe_size", len(to_save)),
+            "features_used": len([c for c in to_save.columns if c.startswith(("ML_", "VCP", "RS_"))]),
+            "ml_model_version": ctx.config.get("ml_model_version", "v3.1"),
+            "total_tickers": len(to_save),
+        }
+        (scans_dir / "latest_scan_live.meta.json").write_text(
+            _json.dumps(_scan_meta, indent=2)
+        )
         logger.info(
-            "\u2705 Pipeline Finalized: Saved strict Top %d recommendations",
+            "\u2705 Pipeline Finalized: Saved Top %d recommendations to data/ and data/scans/",
             len(to_save),
         )
     except Exception as e:

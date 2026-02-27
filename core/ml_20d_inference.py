@@ -352,7 +352,9 @@ def compute_ml_20d_probabilities_raw(row: pd.Series) -> float:
             if "RSI" in X.columns:
                 X["RSI"] = np.clip(X["RSI"], 5.0, 95.0)
 
-        proba = BUNDLE_MODEL.predict_proba(X)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message=".*does not have valid feature names.*")
+            proba = BUNDLE_MODEL.predict_proba(X)
         return float(np.clip(proba[0, 1], 0.0, 1.0))
 
     except Exception as exc:

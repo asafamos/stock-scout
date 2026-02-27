@@ -162,8 +162,13 @@ def run_pipeline_full(universe: List[str], cfg: dict, batch_size: int = 200) -> 
                 results_list.append(df)
             batches_ok += 1
         except Exception as e:
-            # continue to next batch
-            print(json.dumps({"warning": f"batch_failed_{i}_{i+len(batch)}", "error": str(e) }))
+            # Log full traceback for CI debugging, then continue to next batch
+            import traceback
+            print(json.dumps({
+                "warning": f"batch_failed_{i}_{i+len(batch)}",
+                "error": str(e),
+                "traceback": traceback.format_exc(),
+            }))
             continue
         # short pause to be kind to providers
         time.sleep(0.5)
@@ -222,7 +227,14 @@ def main():
     try:
         if results is None:
             results = pd.DataFrame()
-        results.to_parquet(parquet_path, index=False)
+        # Drop non-serializable object columns before Parquet save
+        save_df = results.copy()
+        for col in save_df.columns:
+            if save_df[col].dtype == object:
+                sample = save_df[col].dropna().head(1)
+                if not sample.empty and not isinstance(sample.iloc[0], (str, list, dict, int, float, bool)):
+                    save_df = save_df.drop(columns=[col])
+        save_df.to_parquet(parquet_path, index=False)
     except Exception as e:
         print(json.dumps({"warning": f"parquet_save_failed: {e}"}))
 

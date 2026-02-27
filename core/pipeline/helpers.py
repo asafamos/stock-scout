@@ -109,7 +109,16 @@ def _compute_rr_for_row(
     row: pd.Series,
     data_map: Dict[str, pd.DataFrame],
 ) -> Dict[str, Any]:
-    """Compute Entry / Target / Stop / RR from ATR, Bollinger & resistance.
+    """Compute Entry / Target / Stop / RR using ATR-projected targets.
+
+    Uses a forward-looking ATR-based target that doesn't penalize stocks
+    near their highs (which are exactly the breakout candidates we want).
+
+    Target methodology:
+    - ATR projection: entry + K * ATR14 (K=2.5 base, 3.0 for breakouts)
+    - Resistance level: max(60d high, Bollinger upper)
+    - Final target: the HIGHER of ATR projection and resistance
+    This ensures RR reflects forward potential, not just past price range.
 
     *data_map* supplies the historical OHLCV DataFrame for the ticker.
     """
@@ -143,8 +152,12 @@ def _compute_rr_for_row(
             else float((hdf["High"] - hdf["Low"]).tail(5).mean())
         )
         atr14 = max(atr14, 1e-6)
+
+        # Stop loss: conservative (wider of recent low and 2*ATR drop)
         low_5 = float(hdf["Low"].tail(5).min())
         stop_price = float(min(low_5, entry - 2.0 * atr14))
+
+        # Resistance-based target (backward-looking)
         ma20 = float(hdf["Close"].rolling(20, min_periods=5).mean().iloc[-1])
         std20 = float(hdf["Close"].rolling(20, min_periods=5).std(ddof=0).iloc[-1])
         bb_upper = (
@@ -153,7 +166,20 @@ def _compute_rr_for_row(
             else float(hdf["High"].tail(20).max())
         )
         res_60 = float(hdf["High"].tail(60).max())
-        target = float(max(res_60, bb_upper))
+        resistance_target = float(max(res_60, bb_upper))
+
+        # ATR-projected target (forward-looking)
+        # Stocks near 52w high get higher multiplier (breakout potential)
+        high_52w = float(hdf["High"].max()) if len(hdf) >= 20 else res_60
+        dist_from_high = (high_52w - entry) / high_52w if high_52w > 0 else 1.0
+        # Near high (within 5%) → breakout multiplier; otherwise base
+        atr_mult = 3.0 if dist_from_high < 0.05 else 2.5
+        atr_target = entry + atr_mult * atr14
+
+        # Final target: higher of ATR projection and resistance
+        target = float(max(atr_target, resistance_target))
+        target_source = "ATR_Projection" if atr_target >= resistance_target else "Resistance/Bollinger"
+
         risk = float(entry - stop_price)
         reward = float(target - entry)
         rr = np.nan
@@ -166,7 +192,7 @@ def _compute_rr_for_row(
             "RewardRisk": rr,
             "RR_Ratio": rr,
             "RR": rr,
-            "Target_Source": "Resistance/Bollinger",
+            "Target_Source": target_source,
         }
     except (KeyError, TypeError, ValueError, ZeroDivisionError):
         return _nan_rr
