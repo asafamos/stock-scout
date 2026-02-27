@@ -89,7 +89,13 @@ tools/audit/*.log
 .idea/
 *.code-workspace
 
-# ML artifacts
-ml/
+# ML artifacts (ignore all except production bundle metadata)
+ml/*
+!ml/bundles/
+ml/bundles/*
+!ml/bundles/latest/
+ml/bundles/latest/*
+!ml/bundles/latest/metadata.json
+!ml/bundles/latest/model.joblib
 models/*.joblib
 .claude/

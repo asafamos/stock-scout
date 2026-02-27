@@ -141,6 +141,19 @@ def _finalize_model(
         global BUNDLE_HAS_MISSING_METEOR_FEATURES
         BUNDLE_HAS_MISSING_METEOR_FEATURES = True
 
+    # Version safety: validate feature count matches a known registry version
+    _KNOWN_FEATURE_COUNTS = {34: "v3", 39: "v3.1", 72: "v4"}
+    n_feat = len(feature_names)
+    detected_version = _KNOWN_FEATURE_COUNTS.get(n_feat)
+    if detected_version:
+        logger.info("ML model feature count %d matches registry %s", n_feat, detected_version)
+    elif n_feat > 0:
+        logger.warning(
+            "ML model has %d features — does not match any known registry version "
+            "(v3=34, v3.1=39, v4=72). Model may be stale or from an intermediate build.",
+            n_feat,
+        )
+
     global BUNDLE_AUC
     BUNDLE_AUC = meta_auc
 
@@ -517,12 +530,15 @@ def get_ml_health_meta() -> Dict[str, Any]:
             or BUNDLE_HAS_MISSING_METEOR_FEATURES
             or bool(ML_VERSION_WARNING)
         )
+        _n = len(FEATURE_COLS_20D or [])
+        _detected = {34: "v3", 39: "v3.1", 72: "v4"}.get(_n, f"unknown({_n})")
         return {
             "ml_bundle_version_warning": bool(ML_VERSION_WARNING),
             "ml_bundle_warning_reason": ML_VERSION_WARNING_REASON,
             "ml_degraded": bool(degraded),
             "ml_missing_features": list(ML_MISSING_FEATURES or []),
-            "ml_required_features_count": len(FEATURE_COLS_20D or []),
+            "ml_required_features_count": _n,
+            "ml_detected_version": _detected,
             "ml_auc": BUNDLE_AUC,
             "ml_weight_multiplier": get_ml_weight_multiplier(),
         }
