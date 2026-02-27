@@ -101,7 +101,7 @@ def render_stock_card(row: pd.Series, rank: int, score_label: str = "FinalScore_
     rel_str = f"{rel:.0f}" if np.isfinite(rel) else "—"
 
     # Entry / Target / Upside
-    entry_price = to_float(row.get("Price_Yahoo", row.get("Unit_Price", row.get("Entry_Price", np.nan))))
+    entry_price = to_float(row.get("Price_Yahoo", row.get("Unit_Price", row.get("Entry_Price", row.get("Price", row.get("Close", np.nan))))))
     target_price = to_float(row.get("Target_Price", np.nan))
     if np.isfinite(entry_price) and np.isfinite(target_price) and entry_price > 0:
         upside = ((target_price - entry_price) / entry_price) * 100
@@ -112,10 +112,44 @@ def render_stock_card(row: pd.Series, rank: int, score_label: str = "FinalScore_
     entry_str = f"${entry_price:.2f}" if np.isfinite(entry_price) else "—"
     target_str = f"${target_price:.2f}" if np.isfinite(target_price) else "—"
 
+    # Target date (20 trading days ≈ 28 calendar days from scan date)
+    target_date_str = ""
+    # First check if pipeline provided a target date
+    _target_date_col = row.get("Target_Date", None)
+    if _target_date_col is not None and str(_target_date_col) not in ("", "nan", "None", "NaT"):
+        try:
+            _td = pd.Timestamp(_target_date_col)
+            if not pd.isna(_td):
+                target_date_str = _td.strftime("%b %d")
+        except Exception:
+            pass
+    # Fallback: compute from As_Of_Date + 20 business days
+    if not target_date_str:
+        _as_of = row.get("As_Of_Date", row.get("timestamp", None))
+        if _as_of is not None:
+            try:
+                import datetime as _dt
+                if isinstance(_as_of, (int, float)) and _as_of > 1e9:
+                    _scan_dt = pd.Timestamp(_dt.datetime.fromtimestamp(_as_of))
+                else:
+                    _scan_dt = pd.Timestamp(_as_of)
+                # 20 business days from scan date
+                _target_dt = _scan_dt + pd.offsets.BDay(20)
+                target_date_str = _target_dt.strftime("%b %d")
+            except Exception:
+                pass
+
     # Score breakdown bars (0-100 range for bar widths)
     tech_score_raw = to_float(row.get("TechScore_20d", row.get("Technical_S", row.get("tech_score", np.nan))))
-    fund_score_raw = to_float(row.get("FundamentalScore", row.get("Fundamental_S", row.get("fund_score", np.nan))))
+    fund_score_raw = to_float(row.get("FundamentalScore", row.get("Fundamental_S", row.get("Fundamental_Score", row.get("fund_score", np.nan)))))
+
+    # RR score: use rr_score_v2 if available, otherwise derive from RR ratio
     rr_score_raw = to_float(row.get("rr_score_v2", row.get("rr_score", np.nan)))
+    if not np.isfinite(rr_score_raw):
+        # Convert RR ratio to 0-100 score: RR=1→30, RR=2→60, RR=3→80, RR=4+→95
+        _rr_ratio = to_float(row.get("RR", row.get("RR_Ratio", row.get("RewardRisk", np.nan))))
+        if np.isfinite(_rr_ratio) and _rr_ratio > 0:
+            rr_score_raw = min(95.0, max(10.0, _rr_ratio * 25.0 + 5.0))
     tech_bar = _safe_pct(tech_score_raw)
     fund_bar = _safe_pct(fund_score_raw)
     ml_bar = _safe_pct(ml_norm, scale=100) if ml_norm is not None else 0
@@ -125,15 +159,19 @@ def render_stock_card(row: pd.Series, rank: int, score_label: str = "FinalScore_
     story = headline_story(row)
 
     # Detail items
-    atr_pct = to_float(row.get("ATR_Price", row.get("ATR_Pct", np.nan)))
-    de = to_float(row.get("DE_f", row.get("debt_to_equity", row.get("Debt_to_Equity", row.get("Leverage", np.nan)))))
+    atr_pct = to_float(row.get("ATR_Price", row.get("ATR_Pct", row.get("ADR_Pct", np.nan))))
+    de = to_float(row.get("DE_f", row.get("debt_to_equity", row.get("Debt_to_Equity", row.get("Debt_Equity", row.get("Leverage", np.nan))))))
     fund_src = to_float(row.get("Fundamental_Sources_Count", row.get("fund_sources_used_v2", row.get("sources_used_count", np.nan))))
-    price_src = to_float(row.get("Price_Sources_Count", row.get("price_sources_used_v2", row.get("price_sources", np.nan))))
-    price_std = to_float(row.get("Price_STD", row.get("price_std", np.nan)))
-    quality = to_float(row.get("Quality_Score_F", np.nan))
+    price_src = to_float(row.get("Price_Sources_Count", row.get("price_sources_used_v2", row.get("Sources_Used", np.nan))))
+    price_std = to_float(row.get("Price_STD", row.get("price_std", row.get("Historical_StdDev", np.nan))))
+    quality = to_float(row.get("Quality_Score_F", row.get("Quality", np.nan)))
     growth = to_float(row.get("Growth_Score_F", np.nan))
-    valuation = to_float(row.get("Valuation_Score_F", np.nan))
-    fund_cov = to_float(row.get("Fund_Coverage_Pct", np.nan))
+    valuation = to_float(row.get("Valuation_Score_F", row.get("Valuation", np.nan)))
+    pe = to_float(row.get("PE", row.get("pe", row.get("PE_Ratio", np.nan))))
+    roe = to_float(row.get("ROE", row.get("roe", np.nan)))
+    beta = to_float(row.get("Beta", row.get("beta", np.nan)))
+    market_cap = to_float(row.get("Market_Cap", row.get("market_cap", np.nan)))
+    fund_cov = to_float(row.get("Fund_Coverage_Pct", row.get("Fundamental_Coverage_Pct", np.nan)))
 
     # Build sector badge
     sector_badge = f'<span class="ss-sector-badge">{sector}</span>' if sector else ""
@@ -161,10 +199,11 @@ def render_stock_card(row: pd.Series, rank: int, score_label: str = "FinalScore_
         f'</div>'
         f'</div>'
         f'<div class="ss-metrics-grid">'
-        f'<div class="ss-metric"><span class="ss-metric-value">{entry_str}</span><span class="ss-metric-label">Entry</span></div>'
-        f'<div class="ss-metric"><span class="ss-metric-value">{target_str}</span><span class="ss-metric-label">Target</span></div>'
-        f'<div class="ss-metric"><span class="ss-metric-value">{upside_str}</span><span class="ss-metric-label">Upside</span></div>'
         f'<div class="ss-metric"><span class="ss-metric-value">{rr_str}</span><span class="ss-metric-label">R / R</span></div>'
+        f'<div class="ss-metric"><span class="ss-metric-value">{upside_str}</span><span class="ss-metric-label">Upside</span></div>'
+        f'<div class="ss-metric"><span class="ss-metric-value">{target_str}</span><span class="ss-metric-label">Target</span></div>'
+        f'<div class="ss-metric"><span class="ss-metric-value">{entry_str}</span><span class="ss-metric-label">Entry</span></div>'
+        f'<div class="ss-metric"><span class="ss-metric-value">{target_date_str if target_date_str else "—"}</span><span class="ss-metric-label">Target Date</span></div>'
         f'</div>'
         f'<div class="ss-breakdown">'
         f'<div class="ss-bar-row"><span class="ss-bar-label">Technical</span><div class="ss-bar-track"><div class="ss-bar-fill tech" style="width:{tech_bar:.0f}%"></div></div><span class="ss-bar-value">{fmt_num(tech_score_raw, ".0f")}</span></div>'
@@ -179,14 +218,16 @@ def render_stock_card(row: pd.Series, rank: int, score_label: str = "FinalScore_
         f'{story_div}'
         f'<details class="ss-details"><summary>View full breakdown</summary>'
         f'<div class="ss-detail-grid">'
-        f'<div class="ss-detail-item"><span class="ss-detail-label">ATR/Price</span><span class="ss-detail-value">{fmt_num(atr_pct, ".3f")}</span></div>'
-        f'<div class="ss-detail-item"><span class="ss-detail-label">D/E Leverage</span><span class="ss-detail-value">{fmt_num(de, ".2f")}</span></div>'
+        f'<div class="ss-detail-item"><span class="ss-detail-label">P/E</span><span class="ss-detail-value">{fmt_num(pe, ".1f")}</span></div>'
+        f'<div class="ss-detail-item"><span class="ss-detail-label">ROE</span><span class="ss-detail-value">{fmt_num(roe, ".1f")}%</span></div>'
+        f'<div class="ss-detail-item"><span class="ss-detail-label">Beta</span><span class="ss-detail-value">{fmt_num(beta, ".2f")}</span></div>'
+        f'<div class="ss-detail-item"><span class="ss-detail-label">D/E</span><span class="ss-detail-value">{fmt_num(de, ".2f")}</span></div>'
         f'<div class="ss-detail-item"><span class="ss-detail-label">Quality</span><span class="ss-detail-value">{fmt_num(quality, ".0f")}</span></div>'
         f'<div class="ss-detail-item"><span class="ss-detail-label">Growth</span><span class="ss-detail-value">{fmt_num(growth, ".0f")}</span></div>'
         f'<div class="ss-detail-item"><span class="ss-detail-label">Valuation</span><span class="ss-detail-value">{fmt_num(valuation, ".0f")}</span></div>'
+        f'<div class="ss-detail-item"><span class="ss-detail-label">ATR/Price</span><span class="ss-detail-value">{fmt_num(atr_pct, ".3f")}</span></div>'
         f'<div class="ss-detail-item"><span class="ss-detail-label">Fund Sources</span><span class="ss-detail-value">{fmt_num(fund_src, ".0f")}</span></div>'
-        f'<div class="ss-detail-item"><span class="ss-detail-label">Price Sources</span><span class="ss-detail-value">{fmt_num(price_src, ".0f")}</span></div>'
-        f'<div class="ss-detail-item"><span class="ss-detail-label">Price STD</span><span class="ss-detail-value">{fmt_num(price_std, ".2f")}</span></div>'
+        f'<div class="ss-detail-item"><span class="ss-detail-label">Fund Coverage</span><span class="ss-detail-value">{fmt_num(fund_cov, ".0f")}%</span></div>'
         f'</div>'
         f'</details>'
         f'</div>'

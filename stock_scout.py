@@ -1260,12 +1260,15 @@ if st.session_state.get("precomputed_results") is not None and st.session_state.
     # Apply column renames for UI compatibility (in-place on the already-filtered results)
     # Only rename Overall_Score→Score if Score doesn't already exist (avoid silent overwrite)
     column_renames = {
-        'Close': 'Price_Yahoo',
         'Technical_Score': 'Score_Tech',
-        'Fundamental_Score': 'Fundamental_S',
         'Fund_Sources_Count': 'fund_sources_used_v2',
     }
-    if 'Score' not in results.columns:
+    # Only rename if target column doesn't already exist (avoid duplicates)
+    if 'Price_Yahoo' not in results.columns and 'Close' in results.columns:
+        column_renames['Close'] = 'Price_Yahoo'
+    if 'Fundamental_S' not in results.columns and 'Fundamental_Score' in results.columns:
+        column_renames['Fundamental_Score'] = 'Fundamental_S'
+    if 'Score' not in results.columns and 'Overall_Score' in results.columns:
         column_renames['Overall_Score'] = 'Score'
     results = results.rename(columns=column_renames)
     # Ensure both reliability aliases exist for UI fallbacks
@@ -1672,11 +1675,13 @@ if not rec_df.empty:
     # Risk band (based on risk_meter_v2)
     rec_df["Risk_Band"] = rec_df.get("risk_band", "Unknown")
     
-    # Fundamental coverage percentage
-    if "Fund_Coverage_Pct" in rec_df.columns:
-        rec_df["Fund_Coverage_Pct"] = rec_df["Fund_Coverage_Pct"].fillna(0)
-    else:
-        rec_df["Fund_Coverage_Pct"] = 0
+    # Fundamental coverage percentage (pipeline uses Fundamental_Coverage_Pct)
+    if "Fund_Coverage_Pct" not in rec_df.columns:
+        if "Fundamental_Coverage_Pct" in rec_df.columns:
+            rec_df["Fund_Coverage_Pct"] = rec_df["Fundamental_Coverage_Pct"]
+        else:
+            rec_df["Fund_Coverage_Pct"] = 0
+    rec_df["Fund_Coverage_Pct"] = rec_df["Fund_Coverage_Pct"].fillna(0)
     
     # Volatility penalty (from reliability calculation)
     atr_price = rec_df.get("ATR_Price")
@@ -1735,51 +1740,42 @@ if rec_df.empty:
     </div>
     """, unsafe_allow_html=True)
 else:
-    # Split into Core and Speculative
-    if "Risk_Level" in rec_df.columns:
-        levels = rec_df["Risk_Level"].astype(str).str.lower()
-        core_df = rec_df[levels == "core"].copy()
-        spec_df = rec_df[levels == "speculative"].copy()
-    else:
-        core_df = rec_df.copy()
-        spec_df = pd.DataFrame()
-
     # Determine score label based on schema
     score_label = "FinalScore_20d" if "FinalScore_20d" in rec_df.columns else "Score"
 
+    # Sort by score (best first) — single unified list
+    sorted_df = rec_df.sort_values(score_label, ascending=False).copy()
+
+    # Count Core vs Speculative for KPI
+    if "Risk_Level" in sorted_df.columns:
+        _levels = sorted_df["Risk_Level"].astype(str).str.lower()
+        _core_count = (_levels == "core").sum()
+        _spec_count = (_levels == "speculative").sum()
+    else:
+        _core_count = len(sorted_df)
+        _spec_count = 0
+
     # KPI strip
-    total_candidates = len(core_df) + len(spec_df)
     avg_score = None
-    if score_label in rec_df.columns:
-        avg_score = float(rec_df[score_label].mean())
+    if score_label in sorted_df.columns:
+        avg_score = float(sorted_df[score_label].mean())
     regime = st.session_state.get("market_regime", {}).get("regime", "neutral")
     st.markdown(
-        render_kpi_strip(total_candidates, len(core_df), len(spec_df), avg_score, regime),
+        render_kpi_strip(len(sorted_df), _core_count, _spec_count, avg_score, regime),
         unsafe_allow_html=True,
     )
 
     # ML legend
     st.markdown(render_ml_legend(), unsafe_allow_html=True)
 
-    # Core recommendations
-    if not core_df.empty:
-        st.markdown(
-            render_section_header("Core Stocks — Lower Relative Risk", len(core_df), "core"),
-            unsafe_allow_html=True,
-        )
-        for rank, (idx, r) in enumerate(core_df.iterrows(), 1):
-            card_html = render_stock_card(r, rank=rank, score_label=score_label)
-            st.markdown(card_html, unsafe_allow_html=True)
-
-    # Speculative candidates
-    if not spec_df.empty:
-        st.markdown(
-            render_section_header("Speculative Stocks — Higher Risk/Reward", len(spec_df), "spec"),
-            unsafe_allow_html=True,
-        )
-        for rank, (idx, r) in enumerate(spec_df.iterrows(), 1):
-            card_html = render_stock_card(r, rank=rank, score_label=score_label)
-            st.markdown(card_html, unsafe_allow_html=True)
+    # All recommendations sorted by score (each card has Core/Spec badge)
+    st.markdown(
+        render_section_header(f"Top Recommendations", len(sorted_df), "core"),
+        unsafe_allow_html=True,
+    )
+    for rank, (idx, r) in enumerate(sorted_df.iterrows(), 1):
+        card_html = render_stock_card(r, rank=rank, score_label=score_label)
+        st.markdown(card_html, unsafe_allow_html=True)
 
     # Export section (single, unified)
 show_order = [
