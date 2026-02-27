@@ -38,6 +38,7 @@ def _get_polygon_key() -> str:
 MODELS_DIR = Path("models")
 REPORTS_DIR = Path("reports")
 DATA_DIR = Path("data")
+CACHE_DIR = DATA_DIR / "polygon_cache"
 
 # Get canonical feature list from registry
 FEATURE_NAMES_V3 = get_feature_names("v3")
@@ -305,9 +306,23 @@ def _check_api_key():
         sys.exit(1)
 
 # --- DATA INGESTION (POLYGON) ---
-def fetch_polygon_history(ticker, start_str, end_str):
-    """Fetch adjusted daily bars from Polygon.io (Fast & Reliable)."""
-    # Using 'aggs' endpoint which allows fetching a range in one go
+def _cache_path(ticker: str, start_str: str, end_str: str) -> Path:
+    """Get cache file path for a ticker's data."""
+    return CACHE_DIR / f"{ticker}_{start_str}_{end_str}.parquet"
+
+
+def fetch_polygon_history(ticker, start_str, end_str, _rate_limiter=None):
+    """Fetch adjusted daily bars from Polygon.io with local cache + retry."""
+    # Check local cache first
+    cp = _cache_path(ticker, start_str, end_str)
+    if cp.exists():
+        try:
+            df = pd.read_parquet(cp)
+            if len(df) > 0:
+                return df
+        except Exception:
+            pass  # Cache corrupted, re-fetch
+
     url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{start_str}/{end_str}"
     params = {
         "adjusted": "true",
@@ -315,35 +330,116 @@ def fetch_polygon_history(ticker, start_str, end_str):
         "limit": 50000,
         "apiKey": _get_polygon_key()
     }
-    try:
-        r = requests.get(url, params=params, timeout=10)
-        if r.status_code != 200:
-            return None
-        data = r.json()
-        if "results" not in data or not data["results"]:
-            return None
-        
-        # Parse
-        df = pd.DataFrame(data["results"])
-        # Map Polygon cols: v=Volume, o=Open, c=Close, h=High, l=Low, t=UnixMS
-        df = df.rename(columns={"v": "Volume", "o": "Open", "c": "Close", "h": "High", "l": "Low", "t": "Date"})
-        df["Date"] = pd.to_datetime(df["Date"], unit="ms")
-        df = df.set_index("Date").sort_index()
-        return df[["Open", "High", "Low", "Close", "Volume"]]
-    except Exception as e:
-        return None
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            if _rate_limiter is not None:
+                _rate_limiter.acquire()
+            r = requests.get(url, params=params, timeout=15)
+            if r.status_code == 429:
+                wait = 15 * (attempt + 1)
+                time.sleep(wait)
+                continue
+            if r.status_code == 403:
+                return None  # Plan doesn't cover this data
+            if r.status_code != 200:
+                return None
+            data = r.json()
+            if "results" not in data or not data["results"]:
+                return None
+
+            df = pd.DataFrame(data["results"])
+            df = df.rename(columns={"v": "Volume", "o": "Open", "c": "Close", "h": "High", "l": "Low", "t": "Date"})
+            df["Date"] = pd.to_datetime(df["Date"], unit="ms")
+            df = df.set_index("Date").sort_index()
+            df = df[["Open", "High", "Low", "Close", "Volume"]]
+
+            # Save to cache
+            try:
+                CACHE_DIR.mkdir(parents=True, exist_ok=True)
+                df.to_parquet(cp)
+            except Exception:
+                pass
+
+            return df
+        except Exception:
+            if attempt < max_retries - 1:
+                time.sleep(5)
+            continue
+    return None
+
+
+class _RateLimiter:
+    """Simple token-bucket rate limiter for Polygon free tier."""
+    def __init__(self, calls_per_minute: int = 4):
+        self._interval = 60.0 / calls_per_minute
+        self._last = 0.0
+        import threading
+        self._lock = threading.Lock()
+
+    def acquire(self):
+        with self._lock:
+            now = time.monotonic()
+            wait = self._interval - (now - self._last)
+            if wait > 0:
+                time.sleep(wait)
+            self._last = time.monotonic()
+
 
 def get_universe_tickers(limit=2000):
-    """Try to get full universe, fallback to S&P 500."""
+    """Get training universe — robust fallback chain."""
+    # 1. Use the same universe function as the scan pipeline
     try:
-        from core.data import get_universe
-        return get_universe(limit=limit)
-    except:
-        # Fallback to standard list if core fails
-        try:
-            return pd.read_html('https://en.wikipedia.org/wiki/List_of_S%26P_500_companies')[0]['Symbol'].tolist()
-        except:
-            return ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "TSLA", "META", "AMD", "NFLX", "INTC"] # Minimal fallback
+        from core.pipeline.universe import fetch_top_us_tickers_by_market_cap
+        tickers = fetch_top_us_tickers_by_market_cap(limit=limit)
+        if tickers and len(tickers) >= 50:
+            print(f"   Universe source: scan pipeline ({len(tickers)} tickers)")
+            return tickers[:limit]
+    except Exception as e:
+        print(f"   ⚠️ Pipeline universe failed: {e}")
+
+    # 2. Polygon tickers endpoint
+    try:
+        url = "https://api.polygon.io/v3/reference/tickers"
+        params = {
+            "market": "stocks", "exchange": "XNYS,XNAS",
+            "active": "true", "order": "desc", "sort": "market_cap",
+            "limit": min(limit, 1000), "apiKey": _get_polygon_key()
+        }
+        r = requests.get(url, params=params, timeout=15)
+        if r.status_code == 200:
+            data = r.json()
+            tickers = [t["ticker"] for t in data.get("results", []) if t.get("ticker")]
+            if len(tickers) >= 50:
+                print(f"   Universe source: Polygon reference ({len(tickers)} tickers)")
+                return tickers[:limit]
+    except Exception as e:
+        print(f"   ⚠️ Polygon universe failed: {e}")
+
+    # 3. Wikipedia S&P 500
+    try:
+        tickers = pd.read_html('https://en.wikipedia.org/wiki/List_of_S%26P_500_companies')[0]['Symbol'].tolist()
+        if tickers:
+            print(f"   Universe source: Wikipedia S&P 500 ({len(tickers)} tickers)")
+            return tickers[:limit]
+    except Exception as e:
+        print(f"   ⚠️ Wikipedia fallback failed: {e}")
+
+    # 4. Last resort: hardcoded broad list
+    fallback = [
+        "AAPL","MSFT","GOOGL","AMZN","NVDA","TSLA","META","AMD","NFLX","INTC",
+        "AVGO","CRM","ORCL","ADBE","CSCO","TXN","QCOM","AMAT","MU","LRCX",
+        "JPM","V","MA","BAC","WFC","GS","MS","AXP","BLK","SCHW",
+        "UNH","JNJ","PFE","ABBV","MRK","LLY","TMO","ABT","AMGN","GILD",
+        "XOM","CVX","COP","SLB","EOG","PXD","MPC","VLO","PSX","OXY",
+        "LMT","RTX","BA","GE","HON","CAT","DE","MMM","UPS","FDX",
+        "WMT","COST","HD","LOW","TGT","SBUX","MCD","NKE","DIS","CMCSA",
+        "PG","KO","PEP","CL","PM","MO","EL","GIS","K","SJM",
+        "NEE","DUK","SO","D","AEP","EXC","SRE","XEL","WEC","ES",
+        "PLD","AMT","EQIX","CCI","SPG","PSA","DLR","O","WELL","AVB",
+    ]
+    print(f"   Universe source: hardcoded fallback ({len(fallback)} tickers)")
+    return fallback
 
 # --- FEATURE ENGINEERING ---
 def calculate_features(df, spy_returns: pd.Series = None, market_regime_df: pd.DataFrame = None,
@@ -722,18 +818,18 @@ def calculate_market_regime(spy_df: pd.DataFrame) -> pd.DataFrame:
 
 
 # --- MAIN PIPELINE ---
-def fetch_sector_etf_data(start_str: str, end_str: str) -> pd.DataFrame:
+def fetch_sector_etf_data(start_str: str, end_str: str, _rate_limiter=None) -> pd.DataFrame:
     """Fetch all sector ETF data and calculate 20d returns.
-    
+
     Returns DataFrame with columns = ETF symbols, rows = dates,
     values = 20-day returns.
     """
     sector_etfs = get_all_sector_etfs()  # ['XLK', 'XLF', 'XLE', ...]
     sector_data = {}
-    
+
     print(f"📥 Fetching {len(sector_etfs)} sector ETFs...")
     for etf in sector_etfs:
-        df = fetch_polygon_history(etf, start_str, end_str)
+        df = fetch_polygon_history(etf, start_str, end_str, _rate_limiter=_rate_limiter)
         if df is not None and len(df) > 30:
             # Calculate 20-day returns for sector ETF
             sector_data[etf] = df['Close'].pct_change(20)
@@ -755,18 +851,25 @@ def train_and_save_bundle():
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     
     # 1. Fetch Universe
-    tickers = get_universe_tickers(2000)
+    universe_limit = int(os.getenv("ML_UNIVERSE_SIZE", "500"))
+    tickers = get_universe_tickers(universe_limit)
     print(f"📋 Universe size: {len(tickers)} tickers")
     
-    # 2. Download Data (Parallel)
+    # 2. Download Data
     end_date = datetime.now()
-    start_date = end_date - timedelta(days=365*5)  # 5 years history for robust training
+    train_years = int(os.getenv("ML_TRAIN_YEARS", "3"))
+    start_date = end_date - timedelta(days=365 * train_years)
     start_str = start_date.strftime("%Y-%m-%d")
     end_str = end_date.strftime("%Y-%m-%d")
-    
+    print(f"📅 Training window: {start_str} → {end_str} ({train_years} years)")
+
+    # Rate limiter for Polygon free-tier (5 req/min, we use 4 to be safe)
+    rate_limit = int(os.getenv("POLYGON_RATE_LIMIT", "4"))
+    limiter = _RateLimiter(calls_per_minute=rate_limit)
+
     # Fetch SPY data once for relative strength calculation
     print("📥 Fetching SPY benchmark data...")
-    spy_df = fetch_polygon_history("SPY", start_str, end_str)
+    spy_df = fetch_polygon_history("SPY", start_str, end_str, _rate_limiter=limiter)
     spy_returns = None
     market_regime_df = None
     
@@ -787,24 +890,50 @@ def train_and_save_bundle():
         print("   ⚠️  SPY data unavailable, RS_vs_SPY_20d will be 0")
     
     # Fetch sector ETF data for sector-relative features
-    sector_etf_returns = fetch_sector_etf_data(start_str, end_str)
-    
+    sector_etf_returns = fetch_sector_etf_data(start_str, end_str, _rate_limiter=limiter)
+
     all_data = []
-    print("📥 Downloading data from Polygon (Threads=15)...")
-    
-    with ThreadPoolExecutor(max_workers=15) as executor:
-        future_to_ticker = {executor.submit(fetch_polygon_history, t, start_str, end_str): t for t in tickers}
-        completed = 0
-        for future in as_completed(future_to_ticker):
-            completed += 1
-            if completed % 100 == 0: print(f"   ... processed {completed}/{len(tickers)}")
-            
-            t = future_to_ticker[future]
-            df = future.result()
+    n_threads = int(os.getenv("POLYGON_THREADS", "1"))  # Default 1 for free tier
+    print(f"📥 Downloading data from Polygon (Threads={n_threads}, Rate={rate_limit}/min)...")
+
+    # Count cached tickers to estimate time
+    cached_count = sum(1 for t in tickers if _cache_path(t, start_str, end_str).exists())
+    uncached = len(tickers) - cached_count
+    est_min = uncached * (60.0 / rate_limit) / 60.0
+    if cached_count > 0:
+        print(f"   📦 {cached_count} tickers cached, {uncached} to fetch (~{est_min:.0f} min)")
+    else:
+        print(f"   ⏱️  Estimated download time: ~{est_min:.0f} min")
+
+    dl_start = time.time()
+    if n_threads <= 1:
+        # Sequential with rate limiting (safe for free tier)
+        for i, t in enumerate(tickers):
+            if (i + 1) % 50 == 0:
+                elapsed = (time.time() - dl_start) / 60
+                pct = (i + 1) / len(tickers)
+                eta = elapsed / pct * (1 - pct) if pct > 0 else 0
+                print(f"   ... {i+1}/{len(tickers)} ({len(all_data)} loaded) [{elapsed:.1f}m elapsed, ~{eta:.0f}m remaining]")
+            df = fetch_polygon_history(t, start_str, end_str, _rate_limiter=limiter)
             if df is not None and len(df) > 50:
                 df = calculate_features(df, spy_returns, market_regime_df, sector_etf_returns, t)
                 df['Ticker'] = t
                 all_data.append(df)
+    else:
+        # Parallel (for paid tiers with higher rate limits)
+        with ThreadPoolExecutor(max_workers=n_threads) as executor:
+            future_to_ticker = {executor.submit(fetch_polygon_history, t, start_str, end_str, limiter): t for t in tickers}
+            completed = 0
+            for future in as_completed(future_to_ticker):
+                completed += 1
+                if completed % 50 == 0:
+                    print(f"   ... processed {completed}/{len(tickers)} ({len(all_data)} loaded)")
+                t = future_to_ticker[future]
+                df = future.result()
+                if df is not None and len(df) > 50:
+                    df = calculate_features(df, spy_returns, market_regime_df, sector_etf_returns, t)
+                    df['Ticker'] = t
+                    all_data.append(df)
 
     if not all_data:
         raise RuntimeError("No data downloaded! Check API Key or Network.")
@@ -1033,10 +1162,16 @@ def train_and_save_bundle():
     print(f"   Ensemble created with weights: HistGB={ensemble_weights[0]}, RF={ensemble_weights[1]}, LR={ensemble_weights[2]}")
     
     # Calibrate using isotonic regression on held-out 20%
-    # Note: CalibratedClassifierCV with cv='prefit' uses provided data for calibration only
-    calibrated_model = CalibratedClassifierCV(
-        base_model, method='isotonic', cv='prefit'
-    )
+    # Use FrozenEstimator for sklearn >= 1.6 compatibility
+    try:
+        from sklearn.frozen import FrozenEstimator
+        calibrated_model = CalibratedClassifierCV(
+            FrozenEstimator(base_model), method='isotonic'
+        )
+    except ImportError:
+        calibrated_model = CalibratedClassifierCV(
+            base_model, method='isotonic', cv='prefit'
+        )
     calibrated_model.fit(X_calib, y_calib)
     
     # Use calibrated model as final model
@@ -1059,7 +1194,7 @@ def train_and_save_bundle():
         mask = (y_pred_calib >= bin_edges[i]) & (y_pred_calib < bin_edges[i + 1])
         if mask.sum() > 0:
             bin_pred = y_pred_calib[mask].mean()
-            bin_actual = y_calib.iloc[mask.values].mean()
+            bin_actual = y_calib.values[mask].mean() if hasattr(y_calib, 'values') else y_calib[mask].mean()
             count = mask.sum()
             error = abs(bin_pred - bin_actual)
             calibration_errors.append(error * count)  # Weighted by count

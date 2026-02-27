@@ -11,14 +11,23 @@ from sklearn.base import BaseEstimator, ClassifierMixin
 
 class EnsembleClassifier(BaseEstimator, ClassifierMixin):
     """Ensemble of classifiers with weighted averaging.
-    
+
     Combines predictions from multiple models (e.g., HistGB, RF, LR) to reduce
     variance and improve robustness across different market conditions.
-    
+
     The predictions are averaged with weights, which provides implicit
     probability calibration through model averaging.
     """
-    
+    _estimator_type = "classifier"
+
+    def __sklearn_tags__(self):
+        tags = super().__sklearn_tags__()
+        tags.estimator_type = "classifier"
+        if tags.classifier_tags is None:
+            from sklearn.utils._tags import ClassifierTags
+            tags.classifier_tags = ClassifierTags()
+        return tags
+
     def __init__(self, models, weights=None, scaler=None):
         """
         Args:
