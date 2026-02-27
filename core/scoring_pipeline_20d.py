@@ -86,12 +86,50 @@ def _canonical_tech(df: pd.DataFrame) -> pd.Series:
     return base.fillna(50.0)
 
 
+def _compute_dynamic_holding_days(row: pd.Series, median_atr: float) -> int:
+    """Compute per-stock holding period based on ATR/volatility.
+
+    Lower volatility → longer hold (up to 40 BDays).
+    Higher volatility → shorter hold (down to 10 BDays).
+    Adjusted by RR, RSI, and ML confidence.
+    """
+    atr_pct = row.get("ATR_Pct", np.nan)
+    if not (isinstance(atr_pct, (int, float)) and np.isfinite(atr_pct)):
+        atr_pct = median_atr  # fallback to universe median
+
+    # Volatility ratio: stocks calmer than median get longer hold
+    vol_ratio = median_atr / max(atr_pct, 0.005)
+    base_days = 20.0 * np.clip(vol_ratio, 0.5, 2.0)  # 10-40 range
+
+    # RR adjustment: higher RR = slightly shorter (higher conviction exit)
+    rr = row.get("RR", np.nan)
+    if isinstance(rr, (int, float)) and np.isfinite(rr) and rr > 0:
+        rr_mult = np.clip(1.5 / max(rr, 0.5), 0.7, 1.3)
+        base_days *= rr_mult
+
+    # RSI adjustment: overbought stocks = shorter hold
+    rsi = row.get("RSI", np.nan)
+    if isinstance(rsi, (int, float)) and np.isfinite(rsi):
+        if rsi > 70:
+            base_days *= 0.8
+        elif rsi < 35:
+            base_days *= 1.15
+
+    # ML confidence: high prob = slightly shorter (faster expected move)
+    ml_prob = row.get("ML_20d_Prob", np.nan)
+    if isinstance(ml_prob, (int, float)) and np.isfinite(ml_prob):
+        if ml_prob > 0.6:
+            base_days *= 0.9
+        elif ml_prob < 0.35:
+            base_days *= 1.1
+
+    return int(np.clip(round(base_days), 10, 40))
+
+
 def compute_final_scores_20d(df: pd.DataFrame, include_ml: bool = True) -> pd.DataFrame:
     """
     Compute canonical ML_20d_Prob, TechScore_20d (ranked 0-100), and FinalScore_20d (50/50 rank blend).
-    - tech rank: percent-rank of technical base
-    - ml rank: percent-rank of ML prob (or neutral 0.5 when ML disabled)
-    - FinalScore_20d = 0.5*tech_rank + 0.5*ml_rank, scaled to 0-100
+    Also computes per-stock Holding_Days and Target_Date based on ATR/volatility.
     """
     out = df.copy()
 
@@ -124,9 +162,32 @@ def compute_final_scores_20d(df: pd.DataFrame, include_ml: bool = True) -> pd.Da
     else:
         ml_rank = ml_prob.fillna(0.5).rank(pct=True, method="average") if include_ml else pd.Series(0.5, index=out.index, dtype=float)
         out["FinalScore_20d"] = (0.5 * tech_rank + 0.5 * ml_rank) * 100.0
-    
+
     # Create alias for backward compatibility with UI
     out["FinalScore"] = out["FinalScore_20d"]
+
+    # Per-stock holding days based on ATR/volatility
+    if "ATR_Pct" in out.columns:
+        _atr_vals = out["ATR_Pct"].dropna()
+        median_atr = float(_atr_vals.median()) if len(_atr_vals) > 0 else 0.025
+    else:
+        median_atr = 0.025
+    out["Holding_Days"] = out.apply(
+        lambda r: _compute_dynamic_holding_days(r, median_atr), axis=1
+    )
+
+    # Compute Target_Date from As_Of_Date + Holding_Days (business days)
+    if "As_Of_Date" in out.columns:
+        def _target_date(r):
+            try:
+                as_of = pd.Timestamp(r["As_Of_Date"])
+                if pd.isna(as_of):
+                    return pd.NaT
+                hd = int(r.get("Holding_Days", 20))
+                return as_of + pd.offsets.BDay(hd)
+            except Exception:
+                return pd.NaT
+        out["Target_Date"] = out.apply(_target_date, axis=1)
 
     return out
 

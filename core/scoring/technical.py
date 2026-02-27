@@ -137,6 +137,18 @@ def compute_technical_score(
 # V2 hybrid score
 # ---------------------------------------------------------------------------
 
+def _smooth(x: float, center: float, width: float) -> float:
+    """Smooth bell-curve score (0-1) centered at *center* with given *width*."""
+    return float(np.exp(-0.5 * ((x - center) / max(width, 1e-9)) ** 2))
+
+
+def _ramp(x: float, lo: float, hi: float) -> float:
+    """Linear ramp from 0 at *lo* to 1 at *hi*, clamped to [0, 1]."""
+    if hi == lo:
+        return 1.0 if x >= lo else 0.0
+    return float(np.clip((x - lo) / (hi - lo), 0.0, 1.0))
+
+
 def compute_tech_score_20d_v2_components(row: pd.Series) -> dict:
     """Compute 4 component scores (each 0-1) for TechScore_20d_v2.
 
@@ -146,85 +158,89 @@ def compute_tech_score_20d_v2_components(row: pd.Series) -> dict:
         - VolatilityScore (15%): ATR_Pct sweet-spot
         - LocationScore (10%): penalize extreme RSI / near-highs
 
+    Uses continuous smooth scoring (sigmoid/bell-curve) instead of discrete
+    buckets to maximize differentiation across similar-quality stocks.
+
     Returns:
         Dict with individual scores plus ``TechScore_20d_v2_raw``.
     """
-    # Trend (40%)
-    trend_score = 0.5
+    # Trend (40%) — continuous blend of 3 sub-signals
     price_vs_ma50 = row.get("Overext", np.nan)
     ma50 = row.get("MA50", np.nan)
     ma200 = row.get("MA200", np.nan)
     ma50_slope = row.get("MA50_Slope", np.nan)
-    if pd.notna(price_vs_ma50) and pd.notna(ma50) and pd.notna(ma200):
-        if price_vs_ma50 > 0:
-            trend_score = 0.6
-            if ma50 > ma200:
-                trend_score = 0.8
-                if pd.notna(ma50_slope) and ma50_slope > 0:
-                    trend_score = 1.0
-        elif price_vs_ma50 < -0.05:
-            trend_score = 0.3
-            if ma50 < ma200:
-                trend_score = 0.1
 
-    # Momentum (35%)
-    momentum_score = 0.5
+    # Sub-signal 1: price position relative to MA50 (ramp from -5% to +10%)
+    if pd.notna(price_vs_ma50):
+        price_sub = _ramp(price_vs_ma50, -0.05, 0.10)
+    else:
+        price_sub = 0.5
+
+    # Sub-signal 2: MA alignment (MA50 vs MA200, continuous gap)
+    if pd.notna(ma50) and pd.notna(ma200) and ma200 > 0:
+        ma_gap = (ma50 - ma200) / ma200  # e.g. +0.05 = 5% above
+        ma_sub = _ramp(ma_gap, -0.03, 0.08)
+    else:
+        ma_sub = 0.5
+
+    # Sub-signal 3: MA50 slope (momentum of trend)
+    if pd.notna(ma50_slope):
+        slope_sub = _ramp(ma50_slope, -0.002, 0.005)
+    else:
+        slope_sub = 0.5
+
+    trend_score = 0.40 * price_sub + 0.35 * ma_sub + 0.25 * slope_sub
+
+    # Momentum (35%) — bell curve centered at sweet-spot return
     rets = [r for r in [row.get("Return_1m"), row.get("Return_3m"), row.get("Return_6m")] if pd.notna(r)]
     if rets:
-        avg_ret = np.mean(rets)
-        if 0.05 <= avg_ret <= 0.25:
-            momentum_score = 1.0
-        elif 0.0 <= avg_ret < 0.05:
-            momentum_score = 0.7
-        elif 0.25 < avg_ret <= 0.50:
-            momentum_score = 0.6
-        elif avg_ret > 0.50:
-            momentum_score = 0.3
-        elif -0.10 <= avg_ret < 0.0:
-            momentum_score = 0.4
+        avg_ret = float(np.mean(rets))
+        # Sweet spot: 5-20% returns score highest; parabolic (>50%) penalized
+        # Use asymmetric scoring: gentle rise from 0%, peak at 12%, slow decay above 25%
+        if avg_ret >= 0:
+            momentum_score = _smooth(avg_ret, 0.12, 0.15)  # Peak at 12%, width 15%
+            # Floor: even small positive returns get decent score
+            momentum_score = max(momentum_score, _ramp(avg_ret, -0.02, 0.05) * 0.6)
         else:
-            momentum_score = 0.2
+            # Negative returns: linear decay from 0 to -15%
+            momentum_score = max(0.1, _ramp(avg_ret, -0.15, 0.0) * 0.5)
+    else:
+        momentum_score = 0.5
 
-    # Volatility (15%)
-    volatility_score = 0.5
+    # Volatility (15%) — bell curve around sweet spot ATR_Pct
     atr_pct = row.get("ATR_Pct", np.nan)
     if pd.notna(atr_pct):
-        if 0.015 <= atr_pct <= 0.045:
-            volatility_score = 1.0
-        elif 0.01 <= atr_pct < 0.015:
-            volatility_score = 0.6
-        elif 0.045 < atr_pct <= 0.08:
-            volatility_score = 0.7
-        elif atr_pct < 0.01:
-            volatility_score = 0.2
-        else:
-            volatility_score = 0.3
+        # Sweet spot: 2-4% daily ATR. Too low = no movement, too high = risky
+        volatility_score = _smooth(atr_pct, 0.028, 0.018)
+        # Floor: moderate volatility still okay
+        volatility_score = max(volatility_score, 0.15)
+    else:
+        volatility_score = 0.5
 
-    # Location (10%)
-    location_score = 0.5
+    # Location (10%) — RSI sweet spot + near-high penalty
     rsi = row.get("RSI", np.nan)
     if pd.notna(rsi):
-        if rsi >= 75:
-            location_score = 0.2
-        elif rsi >= 65:
-            location_score = 0.5
-        elif 40 <= rsi < 65:
-            location_score = 0.8
-        elif 30 <= rsi < 40:
-            location_score = 0.7
-        elif rsi < 30:
-            location_score = 0.5
+        # Best RSI range: 45-60 (mild bullish). Penalize extremes.
+        location_score = _smooth(rsi, 52.0, 18.0)
+        # Slight boost for oversold bounce potential (RSI 30-40)
+        if 30 <= rsi <= 42:
+            location_score = max(location_score, 0.65)
+    else:
+        location_score = 0.5
+
     near_52w = row.get("Near52w", np.nan)
-    if pd.notna(near_52w) and near_52w > 95:
-        location_score *= 0.7
+    if pd.notna(near_52w) and near_52w > 90:
+        # Gradual penalty as stock approaches 52-week high
+        penalty = _ramp(near_52w, 90.0, 100.0) * 0.35
+        location_score *= (1.0 - penalty)
 
     raw_score = 0.40 * trend_score + 0.35 * momentum_score + 0.15 * volatility_score + 0.10 * location_score
     return {
-        "TrendScore": trend_score,
-        "MomentumScore": momentum_score,
-        "VolatilityScore": volatility_score,
-        "LocationScore": location_score,
-        "TechScore_20d_v2_raw": raw_score,
+        "TrendScore": float(trend_score),
+        "MomentumScore": float(momentum_score),
+        "VolatilityScore": float(volatility_score),
+        "LocationScore": float(location_score),
+        "TechScore_20d_v2_raw": float(raw_score),
     }
 
 
