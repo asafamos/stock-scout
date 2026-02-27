@@ -192,9 +192,23 @@ with st.sidebar:
             if _meta_path.exists():
                 try:
                     import json as _json_sidebar
-                    _meta_info = _json_sidebar.loads(_meta_path.read_text())
+                    _loaded = _json_sidebar.loads(_meta_path.read_text())
+                    # Some .json files contain a list of records instead of metadata dict
+                    if isinstance(_loaded, dict):
+                        _meta_info = _loaded
                 except Exception:
                     pass
+            # Also try .meta.json (CI saves metadata there)
+            if not _meta_info:
+                _meta_json2 = _pq.parent / (_pq.stem + ".meta.json")
+                if _meta_json2.exists():
+                    try:
+                        import json as _json_sidebar2
+                        _loaded2 = _json_sidebar2.loads(_meta_json2.read_text())
+                        if isinstance(_loaded2, dict):
+                            _meta_info = _loaded2
+                    except Exception:
+                        pass
             _mtime = datetime.datetime.fromtimestamp(_pq.stat().st_mtime)
             _all_scans.append({
                 "file": _pq.name,
