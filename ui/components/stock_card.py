@@ -4,6 +4,7 @@ Used by stock_scout.py to render recommendation cards.
 """
 from __future__ import annotations
 
+import html as html_mod
 import numpy as np
 import pandas as pd
 from typing import Optional
@@ -51,16 +52,25 @@ def _safe_pct(v, scale: float = 1.0) -> float:
     return _clamp(fv * scale)
 
 
+def _esc(text) -> str:
+    """HTML-escape a string to prevent broken rendering."""
+    if text is None:
+        return ""
+    return html_mod.escape(str(text))
+
+
 def render_stock_card(row: pd.Series, rank: int, score_label: str = "FinalScore_20d") -> str:
     """
     Build a modern HTML card for one stock recommendation.
 
-    Returns an HTML string to be rendered via st.html() or st.markdown(unsafe_allow_html=True).
+    Returns an HTML string to be rendered via st.markdown(unsafe_allow_html=True).
+    NOTE: HTML must start at column 0 (no leading spaces) to avoid Streamlit's
+    Markdown parser treating it as a code block.
     """
-    ticker = row.get("Ticker", "N/A")
-    company = row.get("shortName", row.get("Company", row.get("Name", "")))
-    sector = row.get("Sector", row.get("sector", "Unknown"))
-    if sector in (None, "", "Unknown"):
+    ticker = _esc(row.get("Ticker", "N/A"))
+    company = _esc(row.get("shortName", row.get("Company", row.get("Name", ""))))
+    sector = _esc(row.get("Sector", row.get("sector", "Unknown")))
+    if sector in ("", "Unknown"):
         sector = ""
 
     # Score
@@ -125,122 +135,63 @@ def render_stock_card(row: pd.Series, rank: int, score_label: str = "FinalScore_
     valuation = to_float(row.get("Valuation_Score_F", np.nan))
     fund_cov = to_float(row.get("Fund_Coverage_Pct", np.nan))
 
-    html = f"""
-    <div class="ss-card {card_class}">
-      <div class="ss-card-body">
-        <!-- Header -->
-        <div class="ss-card-header">
-          <div class="ss-card-left">
-            <div class="ss-ticker-row">
-              <span class="ss-ticker">{ticker}</span>
-              <span class="ss-risk-badge {card_class}">{badge_label}</span>
-              {"<span class='ss-sector-badge'>" + sector + "</span>" if sector else ""}
-            </div>
-            {"<div class='ss-company'>" + company + "</div>" if company else ""}
-          </div>
-          <div class="ss-card-right">
-            <div class="ss-score-circle {tier}">
-              <span class="ss-score-value">{score_str}</span>
-              <span class="ss-score-label">SCORE</span>
-            </div>
-          </div>
-        </div>
+    # Build sector badge
+    sector_badge = f'<span class="ss-sector-badge">{sector}</span>' if sector else ""
+    company_div = f'<div class="ss-company">{company}</div>' if company else ""
+    story_div = f'<div class="ss-storyline">{_esc(story)}</div>' if story else ""
 
-        <!-- Metrics strip -->
-        <div class="ss-metrics-grid">
-          <div class="ss-metric">
-            <span class="ss-metric-value">{entry_str}</span>
-            <span class="ss-metric-label">Entry</span>
-          </div>
-          <div class="ss-metric">
-            <span class="ss-metric-value">{target_str}</span>
-            <span class="ss-metric-label">Target</span>
-          </div>
-          <div class="ss-metric">
-            <span class="ss-metric-value">{upside_str}</span>
-            <span class="ss-metric-label">Upside</span>
-          </div>
-          <div class="ss-metric">
-            <span class="ss-metric-value">{rr_str}</span>
-            <span class="ss-metric-label">R / R</span>
-          </div>
-        </div>
-
-        <!-- Score breakdown bars -->
-        <div class="ss-breakdown">
-          <div class="ss-bar-row">
-            <span class="ss-bar-label">Technical</span>
-            <div class="ss-bar-track"><div class="ss-bar-fill tech" style="width:{tech_bar:.0f}%"></div></div>
-            <span class="ss-bar-value">{fmt_num(tech_score_raw, '.0f')}</span>
-          </div>
-          <div class="ss-bar-row">
-            <span class="ss-bar-label">Fundament</span>
-            <div class="ss-bar-track"><div class="ss-bar-fill fund" style="width:{fund_bar:.0f}%"></div></div>
-            <span class="ss-bar-value">{fmt_num(fund_score_raw, '.0f')}</span>
-          </div>
-          <div class="ss-bar-row">
-            <span class="ss-bar-label">ML 20d</span>
-            <div class="ss-bar-track"><div class="ss-bar-fill ml" style="width:{ml_bar:.0f}%"></div></div>
-            <span class="ss-bar-value">{ml_pct_str}</span>
-          </div>
-          <div class="ss-bar-row">
-            <span class="ss-bar-label">R/R Score</span>
-            <div class="ss-bar-track"><div class="ss-bar-fill rr" style="width:{rr_bar:.0f}%"></div></div>
-            <span class="ss-bar-value">{fmt_num(rr_score_raw, '.0f')}</span>
-          </div>
-        </div>
-
-        <!-- Quick stats row (no duplication — each metric shown once) -->
-        <div class="ss-ml-row">
-          <span class="ss-ml-dot {ml_dot}"></span>
-          <span class="ss-ml-text">ML: <strong>{ml_pct_str}</strong> &nbsp;|&nbsp; RSI: <strong>{rsi_str}</strong> &nbsp;|&nbsp; Reliability: <strong>{rel_str}</strong> &nbsp;|&nbsp; Fund Coverage: <strong>{fmt_num(fund_cov, '.0f')}%</strong></span>
-        </div>
-
-        <!-- Storyline -->
-        {"<div class='ss-storyline'>" + story + "</div>" if story else ""}
-
-        <!-- Expandable details (deeper metrics not shown above) -->
-        <details class="ss-details">
-          <summary>View full breakdown</summary>
-          <div class="ss-detail-grid">
-            <div class="ss-detail-item">
-              <span class="ss-detail-label">ATR/Price</span>
-              <span class="ss-detail-value">{fmt_num(atr_pct, '.3f')}</span>
-            </div>
-            <div class="ss-detail-item">
-              <span class="ss-detail-label">D/E Leverage</span>
-              <span class="ss-detail-value">{fmt_num(de, '.2f')}</span>
-            </div>
-            <div class="ss-detail-item">
-              <span class="ss-detail-label">Quality</span>
-              <span class="ss-detail-value">{fmt_num(quality, '.0f')}</span>
-            </div>
-            <div class="ss-detail-item">
-              <span class="ss-detail-label">Growth</span>
-              <span class="ss-detail-value">{fmt_num(growth, '.0f')}</span>
-            </div>
-            <div class="ss-detail-item">
-              <span class="ss-detail-label">Valuation</span>
-              <span class="ss-detail-value">{fmt_num(valuation, '.0f')}</span>
-            </div>
-            <div class="ss-detail-item">
-              <span class="ss-detail-label">Fund Sources</span>
-              <span class="ss-detail-value">{fmt_num(fund_src, '.0f')}</span>
-            </div>
-            <div class="ss-detail-item">
-              <span class="ss-detail-label">Price Sources</span>
-              <span class="ss-detail-value">{fmt_num(price_src, '.0f')}</span>
-            </div>
-            <div class="ss-detail-item">
-              <span class="ss-detail-label">Price STD</span>
-              <span class="ss-detail-value">{fmt_num(price_std, '.2f')}</span>
-            </div>
-          </div>
-        </details>
-      </div>
-    </div>
-    """
-    return html
+    # All HTML at column 0 — no leading whitespace — to prevent Markdown code-block
+    return (
+        f'<div class="ss-card {card_class}">'
+        f'<div class="ss-card-body">'
+        f'<div class="ss-card-header">'
+        f'<div class="ss-card-left">'
+        f'<div class="ss-ticker-row">'
+        f'<span class="ss-ticker">{ticker}</span>'
+        f'<span class="ss-risk-badge {card_class}">{badge_label}</span>'
+        f'{sector_badge}'
+        f'</div>'
+        f'{company_div}'
+        f'</div>'
+        f'<div class="ss-card-right">'
+        f'<div class="ss-score-circle {tier}">'
+        f'<span class="ss-score-value">{score_str}</span>'
+        f'<span class="ss-score-label">SCORE</span>'
+        f'</div>'
+        f'</div>'
+        f'</div>'
+        f'<div class="ss-metrics-grid">'
+        f'<div class="ss-metric"><span class="ss-metric-value">{entry_str}</span><span class="ss-metric-label">Entry</span></div>'
+        f'<div class="ss-metric"><span class="ss-metric-value">{target_str}</span><span class="ss-metric-label">Target</span></div>'
+        f'<div class="ss-metric"><span class="ss-metric-value">{upside_str}</span><span class="ss-metric-label">Upside</span></div>'
+        f'<div class="ss-metric"><span class="ss-metric-value">{rr_str}</span><span class="ss-metric-label">R / R</span></div>'
+        f'</div>'
+        f'<div class="ss-breakdown">'
+        f'<div class="ss-bar-row"><span class="ss-bar-label">Technical</span><div class="ss-bar-track"><div class="ss-bar-fill tech" style="width:{tech_bar:.0f}%"></div></div><span class="ss-bar-value">{fmt_num(tech_score_raw, ".0f")}</span></div>'
+        f'<div class="ss-bar-row"><span class="ss-bar-label">Fundament</span><div class="ss-bar-track"><div class="ss-bar-fill fund" style="width:{fund_bar:.0f}%"></div></div><span class="ss-bar-value">{fmt_num(fund_score_raw, ".0f")}</span></div>'
+        f'<div class="ss-bar-row"><span class="ss-bar-label">ML 20d</span><div class="ss-bar-track"><div class="ss-bar-fill ml" style="width:{ml_bar:.0f}%"></div></div><span class="ss-bar-value">{ml_pct_str}</span></div>'
+        f'<div class="ss-bar-row"><span class="ss-bar-label">R/R Score</span><div class="ss-bar-track"><div class="ss-bar-fill rr" style="width:{rr_bar:.0f}%"></div></div><span class="ss-bar-value">{fmt_num(rr_score_raw, ".0f")}</span></div>'
+        f'</div>'
+        f'<div class="ss-ml-row">'
+        f'<span class="ss-ml-dot {ml_dot}"></span>'
+        f'<span class="ss-ml-text">ML: <strong>{ml_pct_str}</strong> &nbsp;|&nbsp; RSI: <strong>{rsi_str}</strong> &nbsp;|&nbsp; Reliability: <strong>{rel_str}</strong> &nbsp;|&nbsp; Fund Coverage: <strong>{fmt_num(fund_cov, ".0f")}%</strong></span>'
+        f'</div>'
+        f'{story_div}'
+        f'<details class="ss-details"><summary>View full breakdown</summary>'
+        f'<div class="ss-detail-grid">'
+        f'<div class="ss-detail-item"><span class="ss-detail-label">ATR/Price</span><span class="ss-detail-value">{fmt_num(atr_pct, ".3f")}</span></div>'
+        f'<div class="ss-detail-item"><span class="ss-detail-label">D/E Leverage</span><span class="ss-detail-value">{fmt_num(de, ".2f")}</span></div>'
+        f'<div class="ss-detail-item"><span class="ss-detail-label">Quality</span><span class="ss-detail-value">{fmt_num(quality, ".0f")}</span></div>'
+        f'<div class="ss-detail-item"><span class="ss-detail-label">Growth</span><span class="ss-detail-value">{fmt_num(growth, ".0f")}</span></div>'
+        f'<div class="ss-detail-item"><span class="ss-detail-label">Valuation</span><span class="ss-detail-value">{fmt_num(valuation, ".0f")}</span></div>'
+        f'<div class="ss-detail-item"><span class="ss-detail-label">Fund Sources</span><span class="ss-detail-value">{fmt_num(fund_src, ".0f")}</span></div>'
+        f'<div class="ss-detail-item"><span class="ss-detail-label">Price Sources</span><span class="ss-detail-value">{fmt_num(price_src, ".0f")}</span></div>'
+        f'<div class="ss-detail-item"><span class="ss-detail-label">Price STD</span><span class="ss-detail-value">{fmt_num(price_std, ".2f")}</span></div>'
+        f'</div>'
+        f'</details>'
+        f'</div>'
+        f'</div>'
+    )
 
 
 def render_kpi_strip(total: int, core_count: int, spec_count: int,
@@ -254,51 +205,36 @@ def render_kpi_strip(total: int, core_count: int, spec_count: int,
         "bearish": "Bearish",
     }.get(regime, regime.title())
 
-    return f"""
-    <div class="ss-kpi-strip">
-      <div class="ss-kpi">
-        <div class="ss-kpi-value">{total}</div>
-        <div class="ss-kpi-label">Total Stocks</div>
-      </div>
-      <div class="ss-kpi">
-        <div class="ss-kpi-value">{core_count}</div>
-        <div class="ss-kpi-label">Core</div>
-      </div>
-      <div class="ss-kpi">
-        <div class="ss-kpi-value">{spec_count}</div>
-        <div class="ss-kpi-label">Speculative</div>
-      </div>
-      <div class="ss-kpi">
-        <div class="ss-kpi-value">{avg_str}</div>
-        <div class="ss-kpi-label">Avg Score</div>
-      </div>
-      <div class="ss-kpi">
-        <div class="ss-kpi-value">{regime_display}</div>
-        <div class="ss-kpi-label">Market Regime</div>
-      </div>
-    </div>
-    """
+    return (
+        f'<div class="ss-kpi-strip">'
+        f'<div class="ss-kpi"><div class="ss-kpi-value">{regime_display}</div><div class="ss-kpi-label">Market Regime</div></div>'
+        f'<div class="ss-kpi"><div class="ss-kpi-value">{avg_str}</div><div class="ss-kpi-label">Avg Score</div></div>'
+        f'<div class="ss-kpi"><div class="ss-kpi-value">{spec_count}</div><div class="ss-kpi-label">Speculative</div></div>'
+        f'<div class="ss-kpi"><div class="ss-kpi-value">{core_count}</div><div class="ss-kpi-label">Core</div></div>'
+        f'<div class="ss-kpi"><div class="ss-kpi-value">{total}</div><div class="ss-kpi-label">Total Stocks</div></div>'
+        f'</div>'
+    )
 
 
 def render_section_header(title: str, count: int, section_type: str = "core") -> str:
     """Render a section header for Core or Speculative stocks."""
-    icon = "&#x1F6E1;" if section_type == "core" else "&#x1F680;"  # shield or rocket
-    return f"""
-    <div class="ss-section-header">
-      <div class="ss-icon {section_type}">{icon}</div>
-      <h2>{title}</h2>
-      <span class="ss-count">{count} stocks</span>
-    </div>
-    """
+    icon = "&#x1F6E1;" if section_type == "core" else "&#x1F680;"
+    return (
+        f'<div class="ss-section-header">'
+        f'<div class="ss-icon {section_type}">{icon}</div>'
+        f'<h2>{_esc(title)}</h2>'
+        f'<span class="ss-count">{count} stocks</span>'
+        f'</div>'
+    )
 
 
 def render_ml_legend() -> str:
     """Render ML badge legend."""
-    return """
-    <div class="ss-legend">
-      <span style="font-weight:600;">ML Legend:</span>
-      <span class="ss-legend-item"><span class="ss-legend-dot" style="background:#22c55e;"></span> &gt;60%</span>
-      <span class="ss-legend-item"><span class="ss-legend-dot" style="background:#eab308;"></span> 40-60%</span>
-      <span class="ss-legend-item"><span class="ss-legend-dot" style="background:#ef4444;"></span> &lt;40%</span>
-    </div>
-    """
+    return (
+        '<div class="ss-legend">'
+        '<span style="font-weight:600;">ML Legend:</span>'
+        '<span class="ss-legend-item"><span class="ss-legend-dot" style="background:#22c55e;"></span> &gt;60%</span>'
+        '<span class="ss-legend-item"><span class="ss-legend-dot" style="background:#eab308;"></span> 40-60%</span>'
+        '<span class="ss-legend-item"><span class="ss-legend-dot" style="background:#ef4444;"></span> &lt;40%</span>'
+        '</div>'
+    )
