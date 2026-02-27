@@ -106,10 +106,11 @@ def compute_final_scores_20d(df: pd.DataFrame, include_ml: bool = True) -> pd.Da
     ml_prob = _canonical_ml_prob(out) if include_ml else pd.Series(0.5, index=out.index, dtype=float)
     out["ML_20d_Prob"] = ml_prob
 
-    # Technical base and rank → keep TechScore_20d available for Momentum fallback
+    # Technical base — preserve raw scores for per-stock differentiation
     tech_base = _canonical_tech(out)
+    out["TechScore_20d_raw"] = tech_base  # Raw 0-100 score per stock
     tech_rank = tech_base.rank(pct=True, method="average")
-    out["TechScore_20d"] = tech_rank * 100.0
+    out["TechScore_20d"] = tech_rank * 100.0  # Percentile rank (for sorting)
 
     # Prefer centralized final score using canonical components when available;
     # fall back to previous rank-blend when insufficient inputs.

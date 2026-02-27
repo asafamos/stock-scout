@@ -53,9 +53,9 @@ def compute_final_score_20d(row: pd.Series) -> float:
     - Reliability: 15%
     """
     try:
-        # Try multiple field names for fundamentals
-        fund = float(row.get("FundamentalScore", row.get("Fundamental_S", row.get("Fundamental_Score", 50.0))))
-        mom = float(row.get("MomentumScore", row.get("TechScore_20d", 50.0)))
+        # Use _safe_score with canonical column name fallback chains
+        fund = _safe_score(row, "Fundamental_S", "FundamentalScore", "Fundamental_Score", "fund_score")
+        mom = _safe_score(row, "TechScore_20d_raw", "MomentumScore", "TechScore_20d", "tech_score")
         # Hunter amplification: if Coil_Bonus is active, amplify technical/momentum
         try:
             coil_bonus_active = bool(row.get("Coil_Bonus", 0)) or str(row.get("Coil_Bonus", "0")) in ("1", "True")
@@ -64,7 +64,7 @@ def compute_final_score_20d(row: pd.Series) -> float:
         except Exception:
             pass
         # Try multiple field names for reliability
-        rel = float(row.get("ReliabilityScore", row.get("Reliability_Score", 50.0)))
+        rel = _safe_score(row, "Reliability_Score", "ReliabilityScore", "Reliability_v2", "reliability_pct")
 
         # RR ratio → score (0-100)
         rr_ratio = row.get("RR", None)
@@ -260,6 +260,20 @@ def evaluate_rr_unified(rr_ratio: Optional[float]) -> Tuple[float, float, str]:
     return float(np.clip(score, 0, 100)), ratio, band
 
 
+def _safe_score(row: pd.Series, *keys: str, default: float = 50.0) -> float:
+    """Extract first valid 0-100 score from multiple column name candidates."""
+    for k in keys:
+        v = row.get(k)
+        if v is not None:
+            try:
+                fv = float(v)
+                if np.isfinite(fv) and fv != 0.0:
+                    return float(np.clip(fv, 0.0, 100.0))
+            except (TypeError, ValueError):
+                continue
+    return default
+
+
 def compute_overall_score(row: pd.Series) -> Tuple[float, Dict[str, float]]:
     """
     Compute mathematically correct overall conviction score with transparent penalties.
@@ -322,18 +336,33 @@ def compute_overall_score(row: pd.Series) -> Tuple[float, Dict[str, float]]:
         should score 75+). Weak fundamentals or data quality reduces score even
         if technicals are strong, enforcing multi-factor confirmation.
     """
-    # Extract base components (0-100 each)
-    fund_score = float(row.get("Fundamental_S", 50.0))
-    tech_score = float(row.get("Technical_S", 50.0))
-    rr_score = float(row.get("RR_Score", 50.0))
-    reliability = float(row.get("Reliability_v2", 50.0))
-    
-    # Extract ML probability (0-1 range)
-    ml_prob = row.get("ML_Probability", None)
-    if ml_prob is not None and np.isfinite(ml_prob):
-        ml_prob = float(np.clip(ml_prob, 0, 1))
-    else:
-        ml_prob = None
+    # Extract base components (0-100 each) — use canonical Col names with fallbacks
+    fund_score = _safe_score(row, "Fundamental_S", "Fundamental_Score", "FundamentalScore", "fund_score")
+    tech_score = _safe_score(row, "TechScore_20d_raw", "TechScore_20d", "Technical_S", "tech_score")
+    rr_score = _safe_score(row, "RR_Score", "rr_score_v2", "rr_score")
+    # If no RR score, derive from RR ratio
+    if rr_score == 50.0:
+        _rr_ratio = row.get("RR", row.get("RR_Ratio", row.get("RewardRisk", None)))
+        if _rr_ratio is not None:
+            try:
+                _rr_s, _, _ = evaluate_rr_unified(float(_rr_ratio))
+                rr_score = float(_rr_s)
+            except Exception:
+                pass
+    reliability = _safe_score(row, "Reliability_Score", "ReliabilityScore", "Reliability_v2", "reliability_pct")
+
+    # Extract ML probability (0-1 range) — try canonical then fallbacks
+    ml_prob = None
+    for _ml_key in ("ML_20d_Prob", "ML_Probability", "ML_20d_Prob_raw", "ml_prob"):
+        _mp = row.get(_ml_key)
+        if _mp is not None:
+            try:
+                _mpf = float(_mp)
+                if np.isfinite(_mpf):
+                    ml_prob = float(np.clip(_mpf, 0, 1))
+                    break
+            except (TypeError, ValueError):
+                continue
     
     # Calculate base score (before ML, before penalties)
     base_score = (

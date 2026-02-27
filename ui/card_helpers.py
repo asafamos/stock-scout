@@ -72,8 +72,8 @@ def risk_class(row: pd.Series) -> str:
 
 def headline_story(row: pd.Series) -> str:
     """Build a one-line narrative from key scores."""
-    fund = to_float(row.get("FundamentalScore", row.get("Fundamental_S", np.nan)))
-    mom = to_float(row.get("MomentumScore", row.get("TechScore_20d", np.nan)))
+    fund = to_float(row.get("Fundamental_S", row.get("FundamentalScore", row.get("Fundamental_Score", np.nan))))
+    mom = to_float(row.get("TechScore_20d_raw", row.get("MomentumScore", row.get("TechScore_20d", np.nan))))
     rr = to_float(row.get("RR", row.get("RR_Ratio", row.get("RewardRisk", np.nan))))
     rel = to_float(row.get("ReliabilityScore", row.get("Reliability_Score", row.get("Reliability_v2", np.nan))))
 
