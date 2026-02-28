@@ -681,247 +681,10 @@ def calculate_quality_score(row: pd.Series) -> Tuple[float, str]:
     return quality_score, level
 
 
-def calculate_fundamental_score(
-    pe: Optional[float] = None,
-    ps: Optional[float] = None,
-    pb: Optional[float] = None,
-    roe: Optional[float] = None,
-    margin: Optional[float] = None,
-    rev_yoy: Optional[float] = None,
-    eps_yoy: Optional[float] = None,
-    debt_equity: Optional[float] = None,
-) -> Tuple[float, float]:
-    """
-    Calculate fundamental score (0-100) with confidence.
-    
-    All metrics are normalized and weighted. Missing values reduce confidence.
-    
-    Returns:
-        (score, confidence) tuple where both are 0-100
-    """
-    metrics = []
-    weights = []
-    if pe is not None and np.isfinite(pe) and pe > 0:
-        pe_score = normalize_score(min(pe, 50), 0, 50, 50)
-        pe_score = 100 - pe_score  # Invert: lower PE = higher score
-        metrics.append(pe_score)
-        weights.append(0.15)
-    
-    # PS ratio: lower is better
-    if ps is not None and np.isfinite(ps) and ps > 0:
-        ps_score = normalize_score(min(ps, 10), 0, 10, 50)
-        ps_score = 100 - ps_score
-        metrics.append(ps_score)
-        weights.append(0.10)
-    
-    # PB ratio: lower is better
-    if pb is not None and np.isfinite(pb) and pb > 0:
-        pb_score = normalize_score(min(pb, 5), 0, 5, 50)
-        pb_score = 100 - pb_score
-        metrics.append(pb_score)
-        weights.append(0.10)
-    
-    # ROE: higher is better
-    if roe is not None and np.isfinite(roe):
-        roe_pct = roe * 100 if abs(roe) < 2 else roe  # Handle decimal vs percentage
-        roe_score = normalize_score(np.clip(roe_pct, -20, 50), -20, 50, 50)
-        metrics.append(roe_score)
-        weights.append(0.20)
-    
-    # Margin: higher is better
-    if margin is not None and np.isfinite(margin):
-        margin_pct = margin * 100 if abs(margin) < 2 else margin
-        margin_score = normalize_score(np.clip(margin_pct, -10, 40), -10, 40, 50)
-        metrics.append(margin_score)
-        weights.append(0.15)
-    
-    # Revenue YoY: higher is better
-    if rev_yoy is not None and np.isfinite(rev_yoy):
-        rev_pct = rev_yoy * 100 if abs(rev_yoy) < 2 else rev_yoy
-        rev_score = normalize_score(np.clip(rev_pct, -20, 50), -20, 50, 50)
-        metrics.append(rev_score)
-        weights.append(0.15)
-    
-    # EPS YoY: higher is better
-    if eps_yoy is not None and np.isfinite(eps_yoy):
-        eps_pct = eps_yoy * 100 if abs(eps_yoy) < 2 else eps_yoy
-        eps_score = normalize_score(np.clip(eps_pct, -30, 70), -30, 70, 50)
-        metrics.append(eps_score)
-        weights.append(0.10)
-    
-    # Debt/Equity: lower is better
-    if debt_equity is not None and np.isfinite(debt_equity) and debt_equity >= 0:
-        de_score = normalize_score(min(debt_equity, 3), 0, 3, 50)
-        de_score = 100 - de_score
-        metrics.append(de_score)
-        weights.append(0.05)
-    
-    # Calculate weighted score
-    if not metrics:
-        return 50.0, 0.0  # No data = neutral score, zero confidence
-    
-    total_weight = sum(weights)
-    if total_weight == 0:
-        return 50.0, 0.0
-    
-    # Normalize weights to sum to 1
-    normalized_weights = [w / total_weight for w in weights]
-    
-    # Weighted average
-    final_score = sum(m * w for m, w in zip(metrics, normalized_weights))
-    
-    # Confidence based on data completeness (0-8 metrics available)
-    confidence = (len(metrics) / 8.0) * 100.0
-    
-    return float(np.clip(final_score, 0, 100)), float(np.clip(confidence, 0, 100))
-
-
-def calculate_momentum_score(
-    rsi: Optional[float] = None,
-    atr_pct: Optional[float] = None,
-    ma_aligned: Optional[bool] = None,
-    mom_1m: Optional[float] = None,
-    mom_3m: Optional[float] = None,
-    mom_6m: Optional[float] = None,
-    near_high: Optional[float] = None,
-    overextension: Optional[float] = None,
-    volume_surge: Optional[float] = None,
-) -> Tuple[float, float]:
-    """
-    Calculate momentum score (0-100) with confidence.
-    
-    Returns:
-        (score, confidence) tuple where both are 0-100
-    """
-    metrics = []
-    weights = []
-    
-    # RSI: 30-70 is ideal (bell curve)
-    if rsi is not None and np.isfinite(rsi):
-        if rsi < 30:
-            rsi_score = normalize_score(rsi, 0, 30, 50)
-        elif rsi > 70:
-            rsi_score = 100 - normalize_score(rsi, 70, 100, 50)
-        else:
-            # RSI 40-60 gets highest score
-            if 40 <= rsi <= 60:
-                rsi_score = 100.0
-            elif rsi < 40:
-                rsi_score = 50 + normalize_score(rsi, 30, 40, 0)
-            else:  # rsi > 60
-                rsi_score = 100 - normalize_score(rsi, 60, 70, 0)
-        metrics.append(rsi_score)
-        weights.append(0.20)
-    
-    # ATR/Price: moderate volatility is good
-    if atr_pct is not None and np.isfinite(atr_pct) and atr_pct > 0:
-        # 1-4% is ideal
-        if 0.01 <= atr_pct <= 0.04:
-            atr_score = 100.0
-        elif atr_pct < 0.01:
-            atr_score = normalize_score(atr_pct, 0, 0.01, 50)
-        else:
-            atr_score = 100 - normalize_score(min(atr_pct, 0.10), 0.04, 0.10, 50)
-        metrics.append(atr_score)
-        weights.append(0.15)
-    
-    # MA Alignment: boolean = 100 or 0
-    if ma_aligned is not None:
-        metrics.append(100.0 if ma_aligned else 0.0)
-        weights.append(0.15)
-    
-    # 1-month momentum
-    if mom_1m is not None and np.isfinite(mom_1m):
-        mom_1m_pct = mom_1m * 100 if abs(mom_1m) < 2 else mom_1m
-        mom_1m_score = normalize_score(np.clip(mom_1m_pct, -20, 30), -20, 30, 50)
-        metrics.append(mom_1m_score)
-        weights.append(0.10)
-    
-    # 3-month momentum
-    if mom_3m is not None and np.isfinite(mom_3m):
-        mom_3m_pct = mom_3m * 100 if abs(mom_3m) < 2 else mom_3m
-        mom_3m_score = normalize_score(np.clip(mom_3m_pct, -30, 50), -30, 50, 50)
-        metrics.append(mom_3m_score)
-        weights.append(0.15)
-    
-    # 6-month momentum
-    if mom_6m is not None and np.isfinite(mom_6m):
-        mom_6m_pct = mom_6m * 100 if abs(mom_6m) < 2 else mom_6m
-        mom_6m_score = normalize_score(np.clip(mom_6m_pct, -40, 70), -40, 70, 50)
-        metrics.append(mom_6m_score)
-        weights.append(0.10)
-    
-    # Near 52w high: bell curve (80-95% is ideal)
-    if near_high is not None and np.isfinite(near_high):
-        if 80 <= near_high <= 95:
-            near_high_score = 100.0
-        elif near_high < 80:
-            near_high_score = normalize_score(near_high, 50, 80, 0)
-        else:  # > 95
-            near_high_score = 100 - normalize_score(near_high, 95, 100, 0)
-        metrics.append(near_high_score)
-        weights.append(0.10)
-    
-    # Overextension: lower is better
-    if overextension is not None and np.isfinite(overextension):
-        overext_score = 100 - normalize_score(np.clip(overextension, 0, 0.15), 0, 0.15, 50)
-        metrics.append(overext_score)
-        weights.append(0.05)
-    
-    # Calculate weighted score
-    if not metrics:
-        return 50.0, 0.0
-    
-    total_weight = sum(weights)
-    if total_weight == 0:
-        return 50.0, 0.0
-    
-    normalized_weights = [w / total_weight for w in weights]
-    final_score = sum(m * w for m, w in zip(metrics, normalized_weights))
-    
-    # Confidence based on data completeness (0-9 metrics)
-    confidence = (len(metrics) / 9.0) * 100.0
-    
-    return float(np.clip(final_score, 0, 100)), float(np.clip(confidence, 0, 100))
-
-
-def calculate_rr_score(
-    rr_ratio: Optional[float] = None,
-    atr: Optional[float] = None,
-    support: Optional[float] = None,
-    resistance: Optional[float] = None,
-    current_price: Optional[float] = None,
-) -> Tuple[float, float]:
-    """
-    Calculate Risk/Reward score (0-100) with confidence.
-
-    If raw rr_ratio provided, score directly. Otherwise attempt to derive RR
-    from support/resistance/current price using ATR normalization.
-
-    Returns:
-        (rr_score_0_100, rr_confidence_0_100)
-    """
-    # Direct ratio path
-    if rr_ratio is not None and np.isfinite(rr_ratio) and rr_ratio > 0:
-        score, ratio_val, _ = evaluate_rr_unified(rr_ratio)
-        # Confidence higher when ratio itself given
-        return float(score), 75.0
-
-    # Derive ratio from levels
-    if all(v is not None and np.isfinite(v) for v in [atr, support, resistance, current_price]) and atr and atr > 0:
-        # Require support below price and resistance above price
-        if support < current_price and resistance > current_price:
-            risk_dollars = current_price - support
-            reward_dollars = resistance - current_price
-            if risk_dollars > 0 and reward_dollars > 0:
-                risk_atr = safe_divide(risk_dollars, atr, 1.0)
-                reward_atr = safe_divide(reward_dollars, atr, 1.0)
-                derived_rr = safe_divide(reward_atr, risk_atr, 0.0)
-                score, ratio_val, _ = evaluate_rr_unified(derived_rr)
-                return float(score), 100.0
-
-    # Fallback neutral
-    return 50.0, 0.0
+    # NOTE: calculate_fundamental_score, calculate_momentum_score, and
+    # calculate_rr_score were removed (2026-02-28) — they had no production
+    # callers. Fundamental scoring uses core.scoring.fundamental, momentum
+    # uses core.scoring.technical, and RR uses evaluate_rr_unified directly.
 
 
 def calculate_reliability_score(
@@ -995,17 +758,17 @@ def calculate_conviction_score(
     reliability_score: float,
     ml_probability: Optional[float] = None,
 ) -> Tuple[float, Dict[str, float]]:
-    """
-    Calculate final conviction score (0-100) with strict weighting.
-    
-    Weights:
-    - Fundamentals: 35%
-    - Momentum: 35%
-    - Risk/Reward: 15%
-    - Reliability: 15%
-    
-    ML can only boost/penalize within +/-10% if provided.
-    
+    """Calculate final conviction score (0-100) using CONVICTION_WEIGHTS.
+
+    Weights sourced from scoring_config.CONVICTION_WEIGHTS (swing-trade aligned):
+    - Fundamentals: 10%  (minor quality check for 20d trades)
+    - Momentum: 45%      (primary driver for swing trades)
+    - Risk/Reward: 25%   (directly controls profit/loss)
+    - Reliability: 20%   (data quality gate)
+
+    ML adjustment bounded to +/-10 with full data, +/-8 with weak data.
+    Used by bridge.py for the V2 ML/Risk engine path.
+
     Returns:
         (final_score, breakdown_dict) where breakdown shows component contributions
     """

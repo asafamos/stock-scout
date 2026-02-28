@@ -1,7 +1,7 @@
 """Unit tests for core/scoring_engine.py pure functions.
 
 Covers: ml_boost_component, normalize_score, safe_divide, evaluate_rr_unified,
-        calculate_rr_score, calculate_reliability_score, calculate_conviction_score,
+        calculate_reliability_score, calculate_conviction_score,
         calculate_risk_meter, generate_warnings.
 """
 import math
@@ -14,7 +14,6 @@ from core.scoring_engine import (
     normalize_score,
     safe_divide,
     evaluate_rr_unified,
-    calculate_rr_score,
     calculate_reliability_score,
     calculate_conviction_score,
     calculate_risk_meter,
@@ -181,37 +180,6 @@ class TestEvaluateRrUnified:
         score, ratio, band = evaluate_rr_unified(3.0)
         assert band == "Excellent"
         assert score >= 90
-
-
-# ── calculate_rr_score ──────────────────────────────────────────────
-
-
-class TestCalculateRrScore:
-    def test_direct_ratio(self):
-        score, conf = calculate_rr_score(rr_ratio=2.5)
-        assert 70 <= score <= 90
-        assert conf == 75.0
-
-    def test_derived_from_levels(self):
-        # support=90, price=100, resistance=120 → risk=10, reward=20, RR=2
-        score, conf = calculate_rr_score(
-            atr=5.0, support=90.0, resistance=120.0, current_price=100.0
-        )
-        assert score > 0
-        assert conf == 100.0
-
-    def test_fallback_neutral(self):
-        score, conf = calculate_rr_score()
-        assert score == 50.0
-        assert conf == 0.0
-
-    def test_nan_ratio_falls_through(self):
-        score, conf = calculate_rr_score(rr_ratio=float("nan"))
-        assert score == 50.0
-
-    def test_zero_ratio_falls_through(self):
-        score, conf = calculate_rr_score(rr_ratio=0.0)
-        assert score == 50.0
 
 
 # ── calculate_reliability_score ─────────────────────────────────────

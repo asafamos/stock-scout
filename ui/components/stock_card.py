@@ -152,10 +152,17 @@ def render_stock_card(row: pd.Series, rank: int, score_label: str = "FinalScore_
         _rr_ratio = to_float(row.get("RR", row.get("RR_Ratio", row.get("RewardRisk", np.nan))))
         if np.isfinite(_rr_ratio) and _rr_ratio > 0:
             rr_score_raw = min(95.0, max(10.0, _rr_ratio * 25.0 + 5.0))
+
+    # Pattern and BigWinner scores (contribute ~20% of FinalScore via PATTERN_SCORE_WEIGHTS)
+    pattern_score_raw = to_float(row.get("Pattern_Score", np.nan))
+    bw_score_raw = to_float(row.get("Big_Winner_Signal", row.get("BigWinnerScore_20d", np.nan)))
+
     tech_bar = _safe_pct(tech_score_raw)
     fund_bar = _safe_pct(fund_score_raw)
     ml_bar = _safe_pct(ml_norm, scale=100) if ml_norm is not None else 0
     rr_bar = _safe_pct(rr_score_raw)
+    pattern_bar = _safe_pct(pattern_score_raw)
+    bw_bar = _safe_pct(bw_score_raw)
 
     # Storyline
     story = headline_story(row)
@@ -212,6 +219,8 @@ def render_stock_card(row: pd.Series, rank: int, score_label: str = "FinalScore_
         f'<div class="ss-bar-row"><span class="ss-bar-label">Fundament</span><div class="ss-bar-track"><div class="ss-bar-fill fund" style="width:{fund_bar:.0f}%"></div></div><span class="ss-bar-value">{fmt_num(fund_score_raw, ".0f")}</span></div>'
         f'<div class="ss-bar-row"><span class="ss-bar-label">ML 20d</span><div class="ss-bar-track"><div class="ss-bar-fill ml" style="width:{ml_bar:.0f}%"></div></div><span class="ss-bar-value">{ml_pct_str}</span></div>'
         f'<div class="ss-bar-row"><span class="ss-bar-label">R/R Score</span><div class="ss-bar-track"><div class="ss-bar-fill rr" style="width:{rr_bar:.0f}%"></div></div><span class="ss-bar-value">{fmt_num(rr_score_raw, ".0f")}</span></div>'
+        f'<div class="ss-bar-row"><span class="ss-bar-label">Pattern</span><div class="ss-bar-track"><div class="ss-bar-fill tech" style="width:{pattern_bar:.0f}%"></div></div><span class="ss-bar-value">{fmt_num(pattern_score_raw, ".0f")}</span></div>'
+        f'<div class="ss-bar-row"><span class="ss-bar-label">BigWinner</span><div class="ss-bar-track"><div class="ss-bar-fill ml" style="width:{bw_bar:.0f}%"></div></div><span class="ss-bar-value">{fmt_num(bw_score_raw, ".0f")}</span></div>'
         f'</div>'
         f'<div class="ss-ml-row">'
         f'<span class="ss-ml-dot {ml_dot}"></span>'
