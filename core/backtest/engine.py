@@ -186,6 +186,12 @@ class FullPipelineBacktest:
     def _score_universe_at_date(self, as_of: date) -> Optional[pd.DataFrame]:
         """Score all universe stocks using the production scoring pipeline.
 
+        Matches the live pipeline (ticker_scoring.py) as closely as possible:
+        1. Build technical indicators
+        2. Score via compute_recommendation_scores (tech + fund + ML)
+        3. Enhance with pattern matching + big-winner detection
+        4. Recompute FinalScore_20d with all 5 components
+
         Returns DataFrame sorted by FinalScore_20d descending.
         """
         from core.indicators import build_technical_indicators
@@ -226,8 +232,53 @@ class FullPipelineBacktest:
                     use_multi_source=False,  # avoid API calls in backtest
                 )
 
-                if scored is not None:
-                    results.append(scored)
+                if scored is None:
+                    continue
+
+                # ── Pattern/BW enhancement (mirrors ticker_scoring.py) ──
+                # Without this, backtest FinalScore_20d diverges from live.
+                if self.enable_patterns:
+                    try:
+                        from core.unified_logic import (
+                            compute_big_winner_signal_20d,
+                            compute_final_score_with_patterns,
+                        )
+                        from core.pattern_matcher import PatternMatcher
+
+                        bw_dict = compute_big_winner_signal_20d(row)
+                        bw_score = float(bw_dict.get("BigWinnerScore_20d", 0.0)) if isinstance(bw_dict, dict) else 0.0
+                        bw_flag = int(bw_dict.get("BigWinnerFlag_20d", 0)) if isinstance(bw_dict, dict) else 0
+                        patt_eval = PatternMatcher.evaluate_stock(row)
+
+                        _rr_val = None
+                        try:
+                            _rr_raw = row.get("RR")
+                            if _rr_raw is not None and pd.notna(_rr_raw):
+                                _rr_val = float(_rr_raw)
+                        except (TypeError, ValueError):
+                            pass
+
+                        final_score, breakdown = compute_final_score_with_patterns(
+                            tech_score=float(scored.get("TechScore_20d", 0.0)),
+                            fundamental_score=float(scored.get("Fundamental_Score", 0.0)),
+                            ml_prob=float(scored.get("ML_20d_Prob", 0.5)),
+                            big_winner_score=bw_score,
+                            pattern_score=float(patt_eval.get("pattern_score", 0.0)),
+                            bw_weight=0.10,
+                            pattern_weight=0.10,
+                            market_regime=scored.get("Market_Regime"),
+                            rr_ratio=_rr_val,
+                        )
+
+                        scored["FinalScore_20d"] = float(final_score)
+                        scored["Pattern_Score"] = float(patt_eval.get("pattern_score", 0.0))
+                        scored["Pattern_Count"] = int(patt_eval.get("pattern_count", 0))
+                        scored["Big_Winner_Signal"] = bw_score
+                        scored["BigWinnerFlag_20d"] = bw_flag
+                    except Exception as e:
+                        logger.debug("Pattern/BW enhancement failed for %s: %s", ticker, e)
+
+                results.append(scored)
             except Exception as e:
                 logger.debug("Skipping %s at %s: %s", ticker, as_of, e)
                 continue

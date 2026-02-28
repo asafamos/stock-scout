@@ -187,11 +187,16 @@ class StockScoutBridge:
             except Exception:
                 qual_score, qual_level = 0.5, "Medium"
 
+            # NOTE: FinalScore_20d and Score are NOT set here because
+            # runner.py line 1290 unconditionally recomputes them via
+            # compute_final_score_20d().  Setting them here wastes work
+            # and creates a confusing architecture where a carefully
+            # computed Risk Engine score is silently discarded.
+            # The bridge's job is to provide COMPONENT scores; the
+            # pipeline computes the final composite.
             overrides: Dict[str, Any] = {
                 "TechScore_20d": tech_score_20d,
                 "Fundamental_Score": fund_score,
-                "FinalScore_20d": decision.conviction,
-                "Score": decision.conviction,
                 "ML_20d_Prob": mo.prediction_prob,
                 "Quality_Score": qual_score,
                 "Quality_Level": qual_level,

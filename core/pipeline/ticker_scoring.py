@@ -131,14 +131,15 @@ def _process_single_ticker(
     if V2_BRIDGE_AVAILABLE:
         try:
             rec_dict = analyze_row_with_bridge(ticker=tkr, row=row_indicators)
-            # Verify success: ensure we have a valid score
-            if "FinalScore_20d" in rec_dict and rec_dict["FinalScore_20d"] is not None:
+            # Verify success: bridge provides component scores (TechScore_20d,
+            # ML_20d_Prob etc.); FinalScore_20d is computed later by runner.py.
+            if "TechScore_20d" in rec_dict and rec_dict.get("ML_20d_Prob") is not None:
                 rec_series = pd.Series(rec_dict)
                 used_v2 = True
             else:
-                msg = f"Bridge returned no score for {tkr}"
+                msg = f"Bridge returned incomplete components for {tkr}"
                 logger.warning(msg + ", falling back to legacy.")
-                _record_legacy_fallback(f"BridgeNoScore: {msg}")
+                _record_legacy_fallback(f"BridgeNoComponents: {msg}")
         except Exception as e:
             logger.warning(f"Bridge failed for {tkr}: {e}. Falling back to legacy.")
             _record_legacy_fallback(f"{e.__class__.__name__}: {e}")
@@ -178,7 +179,9 @@ def _process_single_ticker(
 
     # Enhance with Big Winner signal + historical pattern matching
     try:
-        bw_signal = compute_big_winner_signal_20d(row_indicators)
+        bw_dict = compute_big_winner_signal_20d(row_indicators)
+        bw_score = float(bw_dict.get("BigWinnerScore_20d", 0.0)) if isinstance(bw_dict, dict) else 0.0
+        bw_flag = int(bw_dict.get("BigWinnerFlag_20d", 0)) if isinstance(bw_dict, dict) else 0
         patt_eval = PatternMatcher.evaluate_stock(row_indicators)
 
         # Extract RR and regime for scoring gates (must propagate!)
@@ -195,7 +198,7 @@ def _process_single_ticker(
             tech_score=float(rec_series.get("TechScore_20d", 0.0)),
             fundamental_score=float(rec_series.get("Fundamental_Score", 0.0)),
             ml_prob=float(rec_series.get("ML_20d_Prob", 0.5)),
-            big_winner_score=float(bw_signal or 0.0),
+            big_winner_score=bw_score,
             pattern_score=float(patt_eval.get("pattern_score", 0.0)),
             bw_weight=0.10,
             pattern_weight=0.10,
@@ -206,7 +209,8 @@ def _process_single_ticker(
         rec_series["FinalScore_20d"] = float(final_score)
         rec_series["Pattern_Score"] = float(patt_eval.get("pattern_score", 0.0))
         rec_series["Pattern_Count"] = int(patt_eval.get("pattern_count", 0))
-        rec_series["Big_Winner_Signal"] = float(bw_signal or 0.0)
+        rec_series["Big_Winner_Signal"] = bw_score
+        rec_series["BigWinnerFlag_20d"] = bw_flag
         rec_series["Score_Breakdown_Patterns"] = breakdown
     except Exception as exc:
         logger.debug(f"Pattern/BW enhancement failed for {tkr}: {exc}")
@@ -216,63 +220,77 @@ def _process_single_ticker(
     # a technical indicator, not the final R/R ratio.
 
     # Ensure SignalReasons / SignalQuality exist even when using bridge path
+    # Reasons are weighted: swing-trade signals (momentum, pattern, R/R, volume)
+    # count more than supporting signals (fundamentals, regime).
     try:
         reasons: List[str] = []
-        # 1. Technical momentum (above median is meaningful)
+        swing_strength = 0.0  # Weighted signal strength for quality assessment
+        # 1. Technical momentum — PRIMARY signal for swing trades (weight=1.0)
         try:
             ts_val = float(rec_series.get("TechScore_20d", np.nan))
             if np.isfinite(ts_val) and ts_val >= float(TECH_STRONG_THRESHOLD):
                 reasons.append("Strong technical momentum")
+                swing_strength += 1.0
             elif np.isfinite(ts_val) and ts_val >= 45.0:
                 reasons.append("Positive technical setup")
+                swing_strength += 0.5
         except (TypeError, ValueError):
             pass
-        # 2. ML probability
+        # 2. ML probability — swing signal (weight=0.75)
         try:
             mlp_val = float(rec_series.get("ML_20d_Prob", np.nan))
             if np.isfinite(mlp_val) and mlp_val >= float(ML_PROB_THRESHOLD):
                 reasons.append("High ML breakout probability")
+                swing_strength += 0.75
             elif np.isfinite(mlp_val) and mlp_val >= 0.50:
                 reasons.append("Moderate ML breakout probability")
+                swing_strength += 0.25
         except (TypeError, ValueError):
             pass
-        # 3. Pattern signals
+        # 3. Pattern signals — PRIMARY signal for swing trades (weight=1.0)
         try:
             ps_val = float(rec_series.get("Pattern_Score", 0.0) or 0.0)
             if np.isfinite(ps_val) and ps_val > 0.0:
                 reasons.append("Bullish pattern detected")
+                swing_strength += 1.0
         except (TypeError, ValueError):
             pass
-        # 4. Market regime
-        try:
-            reg_val = str(rec_series.get("Market_Regime") or "").upper()
-            if reg_val in ("TREND_UP", "BULLISH", "NEUTRAL", "SIDEWAYS"):
-                reasons.append("Supportive market regime")
-        except (TypeError, ValueError, AttributeError):
-            pass
-        # 5. Fundamental quality
-        try:
-            fund_val = float(rec_series.get("Fundamental_S", rec_series.get("Fundamental_Score", np.nan)))
-            if np.isfinite(fund_val) and fund_val >= 60.0:
-                reasons.append("Strong fundamentals")
-        except (TypeError, ValueError):
-            pass
-        # 6. Favorable risk/reward
+        # 4. Favorable risk/reward — PRIMARY for any trade (weight=1.0)
         try:
             rr_val = float(rec_series.get("RR", rec_series.get("RR_Ratio", np.nan)))
             if np.isfinite(rr_val) and rr_val >= 2.0:
                 reasons.append("Favorable risk/reward ratio")
+                swing_strength += 1.0
         except (TypeError, ValueError):
             pass
-        # 7. Volume confirmation
+        # 5. Volume confirmation — swing signal (weight=0.75)
         try:
             vol_surge = float(rec_series.get("VolSurge", rec_series.get("Volume_Surge_Ratio", np.nan)))
             if np.isfinite(vol_surge) and vol_surge >= 1.3:
                 reasons.append("Volume surge confirmation")
+                swing_strength += 0.75
         except (TypeError, ValueError):
             pass
+        # 6. Market regime — supporting context (weight=0.25)
+        try:
+            reg_val = str(rec_series.get("Market_Regime") or "").upper()
+            if reg_val in ("TREND_UP", "BULLISH", "NEUTRAL", "SIDEWAYS"):
+                reasons.append("Supportive market regime")
+                swing_strength += 0.25
+        except (TypeError, ValueError, AttributeError):
+            pass
+        # 7. Fundamental support — minor quality check (weight=0.25)
+        #    Only 10% of score, so this is context, not a driver
+        try:
+            fund_val = float(rec_series.get("Fundamental_S", rec_series.get("Fundamental_Score", np.nan)))
+            if np.isfinite(fund_val) and fund_val >= 70.0:
+                reasons.append("Fundamental support")
+                swing_strength += 0.25
+        except (TypeError, ValueError):
+            pass
+        # Quality based on weighted swing strength, not just reason count
         cnt = len(reasons)
-        quality = "High" if cnt >= 4 else ("Medium" if cnt >= 2 else "Speculative")
+        quality = "High" if swing_strength >= 3.0 else ("Medium" if swing_strength >= 1.5 else "Speculative")
         if "SignalReasons" not in rec_series:
             rec_series["SignalReasons"] = "; ".join(reasons)
         if "SignalReasons_Count" not in rec_series:
@@ -382,14 +400,17 @@ def _step_compute_scores_with_unified_logic(
             results["ReliabilityScore"] = results["Reliability_Score"]
 
     # Ensure momentum proxy exists (prefer TechScore_20d)
+    # NOTE: We do NOT fallback TechScore_20d to FinalScore_20d because they
+    # measure different things. TechScore_20d is a technical momentum score;
+    # FinalScore_20d is a composite. Mixing them hides scoring failures.
     if ("MomentumScore" not in results.columns) and (
         "TechScore_20d" not in results.columns
     ):
-        if "FinalScore_20d" in results.columns:
-            results["TechScore_20d"] = results["FinalScore_20d"]
-        elif "Score" in results.columns:
-            results["TechScore_20d"] = results["Score"]
-        else:
-            results["TechScore_20d"] = np.nan
+        logger.warning(
+            "TechScore_20d missing from %d scored results — "
+            "setting to NaN (not masking with FinalScore_20d)",
+            len(results),
+        )
+        results["TechScore_20d"] = np.nan
 
     return results
