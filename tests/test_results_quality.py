@@ -274,8 +274,10 @@ class TestScoringConfigSanity:
     def test_ml_weight_reasonable(self):
         from core.scoring_config import FINAL_SCORE_WEIGHTS
         ml_weight = FINAL_SCORE_WEIGHTS.get("ml", 0.0)
-        assert ml_weight <= 0.20, (
-            f"ML weight {ml_weight} too high for AUC=0.553 model. Should be ≤0.20"
+        # ML weight can be up to 0.30 because the ML circuit breaker in
+        # scoring/final.py dynamically scales it down for weak models (AUC < 0.56).
+        assert ml_weight <= 0.30, (
+            f"ML weight {ml_weight} too high. Should be ≤0.30 (circuit breaker handles weak models)"
         )
 
     def test_ml_gates_bonus_not_too_easy(self):

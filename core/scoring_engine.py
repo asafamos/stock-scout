@@ -17,7 +17,7 @@ import pandas as pd
 from typing import Dict, Tuple, Optional
 import logging
 
-from core.scoring_config import CONVICTION_WEIGHTS, FINAL_SCORE_WEIGHTS, PATTERN_SCORE_WEIGHTS
+from core.scoring_config import CONVICTION_WEIGHTS, FINAL_SCORE_WEIGHTS, PATTERN_SCORE_WEIGHTS, REGIME_MULTIPLIERS
 
 # Re-export from new canonical locations
 from core.scoring.utils import (       # noqa: F401
@@ -115,7 +115,29 @@ def compute_final_score_20d(row: pd.Series) -> float:
         except Exception:
             bonus = 0.0
 
+        # Pattern score contribution (computed by ticker_scoring.py, available in row)
+        try:
+            patt_score = row.get("Pattern_Score", 0.0)
+            patt_score = float(patt_score) if pd.notna(patt_score) else 0.0
+            if patt_score > 0:
+                bonus += min(5.0, patt_score * 5.0)  # up to +5 from pattern matching
+        except Exception:
+            pass
+
+        # Big winner signal contribution
+        try:
+            bw_signal = row.get("Big_Winner_Signal", 0.0)
+            bw_signal = float(bw_signal) if pd.notna(bw_signal) else 0.0
+            if bw_signal > 50:
+                bonus += min(4.0, (bw_signal - 50) / 50.0 * 4.0)  # up to +4 for strong BW signals
+        except Exception:
+            pass
+
+        # Keep total bonus bounded
+        bonus = float(np.clip(bonus, 0.0, 15.0))
+
         final_score = float(np.clip(base + delta + bonus, 0.0, 100.0))
+
         # Hunter floor: coil/VCP setups get a minimum score, but ONLY if RR is acceptable.
         # This prevents the floor from overriding genuinely bad risk/reward trades.
         try:
@@ -127,7 +149,17 @@ def compute_final_score_20d(row: pd.Series) -> float:
                 final_score = max(final_score, 45.0)  # was 55 — reduced to avoid score inflation
         except Exception:
             pass
-        return final_score
+
+        # Market regime adjustment (multiplicative)
+        try:
+            regime = row.get("Market_Regime")
+            if isinstance(regime, str) and regime:
+                regime_mult = float(REGIME_MULTIPLIERS.get(regime.upper(), 1.0))
+                final_score *= regime_mult
+        except Exception:
+            pass
+
+        return float(np.clip(final_score, 0.0, 100.0))
     except Exception:
         # Safe fallback to a neutral score
         return 50.0
@@ -287,12 +319,12 @@ def compute_overall_score(row: pd.Series) -> Tuple[float, Dict[str, float]]:
     This is the SINGLE SOURCE OF TRUTH for overall conviction scoring.
     All entry points must call this function to ensure consistency.
     
-    Scoring Formula (Explicit Weights):
-    - Fundamental: 35% (valuation, profitability, growth, debt)
-    - Technical: 35% (momentum, RSI, volatility, price position)
-    - Risk/Reward: 15% (upside/downside ratio with tiered penalties)
-    - Reliability: 15% (data completeness, source agreement, consistency)
-    - ML Boost: ±10% (optional, clamped when inputs are weak)
+    Scoring Formula (from CONVICTION_WEIGHTS):
+    - Fundamental: 10% (minor quality check — doesn't move price in 20d)
+    - Momentum/Technical: 45% (primary driver for swing trades)
+    - Risk/Reward: 25% (directly controls profit/loss)
+    - Reliability: 20% (data completeness, source agreement, consistency)
+    - ML Boost: ±6 (optional, clamped when inputs are weak)
     
     Penalties Applied (before final normalization):
     1. **RR Penalties**: Strong penalty (<1.0), medium (1.0-1.5), mild (1.5-2.0)
@@ -334,8 +366,7 @@ def compute_overall_score(row: pd.Series) -> Tuple[float, Dict[str, float]]:
         ...     'Reliability_v2': 80, 'ML_Probability': 0.65
         ... })
         >>> score, breakdown = compute_overall_score(row)
-        >>> score
-        76.25  # = 0.35*70 + 0.35*75 + 0.15*70 + 0.15*80 + ML bonus
+        >>> score  # = 0.10*70 + 0.45*75 + 0.25*70 + 0.20*80 + ML boost
     
     Note:
         Penalties are applied to create realistic score spread (not all stocks
@@ -371,21 +402,19 @@ def compute_overall_score(row: pd.Series) -> Tuple[float, Dict[str, float]]:
                 continue
     
     # Calculate base score (before ML, before penalties)
+    # Use CONVICTION_WEIGHTS for consistency with compute_final_score_20d
+    w = CONVICTION_WEIGHTS
     base_score = (
-        fund_score * 0.35 +
-        tech_score * 0.35 +
-        rr_score * 0.15 +
-        reliability * 0.15
+        fund_score * w["fundamental"] +
+        tech_score * w["momentum"] +
+        rr_score * w["risk_reward"] +
+        reliability * w["reliability"]
     )
     
-    # Calculate ML adjustment (bounded to +/-10% of base)
+    # Calculate ML adjustment (bounded to ±6, matching ml_boost_component)
     ml_delta = 0.0
     if ml_prob is not None:
-        # ML prob 0.5 = neutral (0 adjustment)
-        # ML prob 1.0 = +10%
-        # ML prob 0.0 = -10%
-        ml_delta = (ml_prob - 0.5) * 2.0 * 10.0  # Range: -10 to +10
-        ml_delta = float(np.clip(ml_delta, -10, 10))
+        ml_delta = ml_boost_component(ml_prob)  # Range: -6 to +6
     
     # Score before penalties
     score_before_penalties = base_score + ml_delta
@@ -489,10 +518,10 @@ def compute_overall_score(row: pd.Series) -> Tuple[float, Dict[str, float]]:
     
     # Build component breakdown for transparency
     components = {
-        "fund_component": fund_score * 0.35,
-        "tech_component": tech_score * 0.35,
-        "rr_component": rr_score * 0.15,
-        "reliability_component": reliability * 0.15,
+        "fund_component": fund_score * w["fundamental"],
+        "tech_component": tech_score * w["momentum"],
+        "rr_component": rr_score * w["risk_reward"],
+        "reliability_component": reliability * w["reliability"],
         "base_score": base_score,
         "ml_delta": ml_delta,
         "score_before_penalties": score_before_penalties,
