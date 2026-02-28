@@ -27,8 +27,7 @@ import pandas as pd
 from core.classifier import apply_classification
 from core.pattern_matcher import PatternMatcher
 from core.schema import Col
-from core.scoring.big_winner import compute_big_winner_signal_20d
-from core.scoring.final import compute_final_score, compute_final_score_with_patterns
+from core.scoring.final import compute_final_score
 from core.scoring.technical import compute_tech_score_20d_v2, compute_technical_score
 from core.scoring_config import (
     ML_PROB_THRESHOLD,
@@ -255,24 +254,21 @@ def compute_recommendation_scores(
     except (TypeError, ValueError):
         _rr = None
 
+    # Interim score from 3-component model (tech + fund + ML).
+    # NOTE: FinalScore_20d is NOT authoritative here — both the live
+    # pipeline (runner.py:1288) and backtest (engine.py:259) recompute
+    # it via compute_final_score_20d() which incorporates pattern/BW
+    # signals stored by ticker_scoring.py. Pattern/BW computation was
+    # removed from here to eliminate redundant work (~20-30ms/stock).
     try:
-        bw_signal = compute_big_winner_signal_20d(row)
-        patt_eval = PatternMatcher.evaluate_stock(row)
-        final_score, breakdown = compute_final_score_with_patterns(
-            tech_score=float(tech_score),
-            fundamental_score=float(fundamental_score),
-            ml_prob=float(ml_prob),
-            big_winner_score=float(bw_signal.get("BigWinnerScore_20d", 0.0)),
-            pattern_score=float(patt_eval.get("pattern_score", 0.0)),
-            bw_weight=0.10,
-            pattern_weight=0.10,
-            market_regime=market_regime,
-            rr_ratio=_rr,
+        final_score = compute_final_score(
+            tech_score, fundamental_score, ml_prob,
+            market_regime=market_regime, rr_ratio=_rr,
         )
         conviction_score = final_score
     except (TypeError, ValueError, KeyError, AttributeError):
-        final_score = compute_final_score(tech_score, fundamental_score, ml_prob, market_regime=market_regime, rr_ratio=_rr)
-        conviction_score = final_score
+        final_score = 50.0
+        conviction_score = 50.0
 
     # ── ML confidence flagging ───────────────────────────────────
     try:

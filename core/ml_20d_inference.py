@@ -274,17 +274,22 @@ ML_20D_AVAILABLE = _success
 def get_ml_weight_multiplier() -> float:
     """Return a weight multiplier (0.0–1.0) based on model quality.
 
-    AUC ≤ 0.52  → 0.1  (essentially disabled, barely better than random)
-    AUC ≤ 0.56  → 0.5  (halved — marginal signal)
-    AUC > 0.56  → 1.0  (full weight — meaningful signal)
+    AUC ≤ 0.52  → 0.0  (disabled — indistinguishable from random)
+    AUC ≤ 0.55  → 0.25 (heavily reduced — marginal signal at best)
+    AUC ≤ 0.58  → 0.5  (halved — some signal but noisy)
+    AUC > 0.58  → 1.0  (full weight — meaningful signal)
 
-    The current model has AUC ≈ 0.553, so it gets 50% weight until retrained.
+    With feature muting active the effective signal improves, but the
+    stored AUC (from metadata) still reads the pre-muting value.
+    Keep conservative gates until model is retrained with pruned features.
     """
     if BUNDLE_AUC is None:
         return 1.0  # unknown AUC — trust the model
     if BUNDLE_AUC <= 0.52:
-        return 0.1
-    if BUNDLE_AUC <= 0.56:
+        return 0.0
+    if BUNDLE_AUC <= 0.55:
+        return 0.25
+    if BUNDLE_AUC <= 0.58:
         return 0.5
     return 1.0
 
@@ -334,6 +339,17 @@ def compute_ml_20d_probabilities_raw(row: pd.Series) -> float:
                 missing.append(col)
                 val = defaults.get(col, 0.0)
             feature_dict[col] = val
+
+        # Mute features with negative permutation importance.
+        # Forcing them to their neutral defaults eliminates harmful signal
+        # without changing the model's expected input shape (still 39 features).
+        try:
+            from core.feature_registry import MUTED_FEATURES_V31
+            for muted_col in MUTED_FEATURES_V31:
+                if muted_col in feature_dict:
+                    feature_dict[muted_col] = defaults.get(muted_col, 0.0)
+        except ImportError:
+            pass  # Graceful degradation if registry unavailable
 
         # Track missing features for health reporting
         if missing:
