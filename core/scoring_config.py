@@ -40,32 +40,32 @@ TECH_WEIGHTS: Dict[str, float] = {
 }
 
 # Final score combination weights (3-component: tech + fund + ML)
-# NOTE (2026-02-17): ML weight reduced from 0.35 to 0.15 because the production
-# model (V3.1) has AUC=0.553 (barely above random). Technical and fundamental
-# weights increased to compensate until a better model is trained.
+# NOTE (2026-02-28): Swing-trade aligned. Fundamentals reduced from 0.30 to 0.15
+# because they don't move price in 20 days. ML weight increased to 0.25 because
+# the ML circuit breaker in scoring/final.py scales it down for weak models.
 FINAL_SCORE_WEIGHTS: Dict[str, float] = {
-    "technical": 0.55,
-    "fundamental": 0.30,
-    "ml": 0.15,
+    "technical": 0.60,
+    "fundamental": 0.15,
+    "ml": 0.25,
 }
 
 # V4 weights — activated when V4 model achieves AUC > 0.60
 # ML gets higher weight because the model actually works with 72 features
 FINAL_SCORE_WEIGHTS_V4: Dict[str, float] = {
     "technical": 0.40,
-    "fundamental": 0.25,
-    "ml": 0.35,
+    "fundamental": 0.15,
+    "ml": 0.45,
 }
 
 # Pattern-enhanced score weights (5-component, used by compute_final_score_with_patterns)
-# When Big Winner + Pattern data is available, ML share is redistributed.
+# Swing-trade aligned: technical dominates, fundamentals are a minor quality check.
 # Weights are auto-normalized to sum to 1.0 at runtime.
 PATTERN_SCORE_WEIGHTS: Dict[str, float] = {
-    "technical": 0.45,
-    "fundamental": 0.20,
+    "technical": 0.50,
+    "fundamental": 0.10,
     "ml": 0.15,
     "big_winner": 0.10,
-    "pattern": 0.10,
+    "pattern": 0.15,
 }
 
 # Conviction score weights (used by compute_final_score_20d)

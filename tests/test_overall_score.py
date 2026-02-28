@@ -3,8 +3,8 @@ Test overall score computation with explicit component weights and penalties.
 
 Validates:
 1. Score range: 0-100 bounds
-2. Component weights: 35% fund + 35% tech + 15% RR + 15% reliability
-3. ML delta: bounded to ±10%
+2. Component weights: from CONVICTION_WEIGHTS (fund=10%, mom=45%, RR=25%, rel=20%)
+3. ML delta: bounded to ±6
 4. Penalties: RR, risk, reliability, missing data
 5. Spread: 30+ point difference between high/low quality opportunities
 """
@@ -12,6 +12,7 @@ import pytest
 import numpy as np
 import pandas as pd
 from core.scoring_engine import compute_overall_score, calculate_quality_score
+from core.scoring_config import CONVICTION_WEIGHTS
 
 
 def test_overall_score_bounds():
@@ -58,7 +59,7 @@ def test_overall_score_bounds():
 
 
 def test_component_weights():
-    """Verify 35/35/15/15 weight formula"""
+    """Verify weights match CONVICTION_WEIGHTS config"""
     row = pd.Series({
         'Fundamental_S': 80.0,
         'Technical_S': 60.0,
@@ -73,26 +74,26 @@ def test_component_weights():
         'DE_f': 0.5,
         'RevG_f': 0.15,
     })
-    
+
     score, components = compute_overall_score(row)
-    
-    # Check individual components
+
+    # Check individual components match CONVICTION_WEIGHTS
+    w = CONVICTION_WEIGHTS
     fund_comp = components['fund_component']
     tech_comp = components['tech_component']
     rr_comp = components['rr_component']
     rel_comp = components['reliability_component']
-    
-    # Verify weights (allow 0.1 tolerance for floating point)
-    expected_fund = 80.0 * 0.35
-    expected_tech = 60.0 * 0.35
-    expected_rr = 70.0 * 0.15
-    expected_rel = 90.0 * 0.15
-    
+
+    expected_fund = 80.0 * w["fundamental"]
+    expected_tech = 60.0 * w["momentum"]
+    expected_rr = 70.0 * w["risk_reward"]
+    expected_rel = 90.0 * w["reliability"]
+
     assert abs(fund_comp - expected_fund) < 0.1, f"Fund component {fund_comp} != {expected_fund}"
     assert abs(tech_comp - expected_tech) < 0.1, f"Tech component {tech_comp} != {expected_tech}"
     assert abs(rr_comp - expected_rr) < 0.1, f"RR component {rr_comp} != {expected_rr}"
     assert abs(rel_comp - expected_rel) < 0.1, f"Rel component {rel_comp} != {expected_rel}"
-    
+
     # Base score should be sum of components (before penalties)
     expected_base = expected_fund + expected_tech + expected_rr + expected_rel
     assert abs(components['base_score'] - expected_base) < 0.1, \
@@ -100,7 +101,7 @@ def test_component_weights():
 
 
 def test_ml_delta_bounded():
-    """ML adjustment must be bounded to ±10%"""
+    """ML adjustment must be bounded to ±6 (matching ml_boost_component)"""
     base_row = pd.Series({
         'Fundamental_S': 70.0,
         'Technical_S': 70.0,
@@ -114,21 +115,21 @@ def test_ml_delta_bounded():
         'DE_f': 0.5,
         'RevG_f': 0.15,
     })
-    
-    # Test ML prob = 0.0 (should give -10% penalty)
+
+    # Test ML prob = 0.0 (should give -6 penalty)
     row_low = base_row.copy()
     row_low['ML_Probability'] = 0.0
     score_low, components_low = compute_overall_score(row_low)
-    assert -10.5 <= components_low['ml_delta'] <= -9.5, \
-        f"ML delta {components_low['ml_delta']} should be ~-10"
-    
-    # Test ML prob = 1.0 (should give +10% boost)
+    assert -6.5 <= components_low['ml_delta'] <= -5.5, \
+        f"ML delta {components_low['ml_delta']} should be ~-6"
+
+    # Test ML prob = 1.0 (should give +6 boost)
     row_high = base_row.copy()
     row_high['ML_Probability'] = 1.0
     score_high, components_high = compute_overall_score(row_high)
-    assert 9.5 <= components_high['ml_delta'] <= 10.5, \
-        f"ML delta {components_high['ml_delta']} should be ~+10"
-    
+    assert 5.5 <= components_high['ml_delta'] <= 6.5, \
+        f"ML delta {components_high['ml_delta']} should be ~+6"
+
     # Test ML prob = 0.5 (should give 0 adjustment)
     row_neutral = base_row.copy()
     row_neutral['ML_Probability'] = 0.5
