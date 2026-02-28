@@ -20,7 +20,6 @@ from core.scoring import build_technical_indicators
 from core.scoring_config import ML_PROB_THRESHOLD, TECH_STRONG_THRESHOLD
 from core.unified_logic import (
     compute_big_winner_signal_20d,
-    compute_final_score_with_patterns,
     compute_recommendation_scores,
 )
 
@@ -184,34 +183,13 @@ def _process_single_ticker(
         bw_flag = int(bw_dict.get("BigWinnerFlag_20d", 0)) if isinstance(bw_dict, dict) else 0
         patt_eval = PatternMatcher.evaluate_stock(row_indicators)
 
-        # Extract RR and regime for scoring gates (must propagate!)
-        _rr_val = None
-        try:
-            _rr_raw = row_indicators.get("RR")
-            if _rr_raw is not None and pd.notna(_rr_raw):
-                _rr_val = float(_rr_raw)
-        except (TypeError, ValueError):
-            pass
-        _regime = rec_series.get("Market_Regime")
-
-        final_score, breakdown = compute_final_score_with_patterns(
-            tech_score=float(rec_series.get("TechScore_20d", 0.0)),
-            fundamental_score=float(rec_series.get("Fundamental_Score", 0.0)),
-            ml_prob=float(rec_series.get("ML_20d_Prob", 0.5)),
-            big_winner_score=bw_score,
-            pattern_score=float(patt_eval.get("pattern_score", 0.0)),
-            bw_weight=0.10,
-            pattern_weight=0.10,
-            market_regime=_regime,
-            rr_ratio=_rr_val,
-        )
-
-        rec_series["FinalScore_20d"] = float(final_score)
+        # Store pattern/BW columns for compute_final_score_20d() to read later.
+        # NOTE: FinalScore_20d is NOT set here — runner.py:1290 is the single
+        # authoritative computation via compute_final_score_20d().
         rec_series["Pattern_Score"] = float(patt_eval.get("pattern_score", 0.0))
         rec_series["Pattern_Count"] = int(patt_eval.get("pattern_count", 0))
         rec_series["Big_Winner_Signal"] = bw_score
         rec_series["BigWinnerFlag_20d"] = bw_flag
-        rec_series["Score_Breakdown_Patterns"] = breakdown
     except Exception as exc:
         logger.debug(f"Pattern/BW enhancement failed for {tkr}: {exc}")
 

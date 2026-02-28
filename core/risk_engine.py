@@ -79,6 +79,9 @@ class RiskEngine:
         active_filters: List[str] = []
 
         # Hard rejections
+        # NOTE: 200K is intentionally higher than pipeline's 100K (runner.py Tier 1).
+        # RiskEngine is the trade-execution path (via bridge.py) requiring higher
+        # liquidity for actual order placement.
         if vol_val < 200_000:
             return TradeDecision(
                 ticker=features.ticker,

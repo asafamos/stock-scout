@@ -193,6 +193,9 @@ BIG_WINNER_THRESHOLDS = {
 # --- Signal Engine (Allocation-Free) Thresholds ---
 # Minimum final score (0-100 scale) to consider as a signal candidate
 SIGNAL_MIN_SCORE: float = 55.0
+# Minimum FinalScore_20d for pattern-only signal bypass.
+# Prevents low-score stocks from passing solely due to marginal pattern matches.
+PATTERN_MIN_SCORE: float = 35.0
 # ML probability threshold to qualify as a candidate even if final score is lower
 ML_PROB_THRESHOLD: float = 0.62
 # Default top-K limit for ranked signal output

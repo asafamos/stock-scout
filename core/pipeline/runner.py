@@ -56,7 +56,7 @@ from core.market_context import initialize_market_context
 from core.ml_20d_inference import ML_20D_AVAILABLE, get_ml_health_meta
 from core.provider_guard import get_provider_guard
 from core.scoring import compute_fundamental_score_with_breakdown
-from core.scoring_config import ML_PROB_THRESHOLD, SIGNAL_MIN_SCORE, TOP_SIGNAL_K
+from core.scoring_config import ML_PROB_THRESHOLD, PATTERN_MIN_SCORE, SIGNAL_MIN_SCORE, TOP_SIGNAL_K
 from core.scoring_engine import compute_final_score_20d
 from core.sector_mapping import get_stock_sector
 from core.telemetry import Telemetry
@@ -464,13 +464,13 @@ def _phase_fetch_and_tier1(ctx: _PipelineContext) -> None:
                 reasons.append(
                     {"rule": "MISSING_VOLUME_DATA", "message": "Missing Volume on last bar"}
                 )
-            elif volume < 50000:
+            elif volume < 100_000:
                 reasons.append(
                     {
                         "rule": "VOLUME_MIN",
                         "message": "Volume below minimum",
                         "value": float(volume) if pd.notna(volume) else None,
-                        "threshold": 50000,
+                        "threshold": 100_000,
                     }
                 )
             if pd.isna(close):
@@ -759,7 +759,7 @@ def _phase_score_and_filter(ctx: _PipelineContext) -> Optional[Dict[str, Any]]:
         ctx.results.at[idx, "Momentum_Consistency"] = sig.get("momentum_consistency")
 
         if catastrophic:
-            ctx.results.at[idx, "FinalScore_20d"] = float(enhanced)
+            ctx.results.at[idx, "AdvFilter_Score"] = float(enhanced)
             ctx.results.at[idx, "RejectionReason"] = reason
             try:
                 tkr = (
@@ -789,7 +789,7 @@ def _phase_score_and_filter(ctx: _PipelineContext) -> Optional[Dict[str, Any]]:
                 penalty += 1.5
             normalized_penalty = penalty / 100.0
             ctx.results.at[idx, "AdvPenalty"] = penalty
-            ctx.results.at[idx, "FinalScore_20d"] = max(
+            ctx.results.at[idx, "AdvFilter_Score"] = max(
                 0.01, float(enhanced) - float(normalized_penalty)
             )
             try:
@@ -841,10 +841,9 @@ def _phase_score_and_filter(ctx: _PipelineContext) -> Optional[Dict[str, Any]]:
             except (KeyError, TypeError, AttributeError):
                 pass
 
-    # Scale FinalScore_20d back to 0-100
-    ctx.results["FinalScore_20d"] = ctx.results["FinalScore_20d"] * 100.0
-    if "FinalScore_20d" in ctx.results.columns:
-        ctx.results["Score"] = ctx.results["FinalScore_20d"]
+    # Scale AdvFilter_Score to 0-100 (diagnostic only; FinalScore_20d set by W6)
+    if "AdvFilter_Score" in ctx.results.columns:
+        ctx.results["AdvFilter_Score"] = ctx.results["AdvFilter_Score"] * 100.0
     logger.info(
         "[PIPELINE] Advanced filters applied without score-zeroing; total stocks: %d",
         len(ctx.results),
@@ -881,8 +880,7 @@ def _phase_score_and_filter(ctx: _PipelineContext) -> Optional[Dict[str, Any]]:
                     )
                     if details.get("passed"):
                         row = row.copy()
-                        row["FinalScore_20d"] = float(new_score)
-                        row["Score"] = float(new_score)
+                        row["Meteor_Score"] = float(new_score)
                         row["Meteor_Passed"] = True
                         row["Meteor_Reason"] = details.get("reason")
                         kept_rows.append(row)
@@ -1429,7 +1427,7 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
             mask = (
                 (sc >= float(SIGNAL_MIN_SCORE))
                 | (mlp >= float(ML_PROB_THRESHOLD))
-                | (patt.fillna(0.0) > 0.0)
+                | ((patt.fillna(0.0) > 0.0) & (sc >= float(PATTERN_MIN_SCORE)))
             )
             filtered = (
                 ctx.results[mask].copy() if isinstance(mask, pd.Series) else ctx.results.copy()

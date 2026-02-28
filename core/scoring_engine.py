@@ -100,18 +100,19 @@ def compute_final_score_20d(row: pd.Series) -> float:
         elif reliability < 60:
             delta *= 0.50  # medium-low reliability → half boost
 
-        # Pattern bonus: emphasize VCP/tight coiling (capped)
+        # Pattern bonus: additive VCP/coil bonus (reduced — VCP already contributes
+        # ~11 pts via TechScore_20d (TECH_WEIGHTS["vcp"]=0.25) + Coil_Bonus 1.25x amplifier)
         try:
             vcp = row.get("Volatility_Contraction_Score", 0.0)
             vcp = float(vcp) if np.isfinite(vcp) else 0.0
             tight_ratio = row.get("Tightness_Ratio", np.nan)
             bonus = 0.0
             if vcp > 0:
-                bonus += min(8.0, 8.0 * vcp)  # amplify VCP impact (up to +8)
+                bonus += min(3.0, 3.0 * vcp)  # reduced from +8 — avoids triple-counting
             if np.isfinite(tight_ratio) and tight_ratio < 0.6:
-                bonus += 3.0  # tighter coils get stronger boost
-            # Keep total pattern bonus bounded
-            bonus = float(np.clip(bonus, 0.0, 10.0))
+                bonus += 2.0  # reduced from +3 — tightness partly captured by VCP
+            # Local VCP/tightness cap
+            bonus = float(np.clip(bonus, 0.0, 5.0))
         except Exception:
             bonus = 0.0
 
@@ -133,8 +134,9 @@ def compute_final_score_20d(row: pd.Series) -> float:
         except Exception:
             pass
 
-        # Keep total bonus bounded
-        bonus = float(np.clip(bonus, 0.0, 15.0))
+        # Total bonus cap (VCP/tightness + pattern + BW) — reduced from 15 to
+        # prevent triple-counting inflation when VCP feeds through tech score too
+        bonus = float(np.clip(bonus, 0.0, 10.0))
 
         final_score = float(np.clip(base + delta + bonus, 0.0, 100.0))
 
