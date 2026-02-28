@@ -173,8 +173,19 @@ class RiskEngine:
                 risk_penalties.append("Low R/R")
                 active_filters.append("rr_penalty")
 
-        # Base conviction from model prediction probability
-        base_conviction = float(model_output.prediction_prob) * 100.0
+        # Base conviction: prefer composite FinalScore_20d (multi-factor, 0-100)
+        # over raw ML probability (AUC=0.554 ≈ random, outputs ~50-55).
+        # FinalScore_20d already incorporates momentum, R/R, reliability, and
+        # gated ML signal — much more reliable as a conviction base.
+        _fs = rm.get("FinalScore_20d")
+        try:
+            _fs_val = float(_fs) if _fs is not None else np.nan
+        except (TypeError, ValueError):
+            _fs_val = np.nan
+        if np.isfinite(_fs_val) and 0 <= _fs_val <= 100:
+            base_conviction = _fs_val
+        else:
+            base_conviction = float(model_output.prediction_prob) * 100.0
         # Apply penalties and earnings adjustment
         conviction = max(0.0, min(100.0, base_conviction - conviction_penalty + earnings_adjustment))
 

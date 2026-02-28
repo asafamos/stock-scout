@@ -1,15 +1,16 @@
-name: Weekly ML Training (20d)
+name: Nightly ML Training (20d)
 
-# Single consolidated training workflow - runs weekly to retrain ML model
-# with 500 tickers and 3 years of history from Polygon API (free tier: 5 req/min).
+# Nightly training workflow - retrains ML model with 500 tickers and
+# 3 years of history from Polygon API (free tier: 5 req/min).
+# Runs on weeknights (Mon-Fri) after market close.
 
 permissions:
   contents: write  # allow committing trained model back to repo
 
 on:
   schedule:
-    # Weekly on Sunday at 22:00 UTC (before Monday market open)
-    - cron: '0 22 * * 0'
+    # Nightly on weekdays at 22:00 UTC (after US market close)
+    - cron: '0 22 * * 1-5'
   workflow_dispatch: {}  # Manual trigger for testing
 
 jobs:

@@ -8,6 +8,7 @@ from datetime import datetime
 
 class Action(str, Enum):
     BUY = "BUY"
+    SELL = "SELL"          # Exit signal (stop, target, or expiry hit)
     HOLD = "HOLD"
     REDUCE = "REDUCE"
     LIQUIDATE = "LIQUIDATE"

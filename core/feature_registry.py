@@ -387,3 +387,39 @@ SUPPORTED_VERSIONS = ["v3", "v3.1", "v4"]
 
 # Current default version
 DEFAULT_VERSION = "v3.1"
+
+# =============================================================================
+# FEATURE IMPORTANCE ANALYSIS (v3.1, AUC=0.554)
+# Source: models/feature_importance_report.txt (permutation importance)
+# Features with negative importance actively hurt model performance.
+# Muting them at inference time neutralizes their harmful signal.
+# =============================================================================
+
+MUTED_FEATURES_V31: frozenset = frozenset({
+    "SMA50_vs_SMA200",       # -0.0236 (worst offender)
+    "RS_vs_SPY_60d",         # -0.0096
+    "Vol_Contraction_Ratio",  # -0.0091
+    "Dist_From_52w_High",    # -0.0066
+    "OvernightGap_Avg",      # -0.0062
+    "RS_Momentum",           # -0.0060
+    "Return_10d",            # -0.0041
+    "Price_vs_SMA200",       # -0.0027
+    "Return_5d",             # -0.0026
+    "Volume_Trend",          # -0.0020
+    "MA_Slope_20d",          # -0.0015
+    "Market_Regime",         # -0.0012
+    "MA_Alignment",          # -0.0007
+    "Range_Pct_10d",         # -0.0005
+    "RSI",                   # -0.0003
+    "Squeeze_On_Flag",       # -0.0001
+    "Relative_Volume_Rank",  # -0.0001
+})
+
+RECOMMENDED_FEATURES_V31: list = [
+    "Support_Strength", "Distance_From_52w_Low", "Consolidation_Tightness",
+    "Sector_Momentum", "Distance_To_Resistance", "RS_vs_SPY_20d",
+    "Return_20d", "Tightness_Ratio", "ATR_Pct", "Up_Volume_Ratio",
+    "Momentum_Consistency", "Sector_Rank", "VCP_Ratio", "Price_vs_SMA50",
+    "Days_Since_52w_High", "Sector_RS", "Up_Down_Volume_Ratio",
+    "Volume_Ratio_20d", "Volume_Surge", "Volume_Price_Confirm",
+]
