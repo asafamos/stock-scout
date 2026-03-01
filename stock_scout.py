@@ -688,8 +688,17 @@ if skip_pipeline:
     except Exception as exc:
         logger.debug(f"original_count fallback: {exc}")
         original_count = len(results)
-    st.info(f"**{len(results)} top candidates** from {original_count} stocks fully scanned")
-    st.caption("Includes: ML model, Technical scoring, Fundamental data, Risk assessment, Classification")
+    st.markdown(f"""
+    <div style="
+        display:flex; align-items:center; gap:8px;
+        padding:10px 16px; background:var(--ss-bg-surface);
+        border:1px solid var(--ss-border); border-radius:var(--ss-radius-md);
+        font-size:0.82rem; color:var(--ss-text-secondary); margin:8px 0; direction:ltr;
+    ">
+        <span style="width:8px;height:8px;border-radius:50%;background:var(--ss-green);flex-shrink:0;"></span>
+        <strong style="color:var(--ss-text-primary);">{len(results)} top candidates</strong> from {original_count} stocks fully scanned
+    </div>
+    """, unsafe_allow_html=True)
     
     t1_stage3 = time.perf_counter()
     logger.info(f"[PERF] Precomputed stage 3/10 (post-load to recommendations) time: {t1_stage3-t0_stage3:.3f}s")
@@ -741,7 +750,7 @@ else:
             logger.debug(f"Diagnostics payload extract failed: {exc}")
             diagnostics = {}
 
-        # Display meta prominently
+        # Display meta in collapsible section
         try:
             engine_version = meta.get("engine_version", "unknown")
             engine_mode = meta.get("engine_mode")
@@ -749,29 +758,27 @@ else:
             fb_reason = meta.get("fallback_reason")
             sources_used = meta.get("sources_used")
             run_ts = meta.get("run_timestamp_utc")
-            # Top banner
-            st.caption(f"Engine: {engine_version} · Run: {run_ts or 'n/a'}")
-            if engine_mode == "SIGNAL_ONLY":
-                st.caption("Signal-based scan (no allocation, no position sizing)")
             # Save mode for later UI decisions
             st.session_state["engine_mode"] = engine_mode
-            if sources_used:
-                try:
-                    # Universe provider
-                    src_line = sources_used.get("universe_provider") or sources_used
-                    st.caption(f"Universe Source: {src_line}")
-                    # Compact telemetry summary
-                    price_used = sorted(list((sources_used.get("price") or {}).keys()))
-                    fund_used = sorted(list((sources_used.get("fundamentals") or {}).keys()))
-                    fb_count = len(sources_used.get("fallback_events") or [])
-                    if price_used:
-                        st.caption(f"Price Providers: {', '.join(price_used)}")
-                    if fund_used:
-                        st.caption(f"Fund Providers: {', '.join(fund_used)}")
-                    if fb_count:
-                        st.caption(f"Fallback Events: {fb_count}")
-                except Exception as e:
-                    logger.debug("unknown: %s", e)
+            with st.expander("⚙️ Scan Metadata", expanded=False):
+                st.caption(f"Engine: {engine_version} · Run: {run_ts or 'n/a'}")
+                if engine_mode == "SIGNAL_ONLY":
+                    st.caption("Signal-based scan (no allocation, no position sizing)")
+                if sources_used:
+                    try:
+                        src_line = sources_used.get("universe_provider") or sources_used
+                        st.caption(f"Universe Source: {src_line}")
+                        price_used = sorted(list((sources_used.get("price") or {}).keys()))
+                        fund_used = sorted(list((sources_used.get("fundamentals") or {}).keys()))
+                        fb_count = len(sources_used.get("fallback_events") or [])
+                        if price_used:
+                            st.caption(f"Price Providers: {', '.join(price_used)}")
+                        if fund_used:
+                            st.caption(f"Fund Providers: {', '.join(fund_used)}")
+                        if fb_count:
+                            st.caption(f"Fallback Events: {fb_count}")
+                    except Exception as e:
+                        logger.debug("unknown: %s", e)
             # Show Tier 1 filtered reasons (diagnostics)
             try:
                 if diagnostics:
@@ -1310,7 +1317,7 @@ if st.session_state.get("precomputed_results") is not None and st.session_state.
         status_manager.set_progress(1.0)
     except Exception as e:
         logger.debug("unknown: %s", e)
-    st.info("⚡ Rendering using precomputed scan (no live pipeline run)")
+    logger.info("Rendering using precomputed scan (no live pipeline run)")
 
 # Note: Auto-save is now handled in the live pipeline section above
 # No need for manual save button - results are saved automatically
@@ -1331,8 +1338,13 @@ except Exception as e:
 
 
 
-st.subheader("📊 Market Scan Results")
-st.markdown('<p style="font-size:0.75rem; color:var(--ss-text-muted); margin:8px 0 0;">Signal candidates shown. This is not investment advice.</p>', unsafe_allow_html=True)
+st.markdown("""
+<div class="ss-section-header">
+  <div class="ss-icon" style="background: var(--ss-bg-badge);">📊</div>
+  <h2>Market Scan Results</h2>
+</div>
+""", unsafe_allow_html=True)
+st.markdown('<p style="font-size:0.72rem; color:var(--ss-text-muted); margin:-8px 0 12px; direction:ltr;">Signal candidates shown. This is not investment advice.</p>', unsafe_allow_html=True)
 
 # Sidebar filters
 # Sidebar removed - all controls moved to top bar above
@@ -1382,14 +1394,14 @@ logger.info(f"[FILTER] Final candidates after pipeline: {len(rec_df)} stocks (st
 
 ## Do not display local filtering removal captions
 
-# --- DEBUG: Show top 5 with canonical 20d ML columns ---
+# --- Top signal candidates summary (collapsible) ---
 if not rec_df.empty and "FinalScore_20d" in rec_df.columns:
     debug_cols = ["Ticker", "TechScore_20d", "ML_20d_Prob", "FinalScore_20d", "FinalScore"]
     available_debug_cols = [c for c in debug_cols if c in rec_df.columns]
     if available_debug_cols:
-        st.info("🔍 Top 5 signal candidates (20d ML scoring):")
-        top5_debug = rec_df.head(5)[available_debug_cols].copy()
-        st.dataframe(top5_debug, width='stretch', hide_index=True)
+        with st.expander("🔍 Top 5 Signal Candidates (20d ML Scoring)", expanded=False):
+            top5_debug = rec_df.head(5)[available_debug_cols].copy()
+            st.dataframe(top5_debug, width='stretch', hide_index=True)
 
 rec_df = rec_df.copy()
 
@@ -1561,7 +1573,7 @@ def calculate_targets(row):
     )
 
 
-"""Respect pipeline targets: only compute if missing."""
+# Respect pipeline targets: only compute if missing
 # Determine if targets already exist and are populated
 target_cols = ["Entry_Price", "Target_Price", "Stop_Loss"]
 has_target_cols = all(c in rec_df.columns for c in target_cols)

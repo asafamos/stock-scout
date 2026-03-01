@@ -149,6 +149,8 @@ input, textarea, code, pre,
 .ss-page-header {
     padding: 0 0 16px 0;
     margin-bottom: 8px;
+    text-align: center;
+    direction: ltr;
 }
 
 .ss-page-header h1 {
@@ -157,12 +159,14 @@ input, textarea, code, pre,
     letter-spacing: -0.02em;
     color: var(--ss-text-primary);
     margin: 0 0 4px 0;
+    text-align: center !important;
 }
 
 .ss-page-header .ss-subtitle {
     font-size: 0.875rem;
     color: var(--ss-text-muted);
     margin: 0;
+    text-align: center;
 }
 
 /* ---------- Section Headers ---------- */
@@ -173,6 +177,7 @@ input, textarea, code, pre,
     margin: 24px 0 16px 0;
     padding-bottom: 8px;
     border-bottom: 2px solid var(--ss-border);
+    direction: ltr;
 }
 
 .ss-section-header .ss-icon {
@@ -790,16 +795,19 @@ section[data-testid="stSidebar"] .stCaption, section[data-testid="stSidebar"] sm
     margin-bottom: 12px;
     border-bottom: 2px solid var(--ss-border);
     position: relative;
+    text-align: center;
+    direction: ltr;
 }
 
 .ss-page-header::before {
     content: "";
     position: absolute;
     bottom: -2px;
-    right: 0;
+    left: 50%;
+    transform: translateX(-50%);
     width: 120px;
     height: 2px;
-    background: linear-gradient(90deg, var(--ss-accent), transparent);
+    background: linear-gradient(90deg, transparent, var(--ss-accent), transparent);
     border-radius: 1px;
 }
 
@@ -810,33 +818,20 @@ section[data-testid="stSidebar"] .stCaption, section[data-testid="stSidebar"] sm
     color: var(--ss-text-primary) !important;
     margin: 0 0 6px 0 !important;
     line-height: 1.2;
+    text-align: center !important;
 }
 
 .ss-page-header .ss-subtitle {
     font-size: 0.82rem;
+    text-align: center;
     color: var(--ss-text-muted);
     margin: 0;
     font-weight: 500;
 }
 
-/* ---------- PROGRESS BAR — Custom Styled ---------- */
-div[data-testid="stProgress"] > div {
-    border-radius: var(--ss-radius-full) !important;
-    overflow: hidden;
-    height: 8px !important;
-    background: var(--ss-bar-bg) !important;
-}
-
-div[data-testid="stProgress"] > div > div {
-    background: linear-gradient(90deg, var(--ss-accent), #60a5fa, #a78bfa) !important;
-    border-radius: var(--ss-radius-full) !important;
-    transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1) !important;
-}
-
-/* Progress status text */
-div[data-testid="stProgress"] + div[data-testid="stMarkdownContainer"] strong {
-    color: var(--ss-accent) !important;
-    font-weight: 700;
+/* ---------- PROGRESS BAR — Hide native (we use custom HTML bar) ---------- */
+div[data-testid="stProgress"] {
+    display: none !important;
 }
 
 /* ---------- TABLES / DATAFRAMES — Modern ---------- */
