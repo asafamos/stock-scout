@@ -41,9 +41,11 @@ from core.ui_helpers import (
     SourcesOverview,
 )
 from core.market_regime import detect_market_regime, adjust_target_for_regime
+from core.auth import get_current_user, is_authenticated
 from core.scan_io import (
     load_latest_scan,
     load_precomputed_scan_with_fallback,
+    user_scan_dir,
     save_scan as save_scan_helper,
 )
 from core.pipeline_runner import (
@@ -176,6 +178,10 @@ st.set_page_config(
 from ui.design_system import get_design_css
 st.markdown(get_design_css(), unsafe_allow_html=True)
 
+# === User Identity (Google SSO on Streamlit Cloud, local fallback) ===
+_current_user = get_current_user()
+_user_id = _current_user["user_id"]
+
 st.markdown("""
 <div class="ss-page-header">
   <h1>📈 Stock Scout — 2026</h1>
@@ -190,17 +196,26 @@ st.session_state["USE_FINAL_SCORE_SORT"] = True
 
 # ==================== SIDEBAR: Scan History & ML Health ====================
 with st.sidebar:
-    st.markdown("""
+    _user_icon = "🔒" if is_authenticated() else "👤"
+    _user_display = _current_user["display_name"]
+    st.markdown(f"""
     <div style="text-align:center; padding: 8px 0 16px 0; margin-bottom: 8px;">
       <div style="font-size: 1.4rem; font-weight: 800; color: var(--ss-text-primary); letter-spacing: -0.02em;">📈 Stock Scout</div>
       <div style="font-size: 0.68rem; color: var(--ss-text-muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.06em;">2026 Edition</div>
+      <div style="font-size: 0.68rem; color: var(--ss-text-secondary); margin-top: 6px; font-weight: 600;">{_user_icon} {_user_display}</div>
     </div>
     """, unsafe_allow_html=True)
     st.markdown('<p style="font-size:0.78rem; font-weight:700; color:var(--ss-text-muted); text-transform:uppercase; letter-spacing:0.06em; margin:0 0 4px 0;">Scan History</p>', unsafe_allow_html=True)
     _scan_dir = Path(__file__).parent / "data" / "scans"
+    _user_scan_dir = user_scan_dir(_scan_dir, _user_id)
     try:
         _all_scans = []
-        for _pq in sorted(_scan_dir.glob("*.parquet"), key=lambda p: p.stat().st_mtime, reverse=True):
+        # Collect parquet files: user-specific dir first, then shared
+        _scan_files = []
+        if _user_scan_dir != _scan_dir and _user_scan_dir.is_dir():
+            _scan_files.extend(sorted(_user_scan_dir.glob("*.parquet"), key=lambda p: p.stat().st_mtime, reverse=True))
+        _scan_files.extend(sorted(_scan_dir.glob("*.parquet"), key=lambda p: p.stat().st_mtime, reverse=True))
+        for _pq in _scan_files:
             _meta_path = _pq.with_suffix(".json")
             _meta_info = {}
             if _meta_path.exists():
@@ -297,7 +312,7 @@ with st.sidebar:
     # ── Portfolio Summary ──────────────────────────────────────────
     st.markdown('<div style="height:1px; background:var(--ss-border); margin:14px 0;"></div>', unsafe_allow_html=True)
     try:
-        _pm_sidebar = get_portfolio_manager()
+        _pm_sidebar = get_portfolio_manager(_user_id)
         _pf_stats = _pm_sidebar.get_portfolio_stats()
         if _pf_stats.get("open_count", 0) > 0 or _pf_stats.get("closed_count", 0) > 0:
             st.markdown(render_portfolio_sidebar_summary(_pf_stats), unsafe_allow_html=True)
@@ -444,13 +459,14 @@ force_live_scan_once = st.session_state.get("force_live_scan_once", False)
 
 # scan_io already imported at top of file
 
-def save_latest_scan_from_results(results_df: pd.DataFrame, metadata: Optional[Dict] = None) -> None:
+def save_latest_scan_from_results(results_df: pd.DataFrame, metadata: Optional[Dict] = None, user_id: Optional[str] = None) -> None:
     """Helper to save scan results using scan_io.save_scan with proper paths.
-    Saves even empty DataFrames to avoid missing snapshot state."""
+    Saves even empty DataFrames to avoid missing snapshot state.
+    When *user_id* is provided, saves to user-specific subdirectory."""
     if results_df is None:
         logger.warning("Cannot save results: DataFrame is None")
         return
-    
+
     # Ensure parquet-safe types (convert complex objects to strings)
     results_to_save = results_df.copy()
     for col in results_to_save.columns:
@@ -460,8 +476,9 @@ def save_latest_scan_from_results(results_df: pd.DataFrame, metadata: Optional[D
                 if isinstance(v, (str, int, float, bool, np.bool_, np.integer, np.floating)) or v is None
                 else str(v)
             )
-    
-    output_dir = Path(__file__).parent / "data" / "scans"
+
+    base_dir = Path(__file__).parent / "data" / "scans"
+    output_dir = user_scan_dir(base_dir, user_id)
     output_dir.mkdir(parents=True, exist_ok=True)
     # Save live runs under a separate filename to avoid shadowing autoscan snapshots
     path_latest = output_dir / "latest_scan_live.parquet"
@@ -505,7 +522,7 @@ scan_dir = Path(__file__).parent / "data" / "scans"
 t0_precomputed = time.perf_counter()
 try:
     status_manager.update_detail("Loading precomputed scan from disk...")
-    precomputed_df, precomputed_meta, scan_path = _load_precomputed_scan_with_fallback(scan_dir)
+    precomputed_df, precomputed_meta, scan_path = _load_precomputed_scan_with_fallback(scan_dir, user_id=_user_id)
     t1_precomputed = time.perf_counter()
     load_time = t1_precomputed - t0_precomputed
     logger.info(f"[PERF] Precomputed scan load time: {load_time:.3f}s (path={scan_path})")
@@ -1245,7 +1262,7 @@ if is_live_scan and not results.empty:
             "total_tickers": len(results),  # Count AFTER sector cap
             "sector_cap_applied": True,
         }
-        save_latest_scan_from_results(results, metadata=meta_final)
+        save_latest_scan_from_results(results, metadata=meta_final, user_id=_user_id)
         # Also update session state with the final filtered results
         st.session_state["precomputed_results"] = results.copy()
         logger.info(f"✅ Saved FINAL results after sector cap: {len(results)} tickers")
@@ -1874,7 +1891,7 @@ else:
     )
     # Portfolio manager — pre-fetch portfolio tickers (single DB query)
     try:
-        _pm = get_portfolio_manager()
+        _pm = get_portfolio_manager(_user_id)
         _portfolio_tickers = _pm.get_portfolio_tickers()
     except Exception:
         _pm = None
@@ -2193,7 +2210,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 try:
-    _pm_section = get_portfolio_manager()
+    _pm_section = get_portfolio_manager(_user_id)
     _open_positions = _pm_section.get_open_positions()
 
     if _open_positions.empty:

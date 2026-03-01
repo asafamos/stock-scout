@@ -221,10 +221,27 @@ def get_scan_summary(results_df: pd.DataFrame) -> Dict[str, Any]:
 # Precomputed scan loader with fallback (moved from stock_scout.py)
 # ---------------------------------------------------------------------------
 
+def user_scan_dir(scan_dir: Path, user_id: Optional[str] = None) -> Path:
+    """Return the scan directory for a specific user.
+
+    If *user_id* is ``None`` or ``"local"`` the shared *scan_dir* is returned.
+    Otherwise ``scan_dir / user_id`` is returned (and created if needed).
+    """
+    if not user_id or user_id in ("local", "default"):
+        return Path(scan_dir)
+    user_dir = Path(scan_dir) / user_id
+    user_dir.mkdir(parents=True, exist_ok=True)
+    return user_dir
+
+
 def load_precomputed_scan_with_fallback(
     scan_dir,
+    user_id: Optional[str] = None,
 ) -> Tuple[Optional[pd.DataFrame], Optional[Dict[str, Any]], Path]:
     """Load the freshest available snapshot from *scan_dir*.
+
+    When *user_id* is provided, searches the user's subdirectory first,
+    then falls back to the shared *scan_dir* (for CI baseline scans).
 
     Considers:
       - Any ``latest_scan*.parquet`` (including ``latest_scan_live.parquet``)
@@ -268,28 +285,38 @@ def load_precomputed_scan_with_fallback(
         )
         return df, meta, ts_effective
 
-    latest_candidates = sorted(scan_dir.glob("latest_scan*.parquet"))
+    # Build list of directories to search: user-specific first, then shared
+    search_dirs = []
+    if user_id and user_id not in ("local", "default"):
+        u_dir = scan_dir / user_id
+        if u_dir.is_dir():
+            search_dirs.append(u_dir)
+    search_dirs.append(scan_dir)  # shared / CI baseline always last
+
     best_df, best_meta, best_ts, best_path = None, None, None, None
 
-    for candidate_path in latest_candidates:
-        if candidate_path.exists():
-            df_c, meta_c, ts_c = _load(candidate_path)
-            if df_c is not None and meta_c is not None:
-                if best_ts is None or (ts_c and ts_c > best_ts):
-                    best_df, best_meta, best_ts, best_path = (
-                        df_c, meta_c, ts_c, candidate_path
-                    )
+    for s_dir in search_dirs:
+        latest_candidates = sorted(s_dir.glob("latest_scan*.parquet"))
+        for candidate_path in latest_candidates:
+            if candidate_path.exists():
+                df_c, meta_c, ts_c = _load(candidate_path)
+                if df_c is not None and meta_c is not None:
+                    if best_ts is None or (ts_c and ts_c > best_ts):
+                        best_df, best_meta, best_ts, best_path = (
+                            df_c, meta_c, ts_c, candidate_path
+                        )
 
     if best_df is not None and best_meta is not None:
         return best_df, best_meta, best_path
 
-    # Fallback: pick newest timestamped backup
-    candidates = sorted(scan_dir.glob("scan_*.parquet"), reverse=True)
-    for candidate in candidates:
-        df_cand, meta_cand = load_latest_scan(candidate)
-        if df_cand is not None and meta_cand is not None:
-            meta_cand.setdefault("timestamp", candidate.stem.replace("scan_", ""))
-            meta_cand.setdefault("total_tickers", len(df_cand))
-            return df_cand, meta_cand, candidate
+    # Fallback: pick newest timestamped backup (search all dirs)
+    for s_dir in search_dirs:
+        candidates = sorted(s_dir.glob("scan_*.parquet"), reverse=True)
+        for candidate in candidates:
+            df_cand, meta_cand = load_latest_scan(candidate)
+            if df_cand is not None and meta_cand is not None:
+                meta_cand.setdefault("timestamp", candidate.stem.replace("scan_", ""))
+                meta_cand.setdefault("total_tickers", len(df_cand))
+                return df_cand, meta_cand, candidate
 
     return None, None, (scan_dir / "latest_scan.parquet")

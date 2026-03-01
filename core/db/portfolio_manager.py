@@ -35,20 +35,23 @@ DEFAULT_USER = "default"
 DEFAULT_SHARES = 100
 
 # ---------------------------------------------------------------------------
-# Singleton
+# Per-user instance cache (thread-safe)
 # ---------------------------------------------------------------------------
-_PM_SINGLETON: Optional["PortfolioManager"] = None
+_PM_INSTANCES: Dict[str, "PortfolioManager"] = {}
 _PM_LOCK = threading.Lock()
 
 
 def get_portfolio_manager(user_id: str = DEFAULT_USER) -> "PortfolioManager":
-    """Return (and lazily create) the global PortfolioManager singleton."""
-    global _PM_SINGLETON
-    if _PM_SINGLETON is None:
+    """Return (and lazily create) a PortfolioManager for *user_id*.
+
+    Instances are cached in a dict keyed by user_id so each user gets their
+    own manager instance with the correct user_id for DB queries.
+    """
+    if user_id not in _PM_INSTANCES:
         with _PM_LOCK:
-            if _PM_SINGLETON is None:
-                _PM_SINGLETON = PortfolioManager(get_scan_store(), user_id)
-    return _PM_SINGLETON
+            if user_id not in _PM_INSTANCES:
+                _PM_INSTANCES[user_id] = PortfolioManager(get_scan_store(), user_id)
+    return _PM_INSTANCES[user_id]
 
 
 # ---------------------------------------------------------------------------
