@@ -1937,6 +1937,31 @@ else:
         except Exception as e:
             st.toast(f"Could not add: {e}", icon="⚠️")
 
+    # "Add All" button — batch-add all recommendations not already in portfolio
+    if _pm is not None:
+        _not_in_pf = [
+            r for _, r in sorted_df.iterrows()
+            if str(r.get("Ticker", r.get("ticker", ""))) not in _portfolio_tickers
+            and str(r.get("Ticker", r.get("ticker", "")))
+        ]
+        if _not_in_pf:
+            if st.button(
+                f"＋ Add All ({len(_not_in_pf)}) to Portfolio",
+                key="pf_add_all",
+                use_container_width=True,
+                type="primary",
+            ):
+                _added = 0
+                for r_row in _not_in_pf:
+                    try:
+                        _add_to_portfolio(r_row, _pm)
+                        _added += 1
+                    except Exception:
+                        pass
+                if _added:
+                    st.toast(f"Added {_added} stocks to portfolio", icon="✅")
+                st.rerun()
+
     for rank, (idx, r) in enumerate(sorted_df.iterrows(), 1):
         card_html = render_stock_card(r, rank=rank, score_label=score_label)
         st.markdown(card_html, unsafe_allow_html=True)
