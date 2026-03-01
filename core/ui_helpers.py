@@ -22,7 +22,6 @@ class StatusManager:
         self.stages = stages
         self.current_stage = 0
         self._container = st.empty()
-        self._details = st.empty()
 
         # Timing instrumentation
         self._stage_times: Dict[str, float] = {}  # stage_name -> duration (seconds)
@@ -105,12 +104,15 @@ class StatusManager:
         if self.current_stage <= len(self.stages):
             self._stage_start_times[stage_name] = time.perf_counter()
 
-        if detail:
-            self._details.caption(detail)
+        # Detail caption removed — bar already shows stage name
 
     def update_detail(self, message: str) -> None:
-        """Update detail message without advancing stage."""
-        self._details.caption(message)
+        """Update detail message without advancing stage.
+
+        Note: caption display disabled per user request (bar shows stage name).
+        Kept for backward compatibility — callers can still call this safely.
+        """
+        pass  # Bar already shows stage name; no separate caption needed
 
     def complete(self, message: str = "Pipeline complete") -> None:
         """Mark pipeline as complete, recording final stage timing."""
@@ -122,7 +124,6 @@ class StatusManager:
                 self._stage_times[last_stage_name] = elapsed
 
         self._render_bar(1.0, message, len(self.stages))
-        self._details.empty()
 
     def set_progress(self, value: float, label: Optional[str] = None) -> None:
         """Explicitly set progress value (0.0-1.0) and optional label.

@@ -1393,26 +1393,19 @@ compact_mode = False
 initial_rec_count = len(results)
 rec_df = results.copy()
 
-## Do not apply local thresholds or filters; pipeline output is authoritative
-
-## Skip risk/quality/sector/action filtering in UI
+# ── Post-load data normalization (fixes for old precomputed scans) ──────────
+# Copy lowercase fundamental columns to uppercase if uppercase is empty/missing
+_fund_norm = {"roe": "ROE", "pe": "PE_Ratio", "beta": "Beta", "sector": "Sector"}
+for _src, _dst in _fund_norm.items():
+    if _src in rec_df.columns:
+        if _dst in rec_df.columns:
+            _mask = rec_df[_dst].isna() & rec_df[_src].notna()
+            if _mask.any():
+                rec_df.loc[_mask, _dst] = rec_df.loc[_mask, _src]
+        else:
+            rec_df[_dst] = rec_df[_src]
 
 logger.info(f"[FILTER] Final candidates after pipeline: {len(rec_df)} stocks (started with {initial_rec_count})")
-
-## Do not reshuffle candidates; display pipeline order and content only
-
-## Remove pass/fail metrics derived from local thresholds
-
-## Do not display local filtering removal captions
-
-# --- Top signal candidates summary (collapsible) ---
-if not rec_df.empty and "FinalScore_20d" in rec_df.columns:
-    debug_cols = ["Ticker", "TechScore_20d", "ML_20d_Prob", "FinalScore_20d", "FinalScore"]
-    available_debug_cols = [c for c in debug_cols if c in rec_df.columns]
-    if available_debug_cols:
-        with st.expander("🔍 Top 5 Signal Candidates (20d ML Scoring)", expanded=False):
-            top5_debug = rec_df.head(5)[available_debug_cols].copy()
-            st.dataframe(top5_debug, width='stretch', hide_index=True)
 
 rec_df = rec_df.copy()
 
@@ -1620,6 +1613,39 @@ if not has_any_targets:
 else:
     logger.info(f"Using pipeline targets for {len(rec_df)} stocks")
 
+# ── Ensure per-stock Target_Date and Holding_Days exist ────────────────────
+# Old precomputed scans may lack these columns; compute them post-load.
+if not rec_df.empty:
+    _need_holding = "Holding_Days" not in rec_df.columns or rec_df["Holding_Days"].isna().all()
+    _need_target_dt = "Target_Date" not in rec_df.columns or rec_df["Target_Date"].isna().all()
+    # Also check if all Target_Date values are identical (old bug)
+    if not _need_target_dt and "Target_Date" in rec_df.columns:
+        _td_unique = rec_df["Target_Date"].dropna().nunique()
+        if _td_unique <= 1 and len(rec_df) > 1:
+            _need_target_dt = True
+
+    if _need_holding:
+        if "ATR_Pct" in rec_df.columns:
+            _med_atr = float(rec_df["ATR_Pct"].dropna().median()) if rec_df["ATR_Pct"].notna().any() else 0.025
+            def _ui_holding(row):
+                atr = row.get("ATR_Pct", _med_atr)
+                if not isinstance(atr, (int, float)) or pd.isna(atr) or atr <= 0:
+                    atr = _med_atr
+                if atr < 0.015: return 28
+                if atr < 0.025: return 22
+                if atr < 0.04: return 18
+                return 12
+            rec_df["Holding_Days"] = rec_df.apply(_ui_holding, axis=1)
+        else:
+            rec_df["Holding_Days"] = 20
+        logger.info("[POST-LOAD] Computed per-stock Holding_Days from ATR")
+
+    if _need_target_dt:
+        _now = pd.Timestamp.now()
+        rec_df["Target_Date"] = rec_df.apply(
+            lambda r: (_now + pd.offsets.BDay(int(r.get("Holding_Days", 20)))).strftime("%Y-%m-%d"), axis=1
+        )
+        logger.info("[POST-LOAD] Computed per-stock Target_Date from Holding_Days")
 
 # _calculate_rr_with_fallback removed — use calculate_rr directly from core.risk
 _calculate_rr_with_fallback = calculate_rr  # alias kept for existing callsites
