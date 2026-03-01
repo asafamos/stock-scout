@@ -1978,96 +1978,29 @@ else:
 
     # Export section (single, unified)
 show_order = [
+    # --- Core identification ---
     "Ticker",
+    "Sector",
+    # --- Scores (single canonical column each) ---
+    "FinalScore_20d",
     "TechScore_20d",
     "ML_20d_Prob",
-    "ML_Features_Fallback",
-    "FinalScore_20d",
-    "FinalScore",
-    "overall_score_20d",  # 20-day conviction score
-    "Sector",
+    "overall_score_20d",
+    # --- Risk & Reliability ---
     "Risk Level",
+    "Reliability_Band",
+    "Risk_Band",
     "Data Quality",
-    "ML Probability",
-    "ML Confidence",
-    "Confidence Level",
-    "Reliability Score",
-    "reliability_v2",  # raw V2 reliability (0-100)
-    "Fund Reliability",
-    "Price Reliability",
-    "Fundamental_Reliability_v2",  # New multi-source fund reliability
-    "Price_Reliability_v2",  # New multi-source price reliability
-    "fund_sources_used_v2",  # Number of fundamental sources
-    "price_sources_used_v2",  # Number of price sources
-    "fund_disagreement_score_v2",  # Disagreement between sources
-    "price_variance_score_v2",  # Price variance ratio
-    "fund_coverage_pct_v2",  # Field coverage percentage
-    "Price_Mean_v2",  # Multi-source mean price
-    "Price_STD_v2",  # Multi-source price std deviation
-    "Sources Count",
-    "risk_gate_status_v2",  # blocked / severely_reduced / reduced / full
-    "risk_gate_penalty_v2",
-    "reliability_score_v2",
-    "Score",
-    "overall_score",
-    "overall_score_raw",  # True model score (internal logic)
-    "overall_score_pretty",  # Display score (60-90 range)
-    "reliability_pct",  # Reliability percentage (0-100)
-    "reliability_band",  # High/Medium/Low
-    "risk_band",  # Low/Medium/High/Very High
-    "ml_conf_band",  # ML confidence band (Low/Medium/High)
-    "fund_score",
-    "tech_score",
-    "rr_score",
-    "reliability_score",
-    "ml_delta",
-    "conviction_v2_base",
-    "conviction_v2_final",
-    "ml_boost_v2",
-    "reward_risk_v2",
-    # Human-friendly V2 export labels (also include raw keys above for robustness)
-    "Conviction v2 Base",
-    "Conviction v2 Final",
-    "Reliability Score v2",
-    "Risk Gate Status v2",
-    "Risk Gate Reason v2",
-    "Reward/Risk v2",
-    "Buy Amount v2",
-    "Shares to Buy v2",
-    "Fund Sources Used",
-    "Price Sources Used",
-    "Fund Disagreement Score",
-    "Price Variance Score",
-    "Quality Score",
-    "Average Price",
-    "Unit Price (calc)",
+    # --- Prices & Targets ---
+    "Entry_Price",
+    "Target_Price",
+    "Stop_Loss",
+    "Reward/Risk (≈R)",
+    # --- Buy sizing ---
     "Buy Amount ($)",
-    "buy_amount_v2",  # v2 raw dollar amount pre-hebrew mapping
     "Shares to Buy",
     "Leftover ($)",
-    "Price Sources",
-    "Price Marketstack",
-    "Price NasdaqDL",
-    "Price EODHD",
-    "Tech Score",
-    "Fundamental Score",
-    "RSI",
-    "Blended_RS_Value",
-    "Tightness_Ratio",
-    "Growth_Boost",
-    "MarketCap_B",
-    "Market vs (3M) (%)",
-    "Volume Surge (x)",
-    "MA Aligned",
-    "Risk/Reward",
-    "Momentum Consistency (%)",
-    "Near 52w High (%)",
-    "Volume / 20d Avg",
-    "Overextension vs MA_L",
-    "ATR/Price",
-    "Reward/Risk (≈R)",
-    "Beta",
-    "Holding Horizon",
+    # --- Fundamentals ---
     "P/E",
     "P/S",
     "ROE",
@@ -2076,22 +2009,39 @@ show_order = [
     "Debt/Equity",
     "Revenue YoY",
     "EPS YoY",
-    # NEW FIELDS (2025 improvements)
+    "MarketCap_B",
+    # --- Technical ---
+    "RSI",
+    "Blended_RS_Value",
+    "Tightness_Ratio",
+    "Volume Surge (x)",
+    "MA Aligned",
+    "Momentum Consistency (%)",
+    "Near 52w High (%)",
+    "ATR/Price",
+    "Beta",
+    # --- Holding ---
+    "Holding Horizon",
+    "Target_Date",
+    "Holding_Days",
+    # --- Market context ---
     "Market_Regime",
     "Regime_Confidence",
-    "Reliability_Band",
-    "Reliability_Components",
-    "Risk_Band",
+    # --- Reliability detail (full export) ---
     "Fund_Coverage_Pct",
+    "Fundamental_Reliability_v2",
+    "Price_Reliability_v2",
+    "fund_sources_used_v2",
+    "price_sources_used_v2",
+    # --- ML detail (full export) ---
+    "ML_Features_Fallback",
+    "ML_20d_Prob_raw",
+    "ml_delta",
+    # --- Safety ---
+    "risk_gate_status_v2",
     "Volatility_Penalty",
     "Safety_Caps_Applied",
-    # ML live_v3 debug columns
-    "ML_20d_Prob_live_v3",
-    "ML_20d_Prob_raw",
-    "TechScore_20d_v2",
-    "ATR_Pct_percentile",
     "Price_As_Of_Date",
-    "ReliabilityFactor",
 ]
 # --- Hebrew column mapping for CSV export ---
 hebrew_cols = {
@@ -2183,7 +2133,10 @@ for c in show_order:
 
 lean_export_fields = [
     c for c in cols_for_export if c in {
-        "Ticker","Score","Overall_Rank","Rank","Entry_Price","Target_Price","RR","Risk_Level","Reliability_Band","Market_Regime","Regime_Confidence","Fundamental_S","Technical_S"
+        "Ticker", "Sector", "FinalScore_20d", "Entry_Price", "Target_Price",
+        "Stop_Loss", "Reward/Risk (≈R)", "Risk Level", "Reliability_Band",
+        "Buy Amount ($)", "Shares to Buy", "Market_Regime",
+        "P/E", "ROE", "MarketCap_B", "RSI", "Holding_Days",
     }
 ]
 full_export_fields = cols_for_export  # preserve full order

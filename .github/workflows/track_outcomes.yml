@@ -20,6 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
+      PYTHONPATH: ${{ github.workspace }}
       FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
       POLYGON_API_KEY: ${{ secrets.POLYGON_API_KEY }}
 
@@ -58,5 +59,6 @@ jobs:
             echo "No changes to commit."
           else
             git commit -m "Update outcome tracking $(date +%Y-%m-%d) [skip ci]"
+            git pull --rebase origin main || true
             git push
           fi

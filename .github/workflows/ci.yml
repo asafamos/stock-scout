@@ -1,15 +1,21 @@
-name: CI
+name: CI Tests
+
+permissions:
+  contents: read
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 10  # Fast tests only
+    timeout-minutes: 10
+    env:
+      PYTHONPATH: ${{ github.workspace }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,8 +33,7 @@ jobs:
           pip install pytest pytest-timeout
 
       - name: Pytest sanity
-        run: |
-          python -c "import pytest, sys; print('pytest ok')"
+        run: python -c "import pytest, sys; print('pytest ok')"
 
       - name: Pytest discovery
         run: |
@@ -39,7 +44,6 @@ jobs:
 
       - name: Run fast unit tests (no API calls)
         run: |
-          # Run only pure unit tests that don't require external API calls
           pytest -q -x --timeout=30 \
             tests/test_pure_functions.py \
             tests/test_allocate.py \
@@ -51,10 +55,10 @@ jobs:
       - name: Verify core imports
         run: |
           python -c "
-from core.config import get_config
-from core.data import fetch_price_multi_source
-from core.scoring import compute_technical_score
-from core.price_verify import fetch_prices_for_ticker
-from app_config import CONFIG
-print('✓ All core imports verified')
+          from core.config import get_config
+          from core.data import fetch_price_multi_source
+          from core.scoring import compute_technical_score
+          from core.price_verify import fetch_prices_for_ticker
+          from app_config import CONFIG
+          print('All core imports verified')
           "

@@ -25,6 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
+      PYTHONPATH: ${{ github.workspace }}
       FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
       POLYGON_API_KEY: ${{ secrets.POLYGON_API_KEY }}
       FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
@@ -117,6 +118,8 @@ jobs:
             echo "No changes to commit."
           else
             git commit -m "Auto scan results $(date +%Y-%m-%d) [skip ci]"
+            # Pull with rebase to handle concurrent pushes from other workflows
+            git pull --rebase origin main || true
             git push
           fi
 
