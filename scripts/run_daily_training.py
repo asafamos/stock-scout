@@ -1,3 +1,4 @@
+import sys
 from scripts.train_rolling_ml_20d import train_and_save_bundle
 
 if __name__ == "__main__":
@@ -6,4 +7,5 @@ if __name__ == "__main__":
         print("✓ Trained and saved:", path)
         print("Metrics:", bundle.get("metrics", {}))
     except Exception as e:
-        print("✗ Training skipped/failed:", e)
+        print(f"✗ Training FAILED: {e}", file=sys.stderr)
+        sys.exit(1)  # Non-zero exit so GitHub Actions knows it failed

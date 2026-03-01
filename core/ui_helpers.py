@@ -12,24 +12,76 @@ import streamlit as st
 
 class StatusManager:
     """Centralized status and progress management with performance instrumentation."""
-    
+
     def __init__(self, stages: list[str]):
         """Initialize with predefined pipeline stages.
-        
+
         Args:
             stages: List of stage names in order
         """
         self.stages = stages
         self.current_stage = 0
-        self._progress = st.progress(0.0)
-        self._status = st.empty()
+        self._container = st.empty()
         self._details = st.empty()
-        
+
         # Timing instrumentation
         self._stage_times: Dict[str, float] = {}  # stage_name -> duration (seconds)
         self._stage_start_times: Dict[str, float] = {}  # stage_name -> start time (perf_counter)
         self._total_start = time.perf_counter()
-        
+
+        # Render initial empty state
+        self._render_bar(0.0, "Initializing...", 0)
+
+    def _render_bar(self, progress: float, stage_name: str, stage_num: int) -> None:
+        """Render the custom progress bar matching recommendation card score bars."""
+        pct = int(progress * 100)
+        # Color gradient based on progress
+        if pct >= 100:
+            bar_gradient = "linear-gradient(90deg, #10b981, #34d399)"
+            pct_color = "#10b981"
+        elif pct >= 50:
+            bar_gradient = "linear-gradient(90deg, #3b82f6, #60a5fa, #a78bfa)"
+            pct_color = "#3b82f6"
+        else:
+            bar_gradient = "linear-gradient(90deg, #6366f1, #818cf8)"
+            pct_color = "#6366f1"
+
+        total = len(self.stages)
+        self._container.markdown(f"""
+        <div style="
+            background: var(--ss-bg-card, #fff);
+            border: 1px solid var(--ss-border, #e2e8f0);
+            border-radius: var(--ss-radius-md, 12px);
+            padding: 14px 18px;
+            margin: 8px 0;
+            box-shadow: var(--ss-shadow-sm, 0 1px 3px rgba(0,0,0,0.06));
+            direction: ltr;
+        ">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
+                <span style="font-size:0.82rem; font-weight:600; color:var(--ss-text-primary, #0f172a);">{stage_name}</span>
+                <span style="font-size:0.82rem; font-weight:800; font-family:var(--ss-mono, monospace); color:{pct_color};">{pct}%</span>
+            </div>
+            <div style="
+                height: 10px;
+                background: var(--ss-bar-bg, #e2e8f0);
+                border-radius: 5px;
+                overflow: hidden;
+            ">
+                <div style="
+                    width: {pct}%;
+                    height: 100%;
+                    background: {bar_gradient};
+                    border-radius: 5px;
+                    transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+                "></div>
+            </div>
+            <div style="display:flex; justify-content:space-between; margin-top:6px;">
+                <span style="font-size:0.7rem; color:var(--ss-text-muted, #94a3b8);">Step {stage_num}/{total}</span>
+                <span style="font-size:0.7rem; color:var(--ss-text-muted, #94a3b8);">{'🔄 Running...' if pct < 100 else '✅ Complete'}</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
     def advance(self, detail: str = "") -> None:
         """Advance to next stage with optional detail message."""
         # Record end time of previous stage if it was started
@@ -38,26 +90,25 @@ class StatusManager:
             if prev_stage_name in self._stage_start_times:
                 elapsed = time.perf_counter() - self._stage_start_times[prev_stage_name]
                 self._stage_times[prev_stage_name] = elapsed
-        
+
         self.current_stage += 1
         progress = min(self.current_stage / len(self.stages), 1.0)
-        self._progress.progress(progress)
-        
+
         stage_name = self.stages[self.current_stage - 1] if self.current_stage <= len(self.stages) else "Complete"
-        self._status.markdown(f"**Stage {self.current_stage}/{len(self.stages)}:** {stage_name}")
-        
+        self._render_bar(progress, stage_name, self.current_stage)
+
         # Record start time for new stage
         if self.current_stage <= len(self.stages):
             self._stage_start_times[stage_name] = time.perf_counter()
-        
+
         if detail:
             self._details.caption(detail)
-    
+
     def update_detail(self, message: str) -> None:
         """Update detail message without advancing stage."""
         self._details.caption(message)
-    
-    def complete(self, message: str = "✅ Pipeline complete") -> None:
+
+    def complete(self, message: str = "Pipeline complete") -> None:
         """Mark pipeline as complete, recording final stage timing."""
         # Record end time of last active stage
         if self.current_stage > 0:
@@ -65,9 +116,8 @@ class StatusManager:
             if last_stage_name and last_stage_name in self._stage_start_times:
                 elapsed = time.perf_counter() - self._stage_start_times[last_stage_name]
                 self._stage_times[last_stage_name] = elapsed
-        
-        self._progress.progress(1.0)
-        self._status.success(message)
+
+        self._render_bar(1.0, message, len(self.stages))
         self._details.empty()
 
     def set_progress(self, value: float, label: Optional[str] = None) -> None:
@@ -76,9 +126,8 @@ class StatusManager:
         """
         try:
             v = float(max(0.0, min(1.0, value)))
-            self._progress.progress(v)
-            if label:
-                self._status.markdown(label)
+            stage_name = label or (self.stages[self.current_stage - 1] if self.current_stage > 0 else "Loading...")
+            self._render_bar(v, stage_name, self.current_stage)
         except Exception:
             pass
     

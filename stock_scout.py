@@ -171,7 +171,7 @@ st.markdown(get_design_css(), unsafe_allow_html=True)
 st.markdown("""
 <div class="ss-page-header">
   <h1>📈 Stock Scout — 2026</h1>
-  <p class="ss-subtitle">Real-time stock scanner &amp; ML-powered recommendations &nbsp;|&nbsp; Research only, not investment advice</p>
+  <p class="ss-subtitle">ML-powered stock scanner &amp; swing-trade recommendations &nbsp;·&nbsp; 20-day horizon &nbsp;·&nbsp; Research only</p>
 </div>
 """, unsafe_allow_html=True)
 st.session_state["enable_openai_targets"] = False
@@ -182,7 +182,13 @@ st.session_state["USE_FINAL_SCORE_SORT"] = True
 
 # ==================== SIDEBAR: Scan History & ML Health ====================
 with st.sidebar:
-    st.header("📁 Scan History")
+    st.markdown("""
+    <div style="text-align:center; padding: 8px 0 16px 0; margin-bottom: 8px;">
+      <div style="font-size: 1.4rem; font-weight: 800; color: var(--ss-text-primary); letter-spacing: -0.02em;">📈 Stock Scout</div>
+      <div style="font-size: 0.68rem; color: var(--ss-text-muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.06em;">2026 Edition</div>
+    </div>
+    """, unsafe_allow_html=True)
+    st.markdown('<p style="font-size:0.78rem; font-weight:700; color:var(--ss-text-muted); text-transform:uppercase; letter-spacing:0.06em; margin:0 0 4px 0;">Scan History</p>', unsafe_allow_html=True)
     _scan_dir = Path(__file__).parent / "data" / "scans"
     try:
         _all_scans = []
@@ -223,6 +229,7 @@ with st.sidebar:
                 range(len(_all_scans)),
                 format_func=lambda i: f"{_all_scans[i]['timestamp']} ({_all_scans[i]['count']} results, {_all_scans[i]['source']})",
                 key="scan_history_select",
+                label_visibility="collapsed",
             )
             if st.button("Load this scan", key="load_historical_scan"):
                 try:
@@ -240,9 +247,9 @@ with st.sidebar:
     except Exception as _scan_hist_e:
         st.caption(f"History error: {_scan_hist_e}")
 
-    st.markdown("---")
+    st.markdown('<div style="height:1px; background:var(--ss-border); margin:14px 0;"></div>', unsafe_allow_html=True)
     # ML Model Health
-    st.header("🤖 ML Model Health")
+    st.markdown('<p style="font-size:0.82rem; font-weight:700; color:var(--ss-text-muted); text-transform:uppercase; letter-spacing:0.06em; margin:0 0 8px 0;">ML Model</p>', unsafe_allow_html=True)
     try:
         import json as _json_ml
         _ml_meta_path = Path(__file__).parent / "ml" / "bundles" / "latest" / "metadata.json"
@@ -251,20 +258,33 @@ with st.sidebar:
             _auc = _ml_meta.get("metrics", {}).get("oos_auc", 0)
             _features = len(_ml_meta.get("feature_list", []))
             _ver = _ml_meta.get("feature_version", "?")
-            _auc_color = "🟢" if _auc >= 0.60 else ("🟡" if _auc >= 0.55 else "🔴")
-            st.metric("AUC (OOS)", f"{_auc:.3f} {_auc_color}")
             _ver_display = _ver if _ver.startswith("v") else f"v{_ver}"
-            st.metric("Features", f"({_ver_display}) {_features}")
             _trained = _ml_meta.get("training_timestamp_utc", "?")
-            st.caption(f"Trained: {_trained[:10] if len(str(_trained)) >= 10 else _trained}")
+            _trained_short = _trained[:10] if len(str(_trained)) >= 10 else _trained
+            _auc_icon = "🟢" if _auc >= 0.60 else ("🟡" if _auc >= 0.55 else "🔴")
+            _auc_pct = min(_auc * 100, 100)
+            _bar_color = "#22c55e" if _auc >= 0.60 else ("#eab308" if _auc >= 0.55 else "#ef4444")
+            st.markdown(f"""
+            <div style="background:var(--ss-bg-surface); border-radius:var(--ss-radius-md); padding:14px; border:1px solid var(--ss-border); margin-bottom:8px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <span style="font-size:0.72rem; font-weight:600; color:var(--ss-text-muted); text-transform:uppercase; letter-spacing:0.04em;">AUC Score</span>
+                <span style="font-size:1.1rem; font-weight:800; font-family:var(--ss-mono); color:var(--ss-text-primary);">{_auc:.3f} {_auc_icon}</span>
+              </div>
+              <div style="height:6px; background:var(--ss-bar-bg); border-radius:3px; overflow:hidden;">
+                <div style="width:{_auc_pct}%; height:100%; background:{_bar_color}; border-radius:3px;"></div>
+              </div>
+              <div style="display:flex; justify-content:space-between; margin-top:10px; font-size:0.72rem; color:var(--ss-text-muted);">
+                <span>Features: <strong style="color:var(--ss-text-primary);">{_features} ({_ver_display})</strong></span>
+                <span>{_trained_short}</span>
+              </div>
+            </div>
+            """, unsafe_allow_html=True)
             if _auc < 0.56:
                 st.warning("ML weight reduced (circuit breaker active)")
         else:
             st.caption("ML model not found")
     except Exception as _ml_e:
         st.caption(f"ML info unavailable: {_ml_e}")
-
-st.markdown("---")
 
 
 
@@ -362,8 +382,6 @@ if "av_calls" not in st.session_state:
     st.session_state.av_calls = 0
 
 # ==================== DATA SOURCE MODE ====================
-st.markdown("---")
-st.markdown("### Data Mode")
 
 # One-shot Live Scan button:
 # - By default, the app prefers precomputed scan (if it exists).
@@ -594,8 +612,12 @@ else:
 st.session_state["force_live_scan_once"] = False
 
 # ==================== MAIN PIPELINE ====================
-st.markdown("---")
-st.markdown("### 🚀 Pipeline Execution")
+st.markdown("""
+<div class="ss-section-header">
+  <div class="ss-icon" style="background: var(--ss-bg-badge);">🚀</div>
+  <h2>Pipeline Execution</h2>
+</div>
+""", unsafe_allow_html=True)
 
 # Check if we should skip pipeline (precomputed mode)
 skip_pipeline = st.session_state.get("skip_pipeline", False) and use_precomputed
@@ -619,9 +641,9 @@ regime_emoji = {"bullish": "📈", "neutral": "➡️", "bearish": "📉"}
 regime_color = {"bullish": "#16a34a", "neutral": "#f59e0b", "bearish": "#dc2626"}
 
 st.markdown(
-    f"""<div style='background:{regime_color[regime]};color:white;padding:12px;border-radius:8px;margin:10px 0'>
+    f"""<div style='background:{regime_color[regime]};color:white;padding:12px 16px;border-radius:var(--ss-radius-md);margin:10px 0;font-size:0.88rem;'>
     <strong>{regime_emoji[regime]} Market Regime: {regime.upper()}</strong> (confidence: {regime_confidence}%)<br>
-    <small>{market_regime_data.get('details', '')}</small>
+    <small style="opacity:0.85;">{market_regime_data.get('details', '')}</small>
     </div>""",
     unsafe_allow_html=True
 )
@@ -666,8 +688,17 @@ if skip_pipeline:
     except Exception as exc:
         logger.debug(f"original_count fallback: {exc}")
         original_count = len(results)
-    st.info(f"**{len(results)} top candidates** from {original_count} stocks fully scanned")
-    st.caption("Includes: ML model, Technical scoring, Fundamental data, Risk assessment, Classification")
+    st.markdown(f"""
+    <div style="
+        display:flex; align-items:center; gap:8px;
+        padding:10px 16px; background:var(--ss-bg-surface);
+        border:1px solid var(--ss-border); border-radius:var(--ss-radius-md);
+        font-size:0.82rem; color:var(--ss-text-secondary); margin:8px 0; direction:ltr;
+    ">
+        <span style="width:8px;height:8px;border-radius:50%;background:var(--ss-green);flex-shrink:0;"></span>
+        <strong style="color:var(--ss-text-primary);">{len(results)} top candidates</strong> from {original_count} stocks fully scanned
+    </div>
+    """, unsafe_allow_html=True)
     
     t1_stage3 = time.perf_counter()
     logger.info(f"[PERF] Precomputed stage 3/10 (post-load to recommendations) time: {t1_stage3-t0_stage3:.3f}s")
@@ -719,7 +750,7 @@ else:
             logger.debug(f"Diagnostics payload extract failed: {exc}")
             diagnostics = {}
 
-        # Display meta prominently
+        # Display meta in collapsible section
         try:
             engine_version = meta.get("engine_version", "unknown")
             engine_mode = meta.get("engine_mode")
@@ -727,29 +758,27 @@ else:
             fb_reason = meta.get("fallback_reason")
             sources_used = meta.get("sources_used")
             run_ts = meta.get("run_timestamp_utc")
-            # Top banner
-            st.caption(f"Engine: {engine_version} · Run: {run_ts or 'n/a'}")
-            if engine_mode == "SIGNAL_ONLY":
-                st.caption("Signal-based scan (no allocation, no position sizing)")
             # Save mode for later UI decisions
             st.session_state["engine_mode"] = engine_mode
-            if sources_used:
-                try:
-                    # Universe provider
-                    src_line = sources_used.get("universe_provider") or sources_used
-                    st.caption(f"Universe Source: {src_line}")
-                    # Compact telemetry summary
-                    price_used = sorted(list((sources_used.get("price") or {}).keys()))
-                    fund_used = sorted(list((sources_used.get("fundamentals") or {}).keys()))
-                    fb_count = len(sources_used.get("fallback_events") or [])
-                    if price_used:
-                        st.caption(f"Price Providers: {', '.join(price_used)}")
-                    if fund_used:
-                        st.caption(f"Fund Providers: {', '.join(fund_used)}")
-                    if fb_count:
-                        st.caption(f"Fallback Events: {fb_count}")
-                except Exception as e:
-                    logger.debug("unknown: %s", e)
+            with st.expander("⚙️ Scan Metadata", expanded=False):
+                st.caption(f"Engine: {engine_version} · Run: {run_ts or 'n/a'}")
+                if engine_mode == "SIGNAL_ONLY":
+                    st.caption("Signal-based scan (no allocation, no position sizing)")
+                if sources_used:
+                    try:
+                        src_line = sources_used.get("universe_provider") or sources_used
+                        st.caption(f"Universe Source: {src_line}")
+                        price_used = sorted(list((sources_used.get("price") or {}).keys()))
+                        fund_used = sorted(list((sources_used.get("fundamentals") or {}).keys()))
+                        fb_count = len(sources_used.get("fallback_events") or [])
+                        if price_used:
+                            st.caption(f"Price Providers: {', '.join(price_used)}")
+                        if fund_used:
+                            st.caption(f"Fund Providers: {', '.join(fund_used)}")
+                        if fb_count:
+                            st.caption(f"Fallback Events: {fb_count}")
+                    except Exception as e:
+                        logger.debug("unknown: %s", e)
             # Show Tier 1 filtered reasons (diagnostics)
             try:
                 if diagnostics:
@@ -1288,7 +1317,7 @@ if st.session_state.get("precomputed_results") is not None and st.session_state.
         status_manager.set_progress(1.0)
     except Exception as e:
         logger.debug("unknown: %s", e)
-    st.info("⚡ Rendering using precomputed scan (no live pipeline run)")
+    logger.info("Rendering using precomputed scan (no live pipeline run)")
 
 # Note: Auto-save is now handled in the live pipeline section above
 # No need for manual save button - results are saved automatically
@@ -1309,8 +1338,13 @@ except Exception as e:
 
 
 
-st.subheader("📊 Market Scan Results")
-st.caption("Signal candidates shown. This is not investment advice.")
+st.markdown("""
+<div class="ss-section-header">
+  <div class="ss-icon" style="background: var(--ss-bg-badge);">📊</div>
+  <h2>Market Scan Results</h2>
+</div>
+""", unsafe_allow_html=True)
+st.markdown('<p style="font-size:0.72rem; color:var(--ss-text-muted); margin:-8px 0 12px; direction:ltr;">Signal candidates shown. This is not investment advice.</p>', unsafe_allow_html=True)
 
 # Sidebar filters
 # Sidebar removed - all controls moved to top bar above
@@ -1360,14 +1394,14 @@ logger.info(f"[FILTER] Final candidates after pipeline: {len(rec_df)} stocks (st
 
 ## Do not display local filtering removal captions
 
-# --- DEBUG: Show top 5 with canonical 20d ML columns ---
+# --- Top signal candidates summary (collapsible) ---
 if not rec_df.empty and "FinalScore_20d" in rec_df.columns:
     debug_cols = ["Ticker", "TechScore_20d", "ML_20d_Prob", "FinalScore_20d", "FinalScore"]
     available_debug_cols = [c for c in debug_cols if c in rec_df.columns]
     if available_debug_cols:
-        st.info("🔍 Top 5 signal candidates (20d ML scoring):")
-        top5_debug = rec_df.head(5)[available_debug_cols].copy()
-        st.dataframe(top5_debug, width='stretch', hide_index=True)
+        with st.expander("🔍 Top 5 Signal Candidates (20d ML Scoring)", expanded=False):
+            top5_debug = rec_df.head(5)[available_debug_cols].copy()
+            st.dataframe(top5_debug, width='stretch', hide_index=True)
 
 rec_df = rec_df.copy()
 
@@ -1539,7 +1573,7 @@ def calculate_targets(row):
     )
 
 
-"""Respect pipeline targets: only compute if missing."""
+# Respect pipeline targets: only compute if missing
 # Determine if targets already exist and are populated
 target_cols = ["Entry_Price", "Target_Price", "Stop_Loss"]
 has_target_cols = all(c in rec_df.columns for c in target_cols)
@@ -1733,10 +1767,10 @@ from ui.card_helpers import (
 
 if rec_df.empty:
     st.markdown("""
-    <div style="text-align:center; padding:48px 24px; color:var(--ss-text-muted);">
-      <div style="font-size:3rem; margin-bottom:12px;">📭</div>
-      <h3 style="color:var(--ss-text-secondary); text-align:center;">No signals found in this scan</h3>
-      <p style="text-align:center;">Try running a live scan or loading a historical snapshot from the sidebar.</p>
+    <div class="ss-empty-state">
+      <div class="ss-empty-icon">📭</div>
+      <h3>No signals found in this scan</h3>
+      <p>Try running a live scan or loading a historical snapshot from the sidebar.</p>
     </div>
     """, unsafe_allow_html=True)
 else:
@@ -1995,8 +2029,12 @@ export_fields = full_export_fields if use_full_export else lean_export_fields
 csv_bytes = csv_df[export_fields].to_csv(index=False).encode("utf-8-sig")
 
 # Download buttons side by side
-st.markdown("---")
-st.markdown("### Export Results")
+st.markdown("""
+<div class="ss-section-header" style="margin-top: 2rem;">
+  <div class="ss-icon" style="background: var(--ss-bg-badge);">💾</div>
+  <h2>Export Results</h2>
+</div>
+""", unsafe_allow_html=True)
 col_csv, col_json = st.columns(2)
 with col_csv:
     st.download_button(
@@ -2024,8 +2062,12 @@ st.dataframe(
 )
 
 # ==================== Quick chart ====================
-st.markdown("---")
-st.markdown("### Interactive Chart")
+st.markdown("""
+<div class="ss-section-header">
+  <div class="ss-icon" style="background: var(--ss-bg-badge);">📊</div>
+  <h2>Interactive Chart</h2>
+</div>
+""", unsafe_allow_html=True)
 # Choose a safe ticker column for charting
 _ticker_candidates = ["Ticker", "symbol", "Symbol", "ticker"]
 _tcol = None

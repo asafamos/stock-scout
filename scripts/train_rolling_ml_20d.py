@@ -961,7 +961,8 @@ def train_and_save_bundle():
 
     # 4. Time-Series Cross-Validation (proper OOS evaluation)
     # Use feature registry as SINGLE SOURCE OF TRUTH to ensure alignment with inference
-    features = get_feature_names("v3.1")  # 39 features — matches deployed production model
+    # v3.2 = 20 pruned features (removed 17 with negative permutation importance + 2 zero)
+    features = get_feature_names("v3.2")  # 20 features — pruned for better signal
     
     # Verify all features are present in training data
     missing_features = [f for f in features if f not in full_df.columns]
@@ -1285,7 +1286,7 @@ def train_and_save_bundle():
     _oos_auc_std = float(np.std(oos_aucs)) if oos_aucs else 0.0
     meta = {
         "sklearn_version": __import__("sklearn").__version__,
-        "feature_version": "v3.1",
+        "feature_version": "v3.2",
         "feature_list": features,
         "training_timestamp_utc": datetime.utcnow().isoformat(),
         "model_type": "CalibratedEnsemble(HistGB+RF+LR)",
