@@ -127,6 +127,80 @@ html[data-theme="dark"] {
     --ss-bar-bg: #334155;
 }
 
+/* ---------- Force Streamlit elements to follow dark mode ---------- */
+/* Streamlit uses Emotion CSS with hardcoded colors (e.g. .st-emotion-cache-xxx).
+   We must override with high-specificity selectors + !important. */
+@media (prefers-color-scheme: dark) {
+    /* Core Streamlit shell — override Emotion-injected backgrounds */
+    .stApp[class*="st-emotion-cache"] {
+        background: var(--ss-bg-primary) !important;
+        color: var(--ss-text-primary) !important;
+        color-scheme: dark !important;
+    }
+    body,
+    [data-testid="stAppViewContainer"],
+    [data-testid="stHeader"],
+    [data-testid="stToolbar"],
+    .main, .block-container,
+    [data-testid="stBottomBlockContainer"] {
+        background-color: var(--ss-bg-primary) !important;
+        color: var(--ss-text-primary) !important;
+    }
+    /* Sidebar */
+    section[data-testid="stSidebar"],
+    section[data-testid="stSidebar"] > div,
+    section[data-testid="stSidebar"] > div > div[class*="st-emotion-cache"] {
+        background-color: var(--ss-bg-surface) !important;
+        color: var(--ss-text-primary) !important;
+    }
+    /* Streamlit text elements */
+    .stSelectbox label, .stSlider label, .stCheckbox label,
+    .stRadio label, .stTextInput label, .stNumberInput label,
+    .stMarkdown, .stMarkdown p, .stCaption, .stText {
+        color: var(--ss-text-primary) !important;
+    }
+    /* Streamlit buttons */
+    .stButton > button {
+        background-color: var(--ss-bg-card) !important;
+        color: var(--ss-text-primary) !important;
+        border-color: var(--ss-border) !important;
+    }
+    .stButton > button:hover {
+        background-color: var(--ss-bg-card-hover) !important;
+        border-color: var(--ss-border-hover) !important;
+    }
+    .stButton > button[kind="primary"],
+    .stButton > button[data-testid="stBaseButton-primary"] {
+        background-color: var(--ss-accent) !important;
+        color: var(--ss-btn-text) !important;
+        border-color: var(--ss-accent) !important;
+    }
+    /* Expander, dataframe, tabs */
+    .streamlit-expanderHeader, .stDataFrame,
+    .stTabs [data-baseweb="tab-list"],
+    .stTabs [data-baseweb="tab"] {
+        background-color: var(--ss-bg-card) !important;
+        color: var(--ss-text-primary) !important;
+    }
+    /* Selectbox / dropdown */
+    [data-baseweb="select"] > div,
+    [data-baseweb="popover"] > div {
+        background-color: var(--ss-bg-card) !important;
+        color: var(--ss-text-primary) !important;
+    }
+    /* Download buttons */
+    .stDownloadButton > button {
+        background-color: var(--ss-bg-card) !important;
+        color: var(--ss-text-primary) !important;
+        border-color: var(--ss-border) !important;
+    }
+    /* Toast / alerts */
+    [data-testid="stToast"], .stAlert {
+        background-color: var(--ss-bg-card) !important;
+        color: var(--ss-text-primary) !important;
+    }
+}
+
 /* ---------- Global RTL + Base ---------- */
 body, .stApp, .main, .block-container {
     direction: rtl;
