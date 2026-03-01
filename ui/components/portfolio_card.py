@@ -193,42 +193,44 @@ def render_portfolio_sidebar_summary(stats: Dict[str, Any]) -> str:
 
     ret_cls = _return_class(total_return)
 
-    rows = f"""
-    <div class="pf-stat-row">
-      <span class="pf-stat-label">Open Positions</span>
-      <span class="pf-stat-value">{open_count}</span>
-    </div>
-    <div class="pf-stat-row">
-      <span class="pf-stat-label">Closed</span>
-      <span class="pf-stat-value">{closed_count}</span>
-    </div>
-    """
+    # NOTE: No leading whitespace before <div> tags — Streamlit's markdown
+    # parser treats 4+ leading spaces as a code block.
+    rows = (
+        f'<div class="pf-stat-row">'
+        f'<span class="pf-stat-label">Open Positions</span>'
+        f'<span class="pf-stat-value">{open_count}</span>'
+        f'</div>'
+        f'<div class="pf-stat-row">'
+        f'<span class="pf-stat-label">Closed</span>'
+        f'<span class="pf-stat-value">{closed_count}</span>'
+        f'</div>'
+    )
 
     if closed_count > 0:
-        rows += f"""
-    <div class="pf-stat-row">
-      <span class="pf-stat-label">Win Rate</span>
-      <span class="pf-stat-value" style="color:var(--ss-green);">{win_rate:.0%}</span>
-    </div>
-    <div class="pf-stat-row">
-      <span class="pf-stat-label">Avg Return</span>
-      <span class="pf-stat-value">{_fmt_pct(avg_return)}</span>
-    </div>
-    """
+        rows += (
+            f'<div class="pf-stat-row">'
+            f'<span class="pf-stat-label">Win Rate</span>'
+            f'<span class="pf-stat-value" style="color:var(--ss-green);">{win_rate:.0%}</span>'
+            f'</div>'
+            f'<div class="pf-stat-row">'
+            f'<span class="pf-stat-label">Avg Return</span>'
+            f'<span class="pf-stat-value">{_fmt_pct(avg_return)}</span>'
+            f'</div>'
+        )
 
     if open_count > 0:
-        rows += f"""
-    <div class="pf-stat-row" style="border-top:1px solid var(--ss-border); padding-top:6px; margin-top:4px;">
-      <span class="pf-stat-label">Portfolio P&L</span>
-      <span class="pf-stat-value pf-return {ret_cls}">{_fmt_pct(total_return)}</span>
-    </div>
-    """
+        rows += (
+            f'<div class="pf-stat-row" style="border-top:1px solid var(--ss-border); padding-top:6px; margin-top:4px;">'
+            f'<span class="pf-stat-label">Portfolio P&amp;L</span>'
+            f'<span class="pf-stat-value pf-return {ret_cls}">{_fmt_pct(total_return)}</span>'
+            f'</div>'
+        )
 
-    return f"""
-<div class="ss-portfolio-summary">
-  <div style="font-size:0.78rem; font-weight:700; color:var(--ss-text-muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px;">
-    💼 Virtual Portfolio
-  </div>
-  {rows}
-</div>
-"""
+    return (
+        f'<div class="ss-portfolio-summary">'
+        f'<div style="font-size:0.78rem; font-weight:700; color:var(--ss-text-muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px;">'
+        f'💼 Virtual Portfolio'
+        f'</div>'
+        f'{rows}'
+        f'</div>'
+    )
