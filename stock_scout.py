@@ -2250,16 +2250,33 @@ try:
         </div>
         """, unsafe_allow_html=True)
     else:
-        # Update prices button
-        if st.button("🔄 Update Prices", key="pf_update_prices", use_container_width=True):
-            with st.spinner("Fetching latest prices..."):
-                _update_result = _pm_section.update_prices()
-                st.toast(
-                    f"Updated {_update_result['updated']} positions, "
-                    f"auto-closed {_update_result['auto_closed']}",
-                    icon="✅",
-                )
-                st.rerun()
+        # Action buttons row
+        _pf_btn_cols = st.columns([1, 1] if len(_open_positions) >= 2 else [1])
+        with _pf_btn_cols[0]:
+            if st.button("🔄 Update Prices", key="pf_update_prices", use_container_width=True):
+                with st.spinner("Fetching latest prices..."):
+                    _update_result = _pm_section.update_prices()
+                    st.toast(
+                        f"Updated {_update_result['updated']} positions, "
+                        f"auto-closed {_update_result['auto_closed']}",
+                        icon="✅",
+                    )
+                    st.rerun()
+        if len(_open_positions) >= 2:
+            with _pf_btn_cols[1]:
+                if st.button(f"✕ Close All ({len(_open_positions)})", key="pf_close_all", use_container_width=True):
+                    _closed_count = 0
+                    for _ca_idx, _ca_pos in _open_positions.iterrows():
+                        _ca_pid = str(_ca_pos.get("position_id", ""))
+                        if _ca_pid:
+                            try:
+                                _pm_section.remove_position(_ca_pid, exit_reason="manual")
+                                _closed_count += 1
+                            except Exception:
+                                pass
+                    if _closed_count:
+                        st.toast(f"Closed {_closed_count} positions", icon="✅")
+                    st.rerun()
 
         # Show open positions
         st.markdown(f'<p style="font-size:0.78rem; font-weight:700; color:var(--ss-text-muted); text-transform:uppercase; letter-spacing:0.06em; margin:12px 0 6px 0; direction:ltr;">Open Positions ({len(_open_positions)})</p>', unsafe_allow_html=True)
