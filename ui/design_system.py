@@ -92,8 +92,11 @@ def get_design_css() -> str:
     }
 }
 
-/* Also handle Streamlit's dark theme class */
-[data-theme="dark"], .stApp[data-theme="dark"] {
+/* Also handle Streamlit's dark theme class + common dark selectors */
+[data-theme="dark"],
+.stApp[data-theme="dark"],
+[data-testid="stAppViewContainer"][style*="background-color: rgb(14, 17, 23)"],
+html[data-theme="dark"] {
     --ss-bg-primary: #0f172a;
     --ss-bg-card: #1e293b;
     --ss-bg-card-hover: #334155;
@@ -421,15 +424,18 @@ input, textarea, code, pre,
     }
 }
 
-[data-theme="dark"] .ss-score-circle.high {
+[data-theme="dark"] .ss-score-circle.high,
+html[data-theme="dark"] .ss-score-circle.high {
     background: linear-gradient(135deg, #064e3b, #065f46);
     color: #a7f3d0;
 }
-[data-theme="dark"] .ss-score-circle.medium {
+[data-theme="dark"] .ss-score-circle.medium,
+html[data-theme="dark"] .ss-score-circle.medium {
     background: linear-gradient(135deg, #713f12, #854d0e);
     color: #fde68a;
 }
-[data-theme="dark"] .ss-score-circle.low {
+[data-theme="dark"] .ss-score-circle.low,
+html[data-theme="dark"] .ss-score-circle.low {
     background: linear-gradient(135deg, #7f1d1d, #991b1b);
     color: #fecaca;
 }
