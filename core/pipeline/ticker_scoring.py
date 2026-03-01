@@ -344,8 +344,11 @@ def _step_compute_scores_with_unified_logic(
     except (KeyError, AttributeError) as exc:
         logger.debug(f"Ticker column normalization skipped: {exc}")
 
-    if "Score" not in results.columns and "FinalScore_20d" in results.columns:
-        results["Score"] = results["FinalScore_20d"]
+    if "Score" not in results.columns:
+        if "FinalScore_20d" in results.columns:
+            results["Score"] = results["FinalScore_20d"]
+        elif "TechScore_20d" in results.columns:
+            results["Score"] = results["TechScore_20d"]
 
     # Ensure reliability column compatibility for downstream consumers/tests
     if (

@@ -656,8 +656,13 @@ def _phase_score_and_filter(ctx: _PipelineContext) -> Optional[Dict[str, Any]]:
             "meta": meta,
         }
 
-    if "Score" not in ctx.results.columns and "FinalScore_20d" in ctx.results.columns:
-        ctx.results["Score"] = ctx.results["FinalScore_20d"]
+    if "Score" not in ctx.results.columns:
+        if "FinalScore_20d" in ctx.results.columns:
+            ctx.results["Score"] = ctx.results["FinalScore_20d"]
+        elif "TechScore_20d" in ctx.results.columns:
+            ctx.results["Score"] = ctx.results["TechScore_20d"]
+        else:
+            ctx.results["Score"] = 0.0
 
     # ---- Beta filter ----
     if ctx.config.get("beta_filter_enabled"):

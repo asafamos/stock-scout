@@ -25,7 +25,7 @@ def test_bridge_outputs_legacy_dict():
     })
 
     out = bridge.analyze_ticker("AAPL", row)
-    assert "FinalScore_20d" in out
+    assert "ConvictionScore" in out
     assert out.get("Evaluation_Mode") == "V2_ML_Risk_Engine"
 
 

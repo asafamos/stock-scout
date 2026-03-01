@@ -79,11 +79,25 @@ def _patch_sklearn_compat(model: Any) -> None:
         if isinstance(est, LogisticRegression) and not hasattr(est, "multi_class"):
             est.multi_class = "auto"
 
-    _patch_one(model)
-    for sub in getattr(model, "models", []):
-        _patch_one(sub)
-    for est in getattr(model, "estimators_", []):
-        _patch_one(est[1] if isinstance(est, (list, tuple)) else est)
+    def _patch_recursive(obj: Any, depth: int = 0) -> None:
+        if depth > 5:
+            return
+        _patch_one(obj)
+        # EnsembleClassifier stores sub-models in .models
+        for sub in getattr(obj, "models", []):
+            _patch_recursive(sub, depth + 1)
+        # CalibratedClassifierCV stores calibrated classifiers
+        for cc in getattr(obj, "calibrated_classifiers_", []):
+            _patch_recursive(cc, depth + 1)
+            # _CalibratedClassifier wraps the estimator
+            inner = getattr(cc, "estimator", None)
+            if inner is not None:
+                _patch_recursive(inner, depth + 1)
+        # Sklearn meta-estimators (Pipeline, VotingClassifier, etc.)
+        for est in getattr(obj, "estimators_", []):
+            _patch_recursive(est[1] if isinstance(est, (list, tuple)) else est, depth + 1)
+
+    _patch_recursive(model)
 
 
 def _extract_model_feature_names(model: Any) -> list[str]:
