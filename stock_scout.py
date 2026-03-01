@@ -367,6 +367,27 @@ _stage_triggers = [
 _completed_stages: Set[str] = set()
 
 
+def _make_pipeline_callback(st_status):
+    """Create a callback that advances BOTH status_manager AND st.status."""
+    def _callback(msg: str):
+        # Write detail to st.status for expandable log
+        try:
+            st_status.write(msg)
+        except Exception:
+            pass
+        # Check if this message triggers a stage advance
+        msg_lower = msg.lower() if isinstance(msg, str) else ""
+        for trigger_text, stage_name in _stage_triggers:
+            if trigger_text.lower() in msg_lower and stage_name not in _completed_stages:
+                _completed_stages.add(stage_name)
+                status_manager.advance(stage_name)
+                break
+        else:
+            # Update detail text without advancing
+            status_manager.update_detail(msg)
+    return _callback
+
+
 
 # timers
 def t_start() -> float:
@@ -670,10 +691,14 @@ if skip_pipeline:
     st.session_state["precomputed_results"] = results.copy()
     
     try:
-        status_manager.update_detail(f"Precomputed scan: {len(results)} top stocks")
-        status_manager.set_progress(1.0)
+        # Advance through all stages quickly for precomputed path
+        for stage in get_pipeline_stages():
+            if stage not in _completed_stages:
+                status_manager.advance(stage)
+                _completed_stages.add(stage)
+        status_manager.complete(f"✅ Loaded {len(results)} stocks from cached scan")
     except Exception as e:
-        logger.debug("_cached_detect_market_regime: %s", e)
+        logger.debug("status_manager precomputed complete: %s", e)
     
     # Show summary to user
     try:
@@ -707,22 +732,28 @@ else:
     # Live scan execution fallback
     with st.status("🚀 Running Live Scan...", expanded=True) as status:
         status = status or NullStatus()
-        status.write("Initializing pipeline...")
+        pipeline_cb = _make_pipeline_callback(status)
+
+        status_manager.advance("Market Regime Detection")
+        _completed_stages.add("Market Regime Detection")
+        pipeline_cb("Initializing pipeline...")
 
         # Clear cache and reset providers for consistent results
         clear_cache()
         reset_disabled_providers()
-        status.write("Cache cleared, providers reset")
+        pipeline_cb("Cache cleared, providers reset")
 
         # 1. Fetch Universe
+        status_manager.advance("Universe Building")
+        _completed_stages.add("Universe Building")
         universe = fetch_top_us_tickers_by_market_cap(limit=CONFIG["UNIVERSE_LIMIT"])
-        status.write(f"Fetched universe: {len(universe)} tickers")
-        
+        pipeline_cb(f"Fetched universe: {len(universe)} tickers")
+
         # 2. Run Pipeline (now returns wrapper {result, meta})
         wrapper = run_scan_pipeline(
             universe,
             CONFIG,
-            status_callback=status.write if status else None
+            status_callback=pipeline_cb,
         )
         meta = wrapper.get("meta", {}) if isinstance(wrapper, dict) else {}
         payload = wrapper.get("result") if isinstance(wrapper, dict) else wrapper

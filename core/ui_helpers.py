@@ -84,18 +84,22 @@ class StatusManager:
 
     def advance(self, detail: str = "") -> None:
         """Advance to next stage with optional detail message."""
+        total = len(self.stages)
+        if self.current_stage >= total:
+            return  # Already at or past final stage
+
         # Record end time of previous stage if it was started
-        if self.current_stage > 0:
+        if 0 < self.current_stage <= total:
             prev_stage_name = self.stages[self.current_stage - 1]
             if prev_stage_name in self._stage_start_times:
                 elapsed = time.perf_counter() - self._stage_start_times[prev_stage_name]
                 self._stage_times[prev_stage_name] = elapsed
 
         self.current_stage += 1
-        progress = min(self.current_stage / len(self.stages), 1.0)
+        progress = min(self.current_stage / total, 1.0)
 
-        stage_name = self.stages[self.current_stage - 1] if self.current_stage <= len(self.stages) else "Complete"
-        self._render_bar(progress, stage_name, self.current_stage)
+        stage_name = self.stages[self.current_stage - 1] if self.current_stage <= total else "Complete"
+        self._render_bar(progress, stage_name, min(self.current_stage, total))
 
         # Record start time for new stage
         if self.current_stage <= len(self.stages):

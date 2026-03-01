@@ -640,6 +640,7 @@ input, textarea, code, pre,
     color: var(--ss-text-secondary);
     margin: 8px 0;
     flex-wrap: wrap;
+    direction: ltr;
 }
 
 .ss-banner-dot {
@@ -1030,6 +1031,35 @@ hr {
     .ss-card-body {
         padding: 12px 14px;
     }
+}
+
+/* ---------- Sidebar collapsed fix ---------- */
+/* When sidebar is collapsed, ensure main content stays left-aligned */
+[data-testid="stSidebar"][aria-expanded="false"] ~ section[data-testid="stMain"] {
+    margin-left: 0 !important;
+}
+
+/* Sidebar styling for collapsed/expanded states */
+[data-testid="stSidebar"] {
+    direction: rtl;
+}
+
+[data-testid="stSidebar"] .stSelectbox,
+[data-testid="stSidebar"] input,
+[data-testid="stSidebar"] code {
+    direction: ltr !important;
+}
+
+/* ---------- Streamlit status/expander LTR ---------- */
+div[data-testid="stStatus"],
+div[data-testid="stExpander"] {
+    direction: ltr;
+}
+
+/* Caption/detail text under progress bar — LTR with proper dot alignment */
+.stCaption, [data-testid="stCaptionContainer"] {
+    direction: ltr;
+    text-align: left;
 }
 
 /* ---------- Scrollbar styling ---------- */

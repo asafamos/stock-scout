@@ -176,8 +176,16 @@ def render_stock_card(row: pd.Series, rank: int, score_label: str = "FinalScore_
     quality = to_float(row.get("Quality_Score_F", row.get("Quality", np.nan)))
     growth = to_float(row.get("Growth_Score_F", np.nan))
     valuation = to_float(row.get("Valuation_Score_F", row.get("Valuation", np.nan)))
-    pe = to_float(row.get("PE", row.get("pe", row.get("PE_Ratio", row.get("PE_f", np.nan)))))
-    roe = to_float(row.get("ROE", row.get("roe", row.get("ROE_f", row.get("Quality", np.nan)))))
+    # Fallback chains that skip NaN intermediaries (ROE uppercase may shadow roe lowercase)
+    def _first_valid(*keys):
+        for k in keys:
+            v = to_float(row.get(k, np.nan))
+            if np.isfinite(v):
+                return v
+        return np.nan
+
+    pe = _first_valid("PE", "pe", "PE_Ratio", "PE_f")
+    roe = _first_valid("ROE", "roe", "ROE_f")
     beta = to_float(row.get("Beta", row.get("beta", np.nan)))
     market_cap = to_float(row.get("Market_Cap", row.get("market_cap", np.nan)))
     fund_cov = to_float(row.get("Fund_Coverage_Pct", row.get("Fundamental_Coverage_Pct", np.nan)))

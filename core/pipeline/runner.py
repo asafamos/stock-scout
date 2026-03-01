@@ -1088,10 +1088,18 @@ def _phase_enrich_fundamentals(ctx: _PipelineContext) -> None:
             "pe": "PE_Ratio",
             "peg": "PEG_Ratio",
             "debt_equity": "Debt_to_Equity",
+            "roe": "ROE",
+            "margin": "Margin",
+            "ps": "PS_Ratio",
+            "pb": "PB_Ratio",
         }
         for src, dst in _col_map.items():
-            if src in ctx.results.columns and dst not in ctx.results.columns:
-                ctx.results[dst] = ctx.results[src]
+            if src in ctx.results.columns:
+                # Overwrite uppercase version if it's all NaN (shadow fix)
+                if dst in ctx.results.columns and ctx.results[dst].isna().all():
+                    ctx.results[dst] = ctx.results[src]
+                elif dst not in ctx.results.columns:
+                    ctx.results[dst] = ctx.results[src]
 
         for col in ["Market_Cap", "PE_Ratio", "PEG_Ratio", "Beta", "Debt_to_Equity"]:
             if col in ctx.results.columns:
@@ -1406,6 +1414,51 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
             ctx.results["Score"] = ctx.results["FinalScore_20d"]
     except Exception as e:
         logger.warning("[PIPELINE] Dynamic RR computation failed: %s", e)
+
+    # ── Per-stock Holding_Days and Target_Date ────────────────────────────
+    # Compute individual holding periods based on ATR/volatility.
+    # Low-vol stocks get longer holding periods; high-vol stocks get shorter.
+    try:
+        if "ATR_Pct" in ctx.results.columns and not ctx.results.empty:
+            _atr_vals = ctx.results["ATR_Pct"].dropna()
+            _median_atr = float(_atr_vals.median()) if len(_atr_vals) > 0 else 0.025
+
+            def _dynamic_holding(row):
+                atr = row.get("ATR_Pct", _median_atr)
+                if not isinstance(atr, (int, float)) or pd.isna(atr) or atr <= 0:
+                    atr = _median_atr
+                # Low vol (< 2%) → 25 days; Med (2-4%) → 20; High (> 4%) → 12
+                if atr < 0.015:
+                    return 28
+                if atr < 0.025:
+                    return 22
+                if atr < 0.04:
+                    return 18
+                return 12
+
+            ctx.results["Holding_Days"] = ctx.results.apply(_dynamic_holding, axis=1)
+        elif "Holding_Days" not in ctx.results.columns:
+            ctx.results["Holding_Days"] = 20
+
+        # Compute per-stock Target_Date from As_Of_Date + Holding_Days
+        if "Holding_Days" in ctx.results.columns:
+            _now = pd.Timestamp.now()
+
+            def _target_dt(row):
+                try:
+                    hd = int(row.get("Holding_Days", 20))
+                    as_of = row.get("As_Of_Date", None)
+                    if as_of is not None and not pd.isna(as_of):
+                        base = pd.Timestamp(as_of)
+                    else:
+                        base = _now
+                    return base + pd.offsets.BDay(hd)
+                except Exception:
+                    return pd.NaT
+
+            ctx.results["Target_Date"] = ctx.results.apply(_target_dt, axis=1)
+    except Exception as e:
+        logger.debug("Holding_Days/Target_Date computation: %s", e)
 
     # Signal-first filtering & ranking
     try:
