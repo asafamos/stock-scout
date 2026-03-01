@@ -586,19 +586,16 @@ def _render_snapshot_banner(meta: Dict[str, Any], path_obj: Path, age_hours: Opt
 
 if force_live_scan_once:
     # User explicitly forced a live run: ignore any snapshot age/status
-    st.info("🔄 Live scan forced — ignoring cached snapshot.")
-    st.caption(f"Cached scan from {timestamp_str} will be skipped for this run.")
+    status_manager.update_detail(f"Live scan forced — cached scan from {timestamp_str} skipped")
     use_precomputed = False
     st.session_state["skip_pipeline"] = False
 elif precomputed_df is not None and precomputed_meta is not None and not scan_too_old:
     # Successfully loaded and NOT too old -> use precomputed snapshot
+    age_display = f"{scan_age_hours:.1f}" if isinstance(scan_age_hours, (int, float)) else "unknown"
     status_manager.advance(
         f"Precomputed scan loaded: {universe_size} tickers (last updated: {timestamp_str})"
     )
-    age_display = f"{scan_age_hours:.1f}" if isinstance(scan_age_hours, (int, float)) else "unknown"
-    st.success(f"Fresh scan loaded ({age_display}h old)")
-    _render_snapshot_banner(precomputed_meta, scan_path, scan_age_hours)
-    st.caption(f"{universe_size} stocks analyzed | Auto-scan runs 4x daily via GitHub Actions")
+    status_manager.update_detail(f"Loaded {universe_size} stocks · {age_display}h old · auto-scan 4×/day")
 
     st.session_state["skip_pipeline"] = True
     st.session_state["precomputed_results"] = precomputed_df
@@ -612,9 +609,7 @@ else:
     # Either no snapshot exists, or scan is too old
     if scan_too_old and precomputed_df is not None:
         age_display = f"{scan_age_hours:.1f}" if isinstance(scan_age_hours, (int, float)) else "unknown"
-        st.warning(f"Scan is stale ({age_display}h old) — showing cached data, next auto-scan coming soon")
-        _render_snapshot_banner(precomputed_meta, scan_path, scan_age_hours)
-        st.caption("Auto-scans run 4x daily via GitHub Actions. Use 'Run Live Scan Now' for fresh data.")
+        status_manager.update_detail(f"⚠️ Stale scan ({age_display}h old) · next auto-scan coming soon")
         # Use old scan anyway but warn user
         st.session_state["skip_pipeline"] = True
         st.session_state["precomputed_results"] = precomputed_df
@@ -624,8 +619,7 @@ else:
             logger.debug("unknown: %s", e)
         use_precomputed = True
     else:
-        st.info("No scan data available yet — click 'Run Live Scan Now' or wait for the next auto-scan.")
-        st.caption("Auto-scans run 4x daily via GitHub Actions.")
+        status_manager.update_detail("No scan data — click 'Run Live Scan Now' or wait for auto-scan")
         use_precomputed = False
         st.session_state["skip_pipeline"] = False
     
@@ -691,46 +685,28 @@ if skip_pipeline:
     st.session_state["precomputed_results"] = results.copy()
     
     try:
+        # Compute original universe count for complete message
+        try:
+            original_count = int(st.session_state.get("universe_size", 0))
+            if not original_count:
+                original_count = int(universe_size)
+        except Exception:
+            original_count = len(results)
         # Advance through all stages quickly for precomputed path
         for stage in get_pipeline_stages():
             if stage not in _completed_stages:
                 status_manager.advance(stage)
                 _completed_stages.add(stage)
-        status_manager.complete(f"✅ Loaded {len(results)} stocks from cached scan")
+        status_manager.complete(f"✅ {len(results)} stocks from {original_count} scanned")
     except Exception as e:
         logger.debug("status_manager precomputed complete: %s", e)
-    
-    # Show summary to user
-    try:
-        original_count = int(st.session_state.get("universe_size", 0))
-        if not original_count:
-            # Fall back to computed universe_size (from metadata) or current results length
-            try:
-                original_count = int(universe_size)
-            except Exception as exc:
-                logger.debug(f"universe_size parse: {exc}")
-                original_count = len(results)
-    except Exception as exc:
-        logger.debug(f"original_count fallback: {exc}")
-        original_count = len(results)
-    st.markdown(f"""
-    <div style="
-        display:flex; align-items:center; gap:8px;
-        padding:10px 16px; background:var(--ss-bg-surface);
-        border:1px solid var(--ss-border); border-radius:var(--ss-radius-md);
-        font-size:0.82rem; color:var(--ss-text-secondary); margin:8px 0; direction:ltr;
-    ">
-        <span style="width:8px;height:8px;border-radius:50%;background:var(--ss-green);flex-shrink:0;"></span>
-        <strong style="color:var(--ss-text-primary);">{len(results)} top candidates</strong> from {original_count} stocks fully scanned
-    </div>
-    """, unsafe_allow_html=True)
     
     t1_stage3 = time.perf_counter()
     logger.info(f"[PERF] Precomputed stage 3/10 (post-load to recommendations) time: {t1_stage3-t0_stage3:.3f}s")
     
 else:
     # Live scan execution fallback
-    with st.status("🚀 Running Live Scan...", expanded=True) as status:
+    with st.status("🚀 Running Live Scan...", expanded=False) as status:
         status = status or NullStatus()
         pipeline_cb = _make_pipeline_callback(status)
 
@@ -858,15 +834,19 @@ else:
         if not results.empty:
             # Store in session state for sector cap processing, final save happens at line ~3435
             st.session_state["precomputed_results"] = results
-            st.success(f"✅ Scan complete: {len(results)} results found (will apply sector cap)")
+            # Advance any remaining stages and mark complete
+            for _stg in get_pipeline_stages():
+                if _stg not in _completed_stages:
+                    status_manager.advance(_stg)
+                    _completed_stages.add(_stg)
+            status_manager.complete(f"✅ {len(results)} results from live scan")
         else:
-            st.error("Live scan returned 0 results.")
-            st.info(
-                "**What to try:**\n"
-                "1. Check that API keys are active (FMP, Finnhub, Polygon)\n"
-                "2. Try again — could be a transient network issue\n"
-                "3. Check GitHub Actions logs for details"
-            )
+            status_manager.complete("❌ Live scan returned 0 results")
+        # Collapse status log after completion
+        try:
+            status.update(label="Scan complete", state="complete", expanded=False)
+        except Exception:
+            pass
 
 # Debug logging if enabled
 create_debug_expander({

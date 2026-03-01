@@ -1039,6 +1039,36 @@ hr {
     margin-left: 0 !important;
 }
 
+/* Collapsed sidebar: hide content, prevent it from floating to center */
+[data-testid="stSidebar"][aria-expanded="false"] {
+    min-width: 0 !important;
+    width: 0 !important;
+    overflow: hidden !important;
+}
+
+/* Ensure collapsed control (expand arrow) stays at left edge */
+[data-testid="collapsedControl"] {
+    position: fixed !important;
+    left: 0 !important;
+    z-index: 999 !important;
+    direction: ltr !important;
+}
+
+/* ---------- Sidebar collapse button RTL fix ---------- */
+/* Force collapse/expand buttons to LTR so arrow direction is correct */
+button[data-testid="stSidebarCollapseButton"],
+[data-testid="collapsedControl"] button,
+[data-testid="stSidebar"] button[kind="headerNoPadding"] {
+    direction: ltr !important;
+}
+
+/* Flip the chevron icon to correct orientation in RTL context */
+button[data-testid="stSidebarCollapseButton"] svg,
+[data-testid="collapsedControl"] button svg,
+[data-testid="stSidebar"] button[kind="headerNoPadding"] svg {
+    transform: scaleX(-1);
+}
+
 /* Sidebar styling for collapsed/expanded states */
 [data-testid="stSidebar"] {
     direction: rtl;
