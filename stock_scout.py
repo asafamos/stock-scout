@@ -73,6 +73,14 @@ class NullStatus:
 
 from ui.data_sources import render_data_sources_overview
 
+# ── project: virtual portfolio ─────────────────────────────────────
+from core.db.portfolio_manager import get_portfolio_manager, PortfolioManager
+from ui.components.portfolio_card import (
+    render_open_position_card,
+    render_closed_position_card,
+    render_portfolio_sidebar_summary,
+)
+
 
 # Load environment variables
 warnings.simplefilter("ignore", FutureWarning)
@@ -286,6 +294,26 @@ with st.sidebar:
     except Exception as _ml_e:
         st.caption(f"ML info unavailable: {_ml_e}")
 
+    # ── Portfolio Summary ──────────────────────────────────────────
+    st.markdown('<div style="height:1px; background:var(--ss-border); margin:14px 0;"></div>', unsafe_allow_html=True)
+    try:
+        _pm_sidebar = get_portfolio_manager()
+        _pf_stats = _pm_sidebar.get_portfolio_stats()
+        if _pf_stats.get("open_count", 0) > 0 or _pf_stats.get("closed_count", 0) > 0:
+            st.markdown(render_portfolio_sidebar_summary(_pf_stats), unsafe_allow_html=True)
+        else:
+            st.markdown("""
+            <div class="ss-portfolio-summary">
+              <div style="font-size:0.78rem; font-weight:700; color:var(--ss-text-muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:4px;">
+                💼 Virtual Portfolio
+              </div>
+              <div style="font-size:0.72rem; color:var(--ss-text-muted);">
+                No positions yet. Use the + buttons on recommendation cards to add stocks.
+              </div>
+            </div>
+            """, unsafe_allow_html=True)
+    except Exception as _pf_e:
+        logger.debug("Portfolio sidebar error: %s", _pf_e)
 
 
 # Status table via unified preflight
@@ -1844,9 +1872,67 @@ else:
         render_section_header(f"Top Recommendations", len(sorted_df), "core"),
         unsafe_allow_html=True,
     )
+    # Portfolio manager — pre-fetch portfolio tickers (single DB query)
+    try:
+        _pm = get_portfolio_manager()
+        _portfolio_tickers = _pm.get_portfolio_tickers()
+    except Exception:
+        _pm = None
+        _portfolio_tickers = set()
+
+    def _add_to_portfolio(row, pm: PortfolioManager) -> None:
+        """Helper to add a recommendation to the virtual portfolio."""
+        try:
+            ticker = str(row.get("Ticker", row.get("ticker", "")))
+            entry_p = float(row.get("Entry_Price", row.get("entry_price", row.get("Close", 0))))
+            target_p = row.get("Target_Price", row.get("target_price"))
+            stop_p = row.get("Stop_Loss", row.get("stop_price", row.get("Stop_Price")))
+            holding = int(row.get("Holding_Days", row.get("holding_days", 20)))
+            score = row.get("FinalScore_20d", row.get("Score", row.get("overall_score")))
+            risk_cls = str(row.get("Risk_Level", row.get("risk_class", "")))
+            sector = str(row.get("Sector", row.get("sector", "")))
+            scan_id = str(st.session_state.get("last_scan_id", ""))
+
+            try:
+                target_p = float(target_p) if target_p is not None and not pd.isna(target_p) else None
+            except (TypeError, ValueError):
+                target_p = None
+            try:
+                stop_p = float(stop_p) if stop_p is not None and not pd.isna(stop_p) else None
+            except (TypeError, ValueError):
+                stop_p = None
+            try:
+                score = float(score) if score is not None and not pd.isna(score) else None
+            except (TypeError, ValueError):
+                score = None
+
+            pm.add_position(
+                ticker=ticker,
+                entry_price=entry_p,
+                target_price=target_p,
+                stop_price=stop_p,
+                holding_days=holding,
+                scan_id=scan_id if scan_id else None,
+                final_score=score,
+                risk_class=risk_cls if risk_cls else None,
+                sector=sector if sector else None,
+            )
+        except Exception as e:
+            st.toast(f"Could not add: {e}", icon="⚠️")
+
     for rank, (idx, r) in enumerate(sorted_df.iterrows(), 1):
         card_html = render_stock_card(r, rank=rank, score_label=score_label)
         st.markdown(card_html, unsafe_allow_html=True)
+
+        # Portfolio button below each card
+        if _pm is not None:
+            _tkr = str(r.get("Ticker", r.get("ticker", "")))
+            if _tkr and _tkr in _portfolio_tickers:
+                st.button("✅ In Portfolio", key=f"pf_{_tkr}_{rank}", disabled=True, use_container_width=True)
+            elif _tkr:
+                if st.button(f"＋ Add {_tkr} to Portfolio", key=f"pf_{_tkr}_{rank}", use_container_width=True):
+                    _add_to_portfolio(r, _pm)
+                    st.rerun()
 
     # Export section (single, unified)
 show_order = [
@@ -2097,6 +2183,63 @@ st.dataframe(
     width='stretch',
     hide_index=True,
 )
+
+# ==================== Virtual Portfolio ====================
+st.markdown("""
+<div class="ss-section-header">
+  <div class="ss-icon" style="background: var(--ss-bg-badge);">💼</div>
+  <h2>Virtual Portfolio</h2>
+</div>
+""", unsafe_allow_html=True)
+
+try:
+    _pm_section = get_portfolio_manager()
+    _open_positions = _pm_section.get_open_positions()
+
+    if _open_positions.empty:
+        st.markdown("""
+        <div style="
+            text-align:center; padding:24px 16px;
+            color:var(--ss-text-muted); font-size:0.85rem;
+            background:var(--ss-bg-card); border:1px solid var(--ss-border);
+            border-radius:var(--ss-radius-md); direction:ltr;
+        ">
+            💼 No open positions yet. Click <strong>＋ Add</strong> on any recommendation card to start tracking.
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        # Update prices button
+        if st.button("🔄 Update Prices", key="pf_update_prices", use_container_width=True):
+            with st.spinner("Fetching latest prices..."):
+                _update_result = _pm_section.update_prices()
+                st.toast(
+                    f"Updated {_update_result['updated']} positions, "
+                    f"auto-closed {_update_result['auto_closed']}",
+                    icon="✅",
+                )
+                st.rerun()
+
+        # Show open positions
+        st.markdown(f'<p style="font-size:0.78rem; font-weight:700; color:var(--ss-text-muted); text-transform:uppercase; letter-spacing:0.06em; margin:12px 0 6px 0; direction:ltr;">Open Positions ({len(_open_positions)})</p>', unsafe_allow_html=True)
+        for _pidx, _pos in _open_positions.iterrows():
+            st.markdown(render_open_position_card(_pos.to_dict()), unsafe_allow_html=True)
+            # Close button for each position
+            _pos_id = str(_pos.get("position_id", ""))
+            _pos_tkr = str(_pos.get("ticker", ""))
+            if st.button(f"✕ Close {_pos_tkr}", key=f"close_{_pos_id[:12]}", use_container_width=True):
+                _pm_section.remove_position(_pos_id, exit_reason="manual")
+                st.rerun()
+
+    # Closed positions (collapsible)
+    _closed_positions = _pm_section.get_closed_positions(days=90)
+    if not _closed_positions.empty:
+        with st.expander(f"📋 Closed Positions (last 90 days — {len(_closed_positions)})", expanded=False):
+            for _cidx, _cpos in _closed_positions.iterrows():
+                st.markdown(render_closed_position_card(_cpos.to_dict()), unsafe_allow_html=True)
+
+except Exception as _pf_section_e:
+    logger.warning("Portfolio section error: %s", _pf_section_e)
+    st.caption(f"Portfolio unavailable: {_pf_section_e}")
 
 # ==================== Quick chart ====================
 st.markdown("""

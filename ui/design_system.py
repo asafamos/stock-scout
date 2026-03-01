@@ -1129,5 +1129,136 @@ div[data-testid="stExpander"] {
     margin: 0 auto;
 }
 
+/* ---------- PORTFOLIO BUTTONS ---------- */
+.ss-portfolio-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+    padding: 8px 16px;
+    border-radius: var(--ss-radius-sm);
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-family: var(--ss-font);
+    direction: ltr;
+    text-align: center;
+}
+
+.ss-portfolio-btn.add {
+    background: transparent;
+    color: var(--ss-accent);
+    border: 2px dashed var(--ss-accent);
+}
+
+.ss-portfolio-btn.add:hover {
+    background: var(--ss-bg-badge);
+    border-color: var(--ss-accent-hover);
+    color: var(--ss-accent-hover);
+}
+
+.ss-portfolio-btn.in-portfolio {
+    background: var(--ss-green-bg);
+    color: var(--ss-green);
+    border: 2px solid var(--ss-green);
+    cursor: default;
+    opacity: 0.85;
+}
+
+/* ---------- PORTFOLIO SECTION ---------- */
+.ss-portfolio-card {
+    background: var(--ss-bg-card);
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-md);
+    padding: 14px 18px;
+    margin: 8px 0;
+    box-shadow: var(--ss-shadow-sm);
+    direction: ltr;
+    text-align: left;
+}
+
+.ss-portfolio-card:hover {
+    box-shadow: var(--ss-shadow-md);
+    border-color: var(--ss-border-hover);
+}
+
+.ss-portfolio-card .pf-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.ss-portfolio-card .pf-ticker {
+    font-size: 1.1rem;
+    font-weight: 800;
+    font-family: var(--ss-mono);
+    color: var(--ss-text-primary);
+}
+
+.ss-portfolio-card .pf-return {
+    font-size: 1rem;
+    font-weight: 800;
+    font-family: var(--ss-mono);
+}
+
+.ss-portfolio-card .pf-return.positive { color: var(--ss-green); }
+.ss-portfolio-card .pf-return.negative { color: var(--ss-red); }
+.ss-portfolio-card .pf-return.neutral  { color: var(--ss-text-muted); }
+
+.ss-portfolio-card .pf-metrics {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+    font-size: 0.72rem;
+}
+
+.ss-portfolio-card .pf-metric-label {
+    color: var(--ss-text-muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-size: 0.62rem;
+}
+
+.ss-portfolio-card .pf-metric-value {
+    color: var(--ss-text-primary);
+    font-weight: 700;
+    font-family: var(--ss-mono);
+    font-size: 0.78rem;
+}
+
+/* Portfolio sidebar summary */
+.ss-portfolio-summary {
+    background: var(--ss-bg-card);
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-md);
+    padding: 12px 14px;
+    margin: 8px 0;
+    direction: ltr;
+    text-align: left;
+}
+
+.ss-portfolio-summary .pf-stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 0;
+    font-size: 0.78rem;
+}
+
+.ss-portfolio-summary .pf-stat-label {
+    color: var(--ss-text-muted);
+    font-weight: 600;
+}
+
+.ss-portfolio-summary .pf-stat-value {
+    color: var(--ss-text-primary);
+    font-weight: 700;
+    font-family: var(--ss-mono);
+}
+
 </style>
 """

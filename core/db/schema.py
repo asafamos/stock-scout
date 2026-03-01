@@ -6,7 +6,7 @@ Migrations are version-gated via the schema_version table.
 
 from __future__ import annotations
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # ---------------------------------------------------------------------------
 # Table: scans — one row per scan execution
@@ -113,9 +113,72 @@ CREATE TABLE IF NOT EXISTS schema_version (
 );
 """
 
+# ---------------------------------------------------------------------------
+# Table: portfolio_positions — virtual portfolio tracking
+# ---------------------------------------------------------------------------
+CREATE_PORTFOLIO_POSITIONS = """
+CREATE TABLE IF NOT EXISTS portfolio_positions (
+    position_id      VARCHAR PRIMARY KEY,
+    user_id          VARCHAR NOT NULL DEFAULT 'default',
+    ticker           VARCHAR NOT NULL,
+    -- Entry details (from recommendation card)
+    entry_price      DOUBLE NOT NULL,
+    target_price     DOUBLE,
+    stop_price       DOUBLE,
+    shares           INTEGER NOT NULL DEFAULT 100,
+    entry_date       DATE NOT NULL,
+    target_date      DATE,
+    holding_days     INTEGER DEFAULT 20,
+    -- Source recommendation link
+    scan_id          VARCHAR,
+    recommendation_id VARCHAR,
+    -- Scores at entry (denormalized for self-contained reporting)
+    final_score      DOUBLE,
+    risk_class       VARCHAR,
+    sector           VARCHAR,
+    -- Live tracking
+    current_price    DOUBLE,
+    current_return_pct DOUBLE,
+    max_price        DOUBLE,
+    min_price        DOUBLE,
+    -- Exit details
+    exit_price       DOUBLE,
+    exit_date        DATE,
+    exit_reason      VARCHAR,
+    realized_return_pct DOUBLE,
+    -- Status
+    status           VARCHAR NOT NULL DEFAULT 'open',
+    prediction_correct BOOLEAN,
+    -- Timestamps
+    created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
+# ---------------------------------------------------------------------------
+# Table: portfolio_snapshots — daily portfolio value for equity curve
+# ---------------------------------------------------------------------------
+CREATE_PORTFOLIO_SNAPSHOTS = """
+CREATE TABLE IF NOT EXISTS portfolio_snapshots (
+    id               VARCHAR PRIMARY KEY,
+    user_id          VARCHAR NOT NULL DEFAULT 'default',
+    snapshot_date    DATE NOT NULL,
+    total_positions  INTEGER,
+    open_positions   INTEGER,
+    total_invested   DOUBLE,
+    current_value    DOUBLE,
+    total_return_pct DOUBLE,
+    win_count        INTEGER,
+    loss_count       INTEGER,
+    created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
 ALL_TABLES = [
     CREATE_SCHEMA_VERSION,
     CREATE_SCANS,
     CREATE_RECOMMENDATIONS,
     CREATE_OUTCOMES,
+    CREATE_PORTFOLIO_POSITIONS,
+    CREATE_PORTFOLIO_SNAPSHOTS,
 ]
