@@ -137,15 +137,19 @@ jobs:
           set -e
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # Add canonical model and timestamped bundles
-          git add models/model_20d_v3.pkl models/model_20d_v3_*.pkl models/model_20d_v3.metadata.json models/feature_importance_report.txt || true
-          # Add V4 model bundle
-          git add ml/bundles/latest/ || true
-          # Include latest training report for traceability
-          git add reports/rolling_train_report_*.json || true
+          # Add model files (only those that exist)
+          for f in models/model_20d_v3.pkl models/model_20d_v3.metadata.json models/feature_importance_report.txt; do
+            [ -f "$f" ] && git add "$f"
+          done
+          # Add timestamped bundles if any
+          git add models/model_20d_v3_*.pkl 2>/dev/null || true
+          # Add latest bundle directory
+          [ -d "ml/bundles/latest" ] && git add ml/bundles/latest/
+          # Include training reports
+          git add reports/rolling_train_report_*.json 2>/dev/null || true
           if git diff --cached --quiet; then
             echo "No model changes to commit."
           else
-            git commit -m "chore(ml): weekly training - update 20d model bundle [skip ci]"
+            git commit -m "chore(ml): nightly training - update v3.2 model bundle (20 features) [skip ci]"
             git push
           fi

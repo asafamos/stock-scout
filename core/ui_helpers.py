@@ -44,7 +44,15 @@ class StatusManager:
         self._progress.progress(progress)
         
         stage_name = self.stages[self.current_stage - 1] if self.current_stage <= len(self.stages) else "Complete"
-        self._status.markdown(f"**Stage {self.current_stage}/{len(self.stages)}:** {stage_name}")
+        pct = int(progress * 100)
+        self._status.markdown(
+            f'<div style="display:flex;align-items:center;gap:10px;font-size:0.85rem;">'
+            f'<span style="font-weight:700;color:var(--ss-accent,#3b82f6);">{pct}%</span>'
+            f'<span style="font-weight:600;color:var(--ss-text-primary,#0f172a);">{stage_name}</span>'
+            f'<span style="color:var(--ss-text-muted,#94a3b8);font-size:0.75rem;">({self.current_stage}/{len(self.stages)})</span>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
         
         # Record start time for new stage
         if self.current_stage <= len(self.stages):

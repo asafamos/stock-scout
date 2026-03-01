@@ -142,7 +142,7 @@ def _finalize_model(
         BUNDLE_HAS_MISSING_METEOR_FEATURES = True
 
     # Version safety: validate feature count matches a known registry version
-    _KNOWN_FEATURE_COUNTS = {34: "v3", 39: "v3.1", 72: "v4"}
+    _KNOWN_FEATURE_COUNTS = {34: "v3", 39: "v3.1", 20: "v3.2", 72: "v4"}
     n_feat = len(feature_names)
     detected_version = _KNOWN_FEATURE_COUNTS.get(n_feat)
     if detected_version:
@@ -279,9 +279,8 @@ def get_ml_weight_multiplier() -> float:
     AUC ≤ 0.58  → 0.5  (halved — some signal but noisy)
     AUC > 0.58  → 1.0  (full weight — meaningful signal)
 
-    With feature muting active the effective signal improves, but the
-    stored AUC (from metadata) still reads the pre-muting value.
-    Keep conservative gates until model is retrained with pruned features.
+    After retraining with v3.2 (20 pruned features), AUC should improve.
+    These gates remain conservative until the retrained model proves itself.
     """
     if BUNDLE_AUC is None:
         return 1.0  # unknown AUC — trust the model
@@ -312,7 +311,7 @@ def compute_ml_20d_probabilities_raw(row: pd.Series) -> float:
         try:
             from core.feature_registry import get_feature_defaults, clip_features_to_range
             _n = len(FEATURE_COLS_20D)
-            _version = "v4" if _n >= 72 else ("v3.1" if _n >= 39 else "v3")
+            _version = "v4" if _n >= 72 else ("v3.1" if _n >= 39 else ("v3.2" if _n >= 20 else "v3"))
             defaults = get_feature_defaults(_version)
         except Exception:
             defaults = {}
@@ -340,16 +339,9 @@ def compute_ml_20d_probabilities_raw(row: pd.Series) -> float:
                 val = defaults.get(col, 0.0)
             feature_dict[col] = val
 
-        # Mute features with negative permutation importance.
-        # Forcing them to their neutral defaults eliminates harmful signal
-        # without changing the model's expected input shape (still 39 features).
-        try:
-            from core.feature_registry import MUTED_FEATURES_V31
-            for muted_col in MUTED_FEATURES_V31:
-                if muted_col in feature_dict:
-                    feature_dict[muted_col] = defaults.get(muted_col, 0.0)
-        except ImportError:
-            pass  # Graceful degradation if registry unavailable
+        # NOTE: Feature muting removed — model is now trained on v3.2 (20 pruned
+        # features) instead of muting harmful features at inference time.
+        # The model itself only expects the 20 features that actually help.
 
         # Track missing features for health reporting
         if missing:
@@ -547,7 +539,7 @@ def get_ml_health_meta() -> Dict[str, Any]:
             or bool(ML_VERSION_WARNING)
         )
         _n = len(FEATURE_COLS_20D or [])
-        _detected = {34: "v3", 39: "v3.1", 72: "v4"}.get(_n, f"unknown({_n})")
+        _detected = {34: "v3", 39: "v3.1", 20: "v3.2", 72: "v4"}.get(_n, f"unknown({_n})")
         return {
             "ml_bundle_version_warning": bool(ML_VERSION_WARNING),
             "ml_bundle_warning_reason": ML_VERSION_WARNING_REASON,

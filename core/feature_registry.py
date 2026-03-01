@@ -177,10 +177,11 @@ FEATURE_SPECS_V3_1: List[FeatureSpec] = [
 def get_feature_names(version: str = "v3") -> List[str]:
     """
     Get ordered list of feature names.
-    
+
     Args:
-        version: Feature version ("v3" for 34-feature set, "v3.1" for 39-feature stock-picker set)
-        
+        version: Feature version ("v3" for 34-feature set, "v3.1" for 39-feature,
+                 "v3.2" for 20-feature pruned set, "v4" for 72-feature)
+
     Returns:
         List of feature names in canonical order
     """
@@ -188,6 +189,8 @@ def get_feature_names(version: str = "v3") -> List[str]:
         return [f.name for f in FEATURE_SPECS_V3]
     if version == "v3.1":
         return [f.name for f in FEATURE_SPECS_V3_1]
+    if version == "v3.2":
+        return [f.name for f in FEATURE_SPECS_V3_2]
     if version == "v4":
         return [f.name for f in FEATURE_SPECS_V4]
     raise ValueError(f"Unknown feature version: {version}")
@@ -196,10 +199,10 @@ def get_feature_names(version: str = "v3") -> List[str]:
 def get_feature_specs(version: str = "v3") -> List[FeatureSpec]:
     """
     Get full feature specifications.
-    
+
     Args:
-        version: Feature version ("v3" for 34-feature set, "v3.1" for 39-feature stock-picker set)
-        
+        version: Feature version ("v3", "v3.1", "v3.2", or "v4")
+
     Returns:
         List of FeatureSpec objects with full metadata
     """
@@ -207,6 +210,8 @@ def get_feature_specs(version: str = "v3") -> List[FeatureSpec]:
         return FEATURE_SPECS_V3.copy()
     if version == "v3.1":
         return FEATURE_SPECS_V3_1.copy()
+    if version == "v3.2":
+        return FEATURE_SPECS_V3_2.copy()
     if version == "v4":
         return FEATURE_SPECS_V4.copy()
     raise ValueError(f"Unknown feature version: {version}")
@@ -369,6 +374,50 @@ FEATURE_SPECS_V4: List[FeatureSpec] = [
 
 
 # =============================================================================
+# FEATURE DEFINITIONS V3.2 (20 features) — pruned from v3.1 via permutation
+#   importance analysis (AUC=0.554, see models/feature_importance_report.txt).
+#
+#   17 features with NEGATIVE permutation importance removed from training.
+#   2 features with zero importance also removed.
+#   Result: 20 features that actually help the model predict.
+#
+#   This is NOT a band-aid: the model is retrained on these 20 features only,
+#   so the model's capacity is fully focused on useful signal.
+# =============================================================================
+FEATURE_SPECS_V3_2: List[FeatureSpec] = [
+    # --- Price Action (6) --- top importance features
+    FeatureSpec("Support_Strength", "fraction days near support", 0.2, (0, 1), "price_action"),
+    FeatureSpec("Distance_From_52w_Low", "(close-52w_low)/52w_low", 0.5, (-0.5, 5.0), "price_action"),
+    FeatureSpec("Consolidation_Tightness", "(20d_high-low)/avg", 0.1, (0.01, 0.5), "price_action"),
+    FeatureSpec("Distance_To_Resistance", "(20d_high-close)/close", 0.05, (0, 0.5), "price_action"),
+    FeatureSpec("Days_Since_52w_High", "normalized 0-1", 0.5, (0, 1), "price_action"),
+    FeatureSpec("Price_vs_SMA50", "(close-sma50)/sma50", 0.0, (-0.5, 0.5), "price_action"),
+
+    # --- Sector Relative (3) ---
+    FeatureSpec("Sector_Momentum", "sector_etf_ret_20d", 0.0, (-0.5, 0.5), "sector"),
+    FeatureSpec("Sector_RS", "stock_ret_20d - sector_ret_20d", 0.0, (-1.0, 1.0), "sector"),
+    FeatureSpec("Sector_Rank", "1 if stock beats sector in 5d", 0.5, (0, 1), "sector"),
+
+    # --- Momentum (3) ---
+    FeatureSpec("RS_vs_SPY_20d", "stock_ret_20d - spy_ret_20d", 0.0, (-1.0, 1.0), "momentum"),
+    FeatureSpec("Return_20d", "20-day price return", 0.0, (-1.0, 2.0), "technical"),
+    FeatureSpec("Momentum_Consistency", "% positive days (last 20)", 0.5, (0, 1), "momentum"),
+
+    # --- Volatility Patterns (3) ---
+    FeatureSpec("Tightness_Ratio", "Range contraction: range_5d/range_20d", 1.0, (0.05, 2.0), "volatility"),
+    FeatureSpec("ATR_Pct", "Average True Range as % of price", 0.02, (0.001, 0.5), "technical"),
+    FeatureSpec("VCP_Ratio", "Volatility Contraction: ATR(10)/ATR(30)", 1.0, (0.1, 5.0), "volatility"),
+
+    # --- Volume (5) ---
+    FeatureSpec("Up_Volume_Ratio", "up-day vol / total vol", 0.5, (0, 1), "volume"),
+    FeatureSpec("Up_Down_Volume_Ratio", "avg up-day vol / avg down-day vol", 1.0, (0.1, 10.0), "volume"),
+    FeatureSpec("Volume_Ratio_20d", "current vol / 20d avg", 1.0, (0.1, 20.0), "volume"),
+    FeatureSpec("Volume_Surge", "vol_5d_avg / vol_20d_avg", 1.0, (0.1, 10.0), "volume"),
+    FeatureSpec("Volume_Price_Confirm", "price+vol up confirmation", 0.5, (0, 1), "volume"),
+]
+
+
+# =============================================================================
 # CONSTANTS
 # =============================================================================
 
@@ -379,47 +428,14 @@ assert FEATURE_COUNT_V3 == 34, f"Expected 34 features, got {FEATURE_COUNT_V3}"
 FEATURE_COUNT_V3_1 = len(FEATURE_SPECS_V3_1)
 assert FEATURE_COUNT_V3_1 == 39, f"Expected 39 features, got {FEATURE_COUNT_V3_1}"
 
+FEATURE_COUNT_V3_2 = len(FEATURE_SPECS_V3_2)
+assert FEATURE_COUNT_V3_2 == 20, f"Expected 20 features, got {FEATURE_COUNT_V3_2}"
+
 FEATURE_COUNT_V4 = len(FEATURE_SPECS_V4)
 assert FEATURE_COUNT_V4 == 72, f"Expected 72 features, got {FEATURE_COUNT_V4}"
 
 # List of all supported versions
-SUPPORTED_VERSIONS = ["v3", "v3.1", "v4"]
+SUPPORTED_VERSIONS = ["v3", "v3.1", "v3.2", "v4"]
 
-# Current default version
-DEFAULT_VERSION = "v3.1"
-
-# =============================================================================
-# FEATURE IMPORTANCE ANALYSIS (v3.1, AUC=0.554)
-# Source: models/feature_importance_report.txt (permutation importance)
-# Features with negative importance actively hurt model performance.
-# Muting them at inference time neutralizes their harmful signal.
-# =============================================================================
-
-MUTED_FEATURES_V31: frozenset = frozenset({
-    "SMA50_vs_SMA200",       # -0.0236 (worst offender)
-    "RS_vs_SPY_60d",         # -0.0096
-    "Vol_Contraction_Ratio",  # -0.0091
-    "Dist_From_52w_High",    # -0.0066
-    "OvernightGap_Avg",      # -0.0062
-    "RS_Momentum",           # -0.0060
-    "Return_10d",            # -0.0041
-    "Price_vs_SMA200",       # -0.0027
-    "Return_5d",             # -0.0026
-    "Volume_Trend",          # -0.0020
-    "MA_Slope_20d",          # -0.0015
-    "Market_Regime",         # -0.0012
-    "MA_Alignment",          # -0.0007
-    "Range_Pct_10d",         # -0.0005
-    "RSI",                   # -0.0003
-    "Squeeze_On_Flag",       # -0.0001
-    "Relative_Volume_Rank",  # -0.0001
-})
-
-RECOMMENDED_FEATURES_V31: list = [
-    "Support_Strength", "Distance_From_52w_Low", "Consolidation_Tightness",
-    "Sector_Momentum", "Distance_To_Resistance", "RS_vs_SPY_20d",
-    "Return_20d", "Tightness_Ratio", "ATR_Pct", "Up_Volume_Ratio",
-    "Momentum_Consistency", "Sector_Rank", "VCP_Ratio", "Price_vs_SMA50",
-    "Days_Since_52w_High", "Sector_RS", "Up_Down_Volume_Ratio",
-    "Volume_Ratio_20d", "Volume_Surge", "Volume_Price_Confirm",
-]
+# Current default version (v3.2 = production model with pruned features)
+DEFAULT_VERSION = "v3.2"

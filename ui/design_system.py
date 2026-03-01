@@ -671,16 +671,240 @@ input, textarea, code, pre,
     flex-shrink: 0;
 }
 
-/* ---------- Buttons (ensure visible text) ---------- */
+/* ==========================================================
+   STREAMLIT OVERRIDES — 2026 MODERN UI
+   ========================================================== */
+
+/* ---------- Expanders ---------- */
+.stExpander {
+    border-color: var(--ss-border) !important;
+    border-radius: var(--ss-radius-md) !important;
+    background: var(--ss-bg-card) !important;
+    box-shadow: var(--ss-shadow-sm) !important;
+}
+
+.stExpander summary {
+    font-weight: 600 !important;
+    color: var(--ss-text-primary) !important;
+}
+
+/* ---------- Metrics ---------- */
+div[data-testid="stMetricValue"] {
+    font-family: var(--ss-mono);
+    font-variant-numeric: tabular-nums;
+    font-weight: 800 !important;
+}
+
+div[data-testid="stMetricLabel"] {
+    font-weight: 600 !important;
+    text-transform: uppercase;
+    font-size: 0.72rem !important;
+    letter-spacing: 0.04em;
+    color: var(--ss-text-muted) !important;
+}
+
+/* ---------- SIDEBAR — Glass-style panel ---------- */
+section[data-testid="stSidebar"] {
+    background: var(--ss-bg-card) !important;
+    border-right: 1px solid var(--ss-border) !important;
+}
+
+section[data-testid="stSidebar"] > div:first-child {
+    padding-top: 1.5rem !important;
+}
+
+section[data-testid="stSidebar"] h1,
+section[data-testid="stSidebar"] h2,
+section[data-testid="stSidebar"] h3 {
+    font-size: 0.88rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.02em;
+    color: var(--ss-text-primary) !important;
+    text-transform: uppercase;
+    margin-bottom: 0.5rem !important;
+}
+
+section[data-testid="stSidebar"] hr {
+    border: none !important;
+    height: 1px !important;
+    background: var(--ss-border) !important;
+    margin: 1rem 0 !important;
+}
+
+/* Sidebar metric cards */
+section[data-testid="stSidebar"] div[data-testid="stMetric"] {
+    background: var(--ss-bg-surface) !important;
+    border-radius: var(--ss-radius-sm) !important;
+    padding: 10px 14px !important;
+    border: 1px solid var(--ss-border) !important;
+    margin-bottom: 6px !important;
+}
+
+section[data-testid="stSidebar"] div[data-testid="stMetricValue"] {
+    font-size: 1.1rem !important;
+}
+
+/* Sidebar selectbox */
+section[data-testid="stSidebar"] .stSelectbox label {
+    font-size: 0.78rem !important;
+    font-weight: 600 !important;
+    color: var(--ss-text-secondary) !important;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+section[data-testid="stSidebar"] .stSelectbox > div > div {
+    border-radius: var(--ss-radius-sm) !important;
+    border-color: var(--ss-border) !important;
+    font-size: 0.82rem !important;
+}
+
+/* Sidebar buttons */
+section[data-testid="stSidebar"] .stButton > button {
+    width: 100% !important;
+    border-radius: var(--ss-radius-sm) !important;
+    font-weight: 600 !important;
+    font-size: 0.82rem !important;
+    padding: 8px 16px !important;
+    transition: all 0.2s ease !important;
+    border: 1px solid var(--ss-border) !important;
+    background: var(--ss-bg-surface) !important;
+    color: var(--ss-text-primary) !important;
+}
+
+section[data-testid="stSidebar"] .stButton > button:hover {
+    background: var(--ss-accent) !important;
+    color: var(--ss-btn-text) !important;
+    border-color: var(--ss-accent) !important;
+    box-shadow: var(--ss-shadow-sm) !important;
+}
+
+section[data-testid="stSidebar"] .stCaption, section[data-testid="stSidebar"] small {
+    font-size: 0.72rem !important;
+    color: var(--ss-text-muted) !important;
+}
+
+/* ---------- PAGE HEADER — Branded Top Bar ---------- */
+.ss-page-header {
+    padding: 0 0 20px 0;
+    margin-bottom: 12px;
+    border-bottom: 2px solid var(--ss-border);
+    position: relative;
+}
+
+.ss-page-header::before {
+    content: "";
+    position: absolute;
+    bottom: -2px;
+    right: 0;
+    width: 120px;
+    height: 2px;
+    background: linear-gradient(90deg, var(--ss-accent), transparent);
+    border-radius: 1px;
+}
+
+.ss-page-header h1 {
+    font-size: 1.85rem !important;
+    font-weight: 800 !important;
+    letter-spacing: -0.03em;
+    color: var(--ss-text-primary) !important;
+    margin: 0 0 6px 0 !important;
+    line-height: 1.2;
+}
+
+.ss-page-header .ss-subtitle {
+    font-size: 0.82rem;
+    color: var(--ss-text-muted);
+    margin: 0;
+    font-weight: 500;
+}
+
+/* ---------- PROGRESS BAR — Custom Styled ---------- */
+div[data-testid="stProgress"] > div {
+    border-radius: var(--ss-radius-full) !important;
+    overflow: hidden;
+    height: 8px !important;
+    background: var(--ss-bar-bg) !important;
+}
+
+div[data-testid="stProgress"] > div > div {
+    background: linear-gradient(90deg, var(--ss-accent), #60a5fa, #a78bfa) !important;
+    border-radius: var(--ss-radius-full) !important;
+    transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+/* Progress status text */
+div[data-testid="stProgress"] + div[data-testid="stMarkdownContainer"] strong {
+    color: var(--ss-accent) !important;
+    font-weight: 700;
+}
+
+/* ---------- TABLES / DATAFRAMES — Modern ---------- */
+div[data-testid="stDataFrame"] {
+    border-radius: var(--ss-radius-md) !important;
+    overflow: hidden !important;
+    border: 1px solid var(--ss-border) !important;
+    box-shadow: var(--ss-shadow-sm) !important;
+}
+
+div[data-testid="stDataFrame"] table {
+    border-collapse: separate !important;
+    border-spacing: 0 !important;
+}
+
+div[data-testid="stDataFrame"] th {
+    background: var(--ss-bg-surface) !important;
+    color: var(--ss-text-secondary) !important;
+    font-weight: 700 !important;
+    font-size: 0.72rem !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.04em !important;
+    padding: 10px 14px !important;
+    border-bottom: 2px solid var(--ss-border) !important;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+div[data-testid="stDataFrame"] td {
+    padding: 8px 14px !important;
+    font-size: 0.82rem !important;
+    font-family: var(--ss-mono) !important;
+    font-variant-numeric: tabular-nums;
+    border-bottom: 1px solid var(--ss-border) !important;
+    color: var(--ss-text-primary) !important;
+}
+
+div[data-testid="stDataFrame"] tr:hover td {
+    background: var(--ss-bg-card-hover) !important;
+}
+
+/* ---------- BUTTONS — Polished ---------- */
 .stButton > button, .stDownloadButton > button {
     border-radius: var(--ss-radius-sm) !important;
     font-weight: 600 !important;
-    transition: all 0.15s ease !important;
+    font-size: 0.85rem !important;
+    transition: all 0.2s ease !important;
+    padding: 8px 20px !important;
+    letter-spacing: 0.01em;
+}
+
+.stButton > button:hover, .stDownloadButton > button:hover {
+    transform: translateY(-1px) !important;
+    box-shadow: var(--ss-shadow-md) !important;
 }
 
 .stButton > button[kind="primary"],
 .stButton > button[data-testid="baseButton-primary"] {
     color: var(--ss-btn-text) !important;
+    background: var(--ss-accent) !important;
+    border-color: var(--ss-accent) !important;
+}
+
+.stButton > button[kind="primary"]:hover,
+.stButton > button[data-testid="baseButton-primary"]:hover {
+    background: var(--ss-accent-hover) !important;
+    border-color: var(--ss-accent-hover) !important;
 }
 
 .stButton > button p,
@@ -690,6 +914,95 @@ input, textarea, code, pre,
 .stDownloadButton > button div,
 .stDownloadButton > button span {
     color: inherit !important;
+}
+
+/* ---------- DOWNLOAD BUTTONS — Styled ---------- */
+.stDownloadButton > button {
+    background: var(--ss-bg-card) !important;
+    border: 1px solid var(--ss-border) !important;
+    color: var(--ss-text-primary) !important;
+}
+
+.stDownloadButton > button:hover {
+    border-color: var(--ss-accent) !important;
+    color: var(--ss-accent) !important;
+}
+
+/* ---------- SELECT BOX / NUMBER INPUT — Refined ---------- */
+.stSelectbox > div > div,
+.stMultiSelect > div > div,
+.stNumberInput > div > div > input,
+.stTextInput > div > div > input {
+    border-radius: var(--ss-radius-sm) !important;
+    border-color: var(--ss-border) !important;
+    font-size: 0.85rem !important;
+    font-family: var(--ss-font) !important;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
+}
+
+.stSelectbox > div > div:focus-within,
+.stMultiSelect > div > div:focus-within,
+.stNumberInput > div > div > input:focus,
+.stTextInput > div > div > input:focus {
+    border-color: var(--ss-accent) !important;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15) !important;
+}
+
+/* Labels above inputs */
+.stSelectbox label,
+.stMultiSelect label,
+.stNumberInput label,
+.stTextInput label {
+    font-weight: 600 !important;
+    font-size: 0.82rem !important;
+    color: var(--ss-text-secondary) !important;
+}
+
+/* ---------- TABS — Modern pill style ---------- */
+div[data-testid="stTabs"] button[data-baseweb="tab"] {
+    border-radius: var(--ss-radius-full) !important;
+    font-weight: 600 !important;
+    font-size: 0.82rem !important;
+    padding: 6px 18px !important;
+    margin: 0 4px !important;
+    transition: all 0.2s ease !important;
+}
+
+div[data-testid="stTabs"] button[aria-selected="true"] {
+    background: var(--ss-accent) !important;
+    color: var(--ss-btn-text) !important;
+}
+
+div[data-testid="stTabs"] button[aria-selected="false"] {
+    color: var(--ss-text-secondary) !important;
+}
+
+div[data-testid="stTabs"] button[aria-selected="false"]:hover {
+    background: var(--ss-bg-surface) !important;
+    color: var(--ss-text-primary) !important;
+}
+
+/* Tab underline removal */
+div[data-testid="stTabs"] [role="tablist"] {
+    border-bottom: 1px solid var(--ss-border) !important;
+    gap: 4px !important;
+    padding-bottom: 8px !important;
+}
+
+/* ---------- SUCCESS / WARNING / ERROR — Polished alerts ---------- */
+div[data-testid="stAlert"] {
+    border-radius: var(--ss-radius-md) !important;
+    font-size: 0.85rem !important;
+    font-weight: 500 !important;
+    border-left-width: 4px !important;
+}
+
+/* ---------- SECTION DIVIDERS (st.markdown("---")) ---------- */
+hr {
+    border: none !important;
+    height: 1px !important;
+    background: var(--ss-border) !important;
+    margin: 1.5rem 0 !important;
 }
 
 /* ---------- Responsive ---------- */
@@ -724,36 +1037,42 @@ input, textarea, code, pre,
     }
 }
 
-/* ---------- Streamlit overrides for clean look ---------- */
-.stExpander {
-    border-color: var(--ss-border) !important;
-    border-radius: var(--ss-radius-md) !important;
-}
-
-div[data-testid="stMetricValue"] {
-    font-family: var(--ss-mono);
-    font-variant-numeric: tabular-nums;
-}
-
-/* Sidebar tweaks */
-section[data-testid="stSidebar"] {
-    border-right: 1px solid var(--ss-border);
-}
-
-section[data-testid="stSidebar"] h1,
-section[data-testid="stSidebar"] h2,
-section[data-testid="stSidebar"] h3 {
-    font-size: 0.95rem;
-}
-
 /* ---------- Scrollbar styling ---------- */
-::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
     background: var(--ss-text-muted);
     border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover { background: var(--ss-text-secondary); }
+
+/* ---------- EMPTY STATE ---------- */
+.ss-empty-state {
+    text-align: center;
+    padding: 64px 24px;
+    color: var(--ss-text-muted);
+}
+
+.ss-empty-state .ss-empty-icon {
+    font-size: 3.5rem;
+    margin-bottom: 16px;
+    opacity: 0.6;
+}
+
+.ss-empty-state h3 {
+    color: var(--ss-text-secondary) !important;
+    text-align: center !important;
+    font-size: 1.1rem !important;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.ss-empty-state p {
+    text-align: center !important;
+    font-size: 0.85rem;
+    max-width: 400px;
+    margin: 0 auto;
+}
 
 </style>
 """

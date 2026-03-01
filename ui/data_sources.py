@@ -90,7 +90,12 @@ def render_data_sources_overview(
         )
     )
 
-    st.markdown("### 🔌 מקורות נתונים")
+    st.markdown("""
+<div class="ss-section-header">
+  <div class="ss-icon" style="background: var(--ss-bg-badge);">🔌</div>
+  <h2>מקורות נתונים</h2>
+</div>
+""", unsafe_allow_html=True)
     st.dataframe(styled, width="stretch", hide_index=True)
 
     used_count = 0
