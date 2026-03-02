@@ -24,8 +24,11 @@ from core.api_keys import get_api_key
 # Feature registry - Single Source of Truth for ML features
 from core.feature_registry import get_feature_names, FEATURE_COUNT_V3
 # Unified labelling logic
-from core.ml_targets import make_label_20d
-from core.ml_target_config import UP_THRESHOLD, DOWN_THRESHOLD
+from core.ml_targets import make_label_20d, make_label_20d_ranked
+from core.ml_target_config import (
+    UP_THRESHOLD, DOWN_THRESHOLD,
+    TARGET_MODE, RANK_TOP_PCT, RANK_BOTTOM_PCT,
+)
 # Shared EnsembleClassifier for pickle compatibility
 from core.ensemble import EnsembleClassifier
 
@@ -941,8 +944,24 @@ def train_and_save_bundle():
     full_df = pd.concat(all_data)
     print(f"📊 Total Training Rows: {len(full_df)}")
 
-    # 3. Labeling (Unified logic)
-    full_df['Label'] = make_label_20d(full_df['Forward_Return_20d'])
+    # 3. Labeling — rank-based (recommended) or absolute threshold
+    target_mode = os.getenv("ML_TARGET_MODE", TARGET_MODE)
+    if target_mode == "rank":
+        # Ensure date column exists for cross-sectional ranking
+        if "As_Of_Date" not in full_df.columns:
+            full_df["As_Of_Date"] = full_df.index
+        date_series = pd.to_datetime(full_df["As_Of_Date"]).dt.date
+        full_df['Label'] = make_label_20d_ranked(
+            full_df['Forward_Return_20d'],
+            date_series,
+            top_pct=RANK_TOP_PCT,
+            bottom_pct=RANK_BOTTOM_PCT,
+        )
+        print(f"🎯 Label mode: RANK-BASED (top {RANK_TOP_PCT*100:.0f}% = winner, "
+              f"bottom {RANK_BOTTOM_PCT*100:.0f}% = loser)")
+    else:
+        full_df['Label'] = make_label_20d(full_df['Forward_Return_20d'])
+        print(f"🎯 Label mode: ABSOLUTE (up >= {UP_THRESHOLD}, down <= {DOWN_THRESHOLD})")
     full_df = full_df.dropna(subset=["Label"]).copy()
     full_df["Label"] = full_df["Label"].astype(int)
     # Print class distribution
@@ -961,8 +980,8 @@ def train_and_save_bundle():
 
     # 4. Time-Series Cross-Validation (proper OOS evaluation)
     # Use feature registry as SINGLE SOURCE OF TRUTH to ensure alignment with inference
-    # v3.2 = 20 pruned features (removed 17 with negative permutation importance + 2 zero)
-    features = get_feature_names("v3.2")  # 20 features — pruned for better signal
+    # v3.3 = 16 features (V3.2 minus 4 with negative permutation importance)
+    features = get_feature_names("v3.3")  # 16 features — V3.3 removes 4 harmful features
     
     # Verify all features are present in training data
     missing_features = [f for f in features if f not in full_df.columns]
@@ -997,8 +1016,8 @@ def train_and_save_bundle():
         fold_model = HistGradientBoostingClassifier(
             max_iter=300,              # Maximum iterations (will stop early)
             learning_rate=0.05,
-            max_depth=4,               # Slightly deeper for complex patterns
-            min_samples_leaf=20,       # Prevent overfitting on small groups
+            max_depth=6,               # Deeper trees for 58k+ samples
+            min_samples_leaf=15,       # Allow finer splits with large dataset
             l2_regularization=0.1,     # L2 regularization
             class_weight='balanced',   # Built-in class balancing
             early_stopping=True,       # Enable early stopping
@@ -1071,8 +1090,8 @@ def train_and_save_bundle():
     analysis_model = HistGradientBoostingClassifier(
         max_iter=200,
         learning_rate=0.05,
-        max_depth=4,
-        min_samples_leaf=20,
+        max_depth=6,
+        min_samples_leaf=15,
         class_weight='balanced',
         early_stopping=True,
         validation_fraction=0.1,
@@ -1113,8 +1132,8 @@ def train_and_save_bundle():
     model1 = HistGradientBoostingClassifier(
         max_iter=300,
         learning_rate=0.05,
-        max_depth=4,
-        min_samples_leaf=20,
+        max_depth=6,
+        min_samples_leaf=15,
         l2_regularization=0.1,
         class_weight='balanced',
         early_stopping=True,
@@ -1129,8 +1148,8 @@ def train_and_save_bundle():
     print("   Training Model 2/3: RandomForestClassifier...")
     model2 = RandomForestClassifier(
         n_estimators=200,
-        max_depth=6,
-        min_samples_leaf=20,
+        max_depth=8,
+        min_samples_leaf=15,
         max_features='sqrt',
         class_weight='balanced',
         random_state=42,
@@ -1252,9 +1271,31 @@ def train_and_save_bundle():
     
     # 6. Save
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+
+    # --- Drift binning data: compute bin percentages on training features ---
+    # This enables PSI/KS drift monitoring in scripts/monitor_drift.py
+    feature_bins = {}
+    training_bin_pct = {}
+    try:
+        for feat in features:
+            if feat in X.columns:
+                col = X[feat].dropna()
+                if len(col) > 50:
+                    _, edges = pd.cut(col, bins=10, retbins=True, duplicates='drop')
+                    bin_counts = pd.cut(col, bins=edges).value_counts(normalize=True).sort_index()
+                    feature_bins[feat] = edges.tolist()
+                    training_bin_pct[feat] = bin_counts.values.tolist()
+        print(f"📊 Drift binning computed for {len(feature_bins)} features")
+    except Exception as e:
+        print(f"⚠️  Drift binning failed (non-fatal): {e}")
+
+    target_mode = os.getenv("ML_TARGET_MODE", TARGET_MODE)
+
     bundle = {
         "model": model,  # Calibrated model
         "feature_names": features,
+        "feature_version": "v3.3",
+        "target_mode": target_mode,
         "metrics": {
             "oos_auc_mean": mean_oos_auc,
             "oos_auc_std": std_oos_auc,
@@ -1276,23 +1317,34 @@ def train_and_save_bundle():
             "calibration_p20": p20_calib,
             "calibration_p50": p50_calib,
         },
-        "trained_at": timestamp
+        "feature_bins": feature_bins,
+        "training_bin_pct": training_bin_pct,
+        "trained_at": timestamp,
     }
-    
+
+    # Save with canonical name (for inference) + timestamped copy (for audit)
     path = MODELS_DIR / "model_20d_v3.pkl"
     joblib.dump(bundle, path)
+    ts_path = MODELS_DIR / f"model_20d_v3_{timestamp}.pkl"
+    joblib.dump(bundle, ts_path)
+    print(f"📁 Timestamped model copy: {ts_path}")
     # Write metadata.json next to model and to canonical latest path
     _oos_auc_mean = float(np.mean(oos_aucs)) if oos_aucs else 0.0
     _oos_auc_std = float(np.std(oos_aucs)) if oos_aucs else 0.0
     meta = {
         "sklearn_version": __import__("sklearn").__version__,
-        "feature_version": "v3.2",
+        "feature_version": "v3.3",
         "feature_list": features,
         "training_timestamp_utc": datetime.utcnow().isoformat(),
         "model_type": "CalibratedEnsemble(HistGB+RF+LR)",
         "model_name": "ml_20d_v3_ensemble_calibrated",
         "cv_method": f"RollingWindow(folds={len(oos_aucs)})",
-        "target": f"Forward_Return_20d >= {UP_THRESHOLD}",
+        "target": (
+            f"Rank-based (top {RANK_TOP_PCT*100:.0f}% per date)"
+            if target_mode == "rank"
+            else f"Forward_Return_20d >= {UP_THRESHOLD}"
+        ),
+        "target_mode": target_mode,
         "metrics": {
             "oos_auc": _oos_auc_mean,
             "cv_auc_mean": _oos_auc_mean,
@@ -1303,10 +1355,16 @@ def train_and_save_bundle():
         },
         "label_spec": {
             "horizon_days": 20,
-            "threshold_type": "fixed",
+            "threshold_type": target_mode,
             "up_threshold": UP_THRESHOLD,
             "down_threshold": DOWN_THRESHOLD,
-            "label_name": f"Forward_Return_20d>={UP_THRESHOLD}",
+            "rank_top_pct": RANK_TOP_PCT,
+            "rank_bottom_pct": RANK_BOTTOM_PCT,
+            "label_name": (
+                f"Rank top {RANK_TOP_PCT*100:.0f}%"
+                if target_mode == "rank"
+                else f"Forward_Return_20d>={UP_THRESHOLD}"
+            ),
             "class_weighting": "balanced",
         },
         "ensemble": {
@@ -1321,10 +1379,10 @@ def train_and_save_bundle():
         },
         "regularization": {
             "histgb_l2": 0.1,
-            "histgb_max_depth": 4,
-            "rf_max_depth": 6,
+            "histgb_max_depth": 6,
+            "rf_max_depth": 8,
             "lr_C": 0.1,
-            "min_samples_leaf": 20,
+            "min_samples_leaf": 15,
         },
         "calibration": {
             "method": "isotonic",
@@ -1339,6 +1397,10 @@ def train_and_save_bundle():
             "baseline_precision": baseline_precision,
             "target_p20": 0.40,
             "excellent_p20": 0.60,
+        },
+        "drift": {
+            "features_binned": len(feature_bins),
+            "binning_method": "pd.cut(10 equal-width bins)",
         },
     }
     try:

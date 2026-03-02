@@ -1,26 +1,56 @@
-def make_label_20d_strict(df, ret_col="Forward_Return_20d"):
-    """Label: 1 if return >= 0.15, 0 if <= 0.02, else np.nan"""
-    up = 0.15
-    down = 0.02
-    return np.where(df[ret_col] >= up, 1, np.where(df[ret_col] <= down, 0, np.nan))
+"""ML target/label generation for Stock Scout training pipeline.
 
-def make_label_20d_soft(df, ret_col="Forward_Return_20d"):
-    """Label: 1 if return >= 0.08, 0 if <= 0.00, else np.nan"""
-    up = 0.08
-    down = 0.00
-    return np.where(df[ret_col] >= up, 1, np.where(df[ret_col] <= down, 0, np.nan))
+Provides both absolute-threshold and rank-based labeling strategies.
+Rank-based labeling is preferred for production: it makes the model a
+STOCK PICKER (relative to peers) instead of a MARKET TIMER (absolute returns).
+"""
 import numpy as np
 import pandas as pd
-from .ml_target_config import HORIZON_DAYS, UP_THRESHOLD, DOWN_THRESHOLD
+
+from .ml_target_config import (
+    HORIZON_DAYS,
+    UP_THRESHOLD,
+    DOWN_THRESHOLD,
+    TARGET_MODE,
+    RANK_TOP_PCT,
+    RANK_BOTTOM_PCT,
+)
+
 
 def compute_forward_return(close: pd.Series, horizon: int = HORIZON_DAYS) -> pd.Series:
     return close.shift(-horizon) / close - 1
 
+
+# ---------------------------------------------------------------------------
+# Absolute-threshold labeling (legacy)
+# ---------------------------------------------------------------------------
+
 def make_label_20d(forward_ret: pd.Series) -> pd.Series:
+    """Label using absolute return thresholds (UP_THRESHOLD / DOWN_THRESHOLD)."""
     label = np.where(forward_ret >= UP_THRESHOLD, 1,
                      np.where(forward_ret <= DOWN_THRESHOLD, 0, np.nan))
     return pd.Series(label, index=forward_ret.index)
 
+
+def make_label_20d_strict(forward_ret: pd.Series) -> pd.Series:
+    """Label: 1 if return >= 0.15, 0 if <= 0.02, else np.nan"""
+    return pd.Series(
+        np.where(forward_ret >= 0.15, 1, np.where(forward_ret <= 0.02, 0, np.nan)),
+        index=forward_ret.index,
+    )
+
+
+def make_label_20d_soft(forward_ret: pd.Series) -> pd.Series:
+    """Label: 1 if return >= 0.08, 0 if <= 0.00, else np.nan"""
+    return pd.Series(
+        np.where(forward_ret >= 0.08, 1, np.where(forward_ret <= 0.00, 0, np.nan)),
+        index=forward_ret.index,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Rank-based labeling (recommended for production)
+# ---------------------------------------------------------------------------
 
 def make_label_20d_ranked(
     forward_returns: pd.Series,

@@ -297,7 +297,7 @@ def get_ml_weight_multiplier() -> float:
     These gates remain conservative until the retrained model proves itself.
     """
     if BUNDLE_AUC is None:
-        return 1.0  # unknown AUC — trust the model
+        return 0.5  # unknown AUC — don't trust or distrust; halve ML weight
     if BUNDLE_AUC <= 0.52:
         return 0.0
     if BUNDLE_AUC <= 0.55:

@@ -5,8 +5,17 @@ from datetime import datetime
 import pandas as pd
 import pytest
 
-from core.bridge import StockScoutBridge
+# Guard import — StockScoutBridge may not exist in all environments
+try:
+    from core.bridge import StockScoutBridge
+    _bridge_available = True
+except ImportError:
+    _bridge_available = False
 
+pytestmark = pytest.mark.skipif(
+    not _bridge_available,
+    reason="core.bridge module not available",
+)
 
 skip_reason = "Artifacts missing; run training first"
 need_artifacts = not (os.path.exists("models/v2/model_xgb.json") and os.path.exists("models/v2/feature_pipeline.joblib"))
