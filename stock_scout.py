@@ -1812,7 +1812,10 @@ if not rec_df.empty:
         from ui.card_helpers import fmt_num as _debug_fmt_num
         sample_tickers = rec_df["Ticker"].head(3).tolist()
         for ticker in sample_tickers:
-            row = rec_df[rec_df["Ticker"] == ticker].iloc[0]
+            _match = rec_df[rec_df["Ticker"] == ticker]
+            if _match.empty:
+                continue
+            row = _match.iloc[0]
             logger.info(
                 f"DEBUG: {ticker} Breakdown:\n"
                 f"  Overall Score: {row.get('overall_score_pretty', row.get('Score', 'N/A'))}\n"
@@ -2221,8 +2224,8 @@ try:
                             try:
                                 _pm_section.remove_position(_ca_pid, exit_reason="manual")
                                 _closed_count += 1
-                            except Exception:
-                                pass
+                            except Exception as _close_err:
+                                logger.warning("Failed to close position %s: %s", _ca_pid, _close_err)
                     if _closed_count:
                         st.toast(f"Closed {_closed_count} positions", icon="✅")
                     st.rerun()
