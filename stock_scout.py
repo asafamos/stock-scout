@@ -343,20 +343,10 @@ poly_ok = bool(_preflight.get("POLYGON", {}).get("ok", False))
 tiin_ok = bool(_preflight.get("TIINGO", {}).get("ok", False))
 fmp_ok = bool(_preflight.get("FMP", {}).get("ok", False))
 st.session_state["_alpha_ok"] = alpha_ok
-simfin_key = _env("SIMFIN_API_KEY") if CONFIG.get("ENABLE_SIMFIN") else None
-marketstack_key = (
-    _env("MARKETSTACK_API_KEY") if CONFIG.get("ENABLE_MARKETSTACK") else None
-)
-nasdaq_key = (
-    (_env("NASDAQ_API_KEY") or _env("NASDAQ_DL_API_KEY"))
-    if CONFIG.get("ENABLE_NASDAQ_DL")
-    else None
-)
-eodhd_key = (
-    (_env("EODHD_API_KEY") or _env("EODHD_TOKEN"))
-    if CONFIG.get("ENABLE_EODHD")
-    else None
-)
+simfin_key = _env("SIMFIN_API_KEY")
+marketstack_key = _env("MARKETSTACK_API_KEY")
+nasdaq_key = _env("NASDAQ_API_KEY") or _env("NASDAQ_DL_API_KEY")
+eodhd_key = _env("EODHD_API_KEY") or _env("EODHD_TOKEN")
 
 # Critical API keys presence check (non-blocking).
 # Consider it CRITICAL only if neither key is present at all.
