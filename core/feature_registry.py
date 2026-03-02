@@ -170,51 +170,55 @@ FEATURE_SPECS_V3_1: List[FeatureSpec] = [
 ]
 
 
+# Current default version (v3.3 = production model with harmful features removed)
+DEFAULT_VERSION = "v3.3"
+
 # =============================================================================
 # PUBLIC API
 # =============================================================================
 
-def get_feature_names(version: str = "v3") -> List[str]:
+def get_feature_names(version: str = DEFAULT_VERSION) -> List[str]:
     """
     Get ordered list of feature names.
 
     Args:
-        version: Feature version ("v3" for 34-feature set, "v3.1" for 39-feature,
-                 "v3.2" for 20-feature pruned set, "v4" for 72-feature)
+        version: Feature version ("v3", "v3.1", "v3.2", "v3.3", or "v4")
 
     Returns:
         List of feature names in canonical order
     """
-    if version == "v3":
-        return [f.name for f in FEATURE_SPECS_V3]
-    if version == "v3.1":
-        return [f.name for f in FEATURE_SPECS_V3_1]
-    if version == "v3.2":
-        return [f.name for f in FEATURE_SPECS_V3_2]
-    if version == "v4":
-        return [f.name for f in FEATURE_SPECS_V4]
-    raise ValueError(f"Unknown feature version: {version}")
+    specs_map = {
+        "v3": FEATURE_SPECS_V3,
+        "v3.1": FEATURE_SPECS_V3_1,
+        "v3.2": FEATURE_SPECS_V3_2,
+        "v3.3": FEATURE_SPECS_V3_3,
+        "v4": FEATURE_SPECS_V4,
+    }
+    if version not in specs_map:
+        raise ValueError(f"Unknown feature version: {version}. Supported: {SUPPORTED_VERSIONS}")
+    return [f.name for f in specs_map[version]]
 
 
-def get_feature_specs(version: str = "v3") -> List[FeatureSpec]:
+def get_feature_specs(version: str = DEFAULT_VERSION) -> List[FeatureSpec]:
     """
     Get full feature specifications.
 
     Args:
-        version: Feature version ("v3", "v3.1", "v3.2", or "v4")
+        version: Feature version ("v3", "v3.1", "v3.2", "v3.3", or "v4")
 
     Returns:
         List of FeatureSpec objects with full metadata
     """
-    if version == "v3":
-        return FEATURE_SPECS_V3.copy()
-    if version == "v3.1":
-        return FEATURE_SPECS_V3_1.copy()
-    if version == "v3.2":
-        return FEATURE_SPECS_V3_2.copy()
-    if version == "v4":
-        return FEATURE_SPECS_V4.copy()
-    raise ValueError(f"Unknown feature version: {version}")
+    specs_map = {
+        "v3": FEATURE_SPECS_V3,
+        "v3.1": FEATURE_SPECS_V3_1,
+        "v3.2": FEATURE_SPECS_V3_2,
+        "v3.3": FEATURE_SPECS_V3_3,
+        "v4": FEATURE_SPECS_V4,
+    }
+    if version not in specs_map:
+        raise ValueError(f"Unknown feature version: {version}. Supported: {SUPPORTED_VERSIONS}")
+    return specs_map[version].copy()
 
 
 def get_feature_defaults(version: str = "v3") -> Dict[str, float]:
@@ -418,6 +422,46 @@ FEATURE_SPECS_V3_2: List[FeatureSpec] = [
 
 
 # =============================================================================
+# FEATURE DEFINITIONS V3.3 (16 features) — pruned further from v3.2
+#
+#   v3.2 had 20 features. Four were confirmed NEGATIVE permutation importance:
+#     - Days_Since_52w_High  (-1.549% importance)
+#     - Price_vs_SMA50       (-1.009% importance)
+#     - Volume_Price_Confirm (-0.166% importance)
+#     - Up_Down_Volume_Ratio (-0.019% importance)
+#
+#   Removing them frees model capacity for the 16 features that actually help.
+# =============================================================================
+FEATURE_SPECS_V3_3: List[FeatureSpec] = [
+    # --- Price Action (4) --- top importance features
+    FeatureSpec("Support_Strength", "fraction days near support", 0.2, (0, 1), "price_action"),
+    FeatureSpec("Distance_From_52w_Low", "(close-52w_low)/52w_low", 0.5, (-0.5, 5.0), "price_action"),
+    FeatureSpec("Consolidation_Tightness", "(20d_high-low)/avg", 0.1, (0.01, 0.5), "price_action"),
+    FeatureSpec("Distance_To_Resistance", "(20d_high-close)/close", 0.05, (0, 0.5), "price_action"),
+
+    # --- Sector Relative (3) ---
+    FeatureSpec("Sector_Momentum", "sector_etf_ret_20d", 0.0, (-0.5, 0.5), "sector"),
+    FeatureSpec("Sector_RS", "stock_ret_20d - sector_ret_20d", 0.0, (-1.0, 1.0), "sector"),
+    FeatureSpec("Sector_Rank", "1 if stock beats sector in 5d", 0.5, (0, 1), "sector"),
+
+    # --- Momentum (3) ---
+    FeatureSpec("RS_vs_SPY_20d", "stock_ret_20d - spy_ret_20d", 0.0, (-1.0, 1.0), "momentum"),
+    FeatureSpec("Return_20d", "20-day price return", 0.0, (-1.0, 2.0), "technical"),
+    FeatureSpec("Momentum_Consistency", "% positive days (last 20)", 0.5, (0, 1), "momentum"),
+
+    # --- Volatility Patterns (3) ---
+    FeatureSpec("Tightness_Ratio", "Range contraction: range_5d/range_20d", 1.0, (0.05, 2.0), "volatility"),
+    FeatureSpec("ATR_Pct", "Average True Range as % of price", 0.02, (0.001, 0.5), "technical"),
+    FeatureSpec("VCP_Ratio", "Volatility Contraction: ATR(10)/ATR(30)", 1.0, (0.1, 5.0), "volatility"),
+
+    # --- Volume (3) --- only features with positive importance
+    FeatureSpec("Up_Volume_Ratio", "up-day vol / total vol", 0.5, (0, 1), "volume"),
+    FeatureSpec("Volume_Ratio_20d", "current vol / 20d avg", 1.0, (0.1, 20.0), "volume"),
+    FeatureSpec("Volume_Surge", "vol_5d_avg / vol_20d_avg", 1.0, (0.1, 10.0), "volume"),
+]
+
+
+# =============================================================================
 # CONSTANTS
 # =============================================================================
 
@@ -431,11 +475,11 @@ assert FEATURE_COUNT_V3_1 == 39, f"Expected 39 features, got {FEATURE_COUNT_V3_1
 FEATURE_COUNT_V3_2 = len(FEATURE_SPECS_V3_2)
 assert FEATURE_COUNT_V3_2 == 20, f"Expected 20 features, got {FEATURE_COUNT_V3_2}"
 
+FEATURE_COUNT_V3_3 = len(FEATURE_SPECS_V3_3)
+assert FEATURE_COUNT_V3_3 == 16, f"Expected 16 features, got {FEATURE_COUNT_V3_3}"
+
 FEATURE_COUNT_V4 = len(FEATURE_SPECS_V4)
 assert FEATURE_COUNT_V4 == 72, f"Expected 72 features, got {FEATURE_COUNT_V4}"
 
 # List of all supported versions
-SUPPORTED_VERSIONS = ["v3", "v3.1", "v3.2", "v4"]
-
-# Current default version (v3.2 = production model with pruned features)
-DEFAULT_VERSION = "v3.2"
+SUPPORTED_VERSIONS = ["v3", "v3.1", "v3.2", "v3.3", "v4"]

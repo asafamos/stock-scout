@@ -1119,10 +1119,14 @@ hr {
     margin-left: 0 !important;
 }
 
-/* Collapsed sidebar: hide content, prevent it from floating to center */
+/* Collapsed sidebar: fully hide — remove residual strip */
 [data-testid="stSidebar"][aria-expanded="false"] {
     min-width: 0 !important;
     width: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
     overflow: hidden !important;
 }
 
@@ -1140,13 +1144,6 @@ button[data-testid="stSidebarCollapseButton"],
 [data-testid="collapsedControl"] button,
 [data-testid="stSidebar"] button[kind="headerNoPadding"] {
     direction: ltr !important;
-}
-
-/* Flip the chevron icon to correct orientation in RTL context */
-button[data-testid="stSidebarCollapseButton"] svg,
-[data-testid="collapsedControl"] button svg,
-[data-testid="stSidebar"] button[kind="headerNoPadding"] svg {
-    transform: scaleX(-1);
 }
 
 /* Sidebar styling for collapsed/expanded states */

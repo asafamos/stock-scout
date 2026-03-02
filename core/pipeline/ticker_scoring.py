@@ -178,7 +178,12 @@ def _process_single_ticker(
 
     # Enhance with Big Winner signal + historical pattern matching
     try:
-        bw_dict = compute_big_winner_signal_20d(row_indicators)
+        # BigWinner needs TechScore_20d which is only available in rec_series
+        # (computed by bridge or legacy scoring), not in raw row_indicators.
+        bw_row = row_indicators.copy()
+        if "TechScore_20d" in rec_series:
+            bw_row["TechScore_20d"] = rec_series["TechScore_20d"]
+        bw_dict = compute_big_winner_signal_20d(bw_row)
         bw_score = float(bw_dict.get("BigWinnerScore_20d", 0.0)) if isinstance(bw_dict, dict) else 0.0
         bw_flag = int(bw_dict.get("BigWinnerFlag_20d", 0)) if isinstance(bw_dict, dict) else 0
         patt_eval = PatternMatcher.evaluate_stock(row_indicators)

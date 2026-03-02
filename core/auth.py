@@ -1,6 +1,6 @@
 """User identity helper for Stock Scout multi-user support.
 
-On Streamlit Cloud with Google SSO configured, ``st.experimental_user``
+On Streamlit Cloud with Google SSO configured, ``st.user``
 returns the authenticated user's email.  Locally the helper falls back to
 the ``STOCK_SCOUT_USER`` environment variable or ``"local"``.
 
@@ -57,7 +57,7 @@ def get_current_user() -> Dict[str, str]:
 
     # 1. Try Streamlit Cloud built-in auth (Google SSO)
     try:
-        user_obj = st.experimental_user
+        user_obj = st.user
         email = getattr(user_obj, "email", None)
         if email and isinstance(email, str) and "@" in email:
             pass  # Valid email from SSO

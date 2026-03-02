@@ -284,14 +284,63 @@ def compute_relative_strength_vs_spy(ticker_df: pd.DataFrame, spy_df: pd.DataFra
 
 def compute_sector_momentum(ticker: str) -> float:
     """
-    Sector momentum proxy: compare to sector ETF.
-    Returns percentile (0-1) of sector performance.
-    
-    Simplified: just return 0.5 for now (can enhance later with sector mapping).
+    Sector momentum: compare ticker's sector ETF performance to SPY.
+
+    Returns a 0-1 score:
+        > 0.5  = sector outperforming the market (bullish tailwind)
+        = 0.5  = sector in-line with market (neutral)
+        < 0.5  = sector underperforming (headwind)
+
+    Uses the pre-cached ETF data from ``initialize_market_context()``.
+    Falls back to 0.5 if data is unavailable.
     """
-    # TODO: Map ticker → sector → sector ETF → compute relative strength
-    # For now return neutral
-    return 0.5
+    try:
+        from core.sector_mapping import get_stock_sector, get_sector_etf
+
+        sector = get_stock_sector(ticker)
+        if sector == "Unknown":
+            return 0.5
+
+        etf_symbol = get_sector_etf(sector)
+        if not etf_symbol:
+            return 0.5
+
+        # Get sector ETF and SPY from the global cache
+        etf_df = _GLOBAL_INDEX_CACHE.get(etf_symbol)
+        spy_df = _GLOBAL_INDEX_CACHE.get("SPY")
+
+        if etf_df is None or spy_df is None or etf_df.empty or spy_df.empty:
+            return 0.5
+
+        # Compute 20-day return for both (align on date index)
+        close_col = "close" if "close" in etf_df.columns else "Close"
+        spy_close_col = "close" if "close" in spy_df.columns else "Close"
+
+        if close_col not in etf_df.columns or spy_close_col not in spy_df.columns:
+            return 0.5
+
+        etf_close = etf_df[close_col].dropna()
+        spy_close = spy_df[spy_close_col].dropna()
+
+        if len(etf_close) < 20 or len(spy_close) < 20:
+            return 0.5
+
+        # 20-day return
+        etf_ret = (etf_close.iloc[-1] / etf_close.iloc[-20]) - 1.0
+        spy_ret = (spy_close.iloc[-1] / spy_close.iloc[-20]) - 1.0
+
+        # Relative strength: sector vs market
+        # Spread > 0 means sector outperforming
+        spread = float(etf_ret - spy_ret)
+
+        # Map spread to 0-1 via sigmoid-like transform
+        # ±5% spread maps to roughly 0.2-0.8 range
+        import math
+        score = 1.0 / (1.0 + math.exp(-spread * 20))  # steepness=20 → ±5% → ~0.27-0.73
+        return max(0.0, min(1.0, score))
+
+    except Exception:
+        return 0.5
 
 
 def get_market_cap_decile(ticker: str) -> int:

@@ -6,12 +6,26 @@ import numpy as np
 import pandas as pd
 import joblib
 import pytest
-from xgboost import XGBClassifier
 
-from ml.feature_pipeline import FeaturePipeline
-from ml.targets import compute_smart_targets
+# Guard imports — these modules may not exist in all environments
+_missing = []
+try:
+    from xgboost import XGBClassifier
+except ImportError:
+    _missing.append("xgboost")
+try:
+    from ml.feature_pipeline import FeaturePipeline
+except ImportError:
+    _missing.append("ml.feature_pipeline")
+try:
+    from ml.targets import compute_smart_targets
+except ImportError:
+    _missing.append("ml.targets")
 
-pytestmark = pytest.mark.skip(reason="ml/targets.py and ml/feature_pipeline.py stubs not yet implemented")
+pytestmark = pytest.mark.skipif(
+    bool(_missing),
+    reason=f"Missing modules: {_missing}",
+)
 
 
 def make_synth(n_days: int = 100) -> pd.DataFrame:

@@ -101,6 +101,24 @@ ML_GATES: Dict[str, float] = {
     "bonus_mult": 1.08,     # was 1.15 — smaller bonus (ML doesn't warrant big boost)
 }
 
+# Strong ML gates — activated when model AUC ≥ 0.58 (proven signal)
+# Lower bonus threshold (model outputs are reliable) and bigger bonus multiplier
+ML_GATES_STRONG: Dict[str, float] = {
+    "penalty_lt": 0.25,     # Slightly more aggressive penalty for proven model
+    "bonus_gt": 0.60,       # Lower bar — model has earned trust at AUC ≥ 0.58
+    "penalty_mult": 0.80,   # Stronger penalty — model's NO signal is reliable
+    "bonus_mult": 1.15,     # Bigger bonus — model's YES signal is reliable
+}
+
+# AUC-tiered ML boost: maps model quality to max ML score adjustment
+# This determines how much the ML signal can move the final score
+ML_BOOST_RANGE: Dict[str, Dict[str, float]] = {
+    "weak":   {"min_auc": 0.0,  "max_auc": 0.55, "max_points": 3},    # AUC < 0.55: barely move score
+    "modest": {"min_auc": 0.55, "max_auc": 0.58, "max_points": 8},    # AUC 0.55-0.58: modest influence
+    "good":   {"min_auc": 0.58, "max_auc": 0.62, "max_points": 15},   # AUC 0.58-0.62: real signal
+    "strong": {"min_auc": 0.62, "max_auc": 1.0,  "max_points": 25},   # AUC > 0.62: strong alpha
+}
+
 # Risk/Reward gate thresholds and multipliers
 # Stocks with poor R/R should never be top recommendations.
 # A stock with RR < 1 means expected loss > expected gain — that's a bad trade.

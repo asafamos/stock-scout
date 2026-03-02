@@ -324,19 +324,21 @@ def score_universe_20d(
         rec["MomCons"] = float(row.get("MomCons", np.nan))
         rec["VolSurge"] = float(row.get("VolSurge", np.nan))
 
-        # Big winner features
-        from core.unified_logic import compute_big_winner_signal_20d
-
-        bw = compute_big_winner_signal_20d(row)
-        rec["BigWinnerScore_20d"] = float(bw.get("BigWinnerScore_20d", 0.0))
-        rec["BigWinnerFlag_20d"] = int(bw.get("BigWinnerFlag_20d", 0))
-
-        # Technical score (raw)
+        # Technical score (raw) — computed BEFORE BigWinner since BW needs TechScore_20d
         try:
             tech_raw = compute_tech_score_20d_v2(row)  # 0-1
         except Exception:
             tech_raw = 0.5
         rec["TechScore_20d_v2_raw"] = float(tech_raw)
+
+        # Big winner features (needs TechScore_20d from tech_raw)
+        from core.unified_logic import compute_big_winner_signal_20d
+
+        bw_row = row.copy()
+        bw_row["TechScore_20d"] = float(tech_raw * 100)  # scale 0-1 to 0-100
+        bw = compute_big_winner_signal_20d(bw_row)
+        rec["BigWinnerScore_20d"] = float(bw.get("BigWinnerScore_20d", 0.0))
+        rec["BigWinnerFlag_20d"] = int(bw.get("BigWinnerFlag_20d", 0))
 
         # ML probability - now using the complete feature dict
         if include_ml and ML_20D_AVAILABLE:
