@@ -13,10 +13,12 @@ logger = logging.getLogger(__name__)
 def to_float(val) -> float:
     """Coerce *val* to ``float``, returning ``NaN`` on failure."""
     try:
-        if val in (None, "", "N/A", "nan"):
+        # Check scalar None / empty string first (avoids numpy array truth-value warning)
+        if val is None or (isinstance(val, str) and val in ("", "N/A", "nan")):
             return np.nan
-        return float(val)
-    except Exception:
+        v = float(val)
+        return v
+    except (TypeError, ValueError):
         return np.nan
 
 

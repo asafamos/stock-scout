@@ -156,7 +156,7 @@ def _finalize_model(
         BUNDLE_HAS_MISSING_METEOR_FEATURES = True
 
     # Version safety: validate feature count matches a known registry version
-    _KNOWN_FEATURE_COUNTS = {34: "v3", 39: "v3.1", 20: "v3.2", 72: "v4"}
+    _KNOWN_FEATURE_COUNTS = {34: "v3", 39: "v3.1", 20: "v3.2", 16: "v3.3", 72: "v4"}
     n_feat = len(feature_names)
     detected_version = _KNOWN_FEATURE_COUNTS.get(n_feat)
     if detected_version:
@@ -164,7 +164,7 @@ def _finalize_model(
     elif n_feat > 0:
         logger.warning(
             "ML model has %d features — does not match any known registry version "
-            "(v3=34, v3.1=39, v4=72). Model may be stale or from an intermediate build.",
+            "(v3=34, v3.1=39, v3.2=20, v3.3=16, v4=72). Model may be stale or from an intermediate build.",
             n_feat,
         )
 
@@ -293,7 +293,7 @@ def get_ml_weight_multiplier() -> float:
     AUC ≤ 0.58  → 0.5  (halved — some signal but noisy)
     AUC > 0.58  → 1.0  (full weight — meaningful signal)
 
-    After retraining with v3.2 (20 pruned features), AUC should improve.
+    After retraining with v3.3 (16 features, rank-based labels), AUC should improve.
     These gates remain conservative until the retrained model proves itself.
     """
     if BUNDLE_AUC is None:
@@ -325,7 +325,7 @@ def compute_ml_20d_probabilities_raw(row: pd.Series) -> float:
         try:
             from core.feature_registry import get_feature_defaults, clip_features_to_range
             _n = len(FEATURE_COLS_20D)
-            _version = "v4" if _n >= 72 else ("v3.1" if _n >= 39 else ("v3.2" if _n >= 20 else "v3"))
+            _version = "v4" if _n >= 72 else ("v3.1" if _n >= 39 else ("v3.2" if _n >= 20 else ("v3.3" if _n >= 16 else "v3")))
             defaults = get_feature_defaults(_version)
         except Exception:
             defaults = {}
@@ -353,9 +353,9 @@ def compute_ml_20d_probabilities_raw(row: pd.Series) -> float:
                 val = defaults.get(col, 0.0)
             feature_dict[col] = val
 
-        # NOTE: Feature muting removed — model is now trained on v3.2 (20 pruned
+        # NOTE: Feature muting removed — model is now trained on v3.3 (16 pruned
         # features) instead of muting harmful features at inference time.
-        # The model itself only expects the 20 features that actually help.
+        # The model itself only expects the 16 features that actually help.
 
         # Track missing features for health reporting
         if missing:
@@ -553,7 +553,7 @@ def get_ml_health_meta() -> Dict[str, Any]:
             or bool(ML_VERSION_WARNING)
         )
         _n = len(FEATURE_COLS_20D or [])
-        _detected = {34: "v3", 39: "v3.1", 20: "v3.2", 72: "v4"}.get(_n, f"unknown({_n})")
+        _detected = {34: "v3", 39: "v3.1", 20: "v3.2", 16: "v3.3", 72: "v4"}.get(_n, f"unknown({_n})")
         return {
             "ml_bundle_version_warning": bool(ML_VERSION_WARNING),
             "ml_bundle_warning_reason": ML_VERSION_WARNING_REASON,

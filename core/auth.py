@@ -1,6 +1,6 @@
 """User identity helper for Stock Scout multi-user support.
 
-On Streamlit Cloud with Google SSO configured, ``st.experimental_user``
+On Streamlit Cloud with Google SSO configured, ``st.user``
 returns the authenticated user's email.  Locally the helper falls back to
 the ``STOCK_SCOUT_USER`` environment variable or ``"local"``.
 
