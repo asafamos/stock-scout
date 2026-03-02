@@ -52,7 +52,12 @@ def main() -> None:
     logger.info("DB stats: %s", json.dumps(stats, default=str))
 
     tracker = OutcomeTracker(store)
-    summary = tracker.update_outcomes(as_of_date=as_of_date)
+
+    try:
+        summary = tracker.update_outcomes(as_of_date=as_of_date)
+    except Exception as e:
+        logger.error("Outcome update FAILED: %s", e, exc_info=True)
+        sys.exit(1)
 
     logger.info("=" * 60)
     logger.info("OUTCOME UPDATE SUMMARY")
@@ -70,6 +75,8 @@ def main() -> None:
                 logger.info("  %s: %.2f", k, v)
             else:
                 logger.info("  %s: %s", k, v)
+
+    logger.info("✅ Outcome update completed successfully")
 
 
 if __name__ == "__main__":
