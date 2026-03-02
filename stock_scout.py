@@ -77,6 +77,12 @@ from ui.data_sources import render_data_sources_overview
 
 # ── project: virtual portfolio ─────────────────────────────────────
 from core.db.portfolio_manager import get_portfolio_manager, PortfolioManager
+from ui.components.outcome_dashboard import (
+    render_performance_kpis,
+    render_outcomes_table,
+    render_score_correlation,
+    render_pending_state,
+)
 from ui.components.portfolio_card import (
     render_open_position_card,
     render_closed_position_card,
@@ -2242,6 +2248,70 @@ try:
 except Exception as _pf_section_e:
     logger.warning("Portfolio section error: %s", _pf_section_e)
     st.caption(f"Portfolio unavailable: {_pf_section_e}")
+
+# ==================== Performance Tracking ====================
+st.markdown("""
+<div class="ss-section-header">
+  <div class="ss-icon" style="background: var(--ss-bg-badge);">📈</div>
+  <h2>Performance Tracking</h2>
+</div>
+""", unsafe_allow_html=True)
+
+try:
+    from core.db.store import get_scan_store
+    from core.db.outcome_tracker import OutcomeTracker
+
+    _outcome_store = get_scan_store()
+    _tracker = OutcomeTracker(_outcome_store)
+    _perf = _tracker.get_performance_summary(days=90)
+
+    if _perf.get("n_completed", 0) > 0:
+        # Show KPI cards
+        st.markdown(render_performance_kpis(_perf), unsafe_allow_html=True)
+
+        # Recent outcomes table (expandable)
+        _outcome_con = _outcome_store._connect()
+        try:
+            _outcomes_df = _outcome_con.execute(
+                """SELECT o.ticker, o.entry_date, o.entry_price,
+                          o.return_5d, o.return_10d, o.return_20d,
+                          o.status, o.spy_return_20d, o.excess_return_20d,
+                          o.hit_target, o.hit_stop, o.max_drawdown_20d, o.max_upside_20d
+                   FROM outcomes o
+                   ORDER BY o.entry_date DESC
+                   LIMIT 50"""
+            ).fetchdf()
+        finally:
+            _outcome_con.close()
+
+        if not _outcomes_df.empty:
+            with st.expander(f"📋 Recent Outcomes ({len(_outcomes_df)})", expanded=False):
+                st.markdown(render_outcomes_table(_outcomes_df), unsafe_allow_html=True)
+
+        # Score effectiveness (only show with enough data)
+        _corr = _tracker.get_score_vs_outcome(min_scans=10)
+        if not _corr.empty:
+            with st.expander("🔬 Score Effectiveness (which scores predict returns?)", expanded=False):
+                st.markdown(render_score_correlation(_corr), unsafe_allow_html=True)
+    else:
+        # No completed outcomes yet — show pending state
+        _outcome_con = _outcome_store._connect()
+        try:
+            _counts = _outcome_con.execute(
+                """SELECT
+                     SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
+                     SUM(CASE WHEN status = 'partial' THEN 1 ELSE 0 END) as partial
+                   FROM outcomes"""
+            ).fetchone()
+            _n_pending = int(_counts[0] or 0) if _counts else 0
+            _n_partial = int(_counts[1] or 0) if _counts else 0
+        finally:
+            _outcome_con.close()
+        st.markdown(render_pending_state(_n_pending, _n_partial), unsafe_allow_html=True)
+
+except Exception as _outcome_e:
+    logger.warning("Performance tracking section error: %s", _outcome_e)
+    st.caption(f"Performance tracking unavailable: {_outcome_e}")
 
 # ==================== Quick chart ====================
 st.markdown("""
