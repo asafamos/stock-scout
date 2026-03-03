@@ -230,7 +230,11 @@ class TestProviderPipeline:
 # ─── Fix 4: R/R gate for CORE classification ───────────────────────────
 
 class TestRiskClassRRGate:
-    """Verify that assign_risk_class enforces minimum R/R for CORE."""
+    """Verify that assign_risk_class enforces minimum R/R for CORE.
+
+    Updated 2026-03-03: R/R threshold raised from 0.8 to 1.5.
+    Hard safety filters now block R/R < 1.5, negative ROE, and missing fundamentals.
+    """
 
     def _make_row(self, **kwargs):
         defaults = {
@@ -240,36 +244,38 @@ class TestRiskClassRRGate:
             "RR": 2.0,
             "Close": 50.0,
             "Volume": 1000000,
+            "ROE": 15.0,          # required by hard filter (missing data check)
+            "MarketCap": 5e9,     # required by hard filter (missing data check)
         }
         defaults.update(kwargs)
         return pd.Series(defaults)
 
     def test_good_rr_stays_core(self):
-        """Stock with R/R >= 0.8 and good score should be CORE."""
+        """Stock with R/R >= 1.5 and good score should be CORE."""
+        from core.classification import assign_risk_class
+        row = self._make_row(RR=2.0)
+        assert assign_risk_class(row) == "CORE"
+
+    def test_poor_rr_rejected(self):
+        """Stock with R/R < 1.5 should be REJECTED by hard safety filter."""
+        from core.classification import assign_risk_class
+        row = self._make_row(RR=0.26)
+        result = assign_risk_class(row)
+        assert result == "REJECT", (
+            f"Stock with R/R=0.26 should be REJECT (hard filter), not {result}"
+        )
+
+    def test_borderline_rr_is_core(self):
+        """Stock with R/R = 1.5 (exact threshold) should be CORE."""
         from core.classification import assign_risk_class
         row = self._make_row(RR=1.5)
         assert assign_risk_class(row) == "CORE"
 
-    def test_poor_rr_demoted_to_spec(self):
-        """Stock with R/R < 0.8 should be demoted from CORE to SPEC."""
+    def test_just_below_threshold_is_rejected(self):
+        """Stock with R/R = 1.49 should be REJECTED by hard filter."""
         from core.classification import assign_risk_class
-        row = self._make_row(RR=0.26)
-        result = assign_risk_class(row)
-        assert result == "SPEC", (
-            f"Stock with R/R=0.26 should be SPEC, not {result}"
-        )
-
-    def test_borderline_rr_is_core(self):
-        """Stock with R/R = 0.8 (exact threshold) should be CORE."""
-        from core.classification import assign_risk_class
-        row = self._make_row(RR=0.8)
-        assert assign_risk_class(row) == "CORE"
-
-    def test_just_below_threshold_is_spec(self):
-        """Stock with R/R = 0.79 should be SPEC."""
-        from core.classification import assign_risk_class
-        row = self._make_row(RR=0.79)
-        assert assign_risk_class(row) == "SPEC"
+        row = self._make_row(RR=1.49)
+        assert assign_risk_class(row) == "REJECT"
 
     def test_missing_rr_defaults_to_core(self):
         """Stock with missing R/R should still qualify as CORE (no penalty for gaps)."""
@@ -307,6 +313,20 @@ class TestRiskClassRRGate:
         from core.classification import assign_risk_class
         row = self._make_row(Beta=2.0, RR=2.0)
         assert assign_risk_class(row) == "SPEC"
+
+    def test_negative_roe_rejected(self):
+        """Stock with negative ROE should be REJECTED by hard filter."""
+        from core.classification import assign_risk_class
+        row = self._make_row(ROE=-5.0, RR=2.0)
+        assert assign_risk_class(row) == "REJECT"
+
+    def test_missing_fundamentals_rejected(self):
+        """Stock missing both ROE and MarketCap should be REJECTED."""
+        from core.classification import assign_risk_class
+        row = self._make_row(RR=2.0)
+        del row["ROE"]
+        del row["MarketCap"]
+        assert assign_risk_class(row) == "REJECT"
 
 
 # ─── Scoring engine: ML boost + reliability gating ─────────────────────

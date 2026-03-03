@@ -108,6 +108,7 @@ def _t2_pass_and_reasons(
 def _compute_rr_for_row(
     row: pd.Series,
     data_map: Dict[str, pd.DataFrame],
+    market_regime: str = "neutral",
 ) -> Dict[str, Any]:
     """Compute Entry / Target / Stop / RR using ATR-projected targets.
 
@@ -168,15 +169,18 @@ def _compute_rr_for_row(
         res_60 = float(hdf["High"].tail(60).max())
         resistance_target = float(max(res_60, bb_upper))
 
-        # ATR-projected target (forward-looking)
-        # Aggressive 3.0x only for genuine breakout setups (near high + VCP/consolidation).
-        # Without a setup, use conservative 2.5x to avoid inflated RR near ATH.
+        # ATR-projected target (forward-looking, regime-aware)
+        # Stocks near 52w high get higher multiplier (breakout potential)
         high_52w = float(hdf["High"].max()) if len(hdf) >= 20 else res_60
         dist_from_high = (high_52w - entry) / high_52w if high_52w > 0 else 1.0
-        _vcp_s = float(row.get("Volatility_Contraction_Score", 0) or 0)
-        _tight_r = float(row.get("Tightness_Ratio", 1.0) or 1.0)
-        _has_consolidation = _vcp_s > 0.3 or _tight_r < 0.6
-        atr_mult = 3.0 if (dist_from_high < 0.05 and _has_consolidation) else 2.5
+        # Regime-aware multipliers: conservative in neutral/bearish, full in bullish
+        try:
+            from core.scoring_config import ATR_TARGET_MULTIPLIERS
+            _regime_key = market_regime.lower() if isinstance(market_regime, str) else "neutral"
+            _mults = ATR_TARGET_MULTIPLIERS.get(_regime_key, ATR_TARGET_MULTIPLIERS.get("neutral", {"base": 2.0, "breakout": 2.5}))
+            atr_mult = _mults["breakout"] if dist_from_high < 0.05 else _mults["base"]
+        except Exception:
+            atr_mult = 3.0 if dist_from_high < 0.05 else 2.5  # fallback to original
         atr_target = entry + atr_mult * atr14
 
         # Final target: higher of ATR projection and resistance

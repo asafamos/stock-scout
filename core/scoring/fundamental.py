@@ -166,13 +166,13 @@ def compute_fundamental_score_with_breakdown(data: dict[str, object], coverage_p
     roe_val = breakdown.roe
     if roe_val is not None and np.isfinite(roe_val):
         if roe_val < 0:
-            roe_score = 15.0  # Negative ROE: poor
+            roe_score = 5.0  # Negative ROE: very poor (hard filter also blocks these)
         elif roe_val < 5:
             roe_score = 15 + (roe_val / 5.0) * 25  # 0-5%: 15-40 pts
         else:
             roe_score = _normalize(roe_val, 5, 25, 0.5) * 60 + 40  # 5-25%: 40-100 pts
     else:
-        roe_score = 45.0  # Missing: slightly below neutral
+        roe_score = 30.0  # Missing: penalize data gaps (was 45)
     
     roic_val = breakdown.roic
     if roic_val is not None and np.isfinite(roic_val):

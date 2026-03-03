@@ -325,10 +325,16 @@ def calculate_reliability_v2(
     
     reliability_v2 = float(np.clip(reliability_v2, 0, 100))
     
-    # Map to High/Medium/Low bands
-    if reliability_v2 >= 75:
+    # Map to High/Medium/Low bands (configurable thresholds)
+    try:
+        from core.scoring_config import RELIABILITY_BANDS
+        _high_min = RELIABILITY_BANDS.get("high_min", 65)
+        _medium_min = RELIABILITY_BANDS.get("medium_min", 45)
+    except Exception:
+        _high_min, _medium_min = 65, 45
+    if reliability_v2 >= _high_min:
         reliability_band = "High"
-    elif reliability_v2 >= 40:
+    elif reliability_v2 >= _medium_min:
         reliability_band = "Medium"
     else:
         reliability_band = "Low"
