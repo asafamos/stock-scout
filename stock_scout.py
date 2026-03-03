@@ -221,7 +221,11 @@ with st.sidebar:
         if _user_scan_dir != _scan_dir and _user_scan_dir.is_dir():
             _scan_files.extend(sorted(_user_scan_dir.glob("*.parquet"), key=lambda p: p.stat().st_mtime, reverse=True))
         _scan_files.extend(sorted(_scan_dir.glob("*.parquet"), key=lambda p: p.stat().st_mtime, reverse=True))
+        _seen_paths = set()
         for _pq in _scan_files:
+            if str(_pq) in _seen_paths:
+                continue
+            _seen_paths.add(str(_pq))
             _meta_path = _pq.with_suffix(".json")
             _meta_info = {}
             if _meta_path.exists():
@@ -251,6 +255,16 @@ with st.sidebar:
                 "timestamp": _meta_info.get("timestamp", _mtime.strftime("%Y-%m-%d %H:%M")),
                 "count": _meta_info.get("results_count", _meta_info.get("total_tickers", _meta_info.get("universe_size", "?"))),
                 "source": "CI" if ("latest_scan." in _pq.name or _pq.name.startswith("scan_2")) and "live" not in _pq.name else "Local",
+            })
+        # Also surface the current session's live scan if it ran (saved after sidebar renders)
+        _live_meta = st.session_state.get("_last_live_scan_meta")
+        if _live_meta and not any(s.get("source") == "Live" for s in _all_scans):
+            _all_scans.insert(0, {
+                "file": "session (live)",
+                "path": _live_meta.get("path", ""),
+                "timestamp": _live_meta.get("timestamp", "just now"),
+                "count": _live_meta.get("total_tickers", "?"),
+                "source": "Live",
             })
         if _all_scans:
             _selected_scan = st.selectbox(
@@ -1261,6 +1275,14 @@ if is_live_scan and not results.empty:
         save_latest_scan_from_results(results, metadata=meta_final, user_id=_user_id)
         # Also update session state with the final filtered results
         st.session_state["precomputed_results"] = results.copy()
+        # Store live scan metadata so sidebar can show it on next rerun
+        # (sidebar renders before save, so file-based discovery misses this scan)
+        _live_save_dir = user_scan_dir(Path(__file__).parent / "data" / "scans", _user_id)
+        st.session_state["_last_live_scan_meta"] = {
+            "timestamp": meta_final["timestamp"],
+            "total_tickers": meta_final["total_tickers"],
+            "path": str(_live_save_dir / "latest_scan_live.parquet"),
+        }
         logger.info(f"✅ Saved FINAL results after sector cap: {len(results)} tickers")
     except Exception as e:
         logger.warning(f"Failed to save final scan: {e}")
@@ -2114,8 +2136,9 @@ csv_df.columns = _make_unique(list(csv_df.columns))
 cols_for_export = []
 seen_cols = set()
 for c in show_order:
-    # select first matching column (since duplicates now suffixed)
-    matches = [col for col in csv_df.columns if col == c or col.startswith(f"{c}_")]
+    # Try original name, then Hebrew-renamed version (hebrew_cols maps e.g. Ticker→סימול)
+    heb_c = hebrew_cols.get(c, c)
+    matches = [col for col in csv_df.columns if col in (c, heb_c) or col.startswith(f"{c}_") or col.startswith(f"{heb_c}_")]
     if matches:
         first = matches[0]
         if first not in seen_cols:
@@ -2130,14 +2153,15 @@ for c in show_order:
         show_order_unique.append(c)
         seen_show.add(c)
 
-lean_export_fields = [
-    c for c in cols_for_export if c in {
-        "Ticker", "Sector", "FinalScore_20d", "Entry_Price", "Target_Price",
-        "Stop_Loss", "Reward/Risk (≈R)", "Risk Level", "Reliability_Band",
-        "Buy Amount ($)", "Shares to Buy", "Market_Regime",
-        "P/E", "ROE", "MarketCap_B", "RSI", "Holding_Days",
-    }
-]
+_lean_target_en = {
+    "Ticker", "Sector", "FinalScore_20d", "Entry_Price", "Target_Price",
+    "Stop_Loss", "Reward/Risk (≈R)", "Risk Level", "Reliability_Band",
+    "Buy Amount ($)", "Shares to Buy", "Market_Regime",
+    "P/E", "ROE", "MarketCap_B", "RSI", "Holding_Days",
+}
+# Include Hebrew-renamed variants so renamed columns are not dropped
+_lean_target = _lean_target_en | {hebrew_cols.get(c, c) for c in _lean_target_en}
+lean_export_fields = [c for c in cols_for_export if c in _lean_target]
 full_export_fields = cols_for_export  # preserve full order
 
 # Sidebar checkbox stored earlier under dev options (create if missing)
