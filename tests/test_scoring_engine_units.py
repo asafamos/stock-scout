@@ -392,16 +392,24 @@ class TestEntryTimingAdjustment:
         assert abs(with_vcp - neutral) < 6, "Near-ATH with VCP should not get large penalty"
 
     def test_pullback_bonus(self):
-        """Stock 5-15% below 52w high → pullback bonus applied."""
-        pullback = compute_final_score_20d(_make_row(Dist_52w_High=-0.08))
-        far_away = compute_final_score_20d(_make_row(Dist_52w_High=-0.25))
-        assert pullback > far_away, "Pullback zone (5-15% from high) should score higher"
+        """Stock 5-15% below 52w high with low return → pullback bonus applied."""
+        pullback = compute_final_score_20d(_make_row(Dist_52w_High=-0.08, Return_20d=0.03))
+        far_away = compute_final_score_20d(_make_row(Dist_52w_High=-0.25, Return_20d=0.03))
+        assert pullback > far_away, "Pullback zone (5-15% from high, low return) should score higher"
+
+    def test_pullback_bonus_denied_if_extended(self):
+        """Stock 5-15% below high but with 18% run-up → no pullback bonus."""
+        # Extended stock (18% return) should NOT get pullback bonus
+        extended = compute_final_score_20d(_make_row(Dist_52w_High=-0.08, Return_20d=0.18))
+        # Genuine pullback (3% return) SHOULD get bonus
+        genuine = compute_final_score_20d(_make_row(Dist_52w_High=-0.08, Return_20d=0.03))
+        assert genuine > extended, "Extended stock should not get pullback bonus"
 
     def test_rapid_runup_penalty(self):
-        """Stock with >20% return in 20d → penalty for late entry."""
+        """Stock with >15% return in 20d → penalty for late entry."""
         normal = compute_final_score_20d(_make_row(Return_20d=0.05))
-        runup = compute_final_score_20d(_make_row(Return_20d=0.25))
-        assert runup < normal, "Rapid run-up (>20%) should score lower"
+        runup = compute_final_score_20d(_make_row(Return_20d=0.18))
+        assert runup < normal, "Rapid run-up (>15%) should score lower"
 
     def test_missing_dist_high_no_crash(self):
         """Missing Dist_52w_High should not crash."""
@@ -415,6 +423,33 @@ class TestEntryTimingAdjustment:
         near_ath = compute_final_score_20d(_make_row(Dist_52w_High=-0.02, Volatility_Contraction_Score=0.1))
         diff = neutral - near_ath
         assert 5 <= diff <= 12, f"Expected ~8pt penalty, got {diff:.1f}"
+
+    def test_rr_hard_cap_below_1_5(self):
+        """Score capped at 90 when RR < 1.5, even with perfect momentum."""
+        score = compute_final_score_20d(_make_row(
+            TechScore_20d_raw=100.0, Fundamental_S=80.0,
+            Reliability_Score=90.0, RR=1.2, ML_20d_Prob=0.7,
+            Dist_52w_High=-0.20,
+        ))
+        assert score <= 90.0, f"Score {score:.1f} should be capped at 90 for RR=1.2"
+
+    def test_rr_hard_cap_below_2_0(self):
+        """Score capped at 95 when RR < 2.0."""
+        score = compute_final_score_20d(_make_row(
+            TechScore_20d_raw=100.0, Fundamental_S=80.0,
+            Reliability_Score=90.0, RR=1.7, ML_20d_Prob=0.7,
+            Dist_52w_High=-0.20,
+        ))
+        assert score <= 95.0, f"Score {score:.1f} should be capped at 95 for RR=1.7"
+
+    def test_rr_good_no_cap(self):
+        """Score NOT capped when RR >= 2.0."""
+        score = compute_final_score_20d(_make_row(
+            TechScore_20d_raw=100.0, Fundamental_S=80.0,
+            Reliability_Score=90.0, RR=2.5, ML_20d_Prob=0.7,
+            Dist_52w_High=-0.20,
+        ))
+        assert score > 90.0, f"Score {score:.1f} should be above 90 for good RR=2.5"
 
     def test_score_always_valid_range(self):
         """Score stays in [0, 100] even with stacked penalties."""

@@ -158,6 +158,7 @@ def compute_final_score_20d(row: pd.Series) -> float:
         try:
             _dist_high = row.get("Dist_52w_High", np.nan)
             _ret_20d = row.get("Return_20d", row.get("Return_1m", np.nan))
+            _ret_val = float(_ret_20d) if pd.notna(_ret_20d) else 0.0
             _vcp_val = float(row.get("Volatility_Contraction_Score", 0) or 0)
             entry_adj = 0.0
             if pd.notna(_dist_high):
@@ -169,12 +170,26 @@ def compute_final_score_20d(row: pd.Series) -> float:
                 elif _dh > -0.05 and _vcp_val < ENTRY_TIMING["vcp_near_threshold"]:
                     entry_adj -= ENTRY_TIMING["near_high_penalty"]
                 # 5-15% pullback from high → quality entry zone bonus
-                elif -0.15 <= _dh <= -0.05:
+                # BUT only if return_20d < 10% (genuine pullback, not extended stock)
+                elif -0.15 <= _dh <= -0.05 and _ret_val < ENTRY_TIMING["pullback_max_return"]:
                     entry_adj += ENTRY_TIMING["pullback_bonus"]
-            # Rapid run-up penalty (>20% in 20d — late entry, stock already moved)
-            if pd.notna(_ret_20d) and float(_ret_20d) > ENTRY_TIMING["runup_threshold"]:
+            # Rapid run-up penalty (>15% in 20d — late entry, stock already moved)
+            if _ret_val > ENTRY_TIMING["runup_threshold"]:
                 entry_adj -= ENTRY_TIMING["runup_penalty"]
             final_score += entry_adj
+        except Exception:
+            pass
+
+        # ── RR hard cap ─────────────────────────────────────────
+        # Stocks with poor R/R cannot be top-scoring recommendations
+        # regardless of how strong momentum is.
+        try:
+            if rr_ratio is not None and np.isfinite(rr_ratio):
+                _rr = float(rr_ratio)
+                if _rr < ENTRY_TIMING.get("rr_cap_harsh_lt", 1.5):
+                    final_score = min(final_score, ENTRY_TIMING.get("rr_cap_harsh_max", 90.0))
+                elif _rr < ENTRY_TIMING.get("rr_cap_mild_lt", 2.0):
+                    final_score = min(final_score, ENTRY_TIMING.get("rr_cap_mild_max", 95.0))
         except Exception:
             pass
 
