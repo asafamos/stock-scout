@@ -169,11 +169,14 @@ def _compute_rr_for_row(
         resistance_target = float(max(res_60, bb_upper))
 
         # ATR-projected target (forward-looking)
-        # Stocks near 52w high get higher multiplier (breakout potential)
+        # Aggressive 3.0x only for genuine breakout setups (near high + VCP/consolidation).
+        # Without a setup, use conservative 2.5x to avoid inflated RR near ATH.
         high_52w = float(hdf["High"].max()) if len(hdf) >= 20 else res_60
         dist_from_high = (high_52w - entry) / high_52w if high_52w > 0 else 1.0
-        # Near high (within 5%) → breakout multiplier; otherwise base
-        atr_mult = 3.0 if dist_from_high < 0.05 else 2.5
+        _vcp_s = float(row.get("Volatility_Contraction_Score", 0) or 0)
+        _tight_r = float(row.get("Tightness_Ratio", 1.0) or 1.0)
+        _has_consolidation = _vcp_s > 0.3 or _tight_r < 0.6
+        atr_mult = 3.0 if (dist_from_high < 0.05 and _has_consolidation) else 2.5
         atr_target = entry + atr_mult * atr14
 
         # Final target: higher of ATR projection and resistance

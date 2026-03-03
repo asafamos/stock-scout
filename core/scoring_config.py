@@ -127,10 +127,24 @@ RR_GATES: Dict[str, float] = {
     "harsh_penalty_mult": 0.80,
     "mild_penalty_lt": 1.0,    # RR < 1.0: expected loss > expected gain
     "mild_penalty_mult": 0.90,
+    "mediocre_penalty_lt": 1.5,   # RR 1.0-1.5: weak setup, limited upside
+    "mediocre_penalty_mult": 0.95,
     "mild_bonus_gt": 2.5,      # RR > 2.5: good asymmetric trade
     "mild_bonus_mult": 1.06,
     "strong_bonus_gt": 4.0,    # RR > 4.0: excellent risk/reward
     "strong_bonus_mult": 1.12,
+}
+
+# Entry timing thresholds (used by compute_final_score_20d)
+# Penalize stocks near ATH without consolidation setup; reward pullback entries.
+ENTRY_TIMING: Dict[str, float] = {
+    "near_ath_penalty": 8.0,      # Within 3% of 52w high, no VCP setup
+    "near_high_penalty": 4.0,     # Within 5% of 52w high, no VCP setup
+    "pullback_bonus": 5.0,        # 5-15% below 52w high (quality entry zone)
+    "runup_threshold": 0.20,      # 20% return in 20d = already extended
+    "runup_penalty": 5.0,         # Penalty for rapid run-up
+    "vcp_ath_threshold": 0.4,     # VCP score to bypass ATH penalty
+    "vcp_near_threshold": 0.3,    # VCP score to bypass near-high penalty
 }
 
 # Market regime multipliers
