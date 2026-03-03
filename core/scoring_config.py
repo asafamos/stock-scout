@@ -141,10 +141,16 @@ ENTRY_TIMING: Dict[str, float] = {
     "near_ath_penalty": 8.0,      # Within 3% of 52w high, no VCP setup
     "near_high_penalty": 4.0,     # Within 5% of 52w high, no VCP setup
     "pullback_bonus": 5.0,        # 5-15% below 52w high (quality entry zone)
-    "runup_threshold": 0.20,      # 20% return in 20d = already extended
+    "pullback_max_return": 0.10,  # Pullback bonus only if return_20d < 10% (genuine pullback)
+    "runup_threshold": 0.15,      # 15% return in 20d = already extended
     "runup_penalty": 5.0,         # Penalty for rapid run-up
     "vcp_ath_threshold": 0.4,     # VCP score to bypass ATH penalty
     "vcp_near_threshold": 0.3,    # VCP score to bypass near-high penalty
+    # RR hard caps — prevent momentum from overriding poor risk/reward
+    "rr_cap_harsh_lt": 1.5,       # RR < 1.5 → cap score at 90
+    "rr_cap_harsh_max": 90.0,
+    "rr_cap_mild_lt": 2.0,        # RR < 2.0 → cap score at 95
+    "rr_cap_mild_max": 95.0,
 }
 
 # Market regime multipliers
