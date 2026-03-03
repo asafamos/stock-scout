@@ -191,7 +191,15 @@ jobs:
             echo "No model changes to commit."
           else
             git commit -m "chore(ml): nightly training - update v3.4 model bundle (13 features, rank labels) [skip ci]"
-            git push
+            # Retry push up to 3 times to handle concurrent pushes
+            for attempt in 1 2 3; do
+              if git push origin main; then
+                echo "Push succeeded on attempt $attempt"
+                break
+              fi
+              echo "Push failed (attempt $attempt/3) — pulling and retrying..."
+              git pull --rebase origin main || true
+            done
           fi
 
       # ── Failure alert: create GitHub issue so training failures are never silent ──
