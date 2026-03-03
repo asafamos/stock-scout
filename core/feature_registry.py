@@ -170,8 +170,8 @@ FEATURE_SPECS_V3_1: List[FeatureSpec] = [
 ]
 
 
-# Current default version (v3.3 = production model with harmful features removed)
-DEFAULT_VERSION = "v3.3"
+# Current default version (v3.4 = production model, 13 features, all positive importance)
+DEFAULT_VERSION = "v3.4"
 
 # =============================================================================
 # PUBLIC API
@@ -192,6 +192,7 @@ def get_feature_names(version: str = DEFAULT_VERSION) -> List[str]:
         "v3.1": FEATURE_SPECS_V3_1,
         "v3.2": FEATURE_SPECS_V3_2,
         "v3.3": FEATURE_SPECS_V3_3,
+        "v3.4": FEATURE_SPECS_V3_4,
         "v4": FEATURE_SPECS_V4,
     }
     if version not in specs_map:
@@ -214,6 +215,7 @@ def get_feature_specs(version: str = DEFAULT_VERSION) -> List[FeatureSpec]:
         "v3.1": FEATURE_SPECS_V3_1,
         "v3.2": FEATURE_SPECS_V3_2,
         "v3.3": FEATURE_SPECS_V3_3,
+        "v3.4": FEATURE_SPECS_V3_4,
         "v4": FEATURE_SPECS_V4,
     }
     if version not in specs_map:
@@ -462,6 +464,44 @@ FEATURE_SPECS_V3_3: List[FeatureSpec] = [
 
 
 # =============================================================================
+# FEATURE DEFINITIONS V3.4 (13 features) — pruned further from v3.3
+#
+#   v3.3 training (AUC=0.613) identified 3 more features with NEGATIVE
+#   permutation importance:
+#     - Volume_Ratio_20d   (-0.0000 ± 0.0002)
+#     - Up_Volume_Ratio    (-0.0002 ± 0.0009)
+#     - Sector_RS          (not in top 15, negative importance)
+#
+#   Removing them focuses the model on 13 features that all contribute
+#   positively to prediction quality.
+# =============================================================================
+FEATURE_SPECS_V3_4: List[FeatureSpec] = [
+    # --- Price Action (4) --- highest importance features
+    FeatureSpec("Support_Strength", "fraction days near support", 0.2, (0, 1), "price_action"),
+    FeatureSpec("Distance_From_52w_Low", "(close-52w_low)/52w_low", 0.5, (-0.5, 5.0), "price_action"),
+    FeatureSpec("Consolidation_Tightness", "(20d_high-low)/avg", 0.1, (0.01, 0.5), "price_action"),
+    FeatureSpec("Distance_To_Resistance", "(20d_high-close)/close", 0.05, (0, 0.5), "price_action"),
+
+    # --- Sector Relative (2) --- removed Sector_RS (negative importance)
+    FeatureSpec("Sector_Momentum", "sector_etf_ret_20d", 0.0, (-0.5, 0.5), "sector"),
+    FeatureSpec("Sector_Rank", "1 if stock beats sector in 5d", 0.5, (0, 1), "sector"),
+
+    # --- Momentum (3) ---
+    FeatureSpec("RS_vs_SPY_20d", "stock_ret_20d - spy_ret_20d", 0.0, (-1.0, 1.0), "momentum"),
+    FeatureSpec("Return_20d", "20-day price return", 0.0, (-1.0, 2.0), "technical"),
+    FeatureSpec("Momentum_Consistency", "% positive days (last 20)", 0.5, (0, 1), "momentum"),
+
+    # --- Volatility Patterns (3) ---
+    FeatureSpec("Tightness_Ratio", "Range contraction: range_5d/range_20d", 1.0, (0.05, 2.0), "volatility"),
+    FeatureSpec("ATR_Pct", "Average True Range as % of price", 0.02, (0.001, 0.5), "technical"),
+    FeatureSpec("VCP_Ratio", "Volatility Contraction: ATR(10)/ATR(30)", 1.0, (0.1, 5.0), "volatility"),
+
+    # --- Volume (1) --- removed Volume_Ratio_20d & Up_Volume_Ratio (negative importance)
+    FeatureSpec("Volume_Surge", "vol_5d_avg / vol_20d_avg", 1.0, (0.1, 10.0), "volume"),
+]
+
+
+# =============================================================================
 # CONSTANTS
 # =============================================================================
 
@@ -478,8 +518,11 @@ assert FEATURE_COUNT_V3_2 == 20, f"Expected 20 features, got {FEATURE_COUNT_V3_2
 FEATURE_COUNT_V3_3 = len(FEATURE_SPECS_V3_3)
 assert FEATURE_COUNT_V3_3 == 16, f"Expected 16 features, got {FEATURE_COUNT_V3_3}"
 
+FEATURE_COUNT_V3_4 = len(FEATURE_SPECS_V3_4)
+assert FEATURE_COUNT_V3_4 == 13, f"Expected 13 features, got {FEATURE_COUNT_V3_4}"
+
 FEATURE_COUNT_V4 = len(FEATURE_SPECS_V4)
 assert FEATURE_COUNT_V4 == 72, f"Expected 72 features, got {FEATURE_COUNT_V4}"
 
 # List of all supported versions
-SUPPORTED_VERSIONS = ["v3", "v3.1", "v3.2", "v3.3", "v4"]
+SUPPORTED_VERSIONS = ["v3", "v3.1", "v3.2", "v3.3", "v3.4", "v4"]
