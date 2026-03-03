@@ -18,7 +18,7 @@ on:
 jobs:
   train:
     runs-on: ubuntu-latest
-    timeout-minutes: 180  # 500 tickers × 4 req/min ≈ 125 min data + ~10 min training
+    timeout-minutes: 240  # 500 tickers × 4 req/min ≈ 125 min data + training/CV ≈ 30 min + buffer
     env:
       # REQUIRED: Polygon API key for historical data
       POLYGON_API_KEY: ${{ secrets.POLYGON_API_KEY }}
@@ -66,6 +66,16 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
+      - name: Cache Polygon data
+        if: steps.market_check.outputs.skip != 'true'
+        uses: actions/cache@v4
+        with:
+          path: data/polygon_cache
+          key: polygon-data-${{ hashFiles('scripts/train_rolling_ml_20d.py') }}-${{ github.run_id }}
+          restore-keys: |
+            polygon-data-${{ hashFiles('scripts/train_rolling_ml_20d.py') }}-
+            polygon-data-
 
       - name: Debug - List available API keys
         if: steps.market_check.outputs.skip != 'true'
