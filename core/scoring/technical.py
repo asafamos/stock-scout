@@ -240,9 +240,14 @@ def compute_tech_score_20d_v2_components(row: pd.Series) -> dict:
 
     near_52w = row.get("Near52w", np.nan)
     if pd.notna(near_52w) and near_52w > 85:
-        # Breakout proximity bonus: stocks near 52w high are breakout candidates
-        breakout_bonus = _ramp(near_52w, 85.0, 98.0) * 0.15
-        location_score = min(1.0, location_score + breakout_bonus)
+        # Breakout bonus ONLY if consolidation setup exists (VCP or tight range).
+        # Stocks near highs WITHOUT a setup are overextended, not breakout candidates.
+        _vcp = row.get("Volatility_Contraction_Score", 0)
+        _tight = row.get("Tightness_Ratio", 1.0)
+        _has_setup = (pd.notna(_vcp) and float(_vcp) > 0.3) or (pd.notna(_tight) and float(_tight) < 0.6)
+        if _has_setup:
+            breakout_bonus = _ramp(near_52w, 85.0, 98.0) * 0.15
+            location_score = min(1.0, location_score + breakout_bonus)
 
     raw_score = 0.40 * trend_score + 0.35 * momentum_score + 0.15 * volatility_score + 0.10 * location_score
     return {

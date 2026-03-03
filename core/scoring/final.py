@@ -145,6 +145,8 @@ def compute_final_score_with_patterns(
             rr_mult = float(RR_GATES.get("harsh_penalty_mult", 0.80))
         elif rr_val < float(RR_GATES.get("mild_penalty_lt", 1.0)):
             rr_mult = float(RR_GATES.get("mild_penalty_mult", 0.90))
+        elif rr_val < float(RR_GATES.get("mediocre_penalty_lt", 1.5)):
+            rr_mult = float(RR_GATES.get("mediocre_penalty_mult", 0.95))
         elif rr_val > float(RR_GATES.get("strong_bonus_gt", 4.0)):
             rr_mult = float(RR_GATES.get("strong_bonus_mult", 1.12))
         elif rr_val > float(RR_GATES.get("mild_bonus_gt", 2.5)):

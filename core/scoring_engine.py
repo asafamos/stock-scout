@@ -17,7 +17,7 @@ import pandas as pd
 from typing import Dict, Tuple, Optional
 import logging
 
-from core.scoring_config import CONVICTION_WEIGHTS, FINAL_SCORE_WEIGHTS, PATTERN_SCORE_WEIGHTS, REGIME_MULTIPLIERS
+from core.scoring_config import CONVICTION_WEIGHTS, ENTRY_TIMING, FINAL_SCORE_WEIGHTS, PATTERN_SCORE_WEIGHTS, REGIME_MULTIPLIERS
 
 # Re-export from new canonical locations
 from core.scoring.utils import (       # noqa: F401
@@ -149,6 +149,32 @@ def compute_final_score_20d(row: pd.Series) -> float:
             rr_ok = isinstance(rr_ratio, (int, float)) and np.isfinite(rr_ratio) and float(rr_ratio) >= 1.0
             if (coil_bonus_active or vcp_good) and rr_ok:
                 final_score = max(final_score, 45.0)  # was 55 — reduced to avoid score inflation
+        except Exception:
+            pass
+
+        # ── Entry timing adjustment ─────────────────────────────
+        # Penalize overextended entries (near ATH without setup),
+        # reward quality pullback entries.
+        try:
+            _dist_high = row.get("Dist_52w_High", np.nan)
+            _ret_20d = row.get("Return_20d", row.get("Return_1m", np.nan))
+            _vcp_val = float(row.get("Volatility_Contraction_Score", 0) or 0)
+            entry_adj = 0.0
+            if pd.notna(_dist_high):
+                _dh = float(_dist_high)
+                # Within 3% of 52w high WITHOUT consolidation → strong penalty
+                if _dh > -0.03 and _vcp_val < ENTRY_TIMING["vcp_ath_threshold"]:
+                    entry_adj -= ENTRY_TIMING["near_ath_penalty"]
+                # Within 5% WITHOUT consolidation → mild penalty
+                elif _dh > -0.05 and _vcp_val < ENTRY_TIMING["vcp_near_threshold"]:
+                    entry_adj -= ENTRY_TIMING["near_high_penalty"]
+                # 5-15% pullback from high → quality entry zone bonus
+                elif -0.15 <= _dh <= -0.05:
+                    entry_adj += ENTRY_TIMING["pullback_bonus"]
+            # Rapid run-up penalty (>20% in 20d — late entry, stock already moved)
+            if pd.notna(_ret_20d) and float(_ret_20d) > ENTRY_TIMING["runup_threshold"]:
+                entry_adj -= ENTRY_TIMING["runup_penalty"]
+            final_score += entry_adj
         except Exception:
             pass
 

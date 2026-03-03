@@ -348,3 +348,115 @@ class TestGenerateWarnings:
     def test_none_rr_no_crash(self):
         warns = generate_warnings(None, 80, None, None, 80)
         assert isinstance(warns, list)
+
+
+# ── compute_final_score_20d: entry timing ─────────────────────────
+
+from core.scoring_engine import compute_final_score_20d
+
+
+def _make_row(**overrides):
+    """Build a pd.Series with reasonable defaults for scoring tests."""
+    defaults = {
+        "Fundamental_S": 70.0,
+        "TechScore_20d_raw": 70.0,
+        "Reliability_Score": 80.0,
+        "RR": 2.5,
+        "ML_20d_Prob": 0.55,
+        "Volatility_Contraction_Score": 0.0,
+        "Tightness_Ratio": 1.0,
+        "Coil_Bonus": 0,
+        "Pattern_Score": 0.0,
+        "Big_Winner_Signal": 0.0,
+        "Dist_52w_High": -0.10,   # 10% below 52w high (neutral)
+        "Return_20d": 0.05,       # 5% return (neutral)
+    }
+    defaults.update(overrides)
+    return pd.Series(defaults)
+
+
+class TestEntryTimingAdjustment:
+    """Tests for the entry timing penalty/bonus in compute_final_score_20d."""
+
+    def test_near_ath_no_vcp_penalty(self):
+        """Stock within 3% of 52w high WITHOUT VCP → penalty applied."""
+        neutral = compute_final_score_20d(_make_row(Dist_52w_High=-0.10))
+        near_ath = compute_final_score_20d(_make_row(Dist_52w_High=-0.02, Volatility_Contraction_Score=0.1))
+        assert near_ath < neutral, "Near-ATH without VCP should score lower"
+
+    def test_near_ath_with_vcp_no_penalty(self):
+        """Stock within 3% of 52w high WITH VCP → no penalty."""
+        with_vcp = compute_final_score_20d(_make_row(Dist_52w_High=-0.02, Volatility_Contraction_Score=0.5))
+        neutral = compute_final_score_20d(_make_row(Dist_52w_High=-0.10, Volatility_Contraction_Score=0.5))
+        # With VCP, near-ATH should NOT be penalized (may differ by other factors, but not by 8pts)
+        assert abs(with_vcp - neutral) < 6, "Near-ATH with VCP should not get large penalty"
+
+    def test_pullback_bonus(self):
+        """Stock 5-15% below 52w high → pullback bonus applied."""
+        pullback = compute_final_score_20d(_make_row(Dist_52w_High=-0.08))
+        far_away = compute_final_score_20d(_make_row(Dist_52w_High=-0.25))
+        assert pullback > far_away, "Pullback zone (5-15% from high) should score higher"
+
+    def test_rapid_runup_penalty(self):
+        """Stock with >20% return in 20d → penalty for late entry."""
+        normal = compute_final_score_20d(_make_row(Return_20d=0.05))
+        runup = compute_final_score_20d(_make_row(Return_20d=0.25))
+        assert runup < normal, "Rapid run-up (>20%) should score lower"
+
+    def test_missing_dist_high_no_crash(self):
+        """Missing Dist_52w_High should not crash."""
+        score = compute_final_score_20d(_make_row(Dist_52w_High=np.nan))
+        assert 0 <= score <= 100
+
+    def test_near_ath_penalty_magnitude(self):
+        """Penalty should be approximately 8 points for near-ATH."""
+        # Use -0.20 (outside pullback zone) as neutral baseline
+        neutral = compute_final_score_20d(_make_row(Dist_52w_High=-0.20))
+        near_ath = compute_final_score_20d(_make_row(Dist_52w_High=-0.02, Volatility_Contraction_Score=0.1))
+        diff = neutral - near_ath
+        assert 5 <= diff <= 12, f"Expected ~8pt penalty, got {diff:.1f}"
+
+    def test_score_always_valid_range(self):
+        """Score stays in [0, 100] even with stacked penalties."""
+        score = compute_final_score_20d(_make_row(
+            Dist_52w_High=-0.01,
+            Return_20d=0.30,
+            Volatility_Contraction_Score=0.0,
+            TechScore_20d_raw=10.0,
+            Fundamental_S=10.0,
+            RR=0.3,
+        ))
+        assert 0 <= score <= 100
+
+
+# ── Mediocre RR gate in scoring/final.py ───────────────────────────
+
+from core.scoring.final import compute_final_score_with_patterns
+
+
+class TestMediocreRRGate:
+    """Tests for the new mediocre RR gate (0.95x for RR 1.0-1.5)."""
+
+    def test_mediocre_rr_penalized(self):
+        """RR 1.0-1.5 should produce lower score than RR 2.0+."""
+        mediocre, _ = compute_final_score_with_patterns(
+            tech_score=70, fundamental_score=70, ml_prob=0.55, rr_ratio=1.2,
+        )
+        good, _ = compute_final_score_with_patterns(
+            tech_score=70, fundamental_score=70, ml_prob=0.55, rr_ratio=2.0,
+        )
+        assert mediocre < good, "Mediocre RR (1.2) should score lower than good RR (2.0)"
+
+    def test_rr_gate_ordering(self):
+        """Scores must be monotonically increasing with RR."""
+        rr_values = [0.3, 0.8, 1.2, 2.0, 3.0, 5.0]
+        scores = []
+        for rr in rr_values:
+            s, _ = compute_final_score_with_patterns(
+                tech_score=70, fundamental_score=70, ml_prob=0.55, rr_ratio=rr,
+            )
+            scores.append(s)
+        for i in range(1, len(scores)):
+            assert scores[i] >= scores[i - 1], (
+                f"Non-monotonic at RR={rr_values[i]}: {scores[i]:.1f} < {scores[i-1]:.1f}"
+            )
