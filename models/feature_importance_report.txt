@@ -1,46 +1,46 @@
 Feature Importance Report
-Generated: 2026-03-01 10:00:29
+Generated: 2026-03-03 09:54:25
 ============================================================
 
-Training Date: 2026-03-01 10:00:17
-Total Features: 20
-Total Training Samples: 69491
+Training Date: 2026-03-03 09:54:15
+Total Features: 16
+Total Training Samples: 66244
 CV Folds: 5
-Mean OOS AUC: 0.5477 ± 0.0353
-Mean P@20: 70.0%
+Mean OOS AUC: 0.6134 ± 0.0319
+Mean P@20: 52.0%
 
 ============================================================
 📊 FEATURE IMPORTANCE ANALYSIS
 ============================================================
 
 🔹 Permutation Importance (AUC-based, Top 15):
-   Support_Strength             +0.0250 ± 0.0037 █████
-   Distance_From_52w_Low        +0.0134 ± 0.0033 ██
-   Consolidation_Tightness      +0.0122 ± 0.0026 ██
-   ATR_Pct                      +0.0106 ± 0.0014 ██
-   Tightness_Ratio              +0.0089 ± 0.0010 █
-   Sector_Momentum              +0.0079 ± 0.0010 █
-   Distance_To_Resistance       +0.0060 ± 0.0009 █
-   RS_vs_SPY_20d                +0.0056 ± 0.0021 █
-   Sector_RS                    +0.0026 ± 0.0010 
-   Momentum_Consistency         +0.0021 ± 0.0004 
-   Return_20d                   +0.0018 ± 0.0011 
-   Up_Volume_Ratio              +0.0016 ± 0.0002 
-   VCP_Ratio                    +0.0015 ± 0.0014 
-   Volume_Ratio_20d             +0.0011 ± 0.0004 
-   Volume_Surge                 +0.0008 ± 0.0003 
+   Distance_From_52w_Low        +0.0372 ± 0.0024 ███████
+   ATR_Pct                      +0.0330 ± 0.0025 ██████
+   Consolidation_Tightness      +0.0175 ± 0.0018 ███
+   Sector_Momentum              +0.0157 ± 0.0023 ███
+   Support_Strength             +0.0138 ± 0.0017 ██
+   Tightness_Ratio              +0.0083 ± 0.0006 █
+   Return_20d                   +0.0061 ± 0.0008 █
+   VCP_Ratio                    +0.0054 ± 0.0011 █
+   Distance_To_Resistance       +0.0032 ± 0.0014 
+   Volume_Surge                 +0.0027 ± 0.0007 
+   RS_vs_SPY_20d                +0.0017 ± 0.0009 
+   Momentum_Consistency         +0.0008 ± 0.0006 
+   Sector_Rank                  +0.0005 ± 0.0004 
+   Volume_Ratio_20d             -0.0000 ± 0.0002 
+   Up_Volume_Ratio              -0.0002 ± 0.0009 
 
-⚠️  Harmful features (negative importance, consider removing): ['Up_Down_Volume_Ratio', 'Volume_Price_Confirm', 'Price_vs_SMA50', 'Days_Since_52w_High']
+⚠️  Harmful features (negative importance, consider removing): ['Volume_Ratio_20d', 'Up_Volume_Ratio', 'Sector_RS']
 
 🔹 Feature Importance Tiers:
-   🥇 High impact (≥0.01):     4 features
-   🥈 Medium impact (0.005-0.01): 4 features
-   🥉 Low impact (0.001-0.005):   6 features
-   ❌ Negligible (<0.001):       6 features
+   🥇 High impact (≥0.01):     5 features
+   🥈 Medium impact (0.005-0.01): 3 features
+   🥉 Low impact (0.001-0.005):   3 features
+   ❌ Negligible (<0.001):       5 features
 
 ✅ No highly correlated features found (threshold=0.95)
 
-Recommended Features (20): ['Support_Strength', 'Distance_From_52w_Low', 'Consolidation_Tightness', 'ATR_Pct', 'Tightness_Ratio', 'Sector_Momentum', 'Distance_To_Resistance', 'RS_vs_SPY_20d', 'Sector_RS', 'Momentum_Consistency', 'Return_20d', 'Up_Volume_Ratio', 'VCP_Ratio', 'Volume_Ratio_20d', 'Volume_Surge', 'Sector_Rank', 'Up_Down_Volume_Ratio', 'Volume_Price_Confirm', 'Price_vs_SMA50', 'Days_Since_52w_High']
+Recommended Features (16): ['Distance_From_52w_Low', 'ATR_Pct', 'Consolidation_Tightness', 'Sector_Momentum', 'Support_Strength', 'Tightness_Ratio', 'Return_20d', 'VCP_Ratio', 'Distance_To_Resistance', 'Volume_Surge', 'RS_vs_SPY_20d', 'Momentum_Consistency', 'Sector_Rank', 'Volume_Ratio_20d', 'Up_Volume_Ratio', 'Sector_RS']
 Candidates for Removal (0): []
 
 
@@ -50,23 +50,19 @@ FULL PERMUTATION IMPORTANCE TABLE
 
 Feature                          Importance        Std
 -------------------------------------------------------
-Support_Strength                  +0.025008   0.003750
-Distance_From_52w_Low             +0.013431   0.003257
-Consolidation_Tightness           +0.012151   0.002592
-ATR_Pct                           +0.010629   0.001405
-Tightness_Ratio                   +0.008916   0.000959
-Sector_Momentum                   +0.007934   0.001028
-Distance_To_Resistance            +0.005975   0.000904
-RS_vs_SPY_20d                     +0.005616   0.002124
-Sector_RS                         +0.002590   0.000991
-Momentum_Consistency              +0.002094   0.000362
-Return_20d                        +0.001836   0.001145
-Up_Volume_Ratio                   +0.001564   0.000223
-VCP_Ratio                         +0.001479   0.001378
-Volume_Ratio_20d                  +0.001071   0.000418
-Volume_Surge                      +0.000822   0.000289
-Sector_Rank                       +0.000793   0.000305
-Up_Down_Volume_Ratio              -0.000192   0.000485
-Volume_Price_Confirm              -0.001658   0.000216
-Price_vs_SMA50                    -0.010090   0.000998
-Days_Since_52w_High               -0.015489   0.001711
+Distance_From_52w_Low             +0.037228   0.002381
+ATR_Pct                           +0.033000   0.002545
+Consolidation_Tightness           +0.017462   0.001783
+Sector_Momentum                   +0.015659   0.002350
+Support_Strength                  +0.013776   0.001672
+Tightness_Ratio                   +0.008254   0.000565
+Return_20d                        +0.006130   0.000812
+VCP_Ratio                         +0.005404   0.001069
+Distance_To_Resistance            +0.003170   0.001448
+Volume_Surge                      +0.002716   0.000712
+RS_vs_SPY_20d                     +0.001676   0.000910
+Momentum_Consistency              +0.000773   0.000555
+Sector_Rank                       +0.000490   0.000351
+Volume_Ratio_20d                  -0.000008   0.000212
+Up_Volume_Ratio                   -0.000164   0.000892
+Sector_RS                         -0.000923   0.001248
