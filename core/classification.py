@@ -85,6 +85,44 @@ def apply_safety_filters(row: pd.Series, earnings_window_days: int = 7) -> Dict[
         if reliability_value < 10.0:
             reasons.append("low_reliability")
 
+    # 4) Hard R:R minimum filter
+    try:
+        from core.scoring_config import HARD_FILTERS
+        _min_rr = float(HARD_FILTERS.get("min_rr", 0.0))
+        if _min_rr > 0:
+            _rr_val = row.get("RR", row.get("RR_Ratio", row.get("RewardRisk", None)))
+            if _rr_val is not None and isinstance(_rr_val, (int, float)) and np.isfinite(_rr_val):
+                if float(_rr_val) < _min_rr:
+                    reasons.append(f"rr_below_minimum({float(_rr_val):.2f}<{_min_rr})")
+    except Exception:
+        pass
+
+    # 5) Negative ROE filter
+    try:
+        from core.scoring_config import HARD_FILTERS as _hf
+        _min_roe = _hf.get("min_roe", None)
+        if _min_roe is not None:
+            _roe_val = row.get("roe", row.get("ROE", row.get("ROE_f", None)))
+            if _roe_val is not None and isinstance(_roe_val, (int, float)) and np.isfinite(_roe_val):
+                _roe_pct = float(_roe_val) * 100.0 if abs(float(_roe_val)) < 2 else float(_roe_val)
+                if _roe_pct < float(_min_roe):
+                    reasons.append(f"negative_roe({_roe_pct:.1f}%)")
+    except Exception:
+        pass
+
+    # 6) Missing fundamental data filter (both ROE and MarketCap absent)
+    try:
+        from core.scoring_config import HARD_FILTERS as _hf2
+        if _hf2.get("require_fundamental_data", False):
+            _roe_v = row.get("roe", row.get("ROE", row.get("ROE_f", None)))
+            _mcap_v = row.get("MarketCap", row.get("market_cap", row.get("Market_Cap", None)))
+            _roe_missing = (_roe_v is None) or (isinstance(_roe_v, float) and not np.isfinite(_roe_v))
+            _mcap_missing = (_mcap_v is None) or (isinstance(_mcap_v, float) and not np.isfinite(_mcap_v))
+            if _roe_missing and _mcap_missing:
+                reasons.append("missing_fundamental_data(ROE+MarketCap)")
+    except Exception:
+        pass
+
     blocked = len(reasons) > 0
     return {"blocked": blocked, "reasons": reasons}
 
@@ -134,14 +172,27 @@ def assign_risk_class(row: pd.Series) -> str:
     rr_ok = True  # default: pass if R/R data unavailable
     try:
         if rr is not None and isinstance(rr, (int, float)) and np.isfinite(rr):
-            rr_ok = float(rr) >= 0.8
+            rr_ok = float(rr) >= 1.5  # raised from 0.8 to align with HARD_FILTERS min_rr
     except (TypeError, ValueError):
         pass
 
-    # CORE: High quality stocks with strong scores, moderate risk, acceptable R/R
+    # Reliability gate for CORE (stocks without sufficient data quality stay SPEC)
+    rel_ok = True  # default: pass if unavailable
+    try:
+        from core.scoring_config import CORE_MIN_RELIABILITY
+        _rel = row.get("reliability_v2", row.get("Reliability_v2", row.get("Reliability_Score", None)))
+        if _rel is not None and isinstance(_rel, (int, float)) and np.isfinite(_rel):
+            _rel_f = float(_rel)
+            if _rel_f <= 1.0:
+                _rel_f *= 100.0
+            rel_ok = _rel_f >= CORE_MIN_RELIABILITY
+    except Exception:
+        pass
+
+    # CORE: High quality stocks with strong scores, moderate risk, acceptable R/R, good reliability
     # SPEC: Speculative but promising stocks
     # REJECT: Below threshold or blocked by safety filters
-    if np.isfinite(score_val) and score_val >= 55 and vol_ok and beta_ok and rr_ok:
+    if np.isfinite(score_val) and score_val >= 55 and vol_ok and beta_ok and rr_ok and rel_ok:
         return "CORE"
     if np.isfinite(score_val) and score_val >= 40:
         return "SPEC"
@@ -153,6 +204,13 @@ def assign_risk_class(row: pd.Series) -> str:
 # ---------------------------------
 def _derive_quality_band(row: pd.Series) -> str:
     """Coarse data quality band from reliability proxies (High/Medium/Low)."""
+    try:
+        from core.scoring_config import RELIABILITY_BANDS
+        _high_min = RELIABILITY_BANDS.get("high_min", 65)
+        _medium_min = RELIABILITY_BANDS.get("medium_min", 45)
+    except Exception:
+        _high_min, _medium_min = 65, 45
+
     rel = row.get("reliability_v2", row.get("Reliability_v2", row.get("Reliability_Score", None)))
     try:
         if rel is None or not np.isfinite(rel):
@@ -160,9 +218,9 @@ def _derive_quality_band(row: pd.Series) -> str:
         rel_val = float(rel)
         if rel_val <= 1.0:
             rel_val *= 100.0
-        if rel_val >= 75:
+        if rel_val >= _high_min:
             return "high"
-        if rel_val >= 40:
+        if rel_val >= _medium_min:
             return "medium"
         return "low"
     except Exception:

@@ -1387,8 +1387,15 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
 
     # Dynamic RR
     try:
+        # Determine market regime for regime-aware target calculation
+        _rr_regime = "neutral"
+        try:
+            if "Market_Regime" in ctx.results.columns and not ctx.results.empty:
+                _rr_regime = str(ctx.results["Market_Regime"].mode().iloc[0]).lower()
+        except Exception:
+            pass
         rr_updates = ctx.results.apply(
-            lambda row: _compute_rr_for_row(row, ctx.data_map),
+            lambda row: _compute_rr_for_row(row, ctx.data_map, market_regime=_rr_regime),
             axis=1,
             result_type="expand",
         )

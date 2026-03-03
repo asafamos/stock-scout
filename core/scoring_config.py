@@ -123,12 +123,10 @@ ML_BOOST_RANGE: Dict[str, Dict[str, float]] = {
 # Stocks with poor R/R should never be top recommendations.
 # A stock with RR < 1 means expected loss > expected gain — that's a bad trade.
 RR_GATES: Dict[str, float] = {
-    "harsh_penalty_lt": 0.5,   # RR < 0.5: terrible trade setup
-    "harsh_penalty_mult": 0.80,
-    "mild_penalty_lt": 1.0,    # RR < 1.0: expected loss > expected gain
-    "mild_penalty_mult": 0.90,
-    "mediocre_penalty_lt": 1.5,   # RR 1.0-1.5: weak setup, limited upside
-    "mediocre_penalty_mult": 0.95,
+    "harsh_penalty_lt": 1.0,   # RR < 1.0: risk exceeds reward — harsh penalty
+    "harsh_penalty_mult": 0.70,
+    "mild_penalty_lt": 1.5,    # RR < 1.5: below professional minimum
+    "mild_penalty_mult": 0.85,
     "mild_bonus_gt": 2.5,      # RR > 2.5: good asymmetric trade
     "mild_bonus_mult": 1.06,
     "strong_bonus_gt": 4.0,    # RR > 4.0: excellent risk/reward
@@ -161,8 +159,8 @@ REGIME_MULTIPLIERS: Dict[str, float] = {
     "PANIC": 0.70,
     "CORRECTION": 0.70,
     "BEARISH": 0.70,      # alias used by detect_market_regime()
-    "SIDEWAYS": 1.00,     # alias used by detect_market_regime()
-    "NEUTRAL": 1.00,      # alias used by detect_market_regime()
+    "SIDEWAYS": 0.95,     # mild penalty: neutral market requires higher quality
+    "NEUTRAL": 0.95,      # mild penalty: neutral market requires higher quality
 }
 
 # ATR-based volatility rules — swing-trade aligned.
@@ -174,6 +172,30 @@ ATR_RULES = {
     "sweet_spot": {"min": 0.025, "max": 0.06, "factor": 1.1},
     "low": {"max": 0.025, "factor": 0.7},
 }
+
+# Hard filters — stocks violating these are REJECTED (SafetyBlocked=True)
+HARD_FILTERS: Dict[str, object] = {
+    "min_rr": 1.5,                      # minimum Reward:Risk ratio
+    "min_roe": 0.0,                     # block negative ROE (money-losing companies)
+    "require_fundamental_data": True,   # block if BOTH ROE and MarketCap are missing
+}
+
+# Regime-aware ATR multipliers for target-price calculation
+# Lower multipliers in neutral/bearish → more conservative targets → fewer false positives
+ATR_TARGET_MULTIPLIERS: Dict[str, Dict[str, float]] = {
+    "bullish": {"base": 2.5, "breakout": 3.0},
+    "neutral": {"base": 2.0, "breakout": 2.5},
+    "bearish": {"base": 1.5, "breakout": 2.0},
+}
+
+# Reliability band thresholds (used by v2_risk_engine and classification)
+RELIABILITY_BANDS: Dict[str, int] = {
+    "high_min": 65,     # lowered from 75 to allow more differentiation
+    "medium_min": 45,   # raised from 40
+}
+
+# Minimum reliability for CORE classification
+CORE_MIN_RELIABILITY: float = 55.0
 
 # Advanced filter defaults (lenient so pipeline can prune later)
 ADVANCED_FILTER_DEFAULTS = {
