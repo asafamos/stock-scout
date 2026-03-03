@@ -157,9 +157,9 @@ class TestFeatureRegistry:
         assert valid
         assert len(missing) == 0
 
-    def test_default_version_is_v33(self):
+    def test_default_version_is_v34(self):
         from core.feature_registry import DEFAULT_VERSION
-        assert DEFAULT_VERSION == "v3.3"
+        assert DEFAULT_VERSION == "v3.4"
 
 
 # ============================================================================
@@ -615,9 +615,9 @@ class TestVersionAPI:
         assert "v3.1" in SUPPORTED_VERSIONS
         assert "v3.2" in SUPPORTED_VERSIONS
 
-    def test_v33_is_default(self):
+    def test_v34_is_default(self):
         from core.feature_registry import DEFAULT_VERSION
-        assert DEFAULT_VERSION == "v3.3"
+        assert DEFAULT_VERSION == "v3.4"
 
     def test_categories_v31(self):
         from core.feature_registry import get_features_by_category

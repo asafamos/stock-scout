@@ -156,7 +156,7 @@ def _finalize_model(
         BUNDLE_HAS_MISSING_METEOR_FEATURES = True
 
     # Version safety: validate feature count matches a known registry version
-    _KNOWN_FEATURE_COUNTS = {34: "v3", 39: "v3.1", 20: "v3.2", 16: "v3.3", 72: "v4"}
+    _KNOWN_FEATURE_COUNTS = {34: "v3", 39: "v3.1", 20: "v3.2", 16: "v3.3", 13: "v3.4", 72: "v4"}
     n_feat = len(feature_names)
     detected_version = _KNOWN_FEATURE_COUNTS.get(n_feat)
     if detected_version:
@@ -164,7 +164,7 @@ def _finalize_model(
     elif n_feat > 0:
         logger.warning(
             "ML model has %d features — does not match any known registry version "
-            "(v3=34, v3.1=39, v3.2=20, v3.3=16, v4=72). Model may be stale or from an intermediate build.",
+            "(v3=34, v3.1=39, v3.2=20, v3.3=16, v3.4=13, v4=72). Model may be stale or from an intermediate build.",
             n_feat,
         )
 
@@ -553,7 +553,7 @@ def get_ml_health_meta() -> Dict[str, Any]:
             or bool(ML_VERSION_WARNING)
         )
         _n = len(FEATURE_COLS_20D or [])
-        _detected = {34: "v3", 39: "v3.1", 20: "v3.2", 16: "v3.3", 72: "v4"}.get(_n, f"unknown({_n})")
+        _detected = {34: "v3", 39: "v3.1", 20: "v3.2", 16: "v3.3", 13: "v3.4", 72: "v4"}.get(_n, f"unknown({_n})")
         return {
             "ml_bundle_version_warning": bool(ML_VERSION_WARNING),
             "ml_bundle_warning_reason": ML_VERSION_WARNING_REASON,
