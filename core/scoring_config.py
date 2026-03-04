@@ -49,14 +49,6 @@ FINAL_SCORE_WEIGHTS: Dict[str, float] = {
     "ml": 0.25,
 }
 
-# V4 weights — activated when V4 model achieves AUC > 0.60
-# ML gets higher weight because the model actually works with 72 features
-FINAL_SCORE_WEIGHTS_V4: Dict[str, float] = {
-    "technical": 0.40,
-    "fundamental": 0.15,
-    "ml": 0.45,
-}
-
 # Pattern-enhanced score weights (5-component, used by compute_final_score_with_patterns)
 # Swing-trade aligned: technical dominates, fundamentals are a minor quality check.
 # Weights are auto-normalized to sum to 1.0 at runtime.

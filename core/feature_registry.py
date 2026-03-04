@@ -170,8 +170,8 @@ FEATURE_SPECS_V3_1: List[FeatureSpec] = [
 ]
 
 
-# Current default version (v3.4 = production model, 13 features, all positive importance)
-DEFAULT_VERSION = "v3.4"
+# Current default version (v3.5 = production model, 20 features)
+DEFAULT_VERSION = "v3.5"
 
 # =============================================================================
 # PUBLIC API
@@ -182,7 +182,7 @@ def get_feature_names(version: str = DEFAULT_VERSION) -> List[str]:
     Get ordered list of feature names.
 
     Args:
-        version: Feature version ("v3", "v3.1", "v3.2", "v3.3", or "v4")
+        version: Feature version ("v3", "v3.1", "v3.2", "v3.3", "v3.4", "v3.5")
 
     Returns:
         List of feature names in canonical order
@@ -193,7 +193,7 @@ def get_feature_names(version: str = DEFAULT_VERSION) -> List[str]:
         "v3.2": FEATURE_SPECS_V3_2,
         "v3.3": FEATURE_SPECS_V3_3,
         "v3.4": FEATURE_SPECS_V3_4,
-        "v4": FEATURE_SPECS_V4,
+        "v3.5": FEATURE_SPECS_V3_5,
     }
     if version not in specs_map:
         raise ValueError(f"Unknown feature version: {version}. Supported: {SUPPORTED_VERSIONS}")
@@ -205,7 +205,7 @@ def get_feature_specs(version: str = DEFAULT_VERSION) -> List[FeatureSpec]:
     Get full feature specifications.
 
     Args:
-        version: Feature version ("v3", "v3.1", "v3.2", "v3.3", or "v4")
+        version: Feature version ("v3", "v3.1", "v3.2", "v3.3", "v3.4", "v3.5")
 
     Returns:
         List of FeatureSpec objects with full metadata
@@ -216,7 +216,7 @@ def get_feature_specs(version: str = DEFAULT_VERSION) -> List[FeatureSpec]:
         "v3.2": FEATURE_SPECS_V3_2,
         "v3.3": FEATURE_SPECS_V3_3,
         "v3.4": FEATURE_SPECS_V3_4,
-        "v4": FEATURE_SPECS_V4,
+        "v3.5": FEATURE_SPECS_V3_5,
     }
     if version not in specs_map:
         raise ValueError(f"Unknown feature version: {version}. Supported: {SUPPORTED_VERSIONS}")
@@ -321,62 +321,6 @@ def fill_missing_with_defaults(features_dict: Dict[str, float], version: str = "
     result = defaults.copy()
     result.update(features_dict)
     return result
-
-
-# =============================================================================
-# FEATURE DEFINITIONS V4 (72 features) — fundamental + cross-sectional + delta
-#
-# Changes from v3.1:
-#   ADDED 15 fundamental features (ML has ZERO fundamental input in v3.1)
-#   ADDED 8 cross-sectional rank features (relative positioning vs peers)
-#   ADDED 6 temporal delta features (acceleration/deceleration)
-#   ADDED 4 interaction features (non-linear combinations)
-# =============================================================================
-FEATURE_SPECS_V4: List[FeatureSpec] = [
-    # ── All 39 from v3.1 ─────────────────────────────────────────────
-    *FEATURE_SPECS_V3_1,
-
-    # ── 15 Fundamental Features (NEW — biggest gap in v3.1) ──────────
-    FeatureSpec("Fund_Quality_Score", "ROE/ROIC/margin composite (0-100)", 50.0, (0, 100), "fundamental"),
-    FeatureSpec("Fund_Growth_Score", "Revenue/EPS YoY composite (0-100)", 50.0, (0, 100), "fundamental"),
-    FeatureSpec("Fund_Valuation_Score", "PE/PS composite (0-100, high=cheap)", 50.0, (0, 100), "fundamental"),
-    FeatureSpec("PE_Percentile", "PE rank within sector (0-1)", 0.5, (0, 1), "fundamental"),
-    FeatureSpec("PS_Percentile", "PS rank within sector (0-1)", 0.5, (0, 1), "fundamental"),
-    FeatureSpec("ROE_Percentile", "ROE rank within universe (0-1)", 0.5, (0, 1), "fundamental"),
-    FeatureSpec("Revenue_Growth_Bucket", "Discretized: 0=declining,1=flat,2=moderate,3=strong", 1.0, (0, 3), "fundamental"),
-    FeatureSpec("EPS_Growth_Bucket", "Discretized: 0=declining,1=flat,2=moderate,3=strong", 1.0, (0, 3), "fundamental"),
-    FeatureSpec("Debt_Risk", "D/E ratio normalised (0-1, higher=riskier)", 0.3, (0, 1), "fundamental"),
-    FeatureSpec("MarketCap_Log", "log10(market_cap)", 10.0, (6, 13), "fundamental"),
-    FeatureSpec("Fund_Coverage", "Fundamental_Coverage_Pct / 100 (0-1)", 0.5, (0, 1), "fundamental"),
-    FeatureSpec("Fund_Disagreement", "Data disagreement score (0-1)", 0.2, (0, 1), "fundamental"),
-    FeatureSpec("Quality_Value_Combo", "Quality × (100-Valuation)/100", 25.0, (0, 100), "fundamental"),
-    FeatureSpec("Growth_Momentum_Combo", "Growth × Momentum_Consistency", 25.0, (0, 100), "fundamental"),
-    FeatureSpec("Earnings_Proximity", "1/(1+days_to_earnings) or 0", 0.0, (0, 1), "fundamental"),
-
-    # ── 8 Cross-Sectional Rank Features ──────────────────────────────
-    FeatureSpec("RSI_Rank", "RSI percentile within universe (0-1)", 0.5, (0, 1), "rank"),
-    FeatureSpec("ATR_Rank", "ATR_Pct percentile within universe (0-1)", 0.5, (0, 1), "rank"),
-    FeatureSpec("Momentum_Rank", "Return_20d percentile within universe (0-1)", 0.5, (0, 1), "rank"),
-    FeatureSpec("Volume_Rank", "Volume_Surge percentile within universe (0-1)", 0.5, (0, 1), "rank"),
-    FeatureSpec("TechScore_Rank", "TechScore_20d percentile within universe (0-1)", 0.5, (0, 1), "rank"),
-    FeatureSpec("FundScore_Rank", "Fundamental_Score percentile within universe (0-1)", 0.5, (0, 1), "rank"),
-    FeatureSpec("RS_Rank", "RS_vs_SPY_20d percentile within universe (0-1)", 0.5, (0, 1), "rank"),
-    FeatureSpec("RR_Rank", "RR_Ratio percentile within universe (0-1)", 0.5, (0, 1), "rank"),
-
-    # ── 6 Temporal Delta Features ────────────────────────────────────
-    FeatureSpec("RSI_Delta_5d", "RSI_now - RSI_5d_ago", 0.0, (-50, 50), "delta"),
-    FeatureSpec("ATR_Delta_5d", "ATR_Pct_now - ATR_Pct_5d_ago", 0.0, (-0.1, 0.1), "delta"),
-    FeatureSpec("Volume_Delta_5d", "Volume_Surge_now - Volume_Surge_5d_ago", 0.0, (-5, 5), "delta"),
-    FeatureSpec("RS_Acceleration", "RS_20d - RS_60d", 0.0, (-0.5, 0.5), "delta"),
-    FeatureSpec("Momentum_Acceleration", "Return_5d - (Return_20d-Return_5d)/3", 0.0, (-0.3, 0.3), "delta"),
-    FeatureSpec("Breadth_Delta_5d", "Market breadth today - 5d ago", 0.0, (-0.5, 0.5), "delta"),
-
-    # ── 4 Interaction Features ───────────────────────────────────────
-    FeatureSpec("VCP_x_RS", "VCP_Ratio × RS_vs_SPY_20d", 0.0, (-5, 5), "interaction"),
-    FeatureSpec("Momentum_x_Volume", "Momentum_Consistency × Volume_Surge", 0.5, (0, 10), "interaction"),
-    FeatureSpec("Quality_x_Momentum", "Fund_Quality_Score/100 × Momentum_Consistency", 0.25, (0, 1), "interaction"),
-    FeatureSpec("Squeeze_x_Volume", "Squeeze_On_Flag × Volume_Surge", 0.0, (0, 10), "interaction"),
-]
 
 
 # =============================================================================
@@ -502,6 +446,33 @@ FEATURE_SPECS_V3_4: List[FeatureSpec] = [
 
 
 # =============================================================================
+# FEATURE DEFINITIONS V3.5 (20 features) — V3.4 + cherry-picked delta/interaction
+#
+#   V3.4 (13 features) + 7 from V4:
+#     Delta (4): RSI_Delta_5d, ATR_Delta_5d, Volume_Delta_5d, Momentum_Acceleration
+#     Interaction (3): VCP_x_RS, Momentum_x_Volume, Squeeze_x_Volume
+#
+#   These capture momentum acceleration and non-linear pattern combinations
+#   without requiring external APIs (all OHLCV-derived).
+# =============================================================================
+FEATURE_SPECS_V3_5: List[FeatureSpec] = [
+    # ── All 13 from V3.4 ────────────────────────────────────────────
+    *FEATURE_SPECS_V3_4,
+
+    # ── 4 Delta Features (momentum/volatility acceleration) ─────────
+    FeatureSpec("RSI_Delta_5d", "RSI_now - RSI_5d_ago", 0.0, (-50, 50), "delta"),
+    FeatureSpec("ATR_Delta_5d", "ATR_Pct_now - ATR_Pct_5d_ago", 0.0, (-0.1, 0.1), "delta"),
+    FeatureSpec("Volume_Delta_5d", "Volume_Surge_now - Volume_Surge_5d_ago", 0.0, (-5, 5), "delta"),
+    FeatureSpec("Momentum_Acceleration", "Return_5d - (Return_20d-Return_5d)/3", 0.0, (-0.3, 0.3), "delta"),
+
+    # ── 3 Interaction Features (non-linear combinations) ────────────
+    FeatureSpec("VCP_x_RS", "VCP_Ratio * RS_vs_SPY_20d", 0.0, (-5, 5), "interaction"),
+    FeatureSpec("Momentum_x_Volume", "Momentum_Consistency * Volume_Surge", 0.5, (0, 10), "interaction"),
+    FeatureSpec("Squeeze_x_Volume", "Squeeze_On_Flag * Volume_Surge", 0.0, (0, 10), "interaction"),
+]
+
+
+# =============================================================================
 # CONSTANTS
 # =============================================================================
 
@@ -521,8 +492,8 @@ assert FEATURE_COUNT_V3_3 == 16, f"Expected 16 features, got {FEATURE_COUNT_V3_3
 FEATURE_COUNT_V3_4 = len(FEATURE_SPECS_V3_4)
 assert FEATURE_COUNT_V3_4 == 13, f"Expected 13 features, got {FEATURE_COUNT_V3_4}"
 
-FEATURE_COUNT_V4 = len(FEATURE_SPECS_V4)
-assert FEATURE_COUNT_V4 == 72, f"Expected 72 features, got {FEATURE_COUNT_V4}"
+FEATURE_COUNT_V3_5 = len(FEATURE_SPECS_V3_5)
+assert FEATURE_COUNT_V3_5 == 20, f"Expected 20 features, got {FEATURE_COUNT_V3_5}"
 
 # List of all supported versions
-SUPPORTED_VERSIONS = ["v3", "v3.1", "v3.2", "v3.3", "v3.4", "v4"]
+SUPPORTED_VERSIONS = ["v3", "v3.1", "v3.2", "v3.3", "v3.4", "v3.5"]

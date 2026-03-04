@@ -157,9 +157,9 @@ class TestFeatureRegistry:
         assert valid
         assert len(missing) == 0
 
-    def test_default_version_is_v34(self):
+    def test_default_version_is_v35(self):
         from core.feature_registry import DEFAULT_VERSION
-        assert DEFAULT_VERSION == "v3.4"
+        assert DEFAULT_VERSION == "v3.5"
 
 
 # ============================================================================
@@ -615,9 +615,9 @@ class TestVersionAPI:
         assert "v3.1" in SUPPORTED_VERSIONS
         assert "v3.2" in SUPPORTED_VERSIONS
 
-    def test_v34_is_default(self):
+    def test_v35_is_default(self):
         from core.feature_registry import DEFAULT_VERSION
-        assert DEFAULT_VERSION == "v3.4"
+        assert DEFAULT_VERSION == "v3.5"
 
     def test_categories_v31(self):
         from core.feature_registry import get_features_by_category
@@ -628,3 +628,96 @@ class TestVersionAPI:
         # Market category should only have Market_Regime
         assert len(cats["market"]) == 1
         assert cats["market"][0] == "Market_Regime"
+
+
+# ============================================================================
+# 9. V3.5 FEATURE TESTS
+# ============================================================================
+
+class TestV35Features:
+    """Tests for V3.5 feature set (20 features = V3.4 + 7 new)."""
+
+    def test_v35_count(self):
+        from core.feature_registry import get_feature_names
+        names = get_feature_names("v3.5")
+        assert len(names) == 20, f"Expected 20 V3.5 features, got {len(names)}"
+
+    def test_v35_includes_v34(self):
+        from core.feature_registry import get_feature_names
+        v34 = set(get_feature_names("v3.4"))
+        v35 = set(get_feature_names("v3.5"))
+        assert v34.issubset(v35), f"V3.4 features missing from V3.5: {v34 - v35}"
+
+    def test_v35_new_features(self):
+        from core.feature_registry import get_feature_names
+        names = set(get_feature_names("v3.5"))
+        new_features = {
+            "RSI_Delta_5d", "ATR_Delta_5d", "Volume_Delta_5d",
+            "Momentum_Acceleration", "VCP_x_RS",
+            "Momentum_x_Volume", "Squeeze_x_Volume",
+        }
+        missing = new_features - names
+        assert not missing, f"Missing V3.5 features: {missing}"
+
+    def test_v35_categories(self):
+        from core.feature_registry import get_features_by_category
+        cats = get_features_by_category("v3.5")
+        assert "delta" in cats
+        assert "interaction" in cats
+        assert len(cats["delta"]) == 4
+        assert len(cats["interaction"]) == 3
+
+    def test_v35_builder_returns_20_features(self, indicator_row, ohlcv_df, market_context, sector_context):
+        from core.ml_feature_builder import build_all_ml_features_v3_5
+        features = build_all_ml_features_v3_5(
+            indicator_row, ohlcv_df, market_context, sector_context
+        )
+        assert len(features) == 20, f"Expected 20, got {len(features)}"
+
+    def test_v35_builder_exact_match(self, indicator_row, ohlcv_df, market_context, sector_context):
+        from core.ml_feature_builder import build_all_ml_features_v3_5
+        from core.feature_registry import get_feature_names
+        features = build_all_ml_features_v3_5(
+            indicator_row, ohlcv_df, market_context, sector_context
+        )
+        expected = set(get_feature_names("v3.5"))
+        actual = set(features.keys())
+        assert expected == actual, f"Mismatch: missing={expected - actual}, extra={actual - expected}"
+
+    def test_v35_all_finite(self, indicator_row, ohlcv_df, market_context, sector_context):
+        from core.ml_feature_builder import build_all_ml_features_v3_5
+        features = build_all_ml_features_v3_5(
+            indicator_row, ohlcv_df, market_context, sector_context
+        )
+        for name, val in features.items():
+            assert np.isfinite(val), f"Feature {name} is not finite: {val}"
+
+    def test_v35_within_ranges(self, indicator_row, ohlcv_df, market_context, sector_context):
+        from core.ml_feature_builder import build_all_ml_features_v3_5
+        from core.feature_registry import get_feature_ranges
+        features = build_all_ml_features_v3_5(
+            indicator_row, ohlcv_df, market_context, sector_context
+        )
+        ranges = get_feature_ranges("v3.5")
+        for name, val in features.items():
+            lo, hi = ranges[name]
+            assert lo <= val <= hi, f"{name}={val} outside [{lo}, {hi}]"
+
+    def test_v35_interaction_values(self, indicator_row, ohlcv_df, market_context, sector_context):
+        from core.ml_feature_builder import build_all_ml_features_v3_5
+        features = build_all_ml_features_v3_5(
+            indicator_row, ohlcv_df, market_context, sector_context
+        )
+        # VCP_x_RS = VCP_Ratio * RS_vs_SPY_20d
+        expected_vcp_rs = features["VCP_Ratio"] * features["RS_vs_SPY_20d"]
+        assert abs(features["VCP_x_RS"] - expected_vcp_rs) < 1e-6
+        # Momentum_x_Volume = Momentum_Consistency * Volume_Surge
+        expected_mom_vol = features["Momentum_Consistency"] * features["Volume_Surge"]
+        assert abs(features["Momentum_x_Volume"] - expected_mom_vol) < 1e-6
+
+    def test_v4_removed(self):
+        from core.feature_registry import SUPPORTED_VERSIONS
+        assert "v4" not in SUPPORTED_VERSIONS
+        from core.feature_registry import get_feature_names
+        with pytest.raises(ValueError):
+            get_feature_names("v4")

@@ -763,6 +763,34 @@ def calculate_features(df, spy_returns: pd.Series = None, market_regime_df: pd.D
         df[vf] = df[vf].replace([np.inf, -np.inf], np.nan)
         df[vf] = df[vf].fillna(0.0)
 
+    # === V3.5 DELTA FEATURES (4) ===
+    # RSI series for delta
+    _delta = df['Close'].diff()
+    _gain = _delta.clip(lower=0).rolling(14).mean()
+    _loss = (-_delta.clip(upper=0)).rolling(14).mean()
+    _rs = _gain / _loss.replace(0, np.nan)
+    _rsi_series = 100.0 - (100.0 / (1.0 + _rs))
+    df['RSI_Delta_5d'] = _rsi_series - _rsi_series.shift(5)
+
+    df['ATR_Delta_5d'] = df['ATR_Pct'] - df['ATR_Pct'].shift(5)
+
+    df['Volume_Delta_5d'] = df['Volume_Surge'] - df['Volume_Surge'].shift(5)
+
+    df['Momentum_Acceleration'] = df['Return_5d'] - (df['Return_20d'] - df['Return_5d']) / 3.0
+
+    # === V3.5 INTERACTION FEATURES (3) ===
+    df['VCP_x_RS'] = df['VCP_Ratio'] * df['RS_vs_SPY_20d']
+    df['Momentum_x_Volume'] = df['Momentum_Consistency'] * df['Volume_Surge']
+    df['Squeeze_x_Volume'] = df['Squeeze_On_Flag'] * df['Volume_Surge']
+
+    # Handle inf/nan in v3.5 features
+    v35_features = ['RSI_Delta_5d', 'ATR_Delta_5d', 'Volume_Delta_5d',
+                    'Momentum_Acceleration', 'VCP_x_RS', 'Momentum_x_Volume',
+                    'Squeeze_x_Volume']
+    for vf in v35_features:
+        df[vf] = df[vf].replace([np.inf, -np.inf], np.nan)
+        df[vf] = df[vf].fillna(0.0)
+
     # === TARGET ===
     df['Forward_Return_20d'] = df['Close'].shift(-20) / df['Close'] - 1.0
     
@@ -981,7 +1009,7 @@ def train_and_save_bundle():
     # 4. Time-Series Cross-Validation (proper OOS evaluation)
     # Use feature registry as SINGLE SOURCE OF TRUTH to ensure alignment with inference
     # v3.4 = 13 features (V3.3 minus 3 with negative permutation importance)
-    features = get_feature_names("v3.4")  # 13 features — V3.4 removes Volume_Ratio_20d, Up_Volume_Ratio, Sector_RS
+    features = get_feature_names("v3.5")  # 20 features — V3.4 (13) + 4 delta + 3 interaction
     
     # Verify all features are present in training data
     missing_features = [f for f in features if f not in full_df.columns]
@@ -1294,7 +1322,7 @@ def train_and_save_bundle():
     bundle = {
         "model": model,  # Calibrated model
         "feature_names": features,
-        "feature_version": "v3.4",
+        "feature_version": "v3.5",
         "target_mode": target_mode,
         "metrics": {
             "oos_auc_mean": mean_oos_auc,
@@ -1333,7 +1361,7 @@ def train_and_save_bundle():
     _oos_auc_std = float(np.std(oos_aucs)) if oos_aucs else 0.0
     meta = {
         "sklearn_version": __import__("sklearn").__version__,
-        "feature_version": "v3.4",
+        "feature_version": "v3.5",
         "feature_list": features,
         "training_timestamp_utc": datetime.utcnow().isoformat(),
         "model_type": "CalibratedEnsemble(HistGB+RF+LR)",

@@ -18,7 +18,6 @@ import pandas as pd
 
 from core.scoring_config import (
     FINAL_SCORE_WEIGHTS,
-    FINAL_SCORE_WEIGHTS_V4,
     ML_GATES,
     ML_GATES_STRONG,
     PATTERN_SCORE_WEIGHTS,
@@ -85,20 +84,15 @@ def compute_final_score_with_patterns(
     except Exception:
         ml_quality = 1.0
 
-    # AUC-tiered weight selection:
-    #   ml_quality >= 1.0 (AUC > 0.58) and we have V4 weights → use FINAL_SCORE_WEIGHTS_V4 (ML=45%)
-    #   ml_quality >= 0.5 (AUC > 0.55) → use standard weights with ML_GATES_STRONG
-    #   otherwise → use standard weights with conservative ML_GATES
+    # AUC-tiered gate selection:
+    #   ml_quality >= 0.5 (AUC > 0.55) → use ML_GATES_STRONG
+    #   otherwise → use conservative ML_GATES
     use_strong_gates = ml_quality >= 0.5  # AUC > 0.55
-    use_v4_weights = ml_quality >= 1.0    # AUC > 0.58
     active_ml_gates = ML_GATES_STRONG if use_strong_gates else ML_GATES
 
     # Build weights
     if bw_weight == 0.0 and pattern_weight == 0.0:
-        if use_v4_weights:
-            base_w: Dict[str, float] = {**FINAL_SCORE_WEIGHTS_V4, "big_winner": 0.0, "pattern": 0.0}
-        else:
-            base_w = {**FINAL_SCORE_WEIGHTS, "big_winner": 0.0, "pattern": 0.0}
+        base_w: Dict[str, float] = {**FINAL_SCORE_WEIGHTS, "big_winner": 0.0, "pattern": 0.0}
     else:
         base_w = {**PATTERN_SCORE_WEIGHTS, "big_winner": bw_weight, "pattern": pattern_weight}
 
