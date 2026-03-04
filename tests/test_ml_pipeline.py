@@ -370,9 +370,11 @@ class TestInferenceConsistency:
         # Features should be list
         assert isinstance(features, list), "Features should be a list"
         
-        # First feature should be RSI (if model has it)
+        # First feature should be Support_Strength (V3.4+) or RSI (older versions)
         if len(features) > 0:
-            assert features[0] == 'RSI', f"First feature should be RSI, got {features[0]}"
+            assert features[0] in ('Support_Strength', 'RSI'), (
+                f"First feature should be Support_Strength or RSI, got {features[0]}"
+            )
 
 
 # =============================================================================

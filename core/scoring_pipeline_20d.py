@@ -9,7 +9,7 @@ from core.ml_20d_inference import (
     apply_live_v3_adjustments,
     PREFERRED_SCORING_MODE_20D,
 )
-from core.ml_feature_builder import build_all_ml_features_v3, get_market_context_from_row
+from core.ml_feature_builder import build_all_ml_features_v3, build_all_ml_features_v3_5, get_market_context_from_row
 
 
 def normalize_schema(df: pd.DataFrame) -> pd.DataFrame:
@@ -309,7 +309,7 @@ def score_universe_20d(
         except Exception:
             pass  # Graceful degradation: defaults (0, 0, 0.5) via feature builder
 
-        ml_features = build_all_ml_features_v3(
+        ml_features = build_all_ml_features_v3_5(
             row=row,
             df_hist=df_hist,
             market_context=market_ctx,

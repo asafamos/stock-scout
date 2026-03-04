@@ -141,18 +141,6 @@ jobs:
         run: |
           python -m scripts.monitor_drift || true
 
-      - name: Train V4 model (if training data available)
-        if: steps.market_check.outputs.skip != 'true'
-        continue-on-error: true
-        run: |
-          if [ -f ml/data/training_data.parquet ]; then
-            echo "=== Training V4 Model ==="
-            python scripts/train_ml_v4.py --min-auc 0.55
-            echo "✓ V4 model training complete"
-          else
-            echo "⚠️ Skipping V4 training - no training_data.parquet found"
-          fi
-
       - name: Upload model bundle artifact
         if: steps.market_check.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
@@ -190,7 +178,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "No model changes to commit."
           else
-            git commit -m "chore(ml): nightly training - update v3.4 model bundle (13 features, rank labels) [skip ci]"
+            git commit -m "chore(ml): nightly training - update v3.5 model bundle (20 features, rank labels) [skip ci]"
             # Retry push up to 3 times to handle concurrent pushes
             for attempt in 1 2 3; do
               if git push origin main; then
