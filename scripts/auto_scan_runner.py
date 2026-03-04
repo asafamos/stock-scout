@@ -51,7 +51,7 @@ from core.data import (
 from core.allocation import allocate_budget
 from core.classifier import apply_classification
 
-UNIVERSE_LIMIT = int(os.getenv("UNIVERSE_SIZE", os.getenv("AUTO_SCAN_UNIVERSE_LIMIT", "2000")))
+UNIVERSE_LIMIT = int(os.getenv("UNIVERSE_SIZE", os.getenv("AUTO_SCAN_UNIVERSE_LIMIT", "3000")))
 UNIVERSE = fetch_top_us_tickers_by_market_cap(limit=UNIVERSE_LIMIT)
 
 print(f"🎯 Universe size: {len(UNIVERSE)} stocks (limit {UNIVERSE_LIMIT})")

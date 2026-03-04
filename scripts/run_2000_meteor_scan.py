@@ -81,7 +81,7 @@ def _compute_rs_rank(df: pd.DataFrame) -> pd.DataFrame:
 
 def main():
     parser = argparse.ArgumentParser(description="Run Meteor scan")
-    env_limit = int(os.getenv("UNIVERSE_SIZE", os.getenv("AUTO_SCAN_UNIVERSE_LIMIT", "2000")))
+    env_limit = int(os.getenv("UNIVERSE_SIZE", os.getenv("AUTO_SCAN_UNIVERSE_LIMIT", "3000")))
     parser.add_argument("--limit", type=int, default=env_limit, help="Universe size")
     args = parser.parse_args()
     # Environment defaults
