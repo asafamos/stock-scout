@@ -1,3 +1,6 @@
+# Per-user identity (persisted SSO email, never commit)
+data/.user_identity
+
 # Environment and secrets
 .env
 *.nev
