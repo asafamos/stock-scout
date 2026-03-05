@@ -1195,6 +1195,10 @@ def _phase_enrich_fundamentals(ctx: _PipelineContext) -> None:
             ctx.results.at[idx, "Fundamental_S"] = 50.0
             logger.debug("Fundamental scoring failed for %s: %s", row.get("Ticker"), e)
 
+    # Sync the display column to the correctly-computed per-stock score
+    if "Fundamental_S" in ctx.results.columns:
+        ctx.results["Fundamental_Score"] = ctx.results["Fundamental_S"]
+
     # Card-compatible aliases for fundamental raw metrics
     # The UI cards expect DE_f, Price_STD, Price_Sources_Count, etc.
     try:

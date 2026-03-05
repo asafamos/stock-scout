@@ -219,13 +219,14 @@ with st.sidebar:
         # Collect parquet files: user-specific dir first, then shared
         _scan_files = []
         if _user_scan_dir != _scan_dir and _user_scan_dir.is_dir():
-            _scan_files.extend(sorted(_user_scan_dir.glob("*.parquet"), key=lambda p: p.stat().st_mtime, reverse=True))
-        _scan_files.extend(sorted(_scan_dir.glob("*.parquet"), key=lambda p: p.stat().st_mtime, reverse=True))
+            _scan_files.extend(list(_user_scan_dir.glob("*.parquet")))
+        _scan_files.extend(list(_scan_dir.glob("*.parquet")))
         _seen_paths = set()
         for _pq in _scan_files:
             if str(_pq) in _seen_paths:
                 continue
             _seen_paths.add(str(_pq))
+            # --- Load metadata (try .json then .meta.json) ---
             _meta_path = _pq.with_suffix(".json")
             _meta_info = {}
             if _meta_path.exists():
@@ -248,14 +249,32 @@ with st.sidebar:
                             _meta_info = _loaded2
                     except Exception:
                         pass
+            # --- Determine sort timestamp: prefer metadata, fallback to mtime ---
             _mtime = datetime.datetime.fromtimestamp(_pq.stat().st_mtime)
+            _sort_ts = _mtime
+            _ts_display = _mtime.strftime("%Y-%m-%d %H:%M")
+            _raw_ts = _meta_info.get("timestamp")
+            if _raw_ts:
+                try:
+                    _parsed = datetime.datetime.fromisoformat(str(_raw_ts).replace("Z", "+00:00"))
+                    if _parsed.tzinfo is not None:
+                        _parsed = _parsed.replace(tzinfo=None)
+                    _sort_ts = _parsed
+                    _ts_display = _parsed.strftime("%Y-%m-%d %H:%M")
+                except Exception:
+                    pass
             _all_scans.append({
                 "file": _pq.name,
                 "path": str(_pq),
-                "timestamp": _meta_info.get("timestamp", _mtime.strftime("%Y-%m-%d %H:%M")),
+                "timestamp": _ts_display,
+                "_sort_ts": _sort_ts,
                 "count": _meta_info.get("results_count", _meta_info.get("total_tickers", _meta_info.get("universe_size", "?"))),
                 "source": "CI" if ("latest_scan." in _pq.name or _pq.name.startswith("scan_2")) and "live" not in _pq.name else "Local",
             })
+        # Sort by parsed timestamp descending (newest first)
+        _all_scans.sort(key=lambda s: s["_sort_ts"], reverse=True)
+        # Keep only the 10 most recent scans to avoid clutter
+        _all_scans = _all_scans[:10]
         # Also surface the current session's live scan if it ran (saved after sidebar renders)
         _live_meta = st.session_state.get("_last_live_scan_meta")
         if _live_meta and not any(s.get("source") == "Live" for s in _all_scans):
@@ -263,6 +282,7 @@ with st.sidebar:
                 "file": "session (live)",
                 "path": _live_meta.get("path", ""),
                 "timestamp": _live_meta.get("timestamp", "just now"),
+                "_sort_ts": datetime.datetime.now(),
                 "count": _live_meta.get("total_tickers", "?"),
                 "source": "Live",
             })

@@ -4,6 +4,11 @@ On Streamlit Cloud with Google SSO configured, ``st.user``
 returns the authenticated user's email.  Locally the helper falls back to
 the ``STOCK_SCOUT_USER`` environment variable or ``"local"``.
 
+The resolved identity is persisted to a small file
+(``data/.user_identity``) so that transient SSO failures (timeouts,
+network hiccups) during Streamlit reruns don't silently change the
+active ``user_id`` — which would make portfolio data "disappear".
+
 Usage::
 
     from core.auth import get_current_user
@@ -16,11 +21,18 @@ Usage::
 
 from __future__ import annotations
 
+import json
+import logging
 import os
 import re
+from pathlib import Path
 from typing import Dict
 
 import streamlit as st
+
+logger = logging.getLogger("stock_scout.auth")
+
+_IDENTITY_FILE = Path(__file__).resolve().parent.parent / "data" / ".user_identity"
 
 
 def _sanitize_for_path(email: str) -> str:
@@ -37,6 +49,27 @@ def _sanitize_for_path(email: str) -> str:
     return s or "unknown"
 
 
+def _save_identity(result: Dict[str, str]) -> None:
+    """Persist identity to disk so it survives session_state resets."""
+    try:
+        _IDENTITY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _IDENTITY_FILE.write_text(json.dumps(result))
+    except Exception as exc:
+        logger.debug("Could not save identity file: %s", exc)
+
+
+def _load_identity() -> Dict[str, str] | None:
+    """Load previously persisted identity from disk."""
+    try:
+        if _IDENTITY_FILE.exists():
+            data = json.loads(_IDENTITY_FILE.read_text())
+            if isinstance(data, dict) and data.get("user_id"):
+                return data
+    except Exception as exc:
+        logger.debug("Could not read identity file: %s", exc)
+    return None
+
+
 def get_current_user() -> Dict[str, str]:
     """Return the current authenticated user as a dict.
 
@@ -47,8 +80,15 @@ def get_current_user() -> Dict[str, str]:
             "display_name": short human-readable name,
         }
 
-    The result is cached in ``st.session_state["_current_user"]`` so it is
-    computed once per Streamlit session.
+    Resolution order:
+      1. ``st.session_state`` cache (fast path, same rerun)
+      2. Streamlit Cloud SSO (``st.user.email``)
+      3. Persisted identity file (``data/.user_identity``)
+      4. ``STOCK_SCOUT_USER`` env-var / ``"local"`` fallback
+
+    When SSO succeeds, the identity is persisted to disk so that
+    subsequent reruns where SSO temporarily fails will still use the
+    correct user_id (and thus see the correct portfolio data).
     """
     if "_current_user" in st.session_state:
         return st.session_state["_current_user"]
@@ -60,13 +100,21 @@ def get_current_user() -> Dict[str, str]:
         user_obj = st.user
         email = getattr(user_obj, "email", None)
         if email and isinstance(email, str) and "@" in email:
-            pass  # Valid email from SSO
+            logger.debug("SSO resolved email: %s", email)
         else:
             email = None
     except Exception:
-        pass
+        logger.debug("SSO lookup failed, will try fallbacks")
 
-    # 2. Fallback: environment variable (local dev)
+    # 2. Fallback: persisted identity file (survives session_state resets)
+    if not email:
+        saved = _load_identity()
+        if saved and "@" in saved.get("email", ""):
+            logger.info("Using persisted identity: %s (SSO unavailable this rerun)", saved["email"])
+            st.session_state["_current_user"] = saved
+            return saved
+
+    # 3. Fallback: environment variable (local dev)
     if not email:
         email = os.getenv("STOCK_SCOUT_USER", "local")
 
@@ -83,6 +131,11 @@ def get_current_user() -> Dict[str, str]:
         "display_name": display_name,
     }
     st.session_state["_current_user"] = result
+
+    # Persist to disk when we got a real SSO email
+    if "@" in email:
+        _save_identity(result)
+
     return result
 
 

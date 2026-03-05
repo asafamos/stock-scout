@@ -665,8 +665,7 @@ def compute_advanced_score(
         "ma_aligned": ma_aligned,
         "alignment_score": alignment_score,
         "risk_reward_ratio": rr_ratio,
-        # Not computed here; provide a stable default for permissive thresholds
-        "momentum_consistency": 0.6,
+        "momentum_consistency": compute_momentum_quality(dff).get("momentum_consistency", 0.5),
     }
 
     # Simple boosting logic (normalized to [0,1])
