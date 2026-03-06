@@ -170,8 +170,8 @@ FEATURE_SPECS_V3_1: List[FeatureSpec] = [
 ]
 
 
-# Current default version (v3.5 = production model, 20 features)
-DEFAULT_VERSION = "v3.5"
+# Current default version (v3.6 = production model, 23 features)
+DEFAULT_VERSION = "v3.6"
 
 # =============================================================================
 # PUBLIC API
@@ -182,7 +182,7 @@ def get_feature_names(version: str = DEFAULT_VERSION) -> List[str]:
     Get ordered list of feature names.
 
     Args:
-        version: Feature version ("v3", "v3.1", "v3.2", "v3.3", "v3.4", "v3.5")
+        version: Feature version ("v3", "v3.1", "v3.2", "v3.3", "v3.4", "v3.5", "v3.6")
 
     Returns:
         List of feature names in canonical order
@@ -194,6 +194,7 @@ def get_feature_names(version: str = DEFAULT_VERSION) -> List[str]:
         "v3.3": FEATURE_SPECS_V3_3,
         "v3.4": FEATURE_SPECS_V3_4,
         "v3.5": FEATURE_SPECS_V3_5,
+        "v3.6": FEATURE_SPECS_V3_6,
     }
     if version not in specs_map:
         raise ValueError(f"Unknown feature version: {version}. Supported: {SUPPORTED_VERSIONS}")
@@ -205,7 +206,7 @@ def get_feature_specs(version: str = DEFAULT_VERSION) -> List[FeatureSpec]:
     Get full feature specifications.
 
     Args:
-        version: Feature version ("v3", "v3.1", "v3.2", "v3.3", "v3.4", "v3.5")
+        version: Feature version ("v3", "v3.1", "v3.2", "v3.3", "v3.4", "v3.5", "v3.6")
 
     Returns:
         List of FeatureSpec objects with full metadata
@@ -217,6 +218,7 @@ def get_feature_specs(version: str = DEFAULT_VERSION) -> List[FeatureSpec]:
         "v3.3": FEATURE_SPECS_V3_3,
         "v3.4": FEATURE_SPECS_V3_4,
         "v3.5": FEATURE_SPECS_V3_5,
+        "v3.6": FEATURE_SPECS_V3_6,
     }
     if version not in specs_map:
         raise ValueError(f"Unknown feature version: {version}. Supported: {SUPPORTED_VERSIONS}")
@@ -473,6 +475,27 @@ FEATURE_SPECS_V3_5: List[FeatureSpec] = [
 
 
 # =============================================================================
+# FEATURE DEFINITIONS V3.6 (23 features) — V3.5 + trend/momentum indicators
+#
+#   V3.5 (20 features) + 3 new:
+#     - ADX: Average Directional Index (trend strength, 0-100)
+#     - MACD_Hist: MACD histogram / price (momentum divergence)
+#     - MA50_Slope: 50-day MA pct change over 10d (trend direction)
+#
+#   These capture trend strength/direction and momentum divergence —
+#   standard signals absent from prior versions.
+# =============================================================================
+FEATURE_SPECS_V3_6: List[FeatureSpec] = [
+    *FEATURE_SPECS_V3_5,
+
+    # ── 3 Trend/Momentum Features ────────────────────────────────
+    FeatureSpec("ADX", "Average Directional Index (trend strength)", 25.0, (0, 100), "technical"),
+    FeatureSpec("MACD_Hist", "MACD histogram / price (momentum divergence)", 0.0, (-0.05, 0.05), "technical"),
+    FeatureSpec("MA50_Slope", "50-day MA pct change over 10d", 0.0, (-0.2, 0.2), "technical"),
+]
+
+
+# =============================================================================
 # CONSTANTS
 # =============================================================================
 
@@ -495,5 +518,8 @@ assert FEATURE_COUNT_V3_4 == 13, f"Expected 13 features, got {FEATURE_COUNT_V3_4
 FEATURE_COUNT_V3_5 = len(FEATURE_SPECS_V3_5)
 assert FEATURE_COUNT_V3_5 == 20, f"Expected 20 features, got {FEATURE_COUNT_V3_5}"
 
+FEATURE_COUNT_V3_6 = len(FEATURE_SPECS_V3_6)
+assert FEATURE_COUNT_V3_6 == 23, f"Expected 23 features, got {FEATURE_COUNT_V3_6}"
+
 # List of all supported versions
-SUPPORTED_VERSIONS = ["v3", "v3.1", "v3.2", "v3.3", "v3.4", "v3.5"]
+SUPPORTED_VERSIONS = ["v3", "v3.1", "v3.2", "v3.3", "v3.4", "v3.5", "v3.6"]

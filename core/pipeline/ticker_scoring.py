@@ -14,7 +14,7 @@ from core.market_context import (
     get_benchmark_series,
 )
 from core.ml_20d_inference import ML_20D_AVAILABLE, get_ml_health_meta
-from core.ml_feature_builder import build_all_ml_features_v3, build_all_ml_features_v3_5
+from core.ml_feature_builder import build_all_ml_features_v3, build_all_ml_features_v3_5, build_all_ml_features_v3_6
 from core.pattern_matcher import PatternMatcher
 from core.scoring import build_technical_indicators
 from core.scoring_config import ML_PROB_THRESHOLD, TECH_STRONG_THRESHOLD
@@ -103,7 +103,7 @@ def _process_single_ticker(
         # Import globals at call time (they're mutated by _initialize_ml_context)
         from core.pipeline.market_data import _GLOBAL_MARKET_CONTEXT as _mkt_ctx
 
-        ml_features = build_all_ml_features_v3_5(
+        ml_features = build_all_ml_features_v3_6(
             row=row_indicators,
             df_hist=df,
             market_context=_mkt_ctx if _mkt_ctx else None,

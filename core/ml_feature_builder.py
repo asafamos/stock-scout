@@ -640,6 +640,124 @@ def build_all_ml_features_v3_5(
     return result
 
 
+def build_all_ml_features_v3_6(
+    row: pd.Series,
+    df_hist: pd.DataFrame,
+    market_context: Optional[Dict[str, float]] = None,
+    sector_context: Optional[Dict[str, float]] = None,
+) -> Dict[str, float]:
+    """Build 23-feature vector for V3.6 model.
+
+    V3.6 = V3.5 (20 features) + 3 trend/momentum indicators:
+      - ADX: Average Directional Index (trend strength, 0-100)
+      - MACD_Hist: MACD histogram / price (momentum divergence)
+      - MA50_Slope: 50-day MA pct change over 10d (trend direction)
+
+    All features are OHLCV-derived (no external APIs needed).
+
+    Args:
+        row: Series with technical indicators from build_technical_indicators()
+        df_hist: Historical OHLCV DataFrame
+        market_context: Optional market regime/SPY data
+        sector_context: Optional sector relative data
+
+    Returns:
+        Dict with all 23 V3.6 features.
+    """
+    # Start with all V3.5 features (20 features)
+    all_features = build_all_ml_features_v3_5(row, df_hist, market_context, sector_context)
+
+    close = df_hist['Close'] if 'Close' in df_hist.columns else pd.Series(dtype=float)
+    high = df_hist['High'] if 'High' in df_hist.columns else close
+    low = df_hist['Low'] if 'Low' in df_hist.columns else close
+
+    # ── ADX: Average Directional Index ────────────────────────────
+    try:
+        if len(df_hist) >= 30:
+            plus_dm = high.diff().clip(lower=0)
+            minus_dm = (-low.diff()).clip(lower=0)
+            # Zero out when the other direction is larger
+            plus_dm = plus_dm.where(plus_dm >= minus_dm, 0)
+            minus_dm = minus_dm.where(minus_dm >= plus_dm, 0)
+
+            tr = pd.concat([
+                high - low,
+                (high - close.shift(1)).abs(),
+                (low - close.shift(1)).abs(),
+            ], axis=1).max(axis=1)
+            atr14 = tr.rolling(14).mean()
+
+            plus_di = 100 * (plus_dm.rolling(14).mean() / atr14.replace(0, np.nan))
+            minus_di = 100 * (minus_dm.rolling(14).mean() / atr14.replace(0, np.nan))
+            dx = 100 * ((plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan))
+            adx_series = dx.rolling(14).mean()
+
+            adx_val = float(adx_series.iloc[-1]) if pd.notna(adx_series.iloc[-1]) else 25.0
+            all_features["ADX"] = adx_val
+        else:
+            all_features["ADX"] = 25.0
+    except Exception:
+        all_features["ADX"] = 25.0
+
+    # ── MACD Histogram (normalized by price) ──────────────────────
+    try:
+        if len(close) >= 35:
+            ema12 = close.ewm(span=12, adjust=False).mean()
+            ema26 = close.ewm(span=26, adjust=False).mean()
+            macd_line = ema12 - ema26
+            signal_line = macd_line.ewm(span=9, adjust=False).mean()
+            macd_hist = (macd_line - signal_line) / close.replace(0, np.nan)
+
+            val = float(macd_hist.iloc[-1]) if pd.notna(macd_hist.iloc[-1]) else 0.0
+            all_features["MACD_Hist"] = val
+        else:
+            all_features["MACD_Hist"] = 0.0
+    except Exception:
+        all_features["MACD_Hist"] = 0.0
+
+    # ── MA50_Slope: 50-day MA trend direction ─────────────────────
+    try:
+        # Try getting from row first (already computed in indicators.py)
+        ma50_slope = None
+        for key in ["MA50_Slope", "ma50_slope"]:
+            val = row.get(key) if hasattr(row, 'get') else getattr(row, key, None)
+            if val is not None and not (isinstance(val, float) and np.isnan(val)):
+                ma50_slope = float(val)
+                break
+
+        if ma50_slope is None and len(close) >= 60:
+            ma50 = close.rolling(50).mean()
+            slope = ma50.pct_change(10)
+            ma50_slope = float(slope.iloc[-1]) if pd.notna(slope.iloc[-1]) else 0.0
+
+        all_features["MA50_Slope"] = ma50_slope if ma50_slope is not None else 0.0
+    except Exception:
+        all_features["MA50_Slope"] = 0.0
+
+    # ── Filter to exactly the 23 V3.6 features ──────────────────
+    v3_6_names = get_feature_names("v3.6")
+    try:
+        from core.feature_registry import get_feature_defaults, get_feature_ranges
+        defaults = get_feature_defaults("v3.6")
+        ranges = get_feature_ranges("v3.6")
+    except Exception:
+        defaults, ranges = {}, {}
+
+    result: Dict[str, float] = {}
+    for feat in v3_6_names:
+        val = all_features.get(feat)
+        if val is None or (isinstance(val, float) and (np.isnan(val) or np.isinf(val))):
+            val = defaults.get(feat, 0.0)
+        result[feat] = float(val)
+
+    # Clip to valid ranges
+    for feat, (lo, hi) in ranges.items():
+        if feat in result:
+            result[feat] = float(np.clip(result[feat], lo, hi))
+
+    return result
+
+
 def get_market_context_from_row(row: pd.Series) -> Dict[str, float]:
     """
     Extract market context from a row that might have SPY data.
