@@ -1349,30 +1349,12 @@ TOPN = len(results)
 
 alloc_df = results.reset_index(drop=True).copy()
 
-# Defensive: ensure allocation column exists even if upstream function changed
-if "סכום קנייה ($)" not in results.columns:
-    if "buy_amount_v2" in results.columns:
-        results["סכום קנייה ($)"] = pd.to_numeric(results["buy_amount_v2"], errors="coerce")
-    elif "Buy Amount ($)" in results.columns:
-        results["סכום קנייה ($)"] = pd.to_numeric(results["Buy Amount ($)"], errors="coerce")
-    else:
-        results["סכום קנייה ($)"] = np.nan
-
-results["מניות לקנייה"] = np.floor(
-    np.where(
-        (results["Unit_Price"] > 0) & (results["סכום קנייה ($)"].fillna(0) > 0),
-        results["סכום קנייה ($)"].fillna(0) / results["Unit_Price"],
-        0,
-    )
-).astype(int)
-results["עודף ($)"] = np.round(
-    np.where(
-        pd.notna(results["סכום קנייה ($)"]) & (results["מניות לקנייה"] > 0),
-        results["סכום קנייה ($)"] - results["מניות לקנייה"] * results["Unit_Price"],
-        0.0,
-    ),
-    2,
-)
+# Legacy position sizing columns removed — system is signal-only mode.
+# Drop leftover allocation columns if present from old precomputed scans.
+for _legacy_col in ("סכום קנייה ($)", "מניות לקנייה", "עודף ($)",
+                     "buy_amount_v2", "Buy Amount ($)", "Shares_To_Buy"):
+    if _legacy_col in results.columns:
+        results.drop(columns=[_legacy_col], inplace=True)
 
 # Timings and provider call count are displayed elsewhere; skip budget enforcement KPIs
     
@@ -1487,6 +1469,18 @@ for _src, _dst in _fund_norm.items():
                 rec_df.loc[_mask, _dst] = rec_df.loc[_mask, _src]
         else:
             rec_df[_dst] = rec_df[_src]
+
+# ── Remove safety-blocked / REJECT stocks that slipped through pipeline ──
+if "SafetyBlocked" in rec_df.columns:
+    _blocked_count = rec_df["SafetyBlocked"].astype(bool).sum()
+    if _blocked_count > 0:
+        logger.info(f"[FILTER] Removing {_blocked_count} SafetyBlocked stocks from display")
+        rec_df = rec_df[~rec_df["SafetyBlocked"].astype(bool)]
+if "RiskClass" in rec_df.columns:
+    _reject_count = (rec_df["RiskClass"] == "REJECT").sum()
+    if _reject_count > 0:
+        logger.info(f"[FILTER] Removing {_reject_count} REJECT-class stocks from display")
+        rec_df = rec_df[rec_df["RiskClass"] != "REJECT"]
 
 logger.info(f"[FILTER] Final candidates after pipeline: {len(rec_df)} stocks (started with {initial_rec_count})")
 
@@ -1624,7 +1618,20 @@ status_lookup = {
     "EODHD": bool(eodhd_ok),
     "Nasdaq": bool(nasdaq_ok),
 }
-provider_status_map = {name: {"ok": bool(status_lookup.get(name, False))} for name in SourcesOverview.PROVIDERS.keys()}
+# Map UI provider names to preflight keys to pass full status (incl. level)
+_pf_name_map = {
+    "FMP": "FMP", "Alpha Vantage": "ALPHAVANTAGE", "Finnhub": "FINNHUB",
+    "Polygon": "POLYGON", "Tiingo": "TIINGO", "SimFin": "SIMFIN",
+    "EODHD": "EODHD", "Marketstack": "MARKETSTACK", "Nasdaq": "NASDAQ",
+}
+provider_status_map = {}
+for name in SourcesOverview.PROVIDERS.keys():
+    pf_key = _pf_name_map.get(name)
+    if pf_key and pf_key in _preflight:
+        provider_status_map[name] = _preflight[pf_key]
+    else:
+        _ok = bool(status_lookup.get(name, False))
+        provider_status_map[name] = {"ok": _ok, "level": "up" if _ok else "down"}
 
 render_data_sources_overview(
     provider_status=provider_status_map,
@@ -2037,10 +2044,6 @@ show_order = [
     "Target_Price",
     "Stop_Loss",
     "Reward/Risk (≈R)",
-    # --- Buy sizing ---
-    "Buy Amount ($)",
-    "Shares to Buy",
-    "Leftover ($)",
     # --- Fundamentals ---
     "P/E",
     "P/S",
@@ -2096,11 +2099,6 @@ hebrew_cols = {
     "Confidence Level": "רמת ביטחון",
     "Reliability Score": "ציון אמינות",
     "Score": "ציון כולל",
-    "Buy Amount v2": "סכום קנייה ($)",
-    "Shares to Buy v2": "מניות לקנייה",
-    "Buy Amount ($)": "סכום קנייה ($)",
-    "Shares to Buy": "מניות לקנייה",
-    "Leftover ($)": "עודף ($)",
     "Entry_Price": "מחיר כניסה",
     "Target_Price": "מחיר יעד",
     "RR": "סיכון/סיכוי",
@@ -2176,7 +2174,7 @@ for c in show_order:
 _lean_target_en = {
     "Ticker", "Sector", "FinalScore_20d", "Entry_Price", "Target_Price",
     "Stop_Loss", "Reward/Risk (≈R)", "Risk Level", "Reliability_Band",
-    "Buy Amount ($)", "Shares to Buy", "Market_Regime",
+    "Market_Regime",
     "P/E", "ROE", "MarketCap_B", "RSI", "Holding_Days",
 }
 # Include Hebrew-renamed variants so renamed columns are not dropped

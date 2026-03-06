@@ -1493,10 +1493,18 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
                 ),
                 errors="coerce",
             )
+            # Respect safety filters: exclude stocks blocked by classification
+            safety_ok = ~ctx.results.get(
+                "SafetyBlocked", pd.Series(False, index=ctx.results.index)
+            ).astype(bool)
+
             mask = (
-                (sc >= float(SIGNAL_MIN_SCORE))
-                | (mlp >= float(ML_PROB_THRESHOLD))
-                | ((patt.fillna(0.0) > 0.0) & (sc >= float(PATTERN_MIN_SCORE)))
+                safety_ok
+                & (
+                    (sc >= float(SIGNAL_MIN_SCORE))
+                    | (mlp >= float(ML_PROB_THRESHOLD))
+                    | ((patt.fillna(0.0) > 0.0) & (sc >= float(PATTERN_MIN_SCORE)))
+                )
             )
             filtered = (
                 ctx.results[mask].copy() if isinstance(mask, pd.Series) else ctx.results.copy()
@@ -1526,10 +1534,12 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
                     asc_fb.append(False)
                 sort_cols_fb.append("ML_20d_Prob")
                 asc_fb.append(False)
+                # Fallback also respects safety filters
+                safe_results = ctx.results[safety_ok] if safety_ok.any() else ctx.results
                 fallback = (
-                    ctx.results.assign(
+                    safe_results.assign(
                         _score_numeric=pd.to_numeric(
-                            ctx.results[score_col], errors="coerce"
+                            safe_results[score_col], errors="coerce"
                         )
                     )
                     .sort_values(by=sort_cols_fb, ascending=asc_fb)
