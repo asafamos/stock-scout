@@ -173,12 +173,16 @@ HARD_FILTERS: Dict[str, object] = {
 }
 
 # Regime-aware ATR multipliers for target-price calculation
-# Lower multipliers in neutral/bearish → more conservative targets → fewer false positives
+# IMPORTANT: target multiplier must be > stop multiplier (ATR_STOP_MULTIPLIER)
+# otherwise R:R will always be ≈1.0 and stocks will fail the min_rr hard filter.
+# With stop=1.5 ATR → neutral base RR=2.5/1.5=1.67, breakout RR=3.0/1.5=2.0
 ATR_TARGET_MULTIPLIERS: Dict[str, Dict[str, float]] = {
-    "bullish": {"base": 2.5, "breakout": 3.0},
-    "neutral": {"base": 2.0, "breakout": 2.5},
-    "bearish": {"base": 1.5, "breakout": 2.0},
+    "bullish": {"base": 3.0, "breakout": 3.5},
+    "neutral": {"base": 2.5, "breakout": 3.0},
+    "bearish": {"base": 2.0, "breakout": 2.5},
 }
+# Stop-loss ATR multiplier (used by _compute_rr_for_row in pipeline/helpers.py)
+ATR_STOP_MULTIPLIER: float = 1.5
 
 # Reliability band thresholds (used by v2_risk_engine and classification)
 RELIABILITY_BANDS: Dict[str, int] = {

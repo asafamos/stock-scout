@@ -154,9 +154,14 @@ def _compute_rr_for_row(
         )
         atr14 = max(atr14, 1e-6)
 
-        # Stop loss: conservative (wider of recent low and 2*ATR drop)
+        # Stop loss: wider of recent 5-day low and configurable ATR drop
+        try:
+            from core.scoring_config import ATR_STOP_MULTIPLIER
+            _stop_mult = float(ATR_STOP_MULTIPLIER)
+        except Exception:
+            _stop_mult = 1.5
         low_5 = float(hdf["Low"].tail(5).min())
-        stop_price = float(min(low_5, entry - 2.0 * atr14))
+        stop_price = float(min(low_5, entry - _stop_mult * atr14))
 
         # Resistance-based target (backward-looking)
         ma20 = float(hdf["Close"].rolling(20, min_periods=5).mean().iloc[-1])

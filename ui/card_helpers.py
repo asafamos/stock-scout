@@ -103,9 +103,15 @@ def headline_story(row: pd.Series) -> str:
             parts.append("poor RR")
     if isinstance(rel, float) and np.isfinite(rel):
         rel_val = rel * 100.0 if rel <= 1.0 else rel
-        if rel_val >= 75:
+        try:
+            from core.scoring_config import RELIABILITY_BANDS
+            _h = RELIABILITY_BANDS.get("high_min", 65)
+            _m = RELIABILITY_BANDS.get("medium_min", 45)
+        except Exception:
+            _h, _m = 65, 45
+        if rel_val >= _h:
             parts.append("high data reliability")
-        elif rel_val >= 40:
+        elif rel_val >= _m:
             parts.append("medium reliability")
         else:
             parts.append("low reliability")
@@ -122,11 +128,17 @@ def fmt_num(val, fmt: str, na: str = "N/A") -> str:
 
 
 def get_reliability_band(reliability_val) -> str:
-    """Map a reliability score to High/Medium/Low."""
+    """Map a reliability score to High/Medium/Low using config thresholds."""
+    try:
+        from core.scoring_config import RELIABILITY_BANDS
+        _high_min = RELIABILITY_BANDS.get("high_min", 65)
+        _med_min = RELIABILITY_BANDS.get("medium_min", 45)
+    except Exception:
+        _high_min, _med_min = 65, 45
     if pd.notna(reliability_val) and isinstance(reliability_val, (int, float)):
-        if reliability_val >= 75:
+        if reliability_val >= _high_min:
             return "High"
-        elif reliability_val >= 40:
+        elif reliability_val >= _med_min:
             return "Medium"
         else:
             return "Low"
