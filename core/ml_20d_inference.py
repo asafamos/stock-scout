@@ -156,7 +156,7 @@ def _finalize_model(
         BUNDLE_HAS_MISSING_METEOR_FEATURES = True
 
     # Version safety: validate feature count matches a known registry version
-    _KNOWN_FEATURE_COUNTS = {34: "v3", 39: "v3.1", 16: "v3.3", 13: "v3.4", 20: "v3.5"}
+    _KNOWN_FEATURE_COUNTS = {34: "v3", 39: "v3.1", 16: "v3.3", 13: "v3.4", 20: "v3.5", 23: "v3.6"}
     n_feat = len(feature_names)
     detected_version = _KNOWN_FEATURE_COUNTS.get(n_feat)
     if detected_version:

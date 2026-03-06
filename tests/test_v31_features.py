@@ -157,9 +157,9 @@ class TestFeatureRegistry:
         assert valid
         assert len(missing) == 0
 
-    def test_default_version_is_v35(self):
+    def test_default_version_is_v36(self):
         from core.feature_registry import DEFAULT_VERSION
-        assert DEFAULT_VERSION == "v3.5"
+        assert DEFAULT_VERSION == "v3.6"
 
 
 # ============================================================================
@@ -615,9 +615,9 @@ class TestVersionAPI:
         assert "v3.1" in SUPPORTED_VERSIONS
         assert "v3.2" in SUPPORTED_VERSIONS
 
-    def test_v35_is_default(self):
+    def test_v36_is_default(self):
         from core.feature_registry import DEFAULT_VERSION
-        assert DEFAULT_VERSION == "v3.5"
+        assert DEFAULT_VERSION == "v3.6"
 
     def test_categories_v31(self):
         from core.feature_registry import get_features_by_category
@@ -721,3 +721,84 @@ class TestV35Features:
         from core.feature_registry import get_feature_names
         with pytest.raises(ValueError):
             get_feature_names("v4")
+
+
+# ============================================================================
+# V3.6 Tests (23 features = V3.5 + ADX + MACD_Hist + MA50_Slope)
+# ============================================================================
+
+class TestV36Features:
+    """Tests for V3.6 feature set (23 features = V3.5 + 3 trend/momentum)."""
+
+    def test_v36_count(self):
+        from core.feature_registry import get_feature_names
+        names = get_feature_names("v3.6")
+        assert len(names) == 23, f"Expected 23 V3.6 features, got {len(names)}"
+
+    def test_v36_includes_v35(self):
+        from core.feature_registry import get_feature_names
+        v35 = set(get_feature_names("v3.5"))
+        v36 = set(get_feature_names("v3.6"))
+        assert v35.issubset(v36), f"V3.5 features missing from V3.6: {v35 - v36}"
+
+    def test_v36_new_features(self):
+        from core.feature_registry import get_feature_names
+        names = set(get_feature_names("v3.6"))
+        new_features = {"ADX", "MACD_Hist", "MA50_Slope"}
+        missing = new_features - names
+        assert not missing, f"Missing V3.6 features: {missing}"
+
+    def test_v36_in_supported_versions(self):
+        from core.feature_registry import SUPPORTED_VERSIONS
+        assert "v3.6" in SUPPORTED_VERSIONS
+
+    def test_v36_builder_returns_23_features(self, indicator_row, ohlcv_df, market_context, sector_context):
+        from core.ml_feature_builder import build_all_ml_features_v3_6
+        features = build_all_ml_features_v3_6(
+            indicator_row, ohlcv_df, market_context, sector_context
+        )
+        assert len(features) == 23, f"Expected 23, got {len(features)}"
+
+    def test_v36_builder_exact_match(self, indicator_row, ohlcv_df, market_context, sector_context):
+        from core.ml_feature_builder import build_all_ml_features_v3_6
+        from core.feature_registry import get_feature_names
+        features = build_all_ml_features_v3_6(
+            indicator_row, ohlcv_df, market_context, sector_context
+        )
+        expected = set(get_feature_names("v3.6"))
+        actual = set(features.keys())
+        assert expected == actual, f"Mismatch: missing={expected - actual}, extra={actual - expected}"
+
+    def test_v36_all_finite(self, indicator_row, ohlcv_df, market_context, sector_context):
+        from core.ml_feature_builder import build_all_ml_features_v3_6
+        features = build_all_ml_features_v3_6(
+            indicator_row, ohlcv_df, market_context, sector_context
+        )
+        for name, val in features.items():
+            assert np.isfinite(val), f"Feature {name} is not finite: {val}"
+
+    def test_v36_within_ranges(self, indicator_row, ohlcv_df, market_context, sector_context):
+        from core.ml_feature_builder import build_all_ml_features_v3_6
+        from core.feature_registry import get_feature_ranges
+        features = build_all_ml_features_v3_6(
+            indicator_row, ohlcv_df, market_context, sector_context
+        )
+        ranges = get_feature_ranges("v3.6")
+        for name, val in features.items():
+            lo, hi = ranges[name]
+            assert lo <= val <= hi, f"{name}={val} outside [{lo}, {hi}]"
+
+    def test_v36_adx_valid_range(self, indicator_row, ohlcv_df, market_context, sector_context):
+        from core.ml_feature_builder import build_all_ml_features_v3_6
+        features = build_all_ml_features_v3_6(
+            indicator_row, ohlcv_df, market_context, sector_context
+        )
+        assert 0 <= features["ADX"] <= 100, f"ADX={features['ADX']} out of range"
+
+    def test_v36_macd_hist_normalized(self, indicator_row, ohlcv_df, market_context, sector_context):
+        from core.ml_feature_builder import build_all_ml_features_v3_6
+        features = build_all_ml_features_v3_6(
+            indicator_row, ohlcv_df, market_context, sector_context
+        )
+        # MACD_Hist is normalized by price, so should be small
+        assert -0.05 <= features["MACD_Hist"] <= 0.05, f"MACD_Hist={features['MACD_Hist']} out of range"

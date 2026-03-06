@@ -791,6 +791,39 @@ def calculate_features(df, spy_returns: pd.Series = None, market_regime_df: pd.D
         df[vf] = df[vf].replace([np.inf, -np.inf], np.nan)
         df[vf] = df[vf].fillna(0.0)
 
+    # === V3.6 FEATURES (3) ===
+    # ADX: Average Directional Index (trend strength, 0-100)
+    plus_dm = df['High'].diff().clip(lower=0)
+    minus_dm = (-df['Low'].diff()).clip(lower=0)
+    # Zero out when the other direction is larger
+    plus_dm = plus_dm.where(plus_dm >= minus_dm, 0)
+    minus_dm = minus_dm.where(minus_dm >= plus_dm, 0)
+    _tr = pd.concat([
+        df['High'] - df['Low'],
+        (df['High'] - df['Close'].shift(1)).abs(),
+        (df['Low'] - df['Close'].shift(1)).abs(),
+    ], axis=1).max(axis=1)
+    _atr14 = _tr.rolling(14).mean()
+    plus_di = 100 * (plus_dm.rolling(14).mean() / _atr14.replace(0, np.nan))
+    minus_di = 100 * (minus_dm.rolling(14).mean() / _atr14.replace(0, np.nan))
+    _dx = 100 * ((plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan))
+    df['ADX'] = _dx.rolling(14).mean()
+
+    # MACD Histogram normalized by price (momentum divergence signal)
+    ema12 = df['Close'].ewm(span=12, adjust=False).mean()
+    ema26 = df['Close'].ewm(span=26, adjust=False).mean()
+    macd_line = ema12 - ema26
+    signal_line = macd_line.ewm(span=9, adjust=False).mean()
+    df['MACD_Hist'] = (macd_line - signal_line) / df['Close'].replace(0, np.nan)
+
+    # MA50_Slope: 50-day MA percentage change over 10 days (trend direction)
+    df['MA50_Slope'] = ma50.pct_change(10)
+
+    # Handle inf/nan in v3.6 features
+    for vf in ['ADX', 'MACD_Hist', 'MA50_Slope']:
+        df[vf] = df[vf].replace([np.inf, -np.inf], np.nan)
+        df[vf] = df[vf].fillna(0.0)
+
     # === TARGET ===
     df['Forward_Return_20d'] = df['Close'].shift(-20) / df['Close'] - 1.0
     
@@ -1009,7 +1042,7 @@ def train_and_save_bundle():
     # 4. Time-Series Cross-Validation (proper OOS evaluation)
     # Use feature registry as SINGLE SOURCE OF TRUTH to ensure alignment with inference
     # v3.4 = 13 features (V3.3 minus 3 with negative permutation importance)
-    features = get_feature_names("v3.5")  # 20 features — V3.4 (13) + 4 delta + 3 interaction
+    features = get_feature_names("v3.6")  # 23 features — V3.5 (20) + ADX + MACD_Hist + MA50_Slope
     
     # Verify all features are present in training data
     missing_features = [f for f in features if f not in full_df.columns]
@@ -1042,9 +1075,9 @@ def train_and_save_bundle():
             continue
         
         fold_model = HistGradientBoostingClassifier(
-            max_iter=300,              # Maximum iterations (will stop early)
+            max_iter=500,              # Maximum iterations (will stop early)
             learning_rate=0.05,
-            max_depth=6,               # Deeper trees for 58k+ samples
+            max_depth=8,               # Deeper trees for 55k+ samples
             min_samples_leaf=15,       # Allow finer splits with large dataset
             l2_regularization=0.1,     # L2 regularization
             class_weight='balanced',   # Built-in class balancing
@@ -1118,7 +1151,7 @@ def train_and_save_bundle():
     analysis_model = HistGradientBoostingClassifier(
         max_iter=200,
         learning_rate=0.05,
-        max_depth=6,
+        max_depth=8,
         min_samples_leaf=15,
         class_weight='balanced',
         early_stopping=True,
@@ -1158,9 +1191,9 @@ def train_and_save_bundle():
     # Train base model 1: HistGradientBoostingClassifier (non-linear patterns)
     print("   Training Model 1/3: HistGradientBoostingClassifier...")
     model1 = HistGradientBoostingClassifier(
-        max_iter=300,
+        max_iter=500,
         learning_rate=0.05,
-        max_depth=6,
+        max_depth=8,
         min_samples_leaf=15,
         l2_regularization=0.1,
         class_weight='balanced',
@@ -1193,7 +1226,7 @@ def train_and_save_bundle():
     model3 = LogisticRegression(
         class_weight='balanced',
         max_iter=1000,
-        C=0.1,  # Regularization
+        C=1.0,  # Regularization (sklearn default; 0.1 was over-regularized)
         random_state=42,
     )
     model3.fit(X_train_scaled, y_train_final)
@@ -1208,17 +1241,32 @@ def train_and_save_bundle():
         scaler=scaler,
     )
     print(f"   Ensemble created with weights: HistGB={ensemble_weights[0]}, RF={ensemble_weights[1]}, LR={ensemble_weights[2]}")
-    
-    # Calibrate using isotonic regression on held-out 20%
+
+    # Per-model AUC diagnostics (identify weak ensemble members)
+    print("\n📊 Individual Model AUCs (on calibration set):")
+    for name, m in [("HistGB", model1), ("RF", model2), ("LR", model3)]:
+        try:
+            if hasattr(m, '_needs_scaling') and m._needs_scaling:
+                p = m.predict_proba(scaler.transform(X_calib))[:, 1]
+            else:
+                p = m.predict_proba(X_calib)[:, 1]
+            indiv_auc = roc_auc_score(y_calib, p)
+            print(f"   {name:8s} AUC: {indiv_auc:.4f}")
+        except Exception as e:
+            print(f"   {name:8s} AUC: (failed: {e})")
+
+    # Calibrate using sigmoid (Platt scaling) on held-out 20%
+    # Sigmoid fits only 2 params (A, B) → smooth probability curve, no flat zones
+    # (isotonic was creating staircase patterns with ~13k calibration samples)
     # Use FrozenEstimator for sklearn >= 1.6 compatibility
     try:
         from sklearn.frozen import FrozenEstimator
         calibrated_model = CalibratedClassifierCV(
-            FrozenEstimator(base_model), method='isotonic'
+            FrozenEstimator(base_model), method='sigmoid'
         )
     except ImportError:
         calibrated_model = CalibratedClassifierCV(
-            base_model, method='isotonic', cv='prefit'
+            base_model, method='sigmoid', cv='prefit'
         )
     calibrated_model.fit(X_calib, y_calib)
     
@@ -1322,7 +1370,7 @@ def train_and_save_bundle():
     bundle = {
         "model": model,  # Calibrated model
         "feature_names": features,
-        "feature_version": "v3.5",
+        "feature_version": "v3.6",
         "target_mode": target_mode,
         "metrics": {
             "oos_auc_mean": mean_oos_auc,
@@ -1338,7 +1386,7 @@ def train_and_save_bundle():
             "cv_aucs": oos_aucs,
             "cv_p20": oos_p20,
             "cv_p50": oos_p50,
-            "calibration_method": "isotonic",
+            "calibration_method": "sigmoid",
             "calibration_samples": len(X_calib),
             "mean_calibration_error": mean_calibration_error,
             "calibration_auc": auc_calib,
@@ -1361,7 +1409,7 @@ def train_and_save_bundle():
     _oos_auc_std = float(np.std(oos_aucs)) if oos_aucs else 0.0
     meta = {
         "sklearn_version": __import__("sklearn").__version__,
-        "feature_version": "v3.5",
+        "feature_version": "v3.6",
         "feature_list": features,
         "training_timestamp_utc": datetime.utcnow().isoformat(),
         "model_type": "CalibratedEnsemble(HistGB+RF+LR)",
@@ -1407,13 +1455,13 @@ def train_and_save_bundle():
         },
         "regularization": {
             "histgb_l2": 0.1,
-            "histgb_max_depth": 6,
+            "histgb_max_depth": 8,
             "rf_max_depth": 8,
-            "lr_C": 0.1,
+            "lr_C": 1.0,
             "min_samples_leaf": 15,
         },
         "calibration": {
-            "method": "isotonic",
+            "method": "sigmoid",
             "samples": len(X_calib),
             "mean_calibration_error": mean_calibration_error,
         },
