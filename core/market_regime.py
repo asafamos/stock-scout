@@ -125,7 +125,22 @@ def detect_market_regime(
             regime = "bearish"; confidence = int(min(100,(0.5-composite)*100))
         else:
             regime = "neutral"; confidence = int((0.5-abs(composite))*100)
-        details = f"SPY {spy_trend:.2f} | QQQ {qqq_trend:.2f} | VIX {vix_level} ({vix_val:.1f})"
+        # Show actual 20d returns as percentages (more meaningful than trend scores)
+        spy_ret_pct = float((spy_close.iloc[-1] / spy_close.iloc[-20] - 1) * 100) if len(spy_close) >= 21 else 0.0
+        try:
+            if isinstance(qqq_data, pd.Series):
+                _qqq_df = qqq_data.to_frame()
+            else:
+                _qqq_df = qqq_data
+            if "Close" in _qqq_df.columns:
+                _qqq_c = _qqq_df["Close"].astype(float)
+            else:
+                _qqq_c = _qqq_df.iloc[:, 0].astype(float)
+            _qqq_c = pd.Series(_qqq_c.values.ravel(), index=_qqq_c.index)
+            qqq_ret_pct = float((_qqq_c.iloc[-1] / _qqq_c.iloc[-20] - 1) * 100) if len(_qqq_c) >= 21 else 0.0
+        except Exception:
+            qqq_ret_pct = 0.0
+        details = f"SPY {spy_ret_pct:+.1f}% | QQQ {qqq_ret_pct:+.1f}% | VIX {vix_level} ({vix_val:.1f})"
         out = {
             "regime": regime,
             "confidence": confidence,

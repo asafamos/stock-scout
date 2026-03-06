@@ -29,6 +29,7 @@ lightgbm>=4.0.0
 
 # Database
 duckdb>=1.1.0
+supabase>=2.0.0
 
 # Testing
 pytest>=7.0.0

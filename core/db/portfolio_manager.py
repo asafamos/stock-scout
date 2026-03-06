@@ -44,13 +44,30 @@ _PM_LOCK = threading.Lock()
 def get_portfolio_manager(user_id: str = DEFAULT_USER) -> "PortfolioManager":
     """Return (and lazily create) a PortfolioManager for *user_id*.
 
+    If Supabase credentials are configured the returned instance uses
+    Supabase (PostgreSQL) for persistence — surviving Streamlit Cloud
+    redeployments.  Otherwise falls back to local DuckDB.
+
     Instances are cached in a dict keyed by user_id so each user gets their
     own manager instance with the correct user_id for DB queries.
     """
     if user_id not in _PM_INSTANCES:
         with _PM_LOCK:
             if user_id not in _PM_INSTANCES:
-                _PM_INSTANCES[user_id] = PortfolioManager(get_scan_store(), user_id)
+                # Try Supabase first (persistent across deploys)
+                try:
+                    from core.db.supabase_client import get_supabase_client
+
+                    sb = get_supabase_client()
+                    if sb is not None:
+                        _PM_INSTANCES[user_id] = SupabasePortfolioManager(sb, user_id)
+                        logger.info("Using Supabase portfolio backend for user=%s", user_id)
+                    else:
+                        _PM_INSTANCES[user_id] = PortfolioManager(get_scan_store(), user_id)
+                        logger.info("Using DuckDB portfolio backend for user=%s", user_id)
+                except Exception as exc:
+                    logger.warning("Supabase init failed (%s), falling back to DuckDB", exc)
+                    _PM_INSTANCES[user_id] = PortfolioManager(get_scan_store(), user_id)
     return _PM_INSTANCES[user_id]
 
 
@@ -399,6 +416,362 @@ class PortfolioManager:
                 return result
 
             # Handle single vs multi-ticker response
+            if len(symbols) == 1:
+                ticker = symbols[0]
+                close = data.get("Close")
+                if close is not None and not close.empty:
+                    result[ticker] = float(close.iloc[-1])
+            else:
+                close = data.get("Close")
+                if close is not None:
+                    for sym in symbols:
+                        try:
+                            col = close[sym] if sym in close.columns else None
+                            if col is not None and not col.empty:
+                                val = col.dropna().iloc[-1]
+                                result[sym] = float(val)
+                        except Exception:
+                            pass
+        except Exception as e:
+            logger.warning("Price fetch failed: %s", e)
+
+        return result
+
+
+# ---------------------------------------------------------------------------
+# SupabasePortfolioManager — Supabase (PostgreSQL) backend
+# ---------------------------------------------------------------------------
+class SupabasePortfolioManager:
+    """Supabase-backed virtual portfolio — persists across Streamlit deploys.
+
+    API-compatible with :class:`PortfolioManager` so callers don't need to
+    change.  Uses the ``supabase-py`` REST client internally.
+    """
+
+    def __init__(self, client, user_id: str = DEFAULT_USER):
+        self._sb = client
+        self._user_id = user_id
+
+    # Helper -----------------------------------------------------------------
+    @property
+    def _table(self):
+        return self._sb.table("portfolio_positions")
+
+    # ------------------------------------------------------------------
+    # Add / Remove
+    # ------------------------------------------------------------------
+    def add_position(
+        self,
+        ticker: str,
+        entry_price: float,
+        target_price: Optional[float] = None,
+        stop_price: Optional[float] = None,
+        target_date: Optional[date] = None,
+        holding_days: int = 20,
+        shares: int = DEFAULT_SHARES,
+        scan_id: Optional[str] = None,
+        recommendation_id: Optional[str] = None,
+        final_score: Optional[float] = None,
+        risk_class: Optional[str] = None,
+        sector: Optional[str] = None,
+    ) -> str:
+        """Add a new position. Returns position_id."""
+        if self.is_in_portfolio(ticker):
+            raise ValueError(f"{ticker} already in portfolio")
+
+        position_id = uuid.uuid4().hex
+        entry_dt = date.today()
+
+        row = {
+            "position_id": position_id,
+            "user_id": self._user_id,
+            "ticker": ticker,
+            "entry_price": _safe_float(entry_price),
+            "target_price": _safe_float(target_price),
+            "stop_price": _safe_float(stop_price),
+            "shares": shares,
+            "entry_date": entry_dt.isoformat(),
+            "target_date": target_date.isoformat() if target_date else None,
+            "holding_days": holding_days,
+            "scan_id": _safe_str(scan_id),
+            "recommendation_id": _safe_str(recommendation_id),
+            "final_score": _safe_float(final_score),
+            "risk_class": _safe_str(risk_class),
+            "sector": _safe_str(sector),
+            "current_price": _safe_float(entry_price),
+            "current_return_pct": 0.0,
+            "max_price": _safe_float(entry_price),
+            "min_price": _safe_float(entry_price),
+            "status": "open",
+        }
+        self._table.insert(row).execute()
+        logger.info("Added %s to Supabase portfolio (id=%s, entry=%.2f)",
+                     ticker, position_id[:8], entry_price)
+        return position_id
+
+    def remove_position(
+        self,
+        position_id: str,
+        exit_price: Optional[float] = None,
+        exit_reason: str = "manual",
+    ) -> bool:
+        """Close a position manually. Returns True if found and closed."""
+        resp = (
+            self._table
+            .select("entry_price, current_price")
+            .eq("position_id", position_id)
+            .eq("status", "open")
+            .limit(1)
+            .execute()
+        )
+        if not resp.data:
+            return False
+
+        row = resp.data[0]
+        entry_p = float(row["entry_price"])
+        actual_exit = float(exit_price) if exit_price is not None else float(row.get("current_price") or entry_p)
+        ret_pct = ((actual_exit / entry_p) - 1.0) * 100.0 if entry_p > 0 else 0.0
+        correct = ret_pct > 0
+
+        (
+            self._table
+            .update({
+                "exit_price": actual_exit,
+                "exit_date": date.today().isoformat(),
+                "exit_reason": exit_reason,
+                "realized_return_pct": ret_pct,
+                "prediction_correct": correct,
+                "status": "closed",
+            })
+            .eq("position_id", position_id)
+            .execute()
+        )
+        logger.info("Closed position %s (%s, ret=%.1f%%)", position_id[:8], exit_reason, ret_pct)
+        return True
+
+    # ------------------------------------------------------------------
+    # Price updates + auto-close
+    # ------------------------------------------------------------------
+    def update_prices(self, as_of_date: Optional[date] = None) -> Dict[str, Any]:
+        """Fetch current prices and update all open positions."""
+        if as_of_date is None:
+            as_of_date = date.today()
+
+        open_df = self.get_open_positions()
+        if open_df.empty:
+            return {"updated": 0, "auto_closed": 0, "open_count": 0}
+
+        tickers = open_df["ticker"].unique().tolist()
+        prices = self._fetch_prices(tickers, as_of_date)
+
+        updated = 0
+        auto_closed = 0
+
+        for _, pos in open_df.iterrows():
+            tkr = pos["ticker"]
+            price = prices.get(tkr)
+            if price is None:
+                continue
+
+            entry_p = float(pos["entry_price"])
+            ret_pct = ((price / entry_p) - 1.0) * 100.0 if entry_p > 0 else 0.0
+            old_max = float(pos.get("max_price") or entry_p)
+            old_min = float(pos.get("min_price") or entry_p)
+            new_max = max(old_max, price)
+            new_min = min(old_min, price)
+
+            # Check exit conditions
+            stop_p = _safe_float(pos.get("stop_price"))
+            target_p = _safe_float(pos.get("target_price"))
+            holding = _safe_int(pos.get("holding_days")) or 20
+            entry_date = pos.get("entry_date")
+            days_held = 0
+            if entry_date is not None:
+                try:
+                    ed = pd.Timestamp(entry_date).date()
+                    days_held = (as_of_date - ed).days
+                except Exception:
+                    pass
+
+            exit_reason = None
+            if stop_p is not None and price <= stop_p:
+                exit_reason = "stop"
+            elif target_p is not None and price >= target_p:
+                exit_reason = "target"
+            elif days_held >= holding:
+                exit_reason = "expiry"
+
+            pid = pos["position_id"]
+
+            if exit_reason:
+                correct = ret_pct > 0
+                (
+                    self._table
+                    .update({
+                        "current_price": price,
+                        "current_return_pct": ret_pct,
+                        "max_price": new_max,
+                        "min_price": new_min,
+                        "exit_price": price,
+                        "exit_date": as_of_date.isoformat(),
+                        "exit_reason": exit_reason,
+                        "realized_return_pct": ret_pct,
+                        "prediction_correct": correct,
+                        "status": "closed",
+                    })
+                    .eq("position_id", pid)
+                    .execute()
+                )
+                auto_closed += 1
+                logger.info("Auto-closed %s (%s, ret=%.1f%%)", tkr, exit_reason, ret_pct)
+            else:
+                (
+                    self._table
+                    .update({
+                        "current_price": price,
+                        "current_return_pct": ret_pct,
+                        "max_price": new_max,
+                        "min_price": new_min,
+                    })
+                    .eq("position_id", pid)
+                    .execute()
+                )
+                updated += 1
+
+        return {
+            "updated": updated,
+            "auto_closed": auto_closed,
+            "open_count": len(open_df) - auto_closed,
+        }
+
+    # ------------------------------------------------------------------
+    # Queries
+    # ------------------------------------------------------------------
+    def get_open_positions(self) -> pd.DataFrame:
+        """Return all open positions as DataFrame."""
+        resp = (
+            self._table
+            .select("*")
+            .eq("user_id", self._user_id)
+            .eq("status", "open")
+            .order("entry_date", desc=True)
+            .execute()
+        )
+        if not resp.data:
+            return pd.DataFrame()
+        return pd.DataFrame(resp.data)
+
+    def get_closed_positions(self, days: int = 90) -> pd.DataFrame:
+        """Return closed positions from last N days."""
+        cutoff = (date.today() - timedelta(days=days)).isoformat()
+        resp = (
+            self._table
+            .select("*")
+            .eq("user_id", self._user_id)
+            .eq("status", "closed")
+            .gte("exit_date", cutoff)
+            .order("exit_date", desc=True)
+            .execute()
+        )
+        if not resp.data:
+            return pd.DataFrame()
+        return pd.DataFrame(resp.data)
+
+    def get_portfolio_stats(self) -> Dict[str, Any]:
+        """Return portfolio-level aggregate statistics."""
+        # Open positions
+        open_resp = (
+            self._table
+            .select("entry_price, current_price, shares")
+            .eq("user_id", self._user_id)
+            .eq("status", "open")
+            .execute()
+        )
+        open_rows = open_resp.data or []
+        open_count = len(open_rows)
+        total_invested = sum(float(r["entry_price"] or 0) * int(r["shares"] or 100) for r in open_rows)
+        current_value = sum(float(r["current_price"] or r["entry_price"] or 0) * int(r["shares"] or 100) for r in open_rows)
+
+        # Closed positions
+        closed_resp = (
+            self._table
+            .select("realized_return_pct, prediction_correct")
+            .eq("user_id", self._user_id)
+            .eq("status", "closed")
+            .execute()
+        )
+        closed_rows = closed_resp.data or []
+        closed_count = len(closed_rows)
+        win_count = sum(1 for r in closed_rows if (r.get("realized_return_pct") or 0) > 0)
+        correct_count = sum(1 for r in closed_rows if r.get("prediction_correct"))
+        avg_return = (
+            sum(float(r.get("realized_return_pct") or 0) for r in closed_rows) / closed_count
+            if closed_count > 0
+            else 0.0
+        )
+
+        total_return_pct = ((current_value / total_invested) - 1.0) * 100.0 if total_invested > 0 else 0.0
+        win_rate = win_count / closed_count if closed_count > 0 else 0.0
+        prediction_accuracy = correct_count / closed_count if closed_count > 0 else 0.0
+
+        return {
+            "open_count": open_count,
+            "closed_count": closed_count,
+            "total_invested": total_invested,
+            "current_value": current_value,
+            "total_return_pct": total_return_pct,
+            "win_rate": win_rate,
+            "avg_return": avg_return,
+            "prediction_accuracy": prediction_accuracy,
+        }
+
+    def is_in_portfolio(self, ticker: str) -> bool:
+        """Check if ticker has an open position."""
+        resp = (
+            self._table
+            .select("position_id")
+            .eq("user_id", self._user_id)
+            .eq("ticker", ticker)
+            .eq("status", "open")
+            .limit(1)
+            .execute()
+        )
+        return bool(resp.data)
+
+    def get_portfolio_tickers(self) -> Set[str]:
+        """Return set of all tickers with open positions."""
+        resp = (
+            self._table
+            .select("ticker")
+            .eq("user_id", self._user_id)
+            .eq("status", "open")
+            .execute()
+        )
+        return {r["ticker"] for r in (resp.data or [])}
+
+    # ------------------------------------------------------------------
+    # Price fetching (shared with DuckDB backend)
+    # ------------------------------------------------------------------
+    def _fetch_prices(self, symbols: List[str], as_of: date) -> Dict[str, Optional[float]]:
+        """Fetch latest close prices for symbols via yfinance."""
+        result: Dict[str, Optional[float]] = {}
+        if not symbols:
+            return result
+
+        try:
+            import yfinance as yf
+
+            start = as_of - timedelta(days=7)
+            data = yf.download(
+                symbols,
+                start=start.isoformat(),
+                end=(as_of + timedelta(days=1)).isoformat(),
+                progress=False,
+                threads=True,
+            )
+            if data.empty:
+                return result
+
             if len(symbols) == 1:
                 ticker = symbols[0]
                 close = data.get("Close")
