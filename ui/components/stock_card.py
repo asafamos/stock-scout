@@ -100,9 +100,10 @@ def render_stock_card(row: pd.Series, rank: int, score_label: str = "FinalScore_
     rel = to_float(row.get("ReliabilityScore", row.get("Reliability_Score", row.get("Reliability_v2", np.nan))))
     rel_str = f"{rel:.0f}" if np.isfinite(rel) else "—"
 
-    # Entry / Target / Upside
+    # Entry / Target / Stop / Upside
     entry_price = to_float(row.get("Price_Yahoo", row.get("Unit_Price", row.get("Entry_Price", row.get("Price", row.get("Close", np.nan))))))
     target_price = to_float(row.get("Target_Price", np.nan))
+    stop_price = to_float(row.get("Stop_Loss", row.get("stop_price", row.get("Stop_Price", np.nan))))
     if np.isfinite(entry_price) and np.isfinite(target_price) and entry_price > 0:
         upside = ((target_price - entry_price) / entry_price) * 100
         upside_str = f"+{upside:.1f}%"
@@ -111,6 +112,7 @@ def render_stock_card(row: pd.Series, rank: int, score_label: str = "FinalScore_
         upside_str = "—"
     entry_str = f"${entry_price:.2f}" if np.isfinite(entry_price) else "—"
     target_str = f"${target_price:.2f}" if np.isfinite(target_price) else "—"
+    stop_str = f"${stop_price:.2f}" if np.isfinite(stop_price) else "—"
 
     # Target date — per-stock based on ATR/volatility holding period
     target_date_str = ""
@@ -216,11 +218,12 @@ def render_stock_card(row: pd.Series, rank: int, score_label: str = "FinalScore_
         f'</div>'
         f'</div>'
         f'<div class="ss-metrics-grid">'
+        f'<div class="ss-metric"><span class="ss-metric-value">{entry_str}</span><span class="ss-metric-label">Entry</span></div>'
+        f'<div class="ss-metric"><span class="ss-metric-value">{target_str}</span><span class="ss-metric-label">Target</span></div>'
+        f'<div class="ss-metric"><span class="ss-metric-value">{target_date_str if target_date_str else "—"}</span><span class="ss-metric-label">Target ({holding_days}d)</span></div>'
+        f'<div class="ss-metric"><span class="ss-metric-value">{stop_str}</span><span class="ss-metric-label">Stop Loss</span></div>'
         f'<div class="ss-metric"><span class="ss-metric-value">{rr_str}</span><span class="ss-metric-label">R / R</span></div>'
         f'<div class="ss-metric"><span class="ss-metric-value">{upside_str}</span><span class="ss-metric-label">Upside</span></div>'
-        f'<div class="ss-metric"><span class="ss-metric-value">{target_str}</span><span class="ss-metric-label">Target</span></div>'
-        f'<div class="ss-metric"><span class="ss-metric-value">{entry_str}</span><span class="ss-metric-label">Entry</span></div>'
-        f'<div class="ss-metric"><span class="ss-metric-value">{target_date_str if target_date_str else "—"}</span><span class="ss-metric-label">Target ({holding_days}d)</span></div>'
         f'</div>'
         f'<div class="ss-breakdown">'
         f'<div class="ss-bar-row"><span class="ss-bar-label">Technical</span><div class="ss-bar-track"><div class="ss-bar-fill tech" style="width:{tech_bar:.0f}%"></div></div><span class="ss-bar-value">{fmt_num(tech_score_raw, ".0f")}</span></div>'

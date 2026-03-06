@@ -1423,6 +1423,37 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
         if "FinalScore_20d" in ctx.results.columns:
             ctx.results["FinalScore"] = ctx.results["FinalScore_20d"]
             ctx.results["Score"] = ctx.results["FinalScore_20d"]
+
+        # ── Post-RR safety re-check ──────────────────────────────────────
+        # Classification ran BEFORE dynamic RR (which may overwrite RR_Ratio).
+        # If the early RR was NaN the safety filter skipped the check.  Now
+        # that we have the final RR values, re-apply the hard R:R minimum
+        # and update SafetyBlocked accordingly.
+        try:
+            from core.scoring_config import HARD_FILTERS as _hf_rr
+            _min_rr = float(_hf_rr.get("min_rr", 0.0))
+            if _min_rr > 0 and not ctx.results.empty:
+                for _idx in ctx.results.index:
+                    _rr_val = None
+                    for _rr_col in ("RR", "RR_Ratio", "RewardRisk"):
+                        _v = ctx.results.at[_idx, _rr_col] if _rr_col in ctx.results.columns else None
+                        if _v is not None and isinstance(_v, (int, float)) and np.isfinite(_v):
+                            _rr_val = float(_v)
+                            break
+                    if _rr_val is not None and _rr_val < _min_rr:
+                        if "SafetyBlocked" in ctx.results.columns:
+                            ctx.results.at[_idx, "SafetyBlocked"] = True
+                        if "RiskClass" in ctx.results.columns:
+                            ctx.results.at[_idx, "RiskClass"] = "REJECT"
+                        logger.info(
+                            "[PIPELINE] Post-RR filter: %s blocked (RR=%.2f < %.1f)",
+                            ctx.results.at[_idx, "Ticker"] if "Ticker" in ctx.results.columns else _idx,
+                            _rr_val,
+                            _min_rr,
+                        )
+        except Exception as _rr_exc:
+            logger.debug("Post-RR safety re-check skipped: %s", _rr_exc)
+
     except Exception as e:
         logger.warning("[PIPELINE] Dynamic RR computation failed: %s", e)
 

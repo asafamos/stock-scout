@@ -517,7 +517,7 @@ html[data-theme="dark"] .ss-score-circle.low {
 /* Row 2: Metrics grid */
 .ss-metrics-grid {
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(6, 1fr);
     gap: 8px;
     margin-bottom: 12px;
 }

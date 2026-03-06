@@ -2101,6 +2101,8 @@ hebrew_cols = {
     "Score": "ציון כולל",
     "Entry_Price": "מחיר כניסה",
     "Target_Price": "מחיר יעד",
+    "Stop_Loss": "סטופ לוס",
+    "Holding_Days": "ימי החזקה",
     "RR": "סיכון/סיכוי",
     "Reliability_Band": "רצועת אמינות",
     "Market_Regime": "מצב שוק",
