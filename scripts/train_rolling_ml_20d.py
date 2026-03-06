@@ -1319,17 +1319,27 @@ def train_and_save_bundle():
     # Feature Importance (averaged across ensemble)
     print("\n📊 Feature Importance (averaged across ensemble):")
     try:
-        # HistGB importance
-        imp1 = model1.feature_importances_
-        # RF importance  
+        # HistGB importance — use permutation importance as fallback
+        imp1 = getattr(model1, 'feature_importances_', None)
+        if imp1 is None:
+            from sklearn.inspection import permutation_importance
+            print("   (HistGB: using permutation importance as fallback)")
+            perm = permutation_importance(
+                model1, X_calib, y_calib, n_repeats=5,
+                random_state=42, scoring='roc_auc', n_jobs=-1,
+            )
+            imp1 = np.maximum(perm.importances_mean, 0)
+            imp1 = imp1 / imp1.sum() if imp1.sum() > 0 else np.ones(len(features)) / len(features)
+
+        # RF importance
         imp2 = model2.feature_importances_
         # LR coefficients (absolute value as importance proxy)
         imp3 = np.abs(model3.coef_[0])
         imp3 = imp3 / imp3.sum()  # Normalize to sum to 1
-        
+
         # Weighted average matching ensemble weights
         avg_importance = imp1 * ensemble_weights[0] + imp2 * ensemble_weights[1] + imp3 * ensemble_weights[2]
-        
+
         importance_df = pd.DataFrame({
             'feature': features,
             'importance': avg_importance,
@@ -1337,7 +1347,7 @@ def train_and_save_bundle():
             'rf': imp2,
             'lr': imp3,
         }).sort_values('importance', ascending=False)
-        
+
         for _, row in importance_df.iterrows():
             bar = '█' * int(row['importance'] * 50)
             print(f"   {row['feature']:22s} {row['importance']:.4f} {bar}")
