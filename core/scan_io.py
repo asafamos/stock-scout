@@ -7,8 +7,9 @@ between batch_scan.py and stock_scout.py.
 from __future__ import annotations
 import json
 import logging
+import uuid
 from pathlib import Path
-from typing import Dict, Optional, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any
 from datetime import datetime
 
 import pandas as pd
@@ -74,6 +75,19 @@ def save_scan(
     except Exception as e:
         logger.error(f"Failed to save scan: {e}")
         raise IOError(f"Failed to save scan to {path_latest}: {e}")
+
+    # Opportunistically save to Supabase (non-blocking, best-effort)
+    try:
+        from core.db.scan_manager import get_scan_manager
+
+        sm = get_scan_manager()
+        if sm is not None:
+            scan_id = (meta.get("scan_id")
+                       or f"scan_{datetime.utcnow().strftime('%Y%m%dT%H%M%S')}_{uuid.uuid4().hex[:8]}")
+            sm.save_scan(scan_id, results_df, config, meta)
+            logger.info("Scan also saved to Supabase (scan_id=%s)", scan_id)
+    except Exception as exc:
+        logger.debug("Supabase scan save skipped: %s", exc)
 
 
 def load_latest_scan(path_latest: Path) -> Tuple[Optional[pd.DataFrame], Optional[Dict[str, Any]]]:
@@ -183,6 +197,30 @@ def list_available_scans(scan_dir: Path) -> list[Dict[str, Any]]:
     scans.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
     
     return scans
+
+
+def load_scan_history_with_supabase(
+    scan_dir: Path,
+    user_id: Optional[str] = None,
+    days: int = 30,
+) -> List[Dict[str, Any]]:
+    """Load scan history, preferring Supabase when available.
+
+    Falls back to local parquet listing if Supabase is not configured or fails.
+    """
+    try:
+        from core.db.scan_manager import get_scan_manager
+
+        sm = get_scan_manager(user_id or "default")
+        if sm is not None:
+            df = sm.get_scan_history(days=days)
+            if not df.empty:
+                return df.to_dict("records")
+    except Exception as exc:
+        logger.debug("Supabase scan history unavailable: %s", exc)
+
+    # Fall back to local parquet listing
+    return list_available_scans(scan_dir)
 
 
 def get_scan_summary(results_df: pd.DataFrame) -> Dict[str, Any]:

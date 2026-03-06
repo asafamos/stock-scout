@@ -322,6 +322,22 @@ print(f"   Columns: {len(save_cols_actual)}")
 print(f"   Top stock: {metadata['top_ticker']} (score: {metadata['top_score']:.1f})")
 print(f"   Average score: {metadata['avg_score']:.1f}")
 
+# Save to Supabase if configured
+try:
+    from core.db.scan_manager import get_scan_manager
+    sm = get_scan_manager()
+    if sm is not None:
+        import uuid
+        _commit = metadata.get("build_commit", "local")
+        scan_id = f"auto_{datetime.now().strftime('%Y%m%dT%H%M%S')}_{_commit}"
+        metadata["scan_type"] = "automated"
+        n_saved = sm.save_scan(scan_id, df_to_save, {}, metadata)
+        print(f"   Saved to Supabase ({n_saved} recommendations)")
+    else:
+        print(f"   Supabase not configured, skipping cloud save")
+except Exception as e:
+    print(f"   Supabase save failed (non-blocking): {e}")
+
 print("\n" + "=" * 80)
 print("🏆 Top 10 stocks:")
 print("=" * 80)

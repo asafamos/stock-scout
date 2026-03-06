@@ -26,9 +26,12 @@ def render_data_sources_overview(
     used_count = 0
     total = 0
 
+    degraded_count = 0
+
     for provider_name, status_info in provider_status.items():
         total += 1
         ok = bool(status_info.get("ok", False))
+        level = status_info.get("level", "up" if ok else "down")
 
         usage_key = (
             provider_name
@@ -43,14 +46,21 @@ def render_data_sources_overview(
 
         is_used = used_price or used_fund or used_ml
 
-        if ok:
+        if level == "up":
             active_count += 1
+        elif level == "degraded":
+            degraded_count += 1
         if is_used:
             used_count += 1
 
-        # Icons
-        key_icon = "✅" if ok else "❌"
-        connected_icon = "🟢" if ok else "⚫"
+        # Icons — tri-state: up (green), degraded (yellow), down (black)
+        key_icon = "✅" if level != "down" else "❌"
+        if level == "up":
+            connected_icon = "🟢"
+        elif level == "degraded":
+            connected_icon = "🟡"
+        else:
+            connected_icon = "⚫"
 
         # Data roles fetched
         roles = []
@@ -62,8 +72,8 @@ def render_data_sources_overview(
             roles.append("ML")
         data_str = ", ".join(roles) if roles else "—"
 
-        # Row style: dim if not active
-        opacity = "1" if ok else "0.55"
+        # Row style: dim based on level
+        opacity = "1" if level == "up" else ("0.8" if level == "degraded" else "0.55")
         data_color = "var(--ss-green, #22c55e)" if is_used else "var(--ss-text-muted, #94a3b8)"
 
         rows_html += f"""<tr style="opacity:{opacity};">
@@ -98,7 +108,7 @@ def render_data_sources_overview(
             🔌 Data Sources
         </span>
         <span style="font-size:0.78rem; font-weight:600; color:var(--ss-text-muted, #94a3b8);">
-            {used_count} used · {active_count} active · {total} total
+            {used_count} used · {active_count} up{f' · {degraded_count} degraded' if degraded_count else ''} · {total} total
         </span>
     </div>
     <table style="

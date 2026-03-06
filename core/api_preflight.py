@@ -2,9 +2,8 @@ from __future__ import annotations
 """
 API Preflight Module
 Robust pre-check of external data providers before full scan.
-Prioritizes API key presence; only flags providers "down" on clear auth errors.
-Network timeouts or 5xx errors are treated as transient (assume provider up).
-Used in LIVE Streamlit runs only (not offline audits).
+Returns tri-state level per provider: "up" (HTTP 200), "degraded" (timeout/5xx/rate-limit),
+"down" (no key / auth error). Used in LIVE Streamlit runs only (not offline audits).
 """
 
 import os
@@ -38,52 +37,48 @@ def _check_provider(name: str, url: str | None, *, params: Dict[str, Any] | None
                     key_envs: tuple[str, ...] = ()) -> Dict[str, Any]:
     """
     Perform a guarded provider check.
-    Logic:
-    - If no key present: ok=False, status="no_key"
-    - If request returns 401/403: ok=False, status="auth_error"
-    - If request returns 429: ok=True, status="rate_limit"
-    - If request times out or 5xx: ok=True, status="transient_error"
-    - If 200: ok=True, status="ok"
-    - If no URL provided: rely purely on key presence.
+
+    Returns a dict with:
+    - ok: bool — True only for HTTP 200 or rate-limited (provider reachable)
+    - level: "up" | "degraded" | "down" — tri-state for UI rendering
+    - status, reason, detail, latency — diagnostics
     """
     if not _key_present(*key_envs):
-        return {"ok": False, "status": "no_key", "reason": "No API key", "detail": None, "latency": None}
+        return {"ok": False, "level": "down", "status": "no_key", "reason": "No API key", "detail": None, "latency": None}
     if not url:
-        # No live request performed; latency not applicable
-        return {"ok": True, "status": "ok", "reason": "Key present (no check)", "detail": None, "latency": None}
+        return {"ok": True, "level": "up", "status": "ok", "reason": "Key present (no check)", "detail": None, "latency": None}
     try:
         start = time.time()
         resp = requests.get(url, params=params or {}, headers=headers or {}, timeout=timeout)
         elapsed = time.time() - start
         sc = resp.status_code
         if sc in (401, 403):
-            return {"ok": False, "status": "auth_error", "reason": f"HTTP {sc}", "detail": (resp.text or "")[:160], "latency": elapsed}
+            return {"ok": False, "level": "down", "status": "auth_error", "reason": f"HTTP {sc}", "detail": (resp.text or "")[:160], "latency": elapsed}
         if sc == 429:
-            return {"ok": True, "status": "rate_limit", "reason": "Rate limit", "detail": (resp.text or "")[:160], "latency": elapsed}
+            return {"ok": True, "level": "degraded", "status": "rate_limit", "reason": "Rate limit", "detail": (resp.text or "")[:160], "latency": elapsed}
         if sc >= 500:
-            return {"ok": True, "status": "transient_error", "reason": f"HTTP {sc}", "detail": (resp.text or "")[:160], "latency": elapsed}
+            return {"ok": False, "level": "degraded", "status": "transient_error", "reason": f"HTTP {sc}", "detail": (resp.text or "")[:160], "latency": elapsed}
         if sc == 200:
-            return {"ok": True, "status": "ok", "reason": "OK", "detail": None, "latency": elapsed}
-        # Other non-200 codes: treat as transient
-        return {"ok": True, "status": "transient_error", "reason": f"HTTP {sc}", "detail": (resp.text or "")[:160], "latency": elapsed}
+            return {"ok": True, "level": "up", "status": "ok", "reason": "OK", "detail": None, "latency": elapsed}
+        # Other non-200 codes
+        return {"ok": False, "level": "degraded", "status": "transient_error", "reason": f"HTTP {sc}", "detail": (resp.text or "")[:160], "latency": elapsed}
     except requests.Timeout:
-        # Timeout: latency equals the timeout window or measured elapsed if available
         try:
             elapsed = time.time() - start
         except Exception:
             elapsed = None
-        return {"ok": True, "status": "transient_error", "reason": "timeout", "detail": None, "latency": elapsed}
+        return {"ok": False, "level": "degraded", "status": "transient_error", "reason": "timeout", "detail": None, "latency": elapsed}
     except Exception as e:
         try:
             elapsed = time.time() - start
         except Exception:
             elapsed = None
-        return {"ok": True, "status": "transient_error", "reason": str(e)[:80], "detail": None, "latency": elapsed}
+        return {"ok": False, "level": "degraded", "status": "transient_error", "reason": str(e)[:80], "detail": None, "latency": elapsed}
 
 def run_preflight(timeout: float = 3.0) -> Dict[str, Dict[str, any]]:
     """
-    Robust preflight using permissive logic.
-    Only marks providers down for missing/invalid keys (auth_error or no_key).
+    Robust preflight with tri-state status per provider.
+    Each provider gets ok (bool), level (up/degraded/down), and diagnostics.
     """
     status: Dict[str, Dict[str, Any]] = {}
 
