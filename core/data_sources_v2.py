@@ -172,6 +172,7 @@ MIN_INTERVAL_SECONDS = {
     "simfin": 0.2,
     "marketstack": 0.2,
     "nasdaq": 0.2,
+    "yfinance": 0.3,   # ~3 calls/sec (scraped, avoid hammering)
 }
 
 # Session-level provider disable flags (e.g., after rate-limit)
@@ -768,11 +769,10 @@ def get_fundamentals_safe(ticker: str) -> Optional[Dict]:
 
 def fetch_fundamentals_fmp(ticker: str, provider_status: Dict | None = None) -> Optional[Dict]:
     """
-    Fetch fundamentals from FMP via the stable company screener endpoint.
+    Fetch fundamentals from FMP via profile + ratios-ttm endpoints.
 
-    Notes:
-    - Screener provides descriptive fields (marketCap, beta, sector, industry, price).
-    - It may not include valuation ratios (PE). Aggregation should complement from others.
+    Profile provides: market_cap, beta, sector, industry, price.
+    Ratios-TTM provides: pe, pb, peg, debt_equity, roe (canonical lowercase).
     Returns a dict including both canonical lowercase fields and UI-standard aliases.
     """
     # Reload key at runtime from environment first; fallback to get_secret
@@ -842,18 +842,45 @@ def fetch_fundamentals_fmp(ticker: str, provider_status: Dict | None = None) -> 
         except (TypeError, ValueError):
             return None
 
-    # Map screener fields
+    # Map screener/profile fields
     market_cap = _f(item.get("marketCap"))
     beta = _f(item.get("beta"))
     sector = item.get("sector")
     industry = item.get("industry")
     price = _f(item.get("price"))
 
+    # ── Ratios TTM (best-effort second call) ─────────────────────────
+    # This provides pe, pb, peg, debt_equity, roe — critical for the
+    # multi-source fundamental aggregation (was missing before 2026-03-07).
+    pe_val = pb_val = peg_val = de_val = roe_val = None
+    try:
+        _rate_limit("fmp")
+        ratios_url = f"https://financialmodelingprep.com/stable/ratios-ttm"
+        ratios_params = {"symbol": ticker, "apikey": (FMP_KEY_RUNTIME or FMP_API_KEY)}
+        ratios_data = _http_get_with_retry(ratios_url, params=ratios_params, timeout=4, provider="FMP", capability="fundamentals")
+        if isinstance(ratios_data, list) and len(ratios_data) > 0:
+            ratios = ratios_data[0]
+            pe_val = _f(ratios.get("peRatioTTM"))
+            pb_val = _f(ratios.get("priceToBookRatioTTM"))
+            peg_val = _f(ratios.get("pegRatioTTM"))
+            de_val = _f(ratios.get("debtEquityRatioTTM"))
+            roe_val = _f(ratios.get("returnOnEquityTTM"))
+            record_api_call("FMP", "ratios-ttm", "ok", 0.0, {"ticker": ticker})
+        else:
+            record_api_call("FMP", "ratios-ttm", "empty", 0.0, {"ticker": ticker})
+    except Exception as e:
+        record_api_call("FMP", "ratios-ttm", "exception", 0.0, {"ticker": ticker, "error": str(e)[:200]})
+
     result = {
         "source": "fmp",
-        # Canonical lowercase
+        # Canonical lowercase (used by aggregate_fundamentals)
         "market_cap": market_cap,
         "beta": beta,
+        "pe": pe_val,
+        "pb": pb_val,
+        "peg": peg_val,
+        "debt_equity": de_val,
+        "roe": roe_val,
         "sector": sector,
         "industry": industry,
         "price_backup": price,
@@ -1261,12 +1288,74 @@ def fetch_fundamentals_simfin(ticker: str, provider_status: Dict | None = None) 
     _put_in_cache(cache_key, result)
     return result
 
+def fetch_fundamentals_yfinance(ticker: str, provider_status: Dict | None = None) -> Optional[Dict]:
+    """Fetch fundamentals from yfinance .info as a free fallback source.
+
+    yfinance requires no API key and provides broad coverage of valuation
+    ratios.  Placed last in priority to avoid rate-limit issues and because
+    the data is scraped (lower reliability than official APIs).
+    """
+    if "yfinance:fundamentals" in DISABLED_PROVIDERS:
+        return None
+    cache_key = f"yf_fund_{ticker}"
+    cached = _get_from_cache(cache_key)
+    if cached:
+        return cached
+
+    try:
+        import yfinance as yf
+        info = yf.Ticker(ticker).info
+        if not info or not isinstance(info, dict):
+            return None
+    except Exception:
+        return None
+
+    def _f(v):
+        try:
+            if v is None:
+                return None
+            fv = float(v)
+            return fv if np.isfinite(fv) else None
+        except (TypeError, ValueError):
+            return None
+
+    # Map yfinance .info keys → canonical lowercase fields
+    # Note: yfinance returns ratios as decimals (0.25 = 25%), same as
+    # Alpha Vantage and Tiingo.  The scoring layer's _safe_float(scale_to_pct)
+    # handles conversion to percentages when needed, so we pass raw values.
+    result = {
+        "source": "yfinance",
+        "pe": _f(info.get("trailingPE")),
+        "ps": _f(info.get("priceToSalesTrailing12Months")),
+        "pb": _f(info.get("priceToBook")),
+        "roe": _f(info.get("returnOnEquity")),      # decimal (e.g. 0.25)
+        "margin": _f(info.get("profitMargins")),     # decimal
+        "market_cap": _f(info.get("marketCap")),
+        "beta": _f(info.get("beta")),
+        "debt_equity": _f(info.get("debtToEquity")),
+        "rev_yoy": _f(info.get("revenueGrowth")),   # decimal
+        "eps_yoy": _f(info.get("earningsGrowth")),   # decimal
+        "peg": _f(info.get("pegRatio")),
+        "vol_avg": _f(info.get("averageVolume")),
+        "last_div": _f(info.get("dividendYield")),
+        "price_backup": _f(info.get("currentPrice")),
+        "timestamp": time.time(),
+    }
+
+    # Only cache if we got at least some useful data
+    key_fields = ["pe", "roe", "market_cap", "margin"]
+    if any(result.get(f) is not None for f in key_fields):
+        _put_in_cache(cache_key, result)
+        return result
+    return None
+
+
 def get_prioritized_fetch_funcs(provider_status: Dict | None = None) -> List[Tuple[str, Any]]:
     """
     Build a prioritized list of fundamentals fetch functions respecting
     preflight capabilities and session-level disables.
 
-    Priority: FMP → Finnhub → Tiingo → Alpha → (EODHD, SimFin optional)
+    Priority: FMP → Finnhub → Tiingo → Alpha → (EODHD, SimFin, yfinance)
     """
     funcs: List[Tuple[str, Any]] = []
 
@@ -1307,6 +1396,9 @@ def get_prioritized_fetch_funcs(provider_status: Dict | None = None) -> List[Tup
         funcs.append(("eodhd", fetch_fundamentals_eodhd))
     if _can("SIMFIN", "simfin"):
         funcs.append(("simfin", fetch_fundamentals_simfin))
+    # Tertiary: yfinance (free, no API key, broad coverage but scraped data)
+    if "yfinance:fundamentals" not in DISABLED_PROVIDERS:
+        funcs.append(("yfinance", fetch_fundamentals_yfinance))
 
     return funcs
 
