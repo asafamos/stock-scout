@@ -55,7 +55,7 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
     rr_band = _safe_str(row.get("rr_band", ""), "")
     risk_meter = _num(row.get("risk_meter_v2", np.nan))
     risk_band_label = _safe_str(row.get("risk_band", row.get("Risk_Level", "N/A")))
-    reliability_pct = _num(row.get("reliability_pct", row.get("Reliability_v2", np.nan)))
+    reliability_pct = _num(row.get("ReliabilityScore", row.get("Reliability_Score", row.get("reliability_pct", row.get("Reliability_v2", np.nan)))))
     reliability_band_label = _safe_str(row.get("reliability_band", "N/A"))
     if (not reliability_band_label) or reliability_band_label == "N/A":
         if np.isfinite(reliability_pct):

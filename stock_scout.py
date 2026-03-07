@@ -1811,16 +1811,33 @@ if not rec_df.empty and not rr_present:
 
 # Add new export fields for 2025 improvements
 if not rec_df.empty:
-    # Market regime info
+    # Market regime info — prefer pipeline's computed value (numeric → string),
+    # fallback to detect_market_regime() from session state
+    _num_regime_map = {1.0: "bullish", 0.0: "neutral", -1.0: "bearish"}
     regime_data = st.session_state.get('market_regime', {"regime": "neutral", "confidence": 50})
-    rec_df["Market_Regime"] = regime_data.get("regime", "neutral")
+    if "Market_Regime" in rec_df.columns:
+        # Pipeline stores numeric regime — map to string
+        rec_df["Market_Regime"] = rec_df["Market_Regime"].map(
+            lambda v: _num_regime_map.get(float(v), str(v).lower()) if pd.notna(v) and isinstance(v, (int, float)) else (str(v).lower() if pd.notna(v) else regime_data.get("regime", "neutral"))
+        )
+    else:
+        rec_df["Market_Regime"] = regime_data.get("regime", "neutral")
     rec_df["Regime_Confidence"] = regime_data.get("confidence", 50)
     
     # Reliability band (High/Medium/Low based on reliability score)
     from ui.card_helpers import get_reliability_band as _get_reliability_band, get_reliability_components as _get_reliability_components
     
-    # Get reliability values, defaulting to 50 if columns don't exist
-    reliability_series = rec_df.get("Reliability_v2", rec_df.get("reliability_pct", pd.Series([50] * len(rec_df), index=rec_df.index)))
+    # Get reliability values — pipeline stores as ReliabilityScore / Reliability_Score
+    _rel_fallback = pd.Series([50] * len(rec_df), index=rec_df.index)
+    reliability_series = None
+    for _rel_col in ("ReliabilityScore", "Reliability_Score", "Reliability_v2", "reliability_pct"):
+        if _rel_col in rec_df.columns:
+            _candidate = rec_df[_rel_col]
+            if _candidate.notna().any():
+                reliability_series = _candidate.fillna(50)
+                break
+    if reliability_series is None:
+        reliability_series = _rel_fallback
     rec_df["Reliability_Band"] = reliability_series.apply(_get_reliability_band)
     
     rec_df["Reliability_Components"] = rec_df.apply(_get_reliability_components, axis=1)

@@ -57,11 +57,13 @@ def compute_final_score_20d(row: pd.Series) -> float:
         fund = _safe_score(row, "Fundamental_S", "FundamentalScore", "Fundamental_Score", "fund_score")
         mom = _safe_score(row, "TechScore_20d_raw", "MomentumScore", "TechScore_20d", "tech_score")
         # Hunter amplification: if Coil_Bonus is active, amplify technical/momentum
-        # Capped at 1.25x (was 1.5x) to prevent coil setups from dominating score
+        # Reduced from 1.25x to 1.12x (2026-03-07) because with momentum weight at 35%,
+        # 1.25x effectively gives 43.75% — almost the old 45% weight, defeating rebalance.
+        # 1.12x keeps a meaningful boost without undermining the fundamentals uplift.
         try:
             coil_bonus_active = bool(row.get("Coil_Bonus", 0)) or str(row.get("Coil_Bonus", "0")) in ("1", "True")
             if coil_bonus_active:
-                mom = float(mom) * 1.25
+                mom = float(mom) * 1.12
         except Exception:
             pass
         # Try multiple field names for reliability
