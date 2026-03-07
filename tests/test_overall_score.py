@@ -3,7 +3,7 @@ Test overall score computation with explicit component weights and penalties.
 
 Validates:
 1. Score range: 0-100 bounds
-2. Component weights: from CONVICTION_WEIGHTS (fund=10%, mom=45%, RR=25%, rel=20%)
+2. Component weights: from CONVICTION_WEIGHTS (fund=20%, mom=35%, RR=25%, rel=20%)
 3. ML delta: bounded to ±6
 4. Penalties: RR, risk, reliability, missing data
 5. Spread: 30+ point difference between high/low quality opportunities

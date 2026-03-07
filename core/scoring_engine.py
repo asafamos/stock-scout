@@ -47,8 +47,8 @@ def compute_final_score_20d(row: pd.Series) -> float:
     - ML_20d_Prob (0-1) optional adjustment via ml_boost_component
 
     Weights from CONVICTION_WEIGHTS (swing-trade aligned):
-    - Fundamentals: 10%  (minor quality check for 20d trades)
-    - Momentum: 45%      (primary driver for swing trades)
+    - Fundamentals: 20%  (quality gate — high-ROE stocks deserve ranking boost)
+    - Momentum: 35%      (primary driver, plus pattern/BW bonuses add ~10 pts)
     - Risk/Reward: 25%   (directly controls profit/loss)
     - Reliability: 20%   (data quality gate)
     """
@@ -363,8 +363,8 @@ def compute_overall_score(row: pd.Series) -> Tuple[float, Dict[str, float]]:
     All entry points must call this function to ensure consistency.
     
     Scoring Formula (from CONVICTION_WEIGHTS):
-    - Fundamental: 10% (minor quality check — doesn't move price in 20d)
-    - Momentum/Technical: 45% (primary driver for swing trades)
+    - Fundamental: 20% (quality gate — high-ROE stocks deserve ranking boost)
+    - Momentum/Technical: 35% (primary driver, plus pattern/BW bonuses add ~10 pts)
     - Risk/Reward: 25% (directly controls profit/loss)
     - Reliability: 20% (data completeness, source agreement, consistency)
     - ML Boost: ±6 (optional, clamped when inputs are weak)
@@ -804,8 +804,8 @@ def calculate_conviction_score(
     """Calculate final conviction score (0-100) using CONVICTION_WEIGHTS.
 
     Weights sourced from scoring_config.CONVICTION_WEIGHTS (swing-trade aligned):
-    - Fundamentals: 10%  (minor quality check for 20d trades)
-    - Momentum: 45%      (primary driver for swing trades)
+    - Fundamentals: 20%  (quality gate — high-ROE stocks deserve ranking boost)
+    - Momentum: 35%      (primary driver, plus pattern/BW bonuses add ~10 pts)
     - Risk/Reward: 25%   (directly controls profit/loss)
     - Reliability: 20%   (data quality gate)
 

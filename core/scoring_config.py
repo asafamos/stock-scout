@@ -61,11 +61,15 @@ PATTERN_SCORE_WEIGHTS: Dict[str, float] = {
 }
 
 # Conviction score weights (used by compute_final_score_20d)
-# Swing-trade aligned: momentum dominates for 20-day horizon.
-# Fundamentals are a minor quality check — they don't move price in 20 days.
+# Swing-trade aligned: momentum leads but fundamentals matter for quality.
+# Rationale (2026-03-07): Increased fundamentals from 10%→20% because high-ROE
+# stocks (e.g. NATL 46.75%, ZIM 25.2%) were ranking below low-ROE momentum plays
+# (VVX 3.7%, NOK 3.2%). Momentum reduced from 45%→35% — still the primary driver
+# but no longer overwhelms quality differences. Pattern/BW bonuses (up to +10 pts)
+# already provide additional momentum uplift on top of the base weight.
 CONVICTION_WEIGHTS: Dict[str, float] = {
-    "fundamental": 0.10,
-    "momentum": 0.45,
+    "fundamental": 0.20,
+    "momentum": 0.35,
     "risk_reward": 0.25,
     "reliability": 0.20,
 }

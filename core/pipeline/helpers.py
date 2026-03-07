@@ -181,7 +181,11 @@ def _compute_rr_for_row(
         # Regime-aware multipliers: conservative in neutral/bearish, full in bullish
         try:
             from core.scoring_config import ATR_TARGET_MULTIPLIERS
-            _regime_key = market_regime.lower() if isinstance(market_regime, str) else "neutral"
+            _num_regime_map = {1.0: "bullish", 0.0: "neutral", -1.0: "bearish"}
+            if isinstance(market_regime, (int, float)):
+                _regime_key = _num_regime_map.get(float(market_regime), "neutral")
+            else:
+                _regime_key = market_regime.lower() if isinstance(market_regime, str) else "neutral"
             _mults = ATR_TARGET_MULTIPLIERS.get(_regime_key, ATR_TARGET_MULTIPLIERS.get("neutral", {"base": 2.0, "breakout": 2.5}))
             atr_mult = _mults["breakout"] if dist_from_high < 0.05 else _mults["base"]
         except Exception:

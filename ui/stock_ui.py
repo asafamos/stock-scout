@@ -59,9 +59,12 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
     reliability_band_label = _safe_str(row.get("reliability_band", "N/A"))
     if (not reliability_band_label) or reliability_band_label == "N/A":
         if np.isfinite(reliability_pct):
-            if reliability_pct >= 75:
+            from core.scoring_config import RELIABILITY_BANDS
+            _high_min = RELIABILITY_BANDS.get("high_min", 65)
+            _med_min = RELIABILITY_BANDS.get("medium_min", 45)
+            if reliability_pct >= _high_min:
                 reliability_band_label = "High"
-            elif reliability_pct >= 40:
+            elif reliability_pct >= _med_min:
                 reliability_band_label = "Medium"
             else:
                 reliability_band_label = "Low"
