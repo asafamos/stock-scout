@@ -45,6 +45,7 @@ from core.auth import get_current_user, is_authenticated
 from core.scan_io import (
     load_latest_scan,
     load_precomputed_scan_with_fallback,
+    load_scan_history_with_supabase,
     user_scan_dir,
     save_scan as save_scan_helper,
 )
@@ -215,70 +216,44 @@ with st.sidebar:
     _scan_dir = Path(__file__).parent / "data" / "scans"
     _user_scan_dir = user_scan_dir(_scan_dir, _user_id)
     try:
+        # Load scan history from Supabase first, fallback to local parquet files
+        _raw_history = load_scan_history_with_supabase(_scan_dir, user_id=_user_id, days=30)
         _all_scans = []
-        # Collect parquet files: user-specific dir first, then shared
-        _scan_files = []
-        if _user_scan_dir != _scan_dir and _user_scan_dir.is_dir():
-            _scan_files.extend(list(_user_scan_dir.glob("*.parquet")))
-        _scan_files.extend(list(_scan_dir.glob("*.parquet")))
-        _seen_paths = set()
-        for _pq in _scan_files:
-            if str(_pq) in _seen_paths:
-                continue
-            _seen_paths.add(str(_pq))
-            # --- Load metadata (try .json then .meta.json) ---
-            _meta_path = _pq.with_suffix(".json")
-            _meta_info = {}
-            if _meta_path.exists():
+        for _rec in _raw_history:
+            # Normalize fields from either Supabase or local format
+            _ts_raw = _rec.get("timestamp", "")
+            _ts_display = _ts_raw
+            _sort_ts = datetime.datetime.now() - datetime.timedelta(days=365)  # fallback far past
+            if _ts_raw:
                 try:
-                    import json as _json_sidebar
-                    _loaded = _json_sidebar.loads(_meta_path.read_text())
-                    # Some .json files contain a list of records instead of metadata dict
-                    if isinstance(_loaded, dict):
-                        _meta_info = _loaded
-                except Exception:
-                    pass
-            # Also try .meta.json (CI saves metadata there)
-            if not _meta_info:
-                _meta_json2 = _pq.parent / (_pq.stem + ".meta.json")
-                if _meta_json2.exists():
-                    try:
-                        import json as _json_sidebar2
-                        _loaded2 = _json_sidebar2.loads(_meta_json2.read_text())
-                        if isinstance(_loaded2, dict):
-                            _meta_info = _loaded2
-                    except Exception:
-                        pass
-            # --- Determine sort timestamp: prefer metadata, fallback to mtime ---
-            _mtime = datetime.datetime.fromtimestamp(_pq.stat().st_mtime)
-            _sort_ts = _mtime
-            _ts_display = _mtime.strftime("%Y-%m-%d %H:%M")
-            _raw_ts = _meta_info.get("timestamp")
-            if _raw_ts:
-                try:
-                    _parsed = datetime.datetime.fromisoformat(str(_raw_ts).replace("Z", "+00:00"))
+                    _parsed = datetime.datetime.fromisoformat(str(_ts_raw).replace("Z", "+00:00"))
                     if _parsed.tzinfo is not None:
                         _parsed = _parsed.replace(tzinfo=None)
                     _sort_ts = _parsed
                     _ts_display = _parsed.strftime("%Y-%m-%d %H:%M")
                 except Exception:
-                    pass
+                    _ts_display = str(_ts_raw)[:16]
+            _count = _rec.get("total_recommended", _rec.get("results_count", _rec.get("total_tickers", _rec.get("universe_size", "?"))))
+            _scan_id = _rec.get("scan_id")
+            _file_path = _rec.get("file_path", _rec.get("path", ""))
+            _source = "Supabase" if _scan_id else ("CI" if _file_path and ("latest_scan." in _file_path or "scan_2" in _file_path) and "live" not in _file_path else "Local")
             _all_scans.append({
-                "file": _pq.name,
-                "path": str(_pq),
+                "scan_id": _scan_id,
+                "file": _rec.get("file", _scan_id or "unknown"),
+                "path": _file_path,
                 "timestamp": _ts_display,
                 "_sort_ts": _sort_ts,
-                "count": _meta_info.get("results_count", _meta_info.get("total_tickers", _meta_info.get("universe_size", "?"))),
-                "source": "CI" if ("latest_scan." in _pq.name or _pq.name.startswith("scan_2")) and "live" not in _pq.name else "Local",
+                "count": _count,
+                "source": _source,
             })
         # Sort by parsed timestamp descending (newest first)
         _all_scans.sort(key=lambda s: s["_sort_ts"], reverse=True)
-        # Keep only the 10 most recent scans to avoid clutter
-        _all_scans = _all_scans[:10]
+        _all_scans = _all_scans[:20]
         # Also surface the current session's live scan if it ran (saved after sidebar renders)
         _live_meta = st.session_state.get("_last_live_scan_meta")
         if _live_meta and not any(s.get("source") == "Live" for s in _all_scans):
             _all_scans.insert(0, {
+                "scan_id": None,
                 "file": "session (live)",
                 "path": _live_meta.get("path", ""),
                 "timestamp": _live_meta.get("timestamp", "just now"),
@@ -296,13 +271,30 @@ with st.sidebar:
             )
             if st.button("Load this scan", key="load_historical_scan"):
                 try:
-                    _hist_path = Path(_all_scans[_selected_scan]["path"])
-                    _hist_df = pd.read_parquet(_hist_path, engine="pyarrow")
-                    st.session_state["precomputed_results"] = _hist_df
-                    st.session_state["skip_pipeline"] = True
-                    st.session_state["force_live_scan_once"] = False
-                    st.success(f"Loaded: {_all_scans[_selected_scan]['file']}")
-                    st.rerun()
+                    _chosen = _all_scans[_selected_scan]
+                    _hist_df = None
+                    # Try Supabase first if scan has a scan_id
+                    if _chosen.get("scan_id"):
+                        try:
+                            from core.db.scan_manager import get_scan_manager
+                            _sm = get_scan_manager(_user_id or "default")
+                            if _sm:
+                                _hist_df = _sm.get_recommendations_for_scan(_chosen["scan_id"])
+                        except Exception as _sb_e:
+                            logger.debug("Supabase load failed, trying local: %s", _sb_e)
+                    # Fallback to local parquet
+                    if _hist_df is None and _chosen.get("path"):
+                        _hist_path = Path(_chosen["path"])
+                        if _hist_path.exists():
+                            _hist_df = pd.read_parquet(_hist_path, engine="pyarrow")
+                    if _hist_df is not None and not _hist_df.empty:
+                        st.session_state["precomputed_results"] = _hist_df
+                        st.session_state["skip_pipeline"] = True
+                        st.session_state["force_live_scan_once"] = False
+                        st.success(f"Loaded: {_chosen['timestamp']} ({_chosen['count']} results)")
+                        st.rerun()
+                    else:
+                        st.error("Scan data not found")
                 except Exception as _hist_e:
                     st.error(f"Load error: {_hist_e}")
         else:
