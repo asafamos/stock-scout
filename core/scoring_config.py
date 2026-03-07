@@ -61,15 +61,17 @@ PATTERN_SCORE_WEIGHTS: Dict[str, float] = {
 }
 
 # Conviction score weights (used by compute_final_score_20d)
-# Swing-trade aligned: momentum leads but fundamentals matter for quality.
-# Rationale (2026-03-07): Increased fundamentals from 10%→20% because high-ROE
-# stocks (e.g. NATL 46.75%, ZIM 25.2%) were ranking below low-ROE momentum plays
-# (VVX 3.7%, NOK 3.2%). Momentum reduced from 45%→35% — still the primary driver
-# but no longer overwhelms quality differences. Pattern/BW bonuses (up to +10 pts)
-# already provide additional momentum uplift on top of the base weight.
+# Swing-trade aligned: momentum leads but fundamentals validate quality.
+# Rationale (2026-03-07 v2): Deep analysis showed that even at 20% fundamental
+# weight, the ROE difference between 38% and 4.5% contributed only ~1.5 pts to
+# the final score — not enough to separate quality from junk.  Raised to 25%
+# so a 7.5-pt Fundamental_S gap yields ~1.9 pts (still modest, but meaningful
+# when combined with RSI timing adjustments and lower default for missing data).
+# Momentum at 30% + pattern/BW bonuses (up to +10 pts) + Coil_Bonus still gives
+# momentum-driven stocks a significant edge, but quality now acts as a real gate.
 CONVICTION_WEIGHTS: Dict[str, float] = {
-    "fundamental": 0.20,
-    "momentum": 0.35,
+    "fundamental": 0.25,
+    "momentum": 0.30,
     "risk_reward": 0.25,
     "reliability": 0.20,
 }
@@ -154,7 +156,7 @@ REGIME_MULTIPLIERS: Dict[str, float] = {
     "BULLISH": 1.10,      # alias used by detect_market_regime()
     "PANIC": 0.70,
     "CORRECTION": 0.70,
-    "DISTRIBUTION": 0.80, # Wyckoff distribution phase: bearish but less severe
+    "DISTRIBUTION": 0.88, # Wyckoff distribution: mild penalty (ATR targets already conservative)
     "BEARISH": 0.70,      # alias used by detect_market_regime()
     "SIDEWAYS": 0.95,     # mild penalty: neutral market requires higher quality
     "NEUTRAL": 0.95,      # mild penalty: neutral market requires higher quality
@@ -180,11 +182,14 @@ HARD_FILTERS: Dict[str, object] = {
 # Regime-aware ATR multipliers for target-price calculation
 # IMPORTANT: target multiplier must be > stop multiplier (ATR_STOP_MULTIPLIER)
 # otherwise R:R will always be ≈1.0 and stocks will fail the min_rr hard filter.
-# With stop=1.5 ATR → neutral base RR=2.5/1.5=1.67, breakout RR=3.0/1.5=2.0
+# With stop=1.5 ATR → bearish base RR=2.3/1.5=1.53 (just clears 1.5 hard filter),
+# neutral base RR=2.5/1.5=1.67, bullish base RR=3.0/1.5=2.0.
+# Old bearish base was 2.0 → pure-ATR RR=1.33 which FAILS the 1.5 hard filter,
+# causing many valid stocks to be rejected in distribution/bearish regimes.
 ATR_TARGET_MULTIPLIERS: Dict[str, Dict[str, float]] = {
     "bullish": {"base": 3.0, "breakout": 3.5},
     "neutral": {"base": 2.5, "breakout": 3.0},
-    "bearish": {"base": 2.0, "breakout": 2.5},
+    "bearish": {"base": 2.3, "breakout": 2.8},
 }
 # Stop-loss ATR multiplier (used by _compute_rr_for_row in pipeline/helpers.py)
 ATR_STOP_MULTIPLIER: float = 1.5

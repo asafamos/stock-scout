@@ -47,23 +47,27 @@ def compute_final_score_20d(row: pd.Series) -> float:
     - ML_20d_Prob (0-1) optional adjustment via ml_boost_component
 
     Weights from CONVICTION_WEIGHTS (swing-trade aligned):
-    - Fundamentals: 20%  (quality gate — high-ROE stocks deserve ranking boost)
-    - Momentum: 35%      (primary driver, plus pattern/BW bonuses add ~10 pts)
+    - Fundamentals: 25%  (quality gate — separates quality from junk)
+    - Momentum: 30%      (primary driver, plus pattern/BW bonuses add ~10 pts)
     - Risk/Reward: 25%   (directly controls profit/loss)
     - Reliability: 20%   (data quality gate)
+
+    Post-adjustments: RSI timing (+2 sweet spot / -3/-5 overbought),
+    entry timing, RR hard caps, market regime multiplier.
     """
     try:
         # Use _safe_score with canonical column name fallback chains
         fund = _safe_score(row, "Fundamental_S", "FundamentalScore", "Fundamental_Score", "fund_score")
         mom = _safe_score(row, "TechScore_20d_raw", "MomentumScore", "TechScore_20d", "tech_score")
         # Hunter amplification: if Coil_Bonus is active, amplify technical/momentum
-        # Reduced from 1.25x to 1.12x (2026-03-07) because with momentum weight at 35%,
-        # 1.25x effectively gives 43.75% — almost the old 45% weight, defeating rebalance.
-        # 1.12x keeps a meaningful boost without undermining the fundamentals uplift.
+        # Reduced to 1.05x (2026-03-07 v2): VCP already gets 25% of tech weight +
+        # up to +3 additive bonus.  A large multiplier here triple-counts the pattern.
+        # 1.05x is a mild nudge that rewards coiled setups without overwhelming
+        # the fundamental quality signal (which is now 25% of the score).
         try:
             coil_bonus_active = bool(row.get("Coil_Bonus", 0)) or str(row.get("Coil_Bonus", "0")) in ("1", "True")
             if coil_bonus_active:
-                mom = float(mom) * 1.12
+                mom = float(mom) * 1.05
         except Exception:
             pass
         # Try multiple field names for reliability
@@ -179,6 +183,22 @@ def compute_final_score_20d(row: pd.Series) -> float:
             if _ret_val > ENTRY_TIMING["runup_threshold"]:
                 entry_adj -= ENTRY_TIMING["runup_penalty"]
             final_score += entry_adj
+        except Exception:
+            pass
+
+        # ── RSI timing adjustment ──────────────────────────────
+        # Pre-rise picks should NOT be overbought.  Penalize RSI > 70
+        # (already extended) and reward the 45-60 sweet-spot (building
+        # momentum but still room to run).
+        try:
+            _rsi = float(row.get("RSI", row.get("RSI_14", np.nan)))
+            if np.isfinite(_rsi):
+                if _rsi > 75:
+                    final_score -= 5.0   # strongly overbought
+                elif _rsi > 70:
+                    final_score -= 3.0   # overbought
+                elif 45 <= _rsi <= 60:
+                    final_score += 2.0   # sweet spot: building, room to run
         except Exception:
             pass
 
@@ -344,13 +364,17 @@ def evaluate_rr_unified(rr_ratio: Optional[float]) -> Tuple[float, float, str]:
 
 
 def _safe_score(row: pd.Series, *keys: str, default: float = 50.0) -> float:
-    """Extract first valid 0-100 score from multiple column name candidates."""
+    """Extract first valid 0-100 score from multiple column name candidates.
+
+    Note: 0.0 is a legitimate score (worst possible) — only NaN/None/missing
+    values fall through to the default.
+    """
     for k in keys:
         v = row.get(k)
         if v is not None:
             try:
                 fv = float(v)
-                if np.isfinite(fv) and fv != 0.0:
+                if np.isfinite(fv):
                     return float(np.clip(fv, 0.0, 100.0))
             except (TypeError, ValueError):
                 continue

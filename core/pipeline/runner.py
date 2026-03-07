@@ -785,17 +785,19 @@ def _phase_score_and_filter(ctx: _PipelineContext) -> Optional[Dict[str, Any]]:
             except (KeyError, TypeError, AttributeError):
                 pass
         else:
+            # Penalty for below-threshold metrics (each 0.05-0.10 on 0-1 scale)
+            # Before fix: penalties divided by 100 → negligible 0.01-0.035 impact.
+            # Now: meaningful 5-10% reduction per weak metric.
             penalty = 0.0
             if sig.get("rs_63d", 0) < rs_thresh:
-                penalty += 1.0
+                penalty += 0.05   # weak relative strength
             if sig.get("momentum_consistency", 0) < mom_thresh:
-                penalty += 1.0
+                penalty += 0.05   # weak momentum
             if sig.get("risk_reward_ratio", 0) < rr_thresh:
-                penalty += 1.5
-            normalized_penalty = penalty / 100.0
+                penalty += 0.10   # poor risk/reward
             ctx.results.at[idx, "AdvPenalty"] = penalty
             ctx.results.at[idx, "AdvFilter_Score"] = max(
-                0.01, float(enhanced) - float(normalized_penalty)
+                0.01, float(enhanced) - penalty
             )
             try:
                 tkr = (
@@ -1181,10 +1183,12 @@ def _phase_enrich_fundamentals(ctx: _PipelineContext) -> None:
             fund_data = row.to_dict()
             has_fund_data = any(
                 pd.notna(fund_data.get(f))
-                for f in ["pe", "roe", "pb", "margin", "debt_equity"]
+                for f in ["pe", "roe", "pb", "margin", "debt_equity",
+                          "rev_yoy", "eps_yoy", "roic", "ps"]
             )
             if not has_fund_data:
-                ctx.results.at[idx, "Fundamental_S"] = 50.0
+                # Penalize missing data — 35 is below-average, not neutral 50
+                ctx.results.at[idx, "Fundamental_S"] = 35.0
                 continue
             fund_score_obj = compute_fundamental_score_with_breakdown(fund_data)
             ctx.results.at[idx, "Fundamental_S"] = fund_score_obj.total
@@ -1192,7 +1196,7 @@ def _phase_enrich_fundamentals(ctx: _PipelineContext) -> None:
             ctx.results.at[idx, "Growth_Score_F"] = fund_score_obj.breakdown.growth_score
             ctx.results.at[idx, "Valuation_Score_F"] = fund_score_obj.breakdown.valuation_score
         except Exception as e:
-            ctx.results.at[idx, "Fundamental_S"] = 50.0
+            ctx.results.at[idx, "Fundamental_S"] = 35.0
             logger.debug("Fundamental scoring failed for %s: %s", row.get("Ticker"), e)
 
     # Sync the display column to the correctly-computed per-stock score
