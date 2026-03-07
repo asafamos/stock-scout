@@ -154,6 +154,7 @@ REGIME_MULTIPLIERS: Dict[str, float] = {
     "BULLISH": 1.10,      # alias used by detect_market_regime()
     "PANIC": 0.70,
     "CORRECTION": 0.70,
+    "DISTRIBUTION": 0.80, # Wyckoff distribution phase: bearish but less severe
     "BEARISH": 0.70,      # alias used by detect_market_regime()
     "SIDEWAYS": 0.95,     # mild penalty: neutral market requires higher quality
     "NEUTRAL": 0.95,      # mild penalty: neutral market requires higher quality

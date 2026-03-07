@@ -476,7 +476,7 @@ def calibrate_ml_20d_prob(
             if v < 0.25:
                 adj -= 0.01
             elif 0.50 <= v < 0.75:
-                boost = 0.035 if (isinstance(market_regime, str) and market_regime.upper() == "BULLISH") else 0.015
+                boost = 0.035 if (isinstance(market_regime, str) and market_regime.upper() in {"BULLISH", "TREND_UP", "MODERATE_UP"}) else 0.015
                 adj += boost
             elif v >= 0.75:
                 adj -= 0.005
@@ -500,7 +500,7 @@ def calibrate_ml_20d_prob(
         # Regime
         regime = (market_regime or "").upper()
         rsi_val = float(rsi) if (rsi is not None and np.isfinite(rsi)) else 50.0
-        if regime in {"BEARISH", "PANIC"} and rsi_val > 65.0:
+        if regime in {"BEARISH", "PANIC", "DISTRIBUTION"} and rsi_val > 65.0:
             adj -= 0.06
         if regime == "CORRECTION" and reliability_factor is not None:
             if np.isfinite(reliability_factor) and float(reliability_factor) > 1.1:

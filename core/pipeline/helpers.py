@@ -182,10 +182,19 @@ def _compute_rr_for_row(
         try:
             from core.scoring_config import ATR_TARGET_MULTIPLIERS
             _num_regime_map = {1.0: "bullish", 0.0: "neutral", -1.0: "bearish"}
+            # Wyckoff phases → simple ATR regime
+            _wyckoff_map = {
+                "trend_up": "bullish", "moderate_up": "bullish",
+                "sideways": "neutral",
+                "distribution": "bearish", "correction": "bearish", "panic": "bearish",
+            }
             if isinstance(market_regime, (int, float)):
                 _regime_key = _num_regime_map.get(float(market_regime), "neutral")
+            elif isinstance(market_regime, str):
+                _lower = market_regime.lower()
+                _regime_key = _wyckoff_map.get(_lower, _lower)
             else:
-                _regime_key = market_regime.lower() if isinstance(market_regime, str) else "neutral"
+                _regime_key = "neutral"
             _mults = ATR_TARGET_MULTIPLIERS.get(_regime_key, ATR_TARGET_MULTIPLIERS.get("neutral", {"base": 2.0, "breakout": 2.5}))
             atr_mult = _mults["breakout"] if dist_from_high < 0.05 else _mults["base"]
         except Exception:

@@ -1394,13 +1394,19 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
         # Determine market regime for regime-aware target calculation
         _rr_regime = "neutral"
         _NUMERIC_REGIME_MAP = {1.0: "bullish", 0.0: "neutral", -1.0: "bearish"}
+        _WYCKOFF_TO_ATR = {
+            "trend_up": "bullish", "moderate_up": "bullish",
+            "sideways": "neutral",
+            "distribution": "bearish", "correction": "bearish", "panic": "bearish",
+        }
         try:
             if "Market_Regime" in ctx.results.columns and not ctx.results.empty:
                 raw_regime = ctx.results["Market_Regime"].mode().iloc[0]
                 if isinstance(raw_regime, (int, float)):
                     _rr_regime = _NUMERIC_REGIME_MAP.get(float(raw_regime), "neutral")
                 else:
-                    _rr_regime = str(raw_regime).lower()
+                    _lower = str(raw_regime).lower()
+                    _rr_regime = _WYCKOFF_TO_ATR.get(_lower, _lower)
         except Exception:
             pass
         rr_updates = ctx.results.apply(
