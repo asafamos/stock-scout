@@ -661,8 +661,11 @@ def _render_snapshot_banner(meta: Dict[str, Any], path_obj: Path, age_hours: Opt
         size = saved or uni or "unknown"
         st.markdown(f"""<div class="ss-banner"><span class="ss-banner-dot cached"></span>Source: {src} &bull; Commit: {commit} &bull; Time: {ts} &bull; Age: {age_txt} &bull; Stocks: {size}</div>""", unsafe_allow_html=True)
 
-if force_live_scan_once:
-    # User explicitly forced a live run: ignore any snapshot age/status
+if force_live_scan_once or st.session_state.get("_pipeline_running", False):
+    # User explicitly forced a live run OR a previous rerun interrupted a running pipeline.
+    # The _pipeline_running flag survives Streamlit reruns that happen mid-pipeline,
+    # preventing the app from falling back to cached results when the pipeline is
+    # interrupted by a connection ping, tab switch, or widget state change.
     status_manager.update_detail(f"Live scan forced — cached scan from {timestamp_str} skipped")
     use_precomputed = False
     st.session_state["skip_pipeline"] = False
@@ -783,6 +786,7 @@ if skip_pipeline:
     
 else:
     # Live scan execution fallback
+    st.session_state["_pipeline_running"] = True  # Guard against mid-pipeline reruns
     with st.status("🚀 Running Live Scan...", expanded=False) as status:
         status = status or NullStatus()
         pipeline_cb = _make_pipeline_callback(status)
@@ -915,6 +919,8 @@ else:
                 st.session_state["wyckoff_phase"] = _wyckoff_phase
             except Exception:
                 pass
+        # Pipeline finished — clear the rerun guard
+        st.session_state["_pipeline_running"] = False
         # Always store results (even empty) so UI can display the right state
         st.session_state["precomputed_results"] = results
         if not results.empty:
@@ -933,6 +939,8 @@ else:
             status.update(label="Scan complete", state="complete", expanded=False)
         except Exception:
             pass
+        # Safety: ensure _pipeline_running is cleared even on partial failures
+        st.session_state["_pipeline_running"] = False
 
 # Debug logging if enabled
 create_debug_expander({
