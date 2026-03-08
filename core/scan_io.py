@@ -84,10 +84,12 @@ def save_scan(
         if sm is not None:
             scan_id = (meta.get("scan_id")
                        or f"scan_{datetime.utcnow().strftime('%Y%m%dT%H%M%S')}_{uuid.uuid4().hex[:8]}")
-            sm.save_scan(scan_id, results_df, config, meta)
-            logger.info("Scan also saved to Supabase (scan_id=%s)", scan_id)
+            count = sm.save_scan(scan_id, results_df, config, meta)
+            logger.info("Scan also saved to Supabase (scan_id=%s, %d recs)", scan_id, count)
+        else:
+            logger.warning("Supabase not available — scan saved locally only (will be lost on redeploy)")
     except Exception as exc:
-        logger.debug("Supabase scan save skipped: %s", exc)
+        logger.warning("Supabase scan save FAILED: %s", exc)
 
 
 def load_latest_scan(path_latest: Path) -> Tuple[Optional[pd.DataFrame], Optional[Dict[str, Any]]]:
@@ -217,7 +219,7 @@ def load_scan_history_with_supabase(
             if not df.empty:
                 return df.to_dict("records")
     except Exception as exc:
-        logger.debug("Supabase scan history unavailable: %s", exc)
+        logger.warning("Supabase scan history load failed: %s", exc)
 
     # Fall back to local parquet listing
     return list_available_scans(scan_dir)

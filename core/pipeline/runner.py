@@ -56,7 +56,7 @@ from core.market_context import initialize_market_context
 from core.ml_20d_inference import ML_20D_AVAILABLE, get_ml_health_meta
 from core.provider_guard import get_provider_guard
 from core.scoring import compute_fundamental_score_with_breakdown
-from core.scoring_config import ML_PROB_THRESHOLD, PATTERN_MIN_SCORE, SIGNAL_MIN_SCORE, TOP_SIGNAL_K
+from core.scoring_config import ML_PROB_THRESHOLD, PATTERN_MIN_SCORE, REGIME_MIN_SCORE, SIGNAL_MIN_SCORE, TOP_SIGNAL_K
 from core.scoring_engine import compute_final_score_20d
 from core.sector_mapping import get_stock_sector
 from core.telemetry import Telemetry
@@ -1544,10 +1544,29 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
                 "SafetyBlocked", pd.Series(False, index=ctx.results.index)
             ).astype(bool)
 
+            # Determine regime-aware minimum score threshold
+            _regime_for_threshold = "SIDEWAYS"  # safe default
+            if "Market_Regime" in ctx.results.columns and not ctx.results.empty:
+                try:
+                    _regime_for_threshold = str(
+                        ctx.results["Market_Regime"].mode().iloc[0]
+                    ).upper()
+                except Exception:
+                    pass
+            effective_min_score = float(
+                REGIME_MIN_SCORE.get(_regime_for_threshold, SIGNAL_MIN_SCORE)
+            )
+            logger.info(
+                "[PIPELINE] Regime=%s → effective min score=%.1f (base=%.1f)",
+                _regime_for_threshold,
+                effective_min_score,
+                SIGNAL_MIN_SCORE,
+            )
+
             mask = (
                 safety_ok
                 & (
-                    (sc >= float(SIGNAL_MIN_SCORE))
+                    (sc >= effective_min_score)
                     | (mlp >= float(ML_PROB_THRESHOLD))
                     | ((patt.fillna(0.0) > 0.0) & (sc >= float(PATTERN_MIN_SCORE)))
                 )
@@ -1573,38 +1592,49 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
 
             topn = int(ctx.config.get("topn_results", TOP_SIGNAL_K))
             if filtered.empty:
-                sort_cols_fb = ["_score_numeric"]
-                asc_fb = [False]
-                if "SignalReasons_Count" in ctx.results.columns:
-                    sort_cols_fb.append("SignalReasons_Count")
-                    asc_fb.append(False)
-                sort_cols_fb.append("ML_20d_Prob")
-                asc_fb.append(False)
-                # Fallback also respects safety filters
-                safe_results = ctx.results[safety_ok] if safety_ok.any() else ctx.results
-                fallback = (
-                    safe_results.assign(
-                        _score_numeric=pd.to_numeric(
-                            safe_results[score_col], errors="coerce"
-                        )
+                # In strict regimes (DISTRIBUTION+), do NOT fall back — show empty
+                if effective_min_score >= 75.0:
+                    ctx.results = pd.DataFrame(columns=ctx.results.columns)
+                    logger.info(
+                        "[PIPELINE] No candidates meet regime-aware threshold (%.0f) "
+                        "in %s market — returning empty (no recommendations)",
+                        effective_min_score,
+                        _regime_for_threshold,
                     )
-                    .sort_values(by=sort_cols_fb, ascending=asc_fb)
-                    .drop(columns=["_score_numeric"])
-                )
-                ctx.results = fallback.head(topn).reset_index(drop=True)
-                logger.info(
-                    "[PIPELINE] Signal thresholds yielded no candidates; "
-                    "using top-%d by score as fallback",
-                    topn,
-                )
+                else:
+                    sort_cols_fb = ["_score_numeric"]
+                    asc_fb = [False]
+                    if "SignalReasons_Count" in ctx.results.columns:
+                        sort_cols_fb.append("SignalReasons_Count")
+                        asc_fb.append(False)
+                    sort_cols_fb.append("ML_20d_Prob")
+                    asc_fb.append(False)
+                    # Fallback also respects safety filters
+                    safe_results = ctx.results[safety_ok] if safety_ok.any() else ctx.results
+                    fallback = (
+                        safe_results.assign(
+                            _score_numeric=pd.to_numeric(
+                                safe_results[score_col], errors="coerce"
+                            )
+                        )
+                        .sort_values(by=sort_cols_fb, ascending=asc_fb)
+                        .drop(columns=["_score_numeric"])
+                    )
+                    ctx.results = fallback.head(topn).reset_index(drop=True)
+                    logger.info(
+                        "[PIPELINE] Signal thresholds yielded no candidates; "
+                        "using top-%d by score as fallback",
+                        topn,
+                    )
             else:
                 ctx.results = filtered.head(topn).reset_index(drop=True)
                 logger.info(
                     "[PIPELINE] Signal-First ranking applied: kept %d of %d; "
-                    "thresholds: score>=%s, ml>=%s",
+                    "regime=%s, threshold=%.0f, ml>=%s",
                     len(ctx.results),
                     orig_len,
-                    SIGNAL_MIN_SCORE,
+                    _regime_for_threshold,
+                    effective_min_score,
                     ML_PROB_THRESHOLD,
                 )
             ctx.postfilter_mode = "signal_only"

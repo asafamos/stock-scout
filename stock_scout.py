@@ -213,6 +213,16 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
     st.markdown('<p style="font-size:0.78rem; font-weight:700; color:var(--ss-text-muted); text-transform:uppercase; letter-spacing:0.06em; margin:0 0 4px 0;">Scan History</p>', unsafe_allow_html=True)
+    # Show Supabase persistence status
+    try:
+        from core.db.supabase_client import get_supabase_client
+        _sb_ok = get_supabase_client() is not None
+        if _sb_ok:
+            st.caption("☁️ Cloud persistence active")
+        else:
+            st.caption("⚠️ Local only — history lost on redeploy")
+    except Exception:
+        st.caption("⚠️ Local only")
     _scan_dir = Path(__file__).parent / "data" / "scans"
     _user_scan_dir = user_scan_dir(_scan_dir, _user_id)
     try:
@@ -898,9 +908,16 @@ else:
             logger.debug("_fmt_reason: %s", e)
         
         # 3. Mark scan as ready (actual save happens AFTER sector cap is applied below)
+        # Store Wyckoff market phase from pipeline (more granular than 3-state regime)
+        if "Market_Regime" in results.columns and not results.empty:
+            try:
+                _wyckoff_phase = str(results["Market_Regime"].mode().iloc[0]).upper()
+                st.session_state["wyckoff_phase"] = _wyckoff_phase
+            except Exception:
+                pass
+        # Always store results (even empty) so UI can display the right state
+        st.session_state["precomputed_results"] = results
         if not results.empty:
-            # Store in session state for sector cap processing, final save happens at line ~3435
-            st.session_state["precomputed_results"] = results
             # Advance any remaining stages and mark complete
             for _stg in get_pipeline_stages():
                 if _stg not in _completed_stages:
@@ -908,7 +925,9 @@ else:
                     _completed_stages.add(_stg)
             status_manager.complete(f"✅ {len(results)} results from live scan")
         else:
-            status_manager.complete("❌ Live scan returned 0 results")
+            _wp = st.session_state.get("wyckoff_phase", "")
+            _empty_reason = f" (regime: {_wp})" if _wp else ""
+            status_manager.complete(f"📭 No pre-rise candidates found{_empty_reason}")
         # Collapse status log after completion
         try:
             status.update(label="Scan complete", state="complete", expanded=False)
@@ -1905,11 +1924,25 @@ from ui.card_helpers import (
 
 
 if rec_df.empty:
-    st.markdown("""
+    _empty_regime = st.session_state.get("wyckoff_phase", "") or st.session_state.get("market_regime", {}).get("regime", "")
+    _regime_msg = ""
+    if _empty_regime and _empty_regime.upper() in ("DISTRIBUTION", "CORRECTION", "BEARISH", "PANIC"):
+        _regime_msg = (
+            f'<p style="color:var(--ss-text-secondary); margin-top:8px;">'
+            f'Market regime: <strong>{_empty_regime.upper()}</strong> — '
+            f'quality thresholds are elevated to protect against unfavorable conditions. '
+            f'Only high-conviction pre-rise setups will appear.</p>'
+        )
+    st.markdown(f"""
     <div class="ss-empty-state">
       <div class="ss-empty-icon">📭</div>
-      <h3>No signals found in this scan</h3>
-      <p>Try running a live scan or loading a historical snapshot from the sidebar.</p>
+      <h3>No pre-rise opportunities detected</h3>
+      <p>No stocks currently meet the quality threshold for the current market conditions.</p>
+      {_regime_msg}
+      <p style="font-size:0.82rem; color:var(--ss-text-muted); margin-top:12px;">
+        This is normal — it's better to stay out than to recommend marginal setups.
+        Try again when market conditions improve, or load a historical scan from the sidebar.
+      </p>
     </div>
     """, unsafe_allow_html=True)
 else:

@@ -20,6 +20,7 @@ from typing import Optional
 logger = logging.getLogger("stock_scout.db.supabase")
 
 _CLIENT_CACHE: Optional[object] = None
+_INIT_ATTEMPTED: bool = False  # Track whether we already tried (avoids repeated warnings)
 
 
 def _read_secret(key: str) -> Optional[str]:
@@ -43,7 +44,7 @@ def get_supabase_client():
 
     The client is cached after the first successful creation.
     """
-    global _CLIENT_CACHE
+    global _CLIENT_CACHE, _INIT_ATTEMPTED
     if _CLIENT_CACHE is not None:
         return _CLIENT_CACHE
 
@@ -51,7 +52,15 @@ def get_supabase_client():
     key = _read_secret("SUPABASE_KEY")
 
     if not url or not key:
-        logger.debug("Supabase not configured — falling back to DuckDB")
+        if not _INIT_ATTEMPTED:
+            _INIT_ATTEMPTED = True
+            logger.warning(
+                "Supabase not configured (SUPABASE_URL=%s, SUPABASE_KEY=%s) — "
+                "scan history will NOT survive redeployments. "
+                "Add credentials to Streamlit secrets to enable persistence.",
+                "set" if url else "MISSING",
+                "set" if key else "MISSING",
+            )
         return None
 
     try:
@@ -59,6 +68,7 @@ def get_supabase_client():
 
         client = create_client(url, key)
         _CLIENT_CACHE = client
+        _INIT_ATTEMPTED = True
         logger.info("Supabase client connected (%s)", url[:30])
         return client
     except ImportError:

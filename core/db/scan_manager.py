@@ -35,23 +35,34 @@ _SM_LOCK = threading.Lock()
 
 
 def get_scan_manager(user_id: str = DEFAULT_USER) -> Optional["SupabaseScanManager"]:
-    """Return a SupabaseScanManager if Supabase is configured, else None."""
-    if user_id not in _SM_INSTANCES:
-        with _SM_LOCK:
-            if user_id not in _SM_INSTANCES:
-                try:
-                    from core.db.supabase_client import get_supabase_client
+    """Return a SupabaseScanManager if Supabase is configured, else None.
 
-                    sb = get_supabase_client()
-                    if sb is not None:
-                        _SM_INSTANCES[user_id] = SupabaseScanManager(sb, user_id)
-                        logger.info("Supabase scan manager ready for user=%s", user_id)
-                    else:
-                        _SM_INSTANCES[user_id] = None
-                except Exception as exc:
-                    logger.warning("Supabase scan manager init failed: %s", exc)
-                    _SM_INSTANCES[user_id] = None
-    return _SM_INSTANCES.get(user_id)
+    Does NOT cache ``None`` — retries on each call until Supabase becomes
+    available (e.g. after secrets are configured during a running session).
+    """
+    cached = _SM_INSTANCES.get(user_id)
+    if cached is not None:
+        return cached
+
+    with _SM_LOCK:
+        # Double-check after acquiring lock
+        cached = _SM_INSTANCES.get(user_id)
+        if cached is not None:
+            return cached
+        try:
+            from core.db.supabase_client import get_supabase_client
+
+            sb = get_supabase_client()
+            if sb is not None:
+                mgr = SupabaseScanManager(sb, user_id)
+                _SM_INSTANCES[user_id] = mgr
+                logger.info("Supabase scan manager ready for user=%s", user_id)
+                return mgr
+            # Don't cache None — allow retry when credentials become available
+            return None
+        except Exception as exc:
+            logger.warning("Supabase scan manager init failed: %s", exc)
+            return None
 
 
 # ---------------------------------------------------------------------------
