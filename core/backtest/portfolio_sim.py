@@ -31,6 +31,9 @@ class Trade:
     holding_days: int = 0
     exit_reason: str = ""  # "expiry", "stop", "target"
 
+    # Per-trade max holding period (from dynamic Holding_Days)
+    max_holding_days: int = 20
+
     # Scores at entry (for attribution)
     final_score: float = 0.0
     tech_score: float = 0.0
@@ -155,19 +158,25 @@ class PortfolioSimulator:
 
             actual_cost = shares * entry_price + self.commission
 
-            # Stop / target
+            # Stop / target — read dynamic R:R columns from synced pipeline
             atr_pct = float(row.get("ATR_Pct", 0.03))
-            stop_price = row.get("Stop")
+            stop_price = row.get("Stop_Loss", row.get("Stop"))
             if stop_price is None or (isinstance(stop_price, float) and np.isnan(stop_price)):
                 stop_price = entry_price * (1 - self.stop_loss_atr_mult * atr_pct)
             else:
                 stop_price = float(stop_price)
 
-            target_price = row.get("Target_20d", row.get("target_price"))
+            target_price = row.get(
+                "Target_Price", row.get("Target_20d", row.get("target_price"))
+            )
             if target_price is None or (isinstance(target_price, float) and np.isnan(target_price)):
                 target_price = entry_price * (1 + self.target_atr_mult * atr_pct)
             else:
                 target_price = float(target_price)
+
+            # Per-trade holding period from dynamic ATR-based calculation
+            _hd = row.get("Holding_Days", self.holding_days)
+            max_hd = int(_hd) if isinstance(_hd, (int, float)) and not np.isnan(_hd) else self.holding_days
 
             trade = Trade(
                 ticker=ticker,
@@ -177,6 +186,7 @@ class PortfolioSimulator:
                 position_value=actual_cost,
                 stop_price=stop_price,
                 target_price=target_price,
+                max_holding_days=max_hd,
                 final_score=float(row.get("FinalScore_20d", 0)),
                 tech_score=float(row.get("TechScore_20d", 0)),
                 fundamental_score=float(row.get("Fundamental_Score", 0)),
@@ -229,7 +239,7 @@ class PortfolioSimulator:
                 to_close.append((i, "stop"))
             elif pos.trade.target_price and price >= pos.trade.target_price:
                 to_close.append((i, "target"))
-            elif trading_days >= self.holding_days:
+            elif trading_days >= pos.trade.max_holding_days:
                 to_close.append((i, "expiry"))
 
         # Close in reverse order to preserve indices

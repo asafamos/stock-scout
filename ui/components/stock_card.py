@@ -5,6 +5,7 @@ Used by stock_scout.py to render recommendation cards.
 from __future__ import annotations
 
 import html as html_mod
+import json
 import numpy as np
 import pandas as pd
 from typing import Optional
@@ -57,6 +58,66 @@ def _esc(text) -> str:
     if text is None:
         return ""
     return html_mod.escape(str(text))
+
+
+def _render_score_breakdown(row: pd.Series) -> str:
+    """Render score computation breakdown from ScoreBreakdown JSON column."""
+    raw = row.get("ScoreBreakdown", None)
+    if not raw or str(raw) in ("", "nan", "None", "{}"):
+        return ""
+    try:
+        bd = json.loads(raw) if isinstance(raw, str) else raw
+    except (json.JSONDecodeError, TypeError):
+        return ""
+    if not isinstance(bd, dict) or "base" not in bd:
+        return ""
+
+    # Build a compact table showing the score computation
+    w_fund = bd.get("w_fund", 0)
+    w_mom = bd.get("w_mom", 0)
+    w_rr = bd.get("w_rr", 0)
+    w_rel = bd.get("w_rel", 0)
+    base = bd.get("base", 0)
+    ml_delta = bd.get("ml_delta", 0)
+    bonus = bd.get("bonus", 0)
+    pre_adj = bd.get("pre_adj", 0)
+    entry_adj = bd.get("entry_adj", 0)
+    rsi_adj = bd.get("rsi_adj", 0)
+    pre_regime = bd.get("pre_regime", 0)
+    regime = bd.get("regime", "N/A")
+    regime_mult = bd.get("regime_mult", 1.0)
+    final = bd.get("final", 0)
+    rr_floor = bd.get("rr_floor_capped", False)
+
+    rows_html = (
+        f'<tr><td>Fund ({bd.get("fund_raw", "?")})</td><td class="num">+{w_fund:.1f}</td></tr>'
+        f'<tr><td>Momentum ({bd.get("mom_raw", "?")}{"*1.05" if bd.get("coil") else ""})</td><td class="num">+{w_mom:.1f}</td></tr>'
+        f'<tr><td>R:R ({bd.get("rr_ratio", "?")} &rarr; {bd.get("rr_score", "?")})</td><td class="num">+{w_rr:.1f}</td></tr>'
+        f'<tr><td>Reliability ({bd.get("rel", "?")})</td><td class="num">+{w_rel:.1f}</td></tr>'
+        f'<tr class="subtotal"><td>Base</td><td class="num">{base:.1f}</td></tr>'
+        f'<tr><td>ML boost</td><td class="num">{"+" if ml_delta >= 0 else ""}{ml_delta:.1f}</td></tr>'
+        f'<tr><td>Pattern/VCP/BW bonus</td><td class="num">+{bonus:.1f}</td></tr>'
+    )
+    if entry_adj:
+        rows_html += f'<tr><td>Entry timing adj</td><td class="num">{"+" if entry_adj >= 0 else ""}{entry_adj:.1f}</td></tr>'
+    if rsi_adj:
+        rows_html += f'<tr><td>RSI adj ({bd.get("rsi_val", "?")} in {bd.get("rsi_regime", "?")})</td><td class="num">{"+" if rsi_adj >= 0 else ""}{rsi_adj:.1f}</td></tr>'
+    if rr_floor:
+        rows_html += '<tr><td>R:R floor cap</td><td class="num">capped 75</td></tr>'
+    rows_html += (
+        f'<tr class="subtotal"><td>Pre-regime</td><td class="num">{pre_regime:.1f}</td></tr>'
+        f'<tr><td>Regime ({_esc(str(regime))}) &times;{regime_mult:.2f}</td><td class="num">{final:.1f}</td></tr>'
+        f'<tr class="total"><td><strong>Final</strong></td><td class="num"><strong>{final:.1f}</strong></td></tr>'
+    )
+
+    return (
+        '<div class="ss-score-breakdown">'
+        '<div class="ss-bd-title">Score Computation</div>'
+        '<table class="ss-bd-table">'
+        f'{rows_html}'
+        '</table>'
+        '</div>'
+    )
 
 
 def render_stock_card(row: pd.Series, rank: int, score_label: str = "FinalScore_20d") -> str:
@@ -166,6 +227,9 @@ def render_stock_card(row: pd.Series, rank: int, score_label: str = "FinalScore_
     pattern_bar = _safe_pct(pattern_score_raw)
     bw_bar = _safe_pct(bw_score_raw)
 
+    # Score breakdown from pipeline
+    score_bd_html = _render_score_breakdown(row)
+
     # Storyline
     story = headline_story(row)
 
@@ -251,6 +315,7 @@ def render_stock_card(row: pd.Series, rank: int, score_label: str = "FinalScore_
         f'<div class="ss-detail-item"><span class="ss-detail-label">Fund Sources</span><span class="ss-detail-value">{fmt_num(fund_src, ".0f")}</span></div>'
         f'<div class="ss-detail-item"><span class="ss-detail-label">Fund Coverage</span><span class="ss-detail-value">{fmt_num(fund_cov, ".0f")}%</span></div>'
         f'</div>'
+        f'{score_bd_html}'
         f'</details>'
         f'</div>'
         f'</div>'

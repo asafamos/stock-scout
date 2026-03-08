@@ -697,6 +697,53 @@ html[data-theme="dark"] .ss-score-circle.low {
     display: block;
 }
 
+/* ---------- Score computation breakdown ---------- */
+.ss-score-breakdown {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--ss-border);
+}
+
+.ss-bd-title {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--ss-accent);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.ss-bd-table {
+    width: 100%;
+    font-size: 0.78rem;
+    font-family: var(--ss-mono);
+    border-collapse: collapse;
+}
+
+.ss-bd-table td {
+    padding: 2px 6px;
+    color: var(--ss-text-secondary);
+}
+
+.ss-bd-table td.num {
+    text-align: right;
+    color: var(--ss-text-primary);
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.ss-bd-table tr.subtotal td {
+    border-top: 1px solid var(--ss-border);
+    font-weight: 600;
+    color: var(--ss-text-primary);
+}
+
+.ss-bd-table tr.total td {
+    border-top: 2px solid var(--ss-accent);
+    font-size: 0.85rem;
+    padding-top: 4px;
+}
+
 .ss-detail-item .ss-detail-value {
     font-size: 0.85rem;
     font-weight: 600;

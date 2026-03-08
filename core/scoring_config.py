@@ -69,6 +69,9 @@ PATTERN_SCORE_WEIGHTS: Dict[str, float] = {
 # when combined with RSI timing adjustments and lower default for missing data).
 # Momentum at 30% + pattern/BW bonuses (up to +10 pts) + Coil_Bonus still gives
 # momentum-driven stocks a significant edge, but quality now acts as a real gate.
+# NOTE (2026-03-08): Walk-forward optimization (train 2024-01→2025-06, test 2025-07→2026-03)
+# confirmed these weights are near-optimal. Optimized: fund=0.24, mom=0.31, rr=0.26, rel=0.19
+# Test Sharpe improvement was only +0.005 (below 0.1 adoption threshold). Keeping originals.
 CONVICTION_WEIGHTS: Dict[str, float] = {
     "fundamental": 0.25,
     "momentum": 0.30,
@@ -151,6 +154,13 @@ ENTRY_TIMING: Dict[str, float] = {
 
 # Bonus configuration for compute_final_score_20d pattern/VCP/BW bonuses
 # Centralizes magic numbers from scoring_engine.py into a single source of truth.
+# NOTE (2026-03-08): Ablation study (2024-01 to 2026-03, 247 trades) showed:
+#   - Patterns HURT: no_patterns Sharpe=0.34 vs full_system=0.29 (+0.85% return)
+#   - ML helps modestly: +0.10 Sharpe, +1.6% return
+#   - Pattern bonuses shifted selection toward stocks that underperform
+# Action: Reduced pattern/BW bonuses by ~40%, lowered total cap from 10→6.
+# Weight optimization confirmed current CONVICTION_WEIGHTS are near-optimal
+# (test Sharpe delta = +0.005, below 0.1 threshold for adoption).
 BONUS_CONFIG: Dict[str, float] = {
     "coil_amplifier": 1.05,              # Multiplier for momentum when Coil_Bonus active
     "reliability_low_threshold": 40.0,   # Below this → heavily clamp ML boost
@@ -161,12 +171,12 @@ BONUS_CONFIG: Dict[str, float] = {
     "vcp_bonus_max": 3.0,               # Max VCP-only bonus points
     "tightness_ratio_threshold": 0.6,   # Tightness_Ratio below this → extra bonus
     "tightness_bonus": 2.0,             # Bonus for tight consolidation
-    "vcp_tightness_cap": 5.0,           # Local cap for VCP + tightness bonus
-    "pattern_multiplier": 5.0,          # Pattern_Score → bonus multiplier
-    "pattern_bonus_max": 5.0,           # Max pattern bonus points
+    "vcp_tightness_cap": 4.0,           # Local cap for VCP + tightness bonus (was 5.0)
+    "pattern_multiplier": 3.0,          # Pattern_Score → bonus multiplier (was 5.0)
+    "pattern_bonus_max": 3.0,           # Max pattern bonus points (was 5.0)
     "big_winner_threshold": 50.0,       # BW signal above this → bonus
-    "big_winner_multiplier": 4.0,       # Max BW bonus points
-    "total_bonus_cap": 10.0,            # Total cap for VCP+pattern+BW bonuses
+    "big_winner_multiplier": 2.5,       # Max BW bonus points (was 4.0)
+    "total_bonus_cap": 6.0,             # Total cap for VCP+pattern+BW bonuses (was 10.0)
     "hunter_floor": 45.0,               # Min score for VCP/coil setups with good RR
 }
 

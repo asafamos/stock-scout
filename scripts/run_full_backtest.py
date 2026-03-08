@@ -26,8 +26,8 @@ logger = logging.getLogger("run_full_backtest")
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run full-pipeline backtest")
-    parser.add_argument("--start", type=str, default="2024-06-01", help="Start date (YYYY-MM-DD)")
-    parser.add_argument("--end", type=str, default="2025-12-31", help="End date (YYYY-MM-DD)")
+    parser.add_argument("--start", type=str, default="2024-01-01", help="Start date (YYYY-MM-DD)")
+    parser.add_argument("--end", type=str, default="2026-03-01", help="End date (YYYY-MM-DD)")
     parser.add_argument("--top-k", type=int, default=10, help="Top-K stocks per rebalance")
     parser.add_argument("--holding-days", type=int, default=20, help="Holding period in trading days")
     parser.add_argument("--rebalance", type=str, default="monthly", help="Rebalance frequency")

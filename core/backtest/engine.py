@@ -94,6 +94,8 @@ class FullPipelineBacktest:
         # Cached price data (fetched once)
         self._price_cache: Dict[str, pd.DataFrame] = {}
         self._spy_df: Optional[pd.DataFrame] = None
+        # Scored universes per rebalance date (for weight optimization)
+        self._scored_universes: Dict[date, pd.DataFrame] = {}
 
     # ------------------------------------------------------------------
     # Public
@@ -134,6 +136,8 @@ class FullPipelineBacktest:
                 try:
                     scored = self._score_universe_at_date(day)
                     if scored is not None and not scored.empty:
+                        # Save full scored universe for weight optimization
+                        self._scored_universes[day] = scored.copy()
                         selections = scored.head(self.top_k)
                         sim.open_positions(day, selections, prices_today)
                 except Exception as e:
@@ -223,11 +227,14 @@ class FullPipelineBacktest:
                 except Exception:
                     pass
 
-                # Score using production canonical function
+                # Score using production canonical function.
+                # as_of_date=None: skip per-stock market-context API calls
+                # (regime is computed once per date in post-scoring step,
+                #  fundamentals use defaults since historical API unreliable).
                 scored = compute_recommendation_scores(
                     row,
                     ticker=ticker,
-                    as_of_date=as_of if self.enable_fundamentals else None,
+                    as_of_date=None,
                     enable_ml=self.enable_ml,
                     use_multi_source=False,  # avoid API calls in backtest
                 )
@@ -269,6 +276,184 @@ class FullPipelineBacktest:
             return None
 
         df_scored = pd.DataFrame(results)
+
+        # --- Sync with live pipeline (_phase_finalize equivalent) ---
+
+        # 1. Detect market regime for this date (look-ahead-safe)
+        market_regime = self._detect_regime_for_date(as_of)
+        df_scored["Market_Regime"] = market_regime.upper()
+
+        # 2. Apply classification (safety filters + risk class)
+        # Populate fundamental defaults for missing data — backtest can't
+        # reliably fetch historical fundamentals via API.  Neutral values
+        # that pass the require_fundamental_data filter without inflating
+        # scores (Fundamental_S computed separately).
+        for _f_col, _f_default in [("ROE", 5.0), ("MarketCap", 1e10)]:
+            if _f_col not in df_scored.columns:
+                df_scored[_f_col] = _f_default
+            else:
+                df_scored[_f_col] = df_scored[_f_col].fillna(_f_default)
+
+        try:
+            from core.classification import apply_classification
+
+            df_scored = apply_classification(df_scored)
+            # Filter REJECT / SafetyBlocked stocks
+            pre_count = len(df_scored)
+            reject_mask = (
+                df_scored.get("RiskClass", pd.Series("CORE", index=df_scored.index))
+                == "REJECT"
+            )
+            safety_mask = (
+                df_scored.get(
+                    "SafetyBlocked", pd.Series(False, index=df_scored.index)
+                )
+                == True  # noqa: E712
+            )
+            n_rejected = (reject_mask | safety_mask).sum()
+            if n_rejected > 0:
+                logger.debug(
+                    "Classification at %s: %d/%d rejected",
+                    as_of, n_rejected, pre_count,
+                )
+            df_scored = df_scored[~(reject_mask | safety_mask)]
+            if df_scored.empty:
+                logger.info(
+                    "All %d stocks rejected by classification at %s",
+                    pre_count,
+                    as_of,
+                )
+                return None
+        except Exception as e:
+            logger.warning("Classification failed at %s: %s", as_of, e)
+
+        # 3. Dynamic R:R with regime-aware ATR multipliers
+        try:
+            from core.pipeline.helpers import _compute_rr_for_row
+
+            tickers = df_scored["Ticker"].unique().tolist()
+            data_map = self._build_data_map_for_date(tickers, as_of)
+
+            _WYCKOFF_TO_ATR = {
+                "trend_up": "bullish",
+                "moderate_up": "bullish",
+                "sideways": "neutral",
+                "distribution": "bearish",
+                "correction": "bearish",
+                "panic": "bearish",
+                "bullish": "bullish",
+                "neutral": "neutral",
+                "bearish": "bearish",
+            }
+            rr_regime = _WYCKOFF_TO_ATR.get(market_regime.lower(), "neutral")
+
+            rr_updates = df_scored.apply(
+                lambda row: _compute_rr_for_row(
+                    row, data_map, market_regime=rr_regime
+                ),
+                axis=1,
+                result_type="expand",
+            )
+            for col in [
+                "Entry_Price",
+                "Target_Price",
+                "Stop_Loss",
+                "RewardRisk",
+                "RR_Ratio",
+                "RR",
+                "Target_Source",
+            ]:
+                if col in rr_updates.columns:
+                    df_scored[col] = rr_updates[col]
+        except Exception as e:
+            logger.warning("Dynamic RR computation failed at %s: %s", as_of, e)
+
+        # 4. Recompute FinalScore_20d with updated R:R and market regime
+        try:
+            from core.scoring_engine import compute_final_score_20d
+
+            df_scored["FinalScore_20d"] = df_scored.apply(
+                lambda row: compute_final_score_20d(pd.Series(row)), axis=1
+            )
+            if "Score" in df_scored.columns:
+                df_scored["Score"] = df_scored["FinalScore_20d"]
+        except Exception as e:
+            logger.warning("FinalScore recompute failed at %s: %s", as_of, e)
+
+        # 5. Post-RR safety re-check (matches runner.py:1447-1470)
+        try:
+            from core.scoring_config import HARD_FILTERS
+
+            min_rr = float(HARD_FILTERS.get("min_rr", 0.0))
+            if min_rr > 0 and not df_scored.empty:
+                for idx in df_scored.index:
+                    rr_val = None
+                    for rr_col in ("RR", "RR_Ratio", "RewardRisk"):
+                        if rr_col in df_scored.columns:
+                            v = df_scored.at[idx, rr_col]
+                            if (
+                                v is not None
+                                and isinstance(v, (int, float))
+                                and np.isfinite(v)
+                            ):
+                                rr_val = float(v)
+                                break
+                    if rr_val is not None and rr_val < min_rr:
+                        if "SafetyBlocked" in df_scored.columns:
+                            df_scored.at[idx, "SafetyBlocked"] = True
+                        if "RiskClass" in df_scored.columns:
+                            df_scored.at[idx, "RiskClass"] = "REJECT"
+                # Remove newly blocked stocks
+                blocked = df_scored.get(
+                    "SafetyBlocked", pd.Series(False, index=df_scored.index)
+                ) == True  # noqa: E712
+                rr_rejected = (
+                    df_scored.get(
+                        "RiskClass", pd.Series("CORE", index=df_scored.index)
+                    )
+                    == "REJECT"
+                )
+                df_scored = df_scored[~(blocked | rr_rejected)]
+        except Exception as e:
+            logger.debug("Post-RR safety re-check skipped: %s", e)
+
+        # 6. Dynamic holding days per stock (matches runner.py:1478-1498)
+        try:
+            if "ATR_Pct" in df_scored.columns and not df_scored.empty:
+                atr_vals = df_scored["ATR_Pct"].dropna()
+                median_atr = (
+                    float(atr_vals.median()) if len(atr_vals) > 0 else 0.025
+                )
+
+                def _dynamic_holding(row):
+                    atr = row.get("ATR_Pct", median_atr)
+                    if (
+                        not isinstance(atr, (int, float))
+                        or pd.isna(atr)
+                        or atr <= 0
+                    ):
+                        atr = median_atr
+                    if atr < 0.015:
+                        return 28
+                    if atr < 0.025:
+                        return 22
+                    if atr < 0.04:
+                        return 18
+                    return 12
+
+                df_scored["Holding_Days"] = df_scored.apply(
+                    _dynamic_holding, axis=1
+                )
+            elif "Holding_Days" not in df_scored.columns:
+                df_scored["Holding_Days"] = self.holding_days
+        except Exception:
+            if "Holding_Days" not in df_scored.columns:
+                df_scored["Holding_Days"] = self.holding_days
+
+        # --- End: Sync with live pipeline ---
+
+        if df_scored.empty:
+            return None
 
         # Ensure we have the FinalScore column
         score_col = None
@@ -347,6 +532,38 @@ class FullPipelineBacktest:
         mask = df.index.date <= as_of
         subset = df[mask].tail(self.lookback_days)
         return subset if len(subset) >= 50 else None
+
+    def _detect_regime_for_date(self, as_of: date) -> str:
+        """Detect market regime using backtest-cached SPY data (no look-ahead).
+
+        Returns a simple regime string: 'bullish', 'neutral', or 'bearish'.
+        """
+        from core.market_regime import detect_market_regime
+
+        spy_df = self._get_historical_df("SPY", as_of)
+        if spy_df is None or len(spy_df) < 50:
+            return "neutral"
+
+        try:
+            regime_info = detect_market_regime(spy_data=spy_df)
+            return regime_info.get("regime", "neutral")
+        except Exception as e:
+            logger.debug("Regime detection failed for %s: %s", as_of, e)
+            return "neutral"
+
+    def _build_data_map_for_date(
+        self, tickers: List[str], as_of: date,
+    ) -> Dict[str, pd.DataFrame]:
+        """Build ticker → historical DataFrame map for dynamic R:R computation.
+
+        All DataFrames are filtered to <= as_of to prevent look-ahead bias.
+        """
+        data_map: Dict[str, pd.DataFrame] = {}
+        for ticker in tickers:
+            hist = self._get_historical_df(ticker, as_of)
+            if hist is not None and len(hist) >= 5:
+                data_map[ticker] = hist
+        return data_map
 
     def _get_prices_on_date(self, dt: date) -> Dict[str, float]:
         """Get close prices for all cached symbols on a date."""

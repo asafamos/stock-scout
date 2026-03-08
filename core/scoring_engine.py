@@ -41,8 +41,13 @@ logger = logging.getLogger(__name__)
 # A duplicate local definition was removed (2026-02-27) to avoid shadowing.
 
 
-def compute_final_score_20d(row: pd.Series) -> float:
+def compute_final_score_20d(row: pd.Series, *, return_breakdown: bool = False):
     """Compute the 20d final score from canonical components (0-100 scale).
+
+    When *return_breakdown* is True returns ``(score, breakdown_dict)``
+    instead of just the float score.  The breakdown dict includes every
+    component contribution, adjustment and the regime multiplier so that
+    callers can persist it for observability.
 
     Expects canonical fields when available (neutrals used otherwise):
     - FundamentalScore or Fundamental_S (0-100)
@@ -60,15 +65,18 @@ def compute_final_score_20d(row: pd.Series) -> float:
     Post-adjustments: RSI timing (+2 sweet spot / -3/-5 overbought),
     entry timing, RR hard caps, market regime multiplier.
     """
+    _bd: Dict[str, object] = {}  # breakdown accumulator
     try:
         # Use _safe_score with canonical column name fallback chains
         fund = _safe_score(row, "Fundamental_S", "FundamentalScore", "Fundamental_Score", "fund_score")
-        mom = _safe_score(row, "TechScore_20d_raw", "MomentumScore", "TechScore_20d", "tech_score")
+        mom_raw = _safe_score(row, "TechScore_20d_raw", "MomentumScore", "TechScore_20d", "tech_score")
+        mom = mom_raw
         # Hunter amplification: if Coil_Bonus is active, amplify technical/momentum
         # Reduced to 1.05x (2026-03-07 v2): VCP already gets 25% of tech weight +
         # up to +3 additive bonus.  A large multiplier here triple-counts the pattern.
         # 1.05x is a mild nudge that rewards coiled setups without overwhelming
         # the fundamental quality signal (which is now 25% of the score).
+        coil_bonus_active = False
         try:
             coil_bonus_active = bool(row.get("Coil_Bonus", 0)) or str(row.get("Coil_Bonus", "0")) in ("1", "True")
             if coil_bonus_active:
@@ -90,6 +98,18 @@ def compute_final_score_20d(row: pd.Series) -> float:
             w["risk_reward"] * rr_score +
             w["reliability"] * rel
         )
+        _bd["fund_raw"] = round(fund, 1)
+        _bd["mom_raw"] = round(mom_raw, 1)
+        _bd["mom_adj"] = round(mom, 1)
+        _bd["rr_ratio"] = round(float(rr_ratio), 2) if rr_ratio is not None and np.isfinite(rr_ratio) else None
+        _bd["rr_score"] = round(rr_score, 1)
+        _bd["rel"] = round(rel, 1)
+        _bd["coil"] = coil_bonus_active
+        _bd["w_fund"] = round(w["fundamental"] * fund, 1)
+        _bd["w_mom"] = round(w["momentum"] * mom, 1)
+        _bd["w_rr"] = round(w["risk_reward"] * rr_score, 1)
+        _bd["w_rel"] = round(w["reliability"] * rel, 1)
+        _bd["base"] = round(base, 1)
         
         # Optional ML adjustment with AUC gate + reliability gating
         ml_prob = row.get("ML_20d_Prob", None)
@@ -151,8 +171,11 @@ def compute_final_score_20d(row: pd.Series) -> float:
         # Total bonus cap (VCP/tightness + pattern + BW) — reduced from 15 to
         # prevent triple-counting inflation when VCP feeds through tech score too
         bonus = float(np.clip(bonus, 0.0, BONUS_CONFIG["total_bonus_cap"]))
+        _bd["ml_delta"] = round(delta, 2)
+        _bd["bonus"] = round(bonus, 1)
 
         final_score = float(np.clip(base + delta + bonus, 0.0, 100.0))
+        _bd["pre_adj"] = round(final_score, 1)
 
         # Hunter floor: coil/VCP setups get a minimum score, but ONLY if RR is acceptable.
         # This prevents the floor from overriding genuinely bad risk/reward trades.
@@ -191,6 +214,7 @@ def compute_final_score_20d(row: pd.Series) -> float:
             if _ret_val > ENTRY_TIMING["runup_threshold"]:
                 entry_adj -= ENTRY_TIMING["runup_penalty"]
             final_score += entry_adj
+            _bd["entry_adj"] = round(entry_adj, 1)
         except Exception as e:
             logger.debug("Entry timing adjustment failed: %s", e)
 
@@ -217,6 +241,9 @@ def compute_final_score_20d(row: pd.Series) -> float:
                     final_score += _rsi_adj["overbought_70"]  # negative value
                 elif RSI_ADJUSTMENTS["sweet_spot_min"] <= _rsi <= RSI_ADJUSTMENTS["sweet_spot_max"]:
                     final_score += _rsi_adj["sweet_spot"]     # positive value
+                _bd["rsi_val"] = round(_rsi, 1)
+                _bd["rsi_regime"] = _regime_str
+                _bd["rsi_adj"] = round(final_score - _bd.get("pre_adj", final_score) - _bd.get("entry_adj", 0), 1)
         except Exception as e:
             logger.debug("RSI timing adjustment failed: %s", e)
 
@@ -236,26 +263,39 @@ def compute_final_score_20d(row: pd.Series) -> float:
         # ── R:R Score floor ────────────────────────────────────
         # Weak R:R stocks cannot be top-ranked regardless of momentum.
         # Uses the 0-100 normalized rr_score (not the raw ratio).
+        _pre_regime = final_score
         try:
             _rr_floor = RR_SCORE_FLOOR.get("min_rr_score", 50.0)
             _rr_floor_cap = RR_SCORE_FLOOR.get("floor_cap", 75.0)
             if rr_score < _rr_floor:
                 final_score = min(final_score, _rr_floor_cap)
+                _bd["rr_floor_capped"] = True
         except Exception as e:
             logger.debug("RR score floor failed: %s", e)
 
+        _bd["pre_regime"] = round(final_score, 1)
+
         # Market regime adjustment (multiplicative)
+        regime_mult = 1.0
         try:
             regime = row.get("Market_Regime")
             if isinstance(regime, str) and regime:
                 regime_mult = float(REGIME_MULTIPLIERS.get(regime.upper(), 1.0))
                 final_score *= regime_mult
+            _bd["regime"] = str(regime) if regime else "N/A"
+            _bd["regime_mult"] = regime_mult
         except Exception as e:
             logger.debug("Market regime adjustment failed: %s", e)
 
-        return float(np.clip(final_score, 0.0, 100.0))
+        _bd["final"] = round(float(np.clip(final_score, 0.0, 100.0)), 1)
+        result = float(np.clip(final_score, 0.0, 100.0))
+        if return_breakdown:
+            return result, _bd
+        return result
     except Exception as e:
         logger.warning("compute_final_score_20d failed entirely, returning 50.0: %s", e)
+        if return_breakdown:
+            return 50.0, {"error": str(e)}
         return 50.0
 
 def normalize_score(value: float, min_val: float = 0.0, max_val: float = 100.0, 

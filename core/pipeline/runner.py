@@ -1304,15 +1304,26 @@ def _phase_enrich_fundamentals(ctx: _PipelineContext) -> None:
     # All enrichment is complete: fundamentals, reliability, ML inference.
     # This is the ONE AND ONLY place FinalScore_20d is set from components.
     try:
+        import json as _bd_json
         for idx, row in ctx.results.iterrows():
             try:
-                new_score = compute_final_score_20d(row)
+                new_score, breakdown = compute_final_score_20d(row, return_breakdown=True)
                 ctx.results.at[idx, "FinalScore_20d"] = float(new_score)
                 ctx.results.at[idx, "Score"] = float(new_score)
+                ctx.results.at[idx, "ScoreBreakdown"] = _bd_json.dumps(breakdown, default=str)
             except Exception as e:
                 logger.debug(
                     "FinalScore_20d computation failed for %s: %s",
                     row.get("Ticker"), e,
+                )
+        # Log breakdown for top 5 stocks for observability
+        if not ctx.results.empty:
+            _top5 = ctx.results.nlargest(5, "FinalScore_20d")
+            for _, _r in _top5.iterrows():
+                logger.info(
+                    "[SCORE] %s = %.1f | %s",
+                    _r.get("Ticker"), _r.get("FinalScore_20d", 0),
+                    _r.get("ScoreBreakdown", "{}"),
                 )
         logger.info(
             "[PIPELINE] FinalScore_20d computed (single pass) for %d stocks",
@@ -1516,6 +1527,28 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
             ctx.results["Target_Date"] = ctx.results.apply(_target_dt, axis=1)
     except Exception as e:
         logger.debug("Holding_Days/Target_Date computation: %s", e)
+
+    # No-Trade Signal: warn when market regime is unfavorable
+    try:
+        if "Market_Regime" in ctx.results.columns and not ctx.results.empty:
+            _regime_val = str(ctx.results["Market_Regime"].mode().iloc[0]).upper()
+            _caution_regimes = {"DISTRIBUTION", "CORRECTION", "PANIC", "BEARISH"}
+            if _regime_val in _caution_regimes:
+                ctx.results["No_Trade_Signal"] = True
+                ctx.results["Market_Caution"] = (
+                    f"CAUTION: Market regime is {_regime_val}. "
+                    "Historically unfavorable for new positions. "
+                    "Consider reduced position sizes or waiting for regime change."
+                )
+                logger.warning(
+                    "[NO-TRADE SIGNAL] Market regime %s — flagging all %d recommendations with caution",
+                    _regime_val, len(ctx.results),
+                )
+            else:
+                ctx.results["No_Trade_Signal"] = False
+                ctx.results["Market_Caution"] = ""
+    except Exception as e:
+        logger.debug("No-trade signal computation: %s", e)
 
     # Signal-first filtering & ranking
     try:
