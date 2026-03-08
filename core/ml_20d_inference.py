@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 import warnings
 from functools import lru_cache
 from pathlib import Path
@@ -39,6 +40,9 @@ ML_VERSION_WARNING_REASON: Optional[str] = None
 ML_MISSING_FEATURES: List[str] = []
 BUNDLE_HAS_MISSING_METEOR_FEATURES: bool = False
 BUNDLE_AUC: Optional[float] = None  # OOS AUC from metadata (for circuit breaker)
+
+# Thread safety lock for mutable global state
+_ML_STATE_LOCK = threading.Lock()
 
 # Feature aliases: maps expected_name → fallback_name(s) in row data
 _FEATURE_ALIASES: Dict[str, List[str]] = {
@@ -357,13 +361,14 @@ def compute_ml_20d_probabilities_raw(row: pd.Series) -> float:
         # features) instead of muting harmful features at inference time.
         # The model itself only expects the 16 features that actually help.
 
-        # Track missing features for health reporting
+        # Track missing features for health reporting (thread-safe)
+        global ML_MISSING_FEATURES, BUNDLE_HAS_MISSING_METEOR_FEATURES
         if missing:
-            global ML_MISSING_FEATURES, BUNDLE_HAS_MISSING_METEOR_FEATURES
-            current = set(ML_MISSING_FEATURES or [])
-            current.update(missing)
-            ML_MISSING_FEATURES = sorted(current)
-            BUNDLE_HAS_MISSING_METEOR_FEATURES = True
+            with _ML_STATE_LOCK:
+                current = set(ML_MISSING_FEATURES or [])
+                current.update(missing)
+                ML_MISSING_FEATURES = sorted(current)
+                BUNDLE_HAS_MISSING_METEOR_FEATURES = True
             if len(missing) > 10:
                 logger.debug("ML 20d: filled %d missing features with defaults", len(missing))
 

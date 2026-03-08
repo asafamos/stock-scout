@@ -154,14 +154,35 @@ def _compute_rr_for_row(
         )
         atr14 = max(atr14, 1e-6)
 
-        # Stop loss: wider of recent 5-day low and configurable ATR drop
+        # Stop loss: combines ATR-based and support-based levels.
+        # VCP setups get tighter stops (defined risk from consolidation).
         try:
-            from core.scoring_config import ATR_STOP_MULTIPLIER
+            from core.scoring_config import ATR_STOP_MULTIPLIER, DYNAMIC_RR_CONFIG
             _stop_mult = float(ATR_STOP_MULTIPLIER)
         except Exception:
             _stop_mult = 1.5
+            DYNAMIC_RR_CONFIG = {}
         low_5 = float(hdf["Low"].tail(5).min())
-        stop_price = float(min(low_5, entry - _stop_mult * atr14))
+        low_20 = float(hdf["Low"].tail(20).min()) if len(hdf) >= 20 else low_5
+        atr_stop = entry - _stop_mult * atr14
+        # VCP setups → tighter stop using support levels
+        _vcp_val = row.get("Volatility_Contraction_Score", 0.0) if row is not None else 0.0
+        _vcp_val = float(_vcp_val) if isinstance(_vcp_val, (int, float)) and np.isfinite(float(_vcp_val)) else 0.0
+        _vcp_stop_thresh = DYNAMIC_RR_CONFIG.get("vcp_stop_threshold", 0.5)
+        _vcp_max_stop = DYNAMIC_RR_CONFIG.get("vcp_max_stop_pct", 0.08)
+        if _vcp_val > _vcp_stop_thresh:
+            # Support-based stop: tighter (higher price), capped at max %
+            support_stop = max(low_20, atr_stop)
+            stop_price = float(max(support_stop, entry * (1.0 - _vcp_max_stop)))
+        else:
+            # Original: wider of 5-day low and ATR stop
+            stop_price = float(min(low_5, atr_stop))
+        # Ensure stop is below entry
+        stop_price = min(stop_price, entry * 0.99)
+
+        # Compute distance from 52w high early (used by both resistance and ATR sections)
+        high_52w = float(hdf["High"].max()) if len(hdf) >= 20 else float(hdf["High"].tail(60).max())
+        dist_from_high = (high_52w - entry) / high_52w if high_52w > 0 else 1.0
 
         # Resistance-based target (backward-looking)
         ma20 = float(hdf["Close"].rolling(20, min_periods=5).mean().iloc[-1])
@@ -172,12 +193,15 @@ def _compute_rr_for_row(
             else float(hdf["High"].tail(20).max())
         )
         res_60 = float(hdf["High"].tail(60).max())
-        resistance_target = float(max(res_60, bb_upper))
+        # 52w high is a strong resistance/target for stocks far below it
+        res_52w = high_52w
+        if dist_from_high > 0.10:  # >10% below 52w high → use it as target
+            resistance_target = float(max(res_60, bb_upper, res_52w * 0.98))
+        else:
+            resistance_target = float(max(res_60, bb_upper))
 
         # ATR-projected target (forward-looking, regime-aware)
         # Stocks near 52w high get higher multiplier (breakout potential)
-        high_52w = float(hdf["High"].max()) if len(hdf) >= 20 else res_60
-        dist_from_high = (high_52w - entry) / high_52w if high_52w > 0 else 1.0
         # Regime-aware multipliers: conservative in neutral/bearish, full in bullish
         try:
             from core.scoring_config import ATR_TARGET_MULTIPLIERS
@@ -196,9 +220,45 @@ def _compute_rr_for_row(
             else:
                 _regime_key = "neutral"
             _mults = ATR_TARGET_MULTIPLIERS.get(_regime_key, ATR_TARGET_MULTIPLIERS.get("neutral", {"base": 2.0, "breakout": 2.5}))
-            atr_mult = _mults["breakout"] if dist_from_high < 0.05 else _mults["base"]
+            base_mult = _mults["breakout"] if dist_from_high < 0.05 else _mults["base"]
         except Exception:
-            atr_mult = 3.0 if dist_from_high < 0.05 else 2.5  # fallback to original
+            base_mult = 3.0 if dist_from_high < 0.05 else 2.5  # fallback to original
+
+        # ── Dynamic per-stock adjustments ──────────────────────
+        # Make R:R vary between stocks by adjusting ATR multiplier
+        # based on relative strength, VCP, and momentum consistency.
+        _dyn = DYNAMIC_RR_CONFIG if DYNAMIC_RR_CONFIG else {}
+        momentum_adj = 0.0
+        vcp_adj = 0.0
+
+        # Relative strength adjustment
+        _rs63 = row.get("RS_63d", np.nan) if row is not None else np.nan
+        if isinstance(_rs63, (int, float)) and np.isfinite(float(_rs63)):
+            _rs63 = float(_rs63)
+            if _rs63 > _dyn.get("rs_strong_threshold", 1.2):
+                momentum_adj = _dyn.get("rs_strong_adj", 0.3)
+            elif _rs63 > _dyn.get("rs_above_avg_threshold", 1.0):
+                momentum_adj = _dyn.get("rs_above_avg_adj", 0.15)
+            elif _rs63 < _dyn.get("rs_weak_threshold", 0.8):
+                momentum_adj = _dyn.get("rs_weak_adj", -0.2)
+
+        # VCP adjustment: tight patterns → higher breakout potential
+        if _vcp_val > _dyn.get("vcp_strong_threshold", 0.7):
+            vcp_adj = _dyn.get("vcp_strong_adj", 0.2)
+        elif _vcp_val > _dyn.get("vcp_moderate_threshold", 0.4):
+            vcp_adj = _dyn.get("vcp_moderate_adj", 0.1)
+
+        # Momentum consistency bonus
+        _mom_cons = row.get("Momentum_Consistency", np.nan) if row is not None else np.nan
+        if isinstance(_mom_cons, (int, float)) and np.isfinite(float(_mom_cons)):
+            if float(_mom_cons) > _dyn.get("momentum_cons_threshold", 0.65):
+                momentum_adj += _dyn.get("momentum_cons_adj", 0.1)
+
+        atr_mult = float(np.clip(
+            base_mult + momentum_adj + vcp_adj,
+            _dyn.get("atr_mult_min", 1.5),
+            _dyn.get("atr_mult_max", 5.0),
+        ))
         atr_target = entry + atr_mult * atr14
 
         # Final target: higher of ATR projection and resistance

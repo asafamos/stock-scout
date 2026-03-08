@@ -17,7 +17,12 @@ import pandas as pd
 from typing import Dict, Tuple, Optional
 import logging
 
-from core.scoring_config import CONVICTION_WEIGHTS, ENTRY_TIMING, FINAL_SCORE_WEIGHTS, PATTERN_SCORE_WEIGHTS, REGIME_MULTIPLIERS
+from core.scoring_config import (
+    CONVICTION_WEIGHTS, ENTRY_TIMING, FINAL_SCORE_WEIGHTS,
+    PATTERN_SCORE_WEIGHTS, REGIME_MULTIPLIERS,
+    BONUS_CONFIG, RSI_ADJUSTMENTS, RSI_REGIME_ADJUSTMENTS,
+    RR_SCORE_FLOOR,
+)
 
 # Re-export from new canonical locations
 from core.scoring.utils import (       # noqa: F401
@@ -67,9 +72,9 @@ def compute_final_score_20d(row: pd.Series) -> float:
         try:
             coil_bonus_active = bool(row.get("Coil_Bonus", 0)) or str(row.get("Coil_Bonus", "0")) in ("1", "True")
             if coil_bonus_active:
-                mom = float(mom) * 1.05
-        except Exception:
-            pass
+                mom = float(mom) * BONUS_CONFIG["coil_amplifier"]
+        except Exception as e:
+            logger.debug("Coil_Bonus amplification failed: %s", e)
         # Try multiple field names for reliability
         rel = _safe_score(row, "Reliability_Score", "ReliabilityScore", "Reliability_v2", "reliability_pct")
 
@@ -97,14 +102,14 @@ def compute_final_score_20d(row: pd.Series) -> float:
                 delta = 0.0  # AUC too low — don't add noise
             else:
                 delta *= ml_mult
-        except Exception:
-            pass  # if import fails, keep raw delta
+        except Exception as e:
+            logger.debug("ML AUC gate failed: %s", e)
         # Reliability gating on top of AUC gate
         reliability = float(row.get("ReliabilityScore", row.get("Reliability_Score", 50.0)))
-        if reliability < 40:
-            delta *= 0.25  # very low reliability → heavily clamp ML boost
-        elif reliability < 60:
-            delta *= 0.50  # medium-low reliability → half boost
+        if reliability < BONUS_CONFIG["reliability_low_threshold"]:
+            delta *= BONUS_CONFIG["reliability_low_ml_mult"]
+        elif reliability < BONUS_CONFIG["reliability_med_threshold"]:
+            delta *= BONUS_CONFIG["reliability_med_ml_mult"]
 
         # Pattern bonus: additive VCP/coil bonus (reduced — VCP already contributes
         # ~11 pts via TechScore_20d (TECH_WEIGHTS["vcp"]=0.25) + Coil_Bonus 1.25x amplifier)
@@ -114,12 +119,13 @@ def compute_final_score_20d(row: pd.Series) -> float:
             tight_ratio = row.get("Tightness_Ratio", np.nan)
             bonus = 0.0
             if vcp > 0:
-                bonus += min(3.0, 3.0 * vcp)  # reduced from +8 — avoids triple-counting
-            if np.isfinite(tight_ratio) and tight_ratio < 0.6:
-                bonus += 2.0  # reduced from +3 — tightness partly captured by VCP
+                bonus += min(BONUS_CONFIG["vcp_bonus_max"], BONUS_CONFIG["vcp_multiplier"] * vcp)
+            if np.isfinite(tight_ratio) and tight_ratio < BONUS_CONFIG["tightness_ratio_threshold"]:
+                bonus += BONUS_CONFIG["tightness_bonus"]
             # Local VCP/tightness cap
-            bonus = float(np.clip(bonus, 0.0, 5.0))
-        except Exception:
+            bonus = float(np.clip(bonus, 0.0, BONUS_CONFIG["vcp_tightness_cap"]))
+        except Exception as e:
+            logger.debug("VCP/tightness bonus failed: %s", e)
             bonus = 0.0
 
         # Pattern score contribution (computed by ticker_scoring.py, available in row)
@@ -127,22 +133,24 @@ def compute_final_score_20d(row: pd.Series) -> float:
             patt_score = row.get("Pattern_Score", 0.0)
             patt_score = float(patt_score) if pd.notna(patt_score) else 0.0
             if patt_score > 0:
-                bonus += min(5.0, patt_score * 5.0)  # up to +5 from pattern matching
-        except Exception:
-            pass
+                bonus += min(BONUS_CONFIG["pattern_bonus_max"], patt_score * BONUS_CONFIG["pattern_multiplier"])
+        except Exception as e:
+            logger.debug("Pattern_Score contribution failed: %s", e)
 
         # Big winner signal contribution
         try:
             bw_signal = row.get("Big_Winner_Signal", 0.0)
             bw_signal = float(bw_signal) if pd.notna(bw_signal) else 0.0
-            if bw_signal > 50:
-                bonus += min(4.0, (bw_signal - 50) / 50.0 * 4.0)  # up to +4 for strong BW signals
-        except Exception:
-            pass
+            if bw_signal > BONUS_CONFIG["big_winner_threshold"]:
+                _bw_thresh = BONUS_CONFIG["big_winner_threshold"]
+                bonus += min(BONUS_CONFIG["big_winner_multiplier"],
+                             (bw_signal - _bw_thresh) / _bw_thresh * BONUS_CONFIG["big_winner_multiplier"])
+        except Exception as e:
+            logger.debug("Big_Winner_Signal contribution failed: %s", e)
 
         # Total bonus cap (VCP/tightness + pattern + BW) — reduced from 15 to
         # prevent triple-counting inflation when VCP feeds through tech score too
-        bonus = float(np.clip(bonus, 0.0, 10.0))
+        bonus = float(np.clip(bonus, 0.0, BONUS_CONFIG["total_bonus_cap"]))
 
         final_score = float(np.clip(base + delta + bonus, 0.0, 100.0))
 
@@ -154,9 +162,9 @@ def compute_final_score_20d(row: pd.Series) -> float:
             vcp_good = isinstance(vcp_score, (int, float)) and np.isfinite(vcp_score) and float(vcp_score) > 0.6
             rr_ok = isinstance(rr_ratio, (int, float)) and np.isfinite(rr_ratio) and float(rr_ratio) >= 1.0
             if (coil_bonus_active or vcp_good) and rr_ok:
-                final_score = max(final_score, 45.0)  # was 55 — reduced to avoid score inflation
-        except Exception:
-            pass
+                final_score = max(final_score, BONUS_CONFIG["hunter_floor"])
+        except Exception as e:
+            logger.debug("Hunter floor failed: %s", e)
 
         # ── Entry timing adjustment ─────────────────────────────
         # Penalize overextended entries (near ATH without setup),
@@ -183,24 +191,34 @@ def compute_final_score_20d(row: pd.Series) -> float:
             if _ret_val > ENTRY_TIMING["runup_threshold"]:
                 entry_adj -= ENTRY_TIMING["runup_penalty"]
             final_score += entry_adj
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Entry timing adjustment failed: %s", e)
 
-        # ── RSI timing adjustment ──────────────────────────────
-        # Pre-rise picks should NOT be overbought.  Penalize RSI > 70
-        # (already extended) and reward the 45-60 sweet-spot (building
-        # momentum but still room to run).
+        # ── RSI timing adjustment (regime-aware) ──────────────────
+        # Pre-rise picks should NOT be overbought.  Penalties scale with
+        # market regime: overbought in distribution/bearish is far more
+        # dangerous than in a bullish trend.
         try:
             _rsi = float(row.get("RSI", row.get("RSI_14", np.nan)))
             if np.isfinite(_rsi):
-                if _rsi > 75:
-                    final_score -= 5.0   # strongly overbought
-                elif _rsi > 70:
-                    final_score -= 3.0   # overbought
-                elif 45 <= _rsi <= 60:
-                    final_score += 2.0   # sweet spot: building, room to run
-        except Exception:
-            pass
+                # Look up regime-specific RSI adjustments
+                _regime_str = str(row.get("Market_Regime", "NEUTRAL")).upper()
+                _rsi_adj = RSI_REGIME_ADJUSTMENTS.get(
+                    _regime_str,
+                    RSI_REGIME_ADJUSTMENTS.get("NEUTRAL", {
+                        "overbought_75": -RSI_ADJUSTMENTS["overbought_hard_penalty"],
+                        "overbought_70": -RSI_ADJUSTMENTS["overbought_penalty"],
+                        "sweet_spot": RSI_ADJUSTMENTS["sweet_spot_bonus"],
+                    }),
+                )
+                if _rsi > RSI_ADJUSTMENTS["overbought_hard_threshold"]:
+                    final_score += _rsi_adj["overbought_75"]  # negative value
+                elif _rsi > RSI_ADJUSTMENTS["overbought_threshold"]:
+                    final_score += _rsi_adj["overbought_70"]  # negative value
+                elif RSI_ADJUSTMENTS["sweet_spot_min"] <= _rsi <= RSI_ADJUSTMENTS["sweet_spot_max"]:
+                    final_score += _rsi_adj["sweet_spot"]     # positive value
+        except Exception as e:
+            logger.debug("RSI timing adjustment failed: %s", e)
 
         # ── RR hard cap ─────────────────────────────────────────
         # Stocks with poor R/R cannot be top-scoring recommendations
@@ -212,8 +230,19 @@ def compute_final_score_20d(row: pd.Series) -> float:
                     final_score = min(final_score, ENTRY_TIMING.get("rr_cap_harsh_max", 90.0))
                 elif _rr < ENTRY_TIMING.get("rr_cap_mild_lt", 2.0):
                     final_score = min(final_score, ENTRY_TIMING.get("rr_cap_mild_max", 95.0))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("RR hard cap failed: %s", e)
+
+        # ── R:R Score floor ────────────────────────────────────
+        # Weak R:R stocks cannot be top-ranked regardless of momentum.
+        # Uses the 0-100 normalized rr_score (not the raw ratio).
+        try:
+            _rr_floor = RR_SCORE_FLOOR.get("min_rr_score", 50.0)
+            _rr_floor_cap = RR_SCORE_FLOOR.get("floor_cap", 75.0)
+            if rr_score < _rr_floor:
+                final_score = min(final_score, _rr_floor_cap)
+        except Exception as e:
+            logger.debug("RR score floor failed: %s", e)
 
         # Market regime adjustment (multiplicative)
         try:
@@ -221,12 +250,12 @@ def compute_final_score_20d(row: pd.Series) -> float:
             if isinstance(regime, str) and regime:
                 regime_mult = float(REGIME_MULTIPLIERS.get(regime.upper(), 1.0))
                 final_score *= regime_mult
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Market regime adjustment failed: %s", e)
 
         return float(np.clip(final_score, 0.0, 100.0))
-    except Exception:
-        # Safe fallback to a neutral score
+    except Exception as e:
+        logger.warning("compute_final_score_20d failed entirely, returning 50.0: %s", e)
         return 50.0
 
 def normalize_score(value: float, min_val: float = 0.0, max_val: float = 100.0, 

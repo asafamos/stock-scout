@@ -149,6 +149,60 @@ ENTRY_TIMING: Dict[str, float] = {
     "rr_cap_mild_max": 95.0,
 }
 
+# Bonus configuration for compute_final_score_20d pattern/VCP/BW bonuses
+# Centralizes magic numbers from scoring_engine.py into a single source of truth.
+BONUS_CONFIG: Dict[str, float] = {
+    "coil_amplifier": 1.05,              # Multiplier for momentum when Coil_Bonus active
+    "reliability_low_threshold": 40.0,   # Below this → heavily clamp ML boost
+    "reliability_low_ml_mult": 0.25,     # ML boost multiplier for low reliability
+    "reliability_med_threshold": 60.0,   # Below this → half ML boost
+    "reliability_med_ml_mult": 0.50,     # ML boost multiplier for medium-low reliability
+    "vcp_multiplier": 3.0,              # VCP score → bonus multiplier
+    "vcp_bonus_max": 3.0,               # Max VCP-only bonus points
+    "tightness_ratio_threshold": 0.6,   # Tightness_Ratio below this → extra bonus
+    "tightness_bonus": 2.0,             # Bonus for tight consolidation
+    "vcp_tightness_cap": 5.0,           # Local cap for VCP + tightness bonus
+    "pattern_multiplier": 5.0,          # Pattern_Score → bonus multiplier
+    "pattern_bonus_max": 5.0,           # Max pattern bonus points
+    "big_winner_threshold": 50.0,       # BW signal above this → bonus
+    "big_winner_multiplier": 4.0,       # Max BW bonus points
+    "total_bonus_cap": 10.0,            # Total cap for VCP+pattern+BW bonuses
+    "hunter_floor": 45.0,               # Min score for VCP/coil setups with good RR
+}
+
+# RSI timing adjustment thresholds for compute_final_score_20d
+RSI_ADJUSTMENTS: Dict[str, float] = {
+    "overbought_hard_threshold": 75.0,  # Above this → strong penalty
+    "overbought_hard_penalty": 5.0,     # Points deducted for strongly overbought
+    "overbought_threshold": 70.0,       # Above this → mild penalty
+    "overbought_penalty": 3.0,          # Points deducted for overbought
+    "sweet_spot_min": 45.0,             # Sweet spot lower bound
+    "sweet_spot_max": 60.0,             # Sweet spot upper bound
+    "sweet_spot_bonus": 2.0,            # Points added for sweet spot RSI
+}
+
+# Regime-aware RSI adjustments: overbought is more dangerous in distribution/bearish.
+# Values are additive adjustments (negative = penalty, positive = bonus).
+# Fallback to NEUTRAL when regime is missing or unknown.
+RSI_REGIME_ADJUSTMENTS: Dict[str, Dict[str, float]] = {
+    "BULLISH":      {"overbought_75": -3.0, "overbought_70": -2.0, "sweet_spot": 2.0},
+    "TREND_UP":     {"overbought_75": -3.0, "overbought_70": -2.0, "sweet_spot": 2.0},
+    "MODERATE_UP":  {"overbought_75": -4.0, "overbought_70": -2.5, "sweet_spot": 2.0},
+    "NEUTRAL":      {"overbought_75": -5.0, "overbought_70": -3.0, "sweet_spot": 2.0},
+    "SIDEWAYS":     {"overbought_75": -5.0, "overbought_70": -3.0, "sweet_spot": 2.0},
+    "DISTRIBUTION": {"overbought_75": -7.0, "overbought_70": -5.0, "sweet_spot": 1.0},
+    "BEARISH":      {"overbought_75": -8.0, "overbought_70": -6.0, "sweet_spot": 0.0},
+    "CORRECTION":   {"overbought_75": -8.0, "overbought_70": -6.0, "sweet_spot": 0.0},
+    "PANIC":        {"overbought_75": -8.0, "overbought_70": -6.0, "sweet_spot": 0.0},
+}
+
+# R:R Score floor: prevent weak R:R stocks from being top-ranked.
+# Works alongside ENTRY_TIMING rr_cap_* (which use raw ratio, not score).
+RR_SCORE_FLOOR: Dict[str, float] = {
+    "min_rr_score": 50.0,       # Minimum R:R Score (0-100 from evaluate_rr_unified)
+    "floor_cap": 75.0,          # Max final score when R:R Score below floor
+}
+
 # Market regime multipliers
 REGIME_MULTIPLIERS: Dict[str, float] = {
     "TREND_UP": 1.10,
@@ -177,6 +231,33 @@ HARD_FILTERS: Dict[str, object] = {
     "min_rr": 1.5,                      # minimum Reward:Risk ratio
     "min_roe": 0.0,                     # block negative ROE (money-losing companies)
     "require_fundamental_data": True,   # block if BOTH ROE and MarketCap are missing
+}
+
+# Dynamic R:R adjustments — per-stock target/stop modifiers.
+# Used by _compute_rr_for_row() to make R:R vary between stocks instead of
+# being fixed at ATR_mult / stop_mult for all stocks in the same regime.
+DYNAMIC_RR_CONFIG: Dict[str, float] = {
+    # Relative strength adjustments to ATR target multiplier
+    "rs_strong_threshold": 1.2,     # RS_63d above this → strong adj
+    "rs_strong_adj": 0.3,
+    "rs_above_avg_threshold": 1.0,  # RS_63d above this → mild adj
+    "rs_above_avg_adj": 0.15,
+    "rs_weak_threshold": 0.8,       # RS_63d below this → negative adj
+    "rs_weak_adj": -0.2,
+    # VCP adjustments
+    "vcp_strong_threshold": 0.7,    # VCS above this → strong adj
+    "vcp_strong_adj": 0.2,
+    "vcp_moderate_threshold": 0.4,  # VCS above this → mild adj
+    "vcp_moderate_adj": 0.1,
+    # Momentum consistency
+    "momentum_cons_threshold": 0.65,
+    "momentum_cons_adj": 0.1,
+    # ATR multiplier clamp
+    "atr_mult_min": 1.5,
+    "atr_mult_max": 5.0,
+    # VCP stop tightening
+    "vcp_stop_threshold": 0.5,      # VCS above this → tighter stop
+    "vcp_max_stop_pct": 0.08,       # Max 8% stop loss for VCP setups
 }
 
 # Regime-aware ATR multipliers for target-price calculation
