@@ -368,6 +368,12 @@ REGIME_MIN_SCORE: Dict[str, float] = {
 PATTERN_MIN_SCORE: float = 35.0
 # ML probability threshold to qualify as a candidate even if final score is lower
 ML_PROB_THRESHOLD: float = 0.62
+
+# Regime-aware bypass policy: in strict regimes (effective_min_score >= this),
+# disable ML and pattern bypasses entirely — stocks MUST meet the regime score.
+# Without this, any stock with ML_prob >= 0.62 or Pattern_Score > 0 bypasses
+# the quality gate, making REGIME_MIN_SCORE ineffective.
+BYPASS_DISABLED_ABOVE_MIN_SCORE: float = 70.0
 # Default top-K limit for ranked signal output
 TOP_SIGNAL_K: int = 30
 # Technical score threshold indicating strong momentum

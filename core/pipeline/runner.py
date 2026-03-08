@@ -56,7 +56,7 @@ from core.market_context import initialize_market_context
 from core.ml_20d_inference import ML_20D_AVAILABLE, get_ml_health_meta
 from core.provider_guard import get_provider_guard
 from core.scoring import compute_fundamental_score_with_breakdown
-from core.scoring_config import ML_PROB_THRESHOLD, PATTERN_MIN_SCORE, REGIME_MIN_SCORE, SIGNAL_MIN_SCORE, TOP_SIGNAL_K
+from core.scoring_config import BYPASS_DISABLED_ABOVE_MIN_SCORE, ML_PROB_THRESHOLD, PATTERN_MIN_SCORE, REGIME_MIN_SCORE, SIGNAL_MIN_SCORE, TOP_SIGNAL_K
 from core.scoring_engine import compute_final_score_20d
 from core.sector_mapping import get_stock_sector
 from core.telemetry import Telemetry
@@ -1596,14 +1596,25 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
                 SIGNAL_MIN_SCORE,
             )
 
-            mask = (
-                safety_ok
-                & (
-                    (sc >= effective_min_score)
-                    | (mlp >= float(ML_PROB_THRESHOLD))
-                    | ((patt.fillna(0.0) > 0.0) & (sc >= float(PATTERN_MIN_SCORE)))
+            # In strict regimes (DISTRIBUTION+), disable ML/pattern bypasses —
+            # stocks MUST meet the regime score threshold.  Without this guard,
+            # ML_prob >= 0.62 or any Pattern_Score > 0 would let every stock
+            # through, making REGIME_MIN_SCORE ineffective.
+            if effective_min_score >= BYPASS_DISABLED_ABOVE_MIN_SCORE:
+                mask = safety_ok & (sc >= effective_min_score)
+                logger.info(
+                    "[PIPELINE] Strict regime (%.0f >= %.0f): ML/pattern bypasses DISABLED",
+                    effective_min_score, BYPASS_DISABLED_ABOVE_MIN_SCORE,
                 )
-            )
+            else:
+                mask = (
+                    safety_ok
+                    & (
+                        (sc >= effective_min_score)
+                        | (mlp >= float(ML_PROB_THRESHOLD))
+                        | ((patt.fillna(0.0) > 0.0) & (sc >= float(PATTERN_MIN_SCORE)))
+                    )
+                )
             filtered = (
                 ctx.results[mask].copy() if isinstance(mask, pd.Series) else ctx.results.copy()
             )
