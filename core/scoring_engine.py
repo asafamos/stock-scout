@@ -110,7 +110,23 @@ def compute_final_score_20d(row: pd.Series, *, return_breakdown: bool = False):
         _bd["w_rr"] = round(w["risk_reward"] * rr_score, 1)
         _bd["w_rel"] = round(w["reliability"] * rel, 1)
         _bd["base"] = round(base, 1)
-        
+
+        # ROE penalty zone: marginal profitability (min_roe to penalty_zone_max)
+        try:
+            from core.scoring_config import ROE_QUALITY_GATE
+            _roe_raw = row.get("roe", row.get("ROE", row.get("ROE_f", None)))
+            if _roe_raw is not None and isinstance(_roe_raw, (int, float)) and np.isfinite(float(_roe_raw)):
+                _roe_pct_v = float(_roe_raw) * 100.0 if abs(float(_roe_raw)) < 2 else float(_roe_raw)
+                _rqg_min = ROE_QUALITY_GATE.get("min_roe", 3.0)
+                _rqg_max = ROE_QUALITY_GATE.get("penalty_zone_max", 5.0)
+                _rqg_pts = ROE_QUALITY_GATE.get("penalty_points", 5.0)
+                if _rqg_min <= _roe_pct_v < _rqg_max and _rqg_max > _rqg_min:
+                    _roe_pen = _rqg_pts * (1.0 - (_roe_pct_v - _rqg_min) / (_rqg_max - _rqg_min))
+                    base -= _roe_pen
+                    _bd["roe_penalty"] = round(_roe_pen, 1)
+        except Exception:
+            pass
+
         # Optional ML adjustment with AUC gate + reliability gating
         ml_prob = row.get("ML_20d_Prob", None)
         delta = ml_boost_component(ml_prob)  # now ±6 range

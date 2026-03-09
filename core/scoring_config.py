@@ -239,7 +239,7 @@ ATR_RULES = {
 # Hard filters — stocks violating these are REJECTED (SafetyBlocked=True)
 HARD_FILTERS: Dict[str, object] = {
     "min_rr": 1.5,                      # minimum Reward:Risk ratio
-    "min_roe": 0.0,                     # block negative ROE (money-losing companies)
+    "min_roe": 3.0,                     # block ROE below 3% (weak profitability)
     "require_fundamental_data": True,   # block if BOTH ROE and MarketCap are missing
 }
 
@@ -284,6 +284,58 @@ ATR_TARGET_MULTIPLIERS: Dict[str, Dict[str, float]] = {
 }
 # Stop-loss ATR multiplier (used by _compute_rr_for_row in pipeline/helpers.py)
 ATR_STOP_MULTIPLIER: float = 1.5
+
+# Entry offset: simulate limit order below Close. Entry = Close - ENTRY_OFFSET * ATR14.
+# Set to 0.0 to revert to close-based entry (legacy behavior).
+ENTRY_OFFSET: float = 0.3
+
+# Support-based stop loss configuration for ALL stocks (not just VCP).
+# Extends the VCP support-stop concept: chooses the HIGHEST support level
+# that's at least min_risk_pct below entry, with ATR as the absolute floor.
+# Set "enabled" to False to revert to legacy min(low_5, atr_stop) behavior.
+SUPPORT_STOP_CONFIG: Dict[str, object] = {
+    "enabled": True,
+    "min_risk_pct": 0.02,             # Support must be >= 2% below entry to count
+    "max_risk_pct": 0.10,             # Maximum risk (ATR floor fallback)
+    "bollinger_periods": 20,
+    "bollinger_std": 2.0,
+    "low_10d_enabled": True,
+    "low_20d_enabled": True,
+    "bollinger_enabled": True,
+}
+
+# VIX-aware R:R minimum thresholds. Higher VIX → higher R:R required.
+# Falls back to HARD_FILTERS["min_rr"] when VIX is unavailable.
+VIX_RR_TIERS: list = [
+    {"vix_max": 20.0, "min_rr": 1.5},   # low VIX
+    {"vix_max": 25.0, "min_rr": 1.6},   # elevated
+    {"vix_max": 30.0, "min_rr": 1.8},   # high
+    {"vix_max": 999.0, "min_rr": 2.0},  # extreme
+]
+
+
+def get_vix_min_rr(vix_value) -> float:
+    """Return the min R:R for the given VIX level, ascending tiers."""
+    if vix_value is None or not isinstance(vix_value, (int, float)):
+        return float(HARD_FILTERS.get("min_rr", 1.5))
+    try:
+        import math
+        if not math.isfinite(vix_value):
+            return float(HARD_FILTERS.get("min_rr", 1.5))
+    except Exception:
+        return float(HARD_FILTERS.get("min_rr", 1.5))
+    for tier in VIX_RR_TIERS:
+        if vix_value < tier.get("vix_max", 999.0):
+            return float(tier.get("min_rr", 1.5))
+    return float(HARD_FILTERS.get("min_rr", 1.5))
+
+
+# ROE quality gate: penalty zone for marginal profitability (3-5%)
+ROE_QUALITY_GATE: Dict[str, float] = {
+    "min_roe": 3.0,               # Stocks with ROE below this are hard-blocked
+    "penalty_zone_max": 5.0,      # ROE between min_roe and this gets score penalty
+    "penalty_points": 5.0,        # Max penalty points for ROE at the boundary
+}
 
 # Reliability band thresholds (used by v2_risk_engine and classification)
 RELIABILITY_BANDS: Dict[str, int] = {

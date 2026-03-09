@@ -131,6 +131,7 @@ def _compute_rr_for_row(
         "RR_Ratio": np.nan,
         "RR": np.nan,
         "Target_Source": "N/A",
+        "Stop_Source": "N/A",
     }
     tkr = str(row.get("Ticker"))
     hist = data_map.get(tkr)
@@ -140,7 +141,7 @@ def _compute_rr_for_row(
         hdf = hist.copy()
         if "Close" not in hdf.columns or "High" not in hdf.columns or "Low" not in hdf.columns:
             return _nan_rr
-        entry = float(hdf["Close"].iloc[-1])
+        _close = float(hdf["Close"].iloc[-1])
         close_shift = hdf["Close"].shift(1)
         tr = pd.concat([
             (hdf["High"] - hdf["Low"]),
@@ -154,14 +155,24 @@ def _compute_rr_for_row(
         )
         atr14 = max(atr14, 1e-6)
 
+        # Limit-entry offset: simulate a limit order below close for better R:R.
+        try:
+            from core.scoring_config import ENTRY_OFFSET
+            _entry_offset = float(ENTRY_OFFSET)
+        except Exception:
+            _entry_offset = 0.0
+        entry = _close - _entry_offset * atr14
+        entry = max(entry, _close * 0.95)  # Safety: never more than 5% below close
+
         # Stop loss: combines ATR-based and support-based levels.
         # VCP setups get tighter stops (defined risk from consolidation).
         try:
-            from core.scoring_config import ATR_STOP_MULTIPLIER, DYNAMIC_RR_CONFIG
+            from core.scoring_config import ATR_STOP_MULTIPLIER, DYNAMIC_RR_CONFIG, SUPPORT_STOP_CONFIG
             _stop_mult = float(ATR_STOP_MULTIPLIER)
         except Exception:
             _stop_mult = 1.5
             DYNAMIC_RR_CONFIG = {}
+            SUPPORT_STOP_CONFIG = {"enabled": False}
         low_5 = float(hdf["Low"].tail(5).min())
         low_20 = float(hdf["Low"].tail(20).min()) if len(hdf) >= 20 else low_5
         atr_stop = entry - _stop_mult * atr14
@@ -170,13 +181,49 @@ def _compute_rr_for_row(
         _vcp_val = float(_vcp_val) if isinstance(_vcp_val, (int, float)) and np.isfinite(float(_vcp_val)) else 0.0
         _vcp_stop_thresh = DYNAMIC_RR_CONFIG.get("vcp_stop_threshold", 0.5)
         _vcp_max_stop = DYNAMIC_RR_CONFIG.get("vcp_max_stop_pct", 0.08)
+        _stop_type = "legacy_atr"
         if _vcp_val > _vcp_stop_thresh:
             # Support-based stop: tighter (higher price), capped at max %
             support_stop = max(low_20, atr_stop)
             stop_price = float(max(support_stop, entry * (1.0 - _vcp_max_stop)))
+            _stop_type = "vcp_support"
         else:
-            # Original: wider of 5-day low and ATR stop
-            stop_price = float(min(low_5, atr_stop))
+            # Support-based stop for ALL stocks (not just VCP)
+            _sup_cfg = SUPPORT_STOP_CONFIG if 'SUPPORT_STOP_CONFIG' in dir() else {}
+            if _sup_cfg.get("enabled", False):
+                _min_risk = float(_sup_cfg.get("min_risk_pct", 0.02))
+                _max_risk = float(_sup_cfg.get("max_risk_pct", 0.10))
+                _min_stop_price = entry * (1.0 - _min_risk)
+                _atr_floor = max(atr_stop, entry * (1.0 - _max_risk))
+
+                support_candidates = []
+                if _sup_cfg.get("low_20d_enabled", True) and len(hdf) >= 20:
+                    _s_low20 = float(hdf["Low"].tail(20).min())
+                    if _s_low20 < _min_stop_price:
+                        support_candidates.append(_s_low20)
+                if _sup_cfg.get("low_10d_enabled", True) and len(hdf) >= 10:
+                    _s_low10 = float(hdf["Low"].tail(10).min())
+                    if _s_low10 < _min_stop_price:
+                        support_candidates.append(_s_low10)
+                if _sup_cfg.get("bollinger_enabled", True):
+                    _bb_p = int(_sup_cfg.get("bollinger_periods", 20))
+                    _bb_s = float(_sup_cfg.get("bollinger_std", 2.0))
+                    if len(hdf) >= _bb_p:
+                        _bb_ma = float(hdf["Close"].rolling(_bb_p, min_periods=5).mean().iloc[-1])
+                        _bb_sd = float(hdf["Close"].rolling(_bb_p, min_periods=5).std(ddof=0).iloc[-1])
+                        if np.isfinite(_bb_ma) and np.isfinite(_bb_sd):
+                            _bb_lower = _bb_ma - _bb_s * _bb_sd
+                            if _bb_lower < _min_stop_price:
+                                support_candidates.append(_bb_lower)
+
+                if support_candidates:
+                    stop_price = float(max(max(support_candidates), _atr_floor))
+                    _stop_type = "support"
+                else:
+                    stop_price = float(min(low_5, atr_stop))
+                    _stop_type = "legacy_atr"
+            else:
+                stop_price = float(min(low_5, atr_stop))
         # Ensure stop is below entry
         stop_price = min(stop_price, entry * 0.99)
 
@@ -278,6 +325,7 @@ def _compute_rr_for_row(
             "RR_Ratio": rr,
             "RR": rr,
             "Target_Source": target_source,
+            "Stop_Source": _stop_type,
         }
     except (KeyError, TypeError, ValueError, ZeroDivisionError):
         return _nan_rr

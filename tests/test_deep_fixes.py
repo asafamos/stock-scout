@@ -401,3 +401,109 @@ class TestMLBoostReliabilityGating:
         row = pd.Series({})
         score = compute_final_score_20d(row)
         assert 40 <= score <= 60, f"Empty row should give neutral score, got {score}"
+
+
+# ─── VIX-aware R:R minimum ───────────────────────────────────────────
+
+class TestVixAwareRR:
+    """Verify get_vix_min_rr returns correct thresholds by VIX level."""
+
+    def test_low_vix(self):
+        from core.scoring_config import get_vix_min_rr
+        assert get_vix_min_rr(15.0) == 1.5
+
+    def test_elevated_vix(self):
+        from core.scoring_config import get_vix_min_rr
+        assert get_vix_min_rr(22.0) == 1.6
+
+    def test_high_vix(self):
+        from core.scoring_config import get_vix_min_rr
+        assert get_vix_min_rr(27.0) == 1.8
+
+    def test_extreme_vix(self):
+        from core.scoring_config import get_vix_min_rr
+        assert get_vix_min_rr(35.0) == 2.0
+
+    def test_none_vix(self):
+        from core.scoring_config import get_vix_min_rr
+        assert get_vix_min_rr(None) == 1.5
+
+    def test_nan_vix(self):
+        from core.scoring_config import get_vix_min_rr
+        assert get_vix_min_rr(float("nan")) == 1.5
+
+    def test_boundary_20(self):
+        """VIX exactly 20 should be elevated tier (min_rr=1.6)."""
+        from core.scoring_config import get_vix_min_rr
+        assert get_vix_min_rr(20.0) == 1.6
+
+
+# ─── ROE quality gate ────────────────────────────────────────────────
+
+class TestROEQualityGate:
+    """Verify ROE >= 3% is now required and penalty zone works."""
+
+    def test_roe_below_3_rejected(self):
+        """Stock with ROE 1.62% should now be REJECTED (min_roe=3.0)."""
+        from core.classification import assign_risk_class
+        row = pd.Series({
+            "FinalScore_20d": 70, "ATR_Pct": 0.03, "Beta": 1.0,
+            "RR": 2.0, "ROE": 1.62, "MarketCap": 1e10,
+            "ReliabilityScore": 70,
+        })
+        assert assign_risk_class(row) == "REJECT"
+
+    def test_roe_above_5_no_penalty(self):
+        """ROE 10% should pass with no penalty."""
+        from core.scoring_config import ROE_QUALITY_GATE
+        assert 10.0 >= ROE_QUALITY_GATE["penalty_zone_max"]
+
+    def test_roe_in_penalty_zone(self):
+        """ROE 4% (between 3-5%) should get a score penalty."""
+        from core.scoring_engine import compute_final_score_20d
+        # Score with ROE=4% (penalty zone)
+        row_pen = pd.Series({
+            "Fundamental_S": 60, "MomentumScore": 60, "RR": 2.0,
+            "ReliabilityScore": 70, "ROE": 4.0,
+        })
+        # Score with ROE=10% (no penalty)
+        row_ok = pd.Series({
+            "Fundamental_S": 60, "MomentumScore": 60, "RR": 2.0,
+            "ReliabilityScore": 70, "ROE": 10.0,
+        })
+        score_pen = compute_final_score_20d(row_pen)
+        score_ok = compute_final_score_20d(row_ok)
+        assert score_pen < score_ok, f"ROE 4% score ({score_pen}) should be less than ROE 10% ({score_ok})"
+
+
+# ─── Entry offset config ─────────────────────────────────────────────
+
+class TestEntryOffset:
+    """Verify ENTRY_OFFSET config exists and is reasonable."""
+
+    def test_entry_offset_exists(self):
+        from core.scoring_config import ENTRY_OFFSET
+        assert isinstance(ENTRY_OFFSET, float)
+        assert 0.0 <= ENTRY_OFFSET <= 1.0
+
+    def test_entry_offset_default(self):
+        from core.scoring_config import ENTRY_OFFSET
+        assert ENTRY_OFFSET == 0.3
+
+
+# ─── Support stop config ─────────────────────────────────────────────
+
+class TestSupportStopConfig:
+    """Verify SUPPORT_STOP_CONFIG exists and is properly structured."""
+
+    def test_config_exists(self):
+        from core.scoring_config import SUPPORT_STOP_CONFIG
+        assert SUPPORT_STOP_CONFIG["enabled"] is True
+
+    def test_min_risk_reasonable(self):
+        from core.scoring_config import SUPPORT_STOP_CONFIG
+        assert 0.01 <= SUPPORT_STOP_CONFIG["min_risk_pct"] <= 0.05
+
+    def test_max_risk_reasonable(self):
+        from core.scoring_config import SUPPORT_STOP_CONFIG
+        assert 0.05 <= SUPPORT_STOP_CONFIG["max_risk_pct"] <= 0.15

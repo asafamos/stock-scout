@@ -132,6 +132,7 @@ def detect_market_regime(
         "spy_trend": 0.0,
         "qqq_trend": 0.0,
         "vix_level": "unknown",
+        "vix_value": 20.0,
         "details": "Benchmark unavailable; neutral fallback",
         "benchmark_status": "UNAVAILABLE",
     }
@@ -246,6 +247,7 @@ def detect_market_regime(
             "spy_trend": spy_trend,
             "qqq_trend": qqq_trend,
             "vix_level": vix_level,
+            "vix_value": float(vix_val),
             "details": details,
             "benchmark_status": "OK",
         }

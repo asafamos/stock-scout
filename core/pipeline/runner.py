@@ -1437,6 +1437,7 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
             "RR_Ratio",
             "RR",
             "Target_Source",
+            "Stop_Source",
         ]:
             if col in rr_updates.columns:
                 ctx.results[col] = rr_updates[col]
@@ -1456,8 +1457,30 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
         # that we have the final RR values, re-apply the hard R:R minimum
         # and update SafetyBlocked accordingly.
         try:
-            from core.scoring_config import HARD_FILTERS as _hf_rr
-            _min_rr = float(_hf_rr.get("min_rr", 0.0))
+            from core.scoring_config import HARD_FILTERS as _hf_rr, get_vix_min_rr
+            # Extract VIX from the global index cache (already fetched by market_regime)
+            _vix_val = None
+            try:
+                from core.market_context import _GLOBAL_INDEX_CACHE
+                _vix_df = _GLOBAL_INDEX_CACHE.get("^VIX")
+                if _vix_df is not None and not _vix_df.empty:
+                    _vix_col = "close" if "close" in _vix_df.columns else ("Close" if "Close" in _vix_df.columns else _vix_df.columns[0])
+                    _vix_val = float(_vix_df[_vix_col].iloc[-1])
+            except Exception:
+                pass
+            # Also try regime data
+            if _vix_val is None:
+                try:
+                    _vix_val = ctx.market_regime_data.get("vix_value") if hasattr(ctx, "market_regime_data") and ctx.market_regime_data else None
+                except Exception:
+                    pass
+            _min_rr_base = float(_hf_rr.get("min_rr", 0.0))
+            _min_rr = get_vix_min_rr(_vix_val) if _vix_val is not None else _min_rr_base
+            logger.info("[PIPELINE] VIX-aware min R:R = %.2f (VIX=%.1f)", _min_rr, _vix_val or 0.0)
+            # Store VIX observability columns
+            if not ctx.results.empty:
+                ctx.results["VIX_Value"] = _vix_val if _vix_val is not None else np.nan
+                ctx.results["VIX_Min_RR"] = _min_rr
             if _min_rr > 0 and not ctx.results.empty:
                 for _idx in ctx.results.index:
                     _rr_val = None
