@@ -18,6 +18,105 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _clamp01(x: float) -> float:
+    return max(0.0, min(1.0, x))
+
+
+def wyckoff_confidence(
+    phase: str,
+    dd: float,
+    ret_60d: float,
+    vix_pct: float,
+    vix_close: float,
+    momentum: float,
+    breadth: float,
+) -> int:
+    """Compute 0-100 confidence for how clearly data fits the Wyckoff phase.
+
+    50 = barely met threshold, 100 = deep into the phase.
+    """
+    if phase == "PANIC":
+        # OR triggers: dd < -0.15, vix_pct > 0.85, vix_close > 30
+        signals = [
+            _clamp01((-0.15 - dd) / 0.15),
+            _clamp01((vix_pct - 0.85) / 0.15),
+            _clamp01((vix_close - 30) / 10),
+        ]
+        active = [s for s in signals if s > 0]
+        if not active:
+            return 50
+        count_bonus = len(active) / len(signals)
+        depth = max(active)
+        return int(50 + 50 * (0.5 * count_bonus + 0.5 * depth))
+
+    elif phase == "CORRECTION":
+        signals = [
+            _clamp01((-0.08 - dd) / 0.07),
+            _clamp01((vix_pct - 0.70) / 0.15),
+            _clamp01((vix_close - 25) / 5),
+        ]
+        active = [s for s in signals if s > 0]
+        if not active:
+            return 50
+        count_bonus = len(active) / len(signals)
+        depth = max(active)
+        return int(50 + 50 * (0.5 * count_bonus + 0.5 * depth))
+
+    elif phase == "DISTRIBUTION":
+        # AND: abs(ret_60d) <= 0.02 AND breadth < 0.40
+        ret_margin = _clamp01(1.0 - abs(ret_60d) / 0.02)
+        breadth_margin = _clamp01((0.40 - breadth) / 0.20)
+        return int(50 + 50 * (ret_margin + breadth_margin) / 2)
+
+    elif phase == "TREND_UP":
+        p1 = []
+        if ret_60d > 0.08 and dd > -0.05 and breadth > 0.55 and vix_close < 22:
+            p1 = [
+                _clamp01((ret_60d - 0.08) / 0.12),
+                _clamp01((dd + 0.05) / 0.05),
+                _clamp01((breadth - 0.55) / 0.25),
+                _clamp01((22 - vix_close) / 8),
+            ]
+        p2 = []
+        if momentum > 0.12 and breadth > 0.50 and vix_close < 23:
+            p2 = [
+                _clamp01((momentum - 0.12) / 0.08),
+                _clamp01((breadth - 0.50) / 0.30),
+                _clamp01((23 - vix_close) / 9),
+            ]
+        best = max(
+            sum(p1) / len(p1) if p1 else 0,
+            sum(p2) / len(p2) if p2 else 0,
+        )
+        return int(50 + 50 * best)
+
+    elif phase == "MODERATE_UP":
+        p1 = []
+        if ret_60d > 0.03 and dd > -0.06 and vix_close < 24:
+            p1 = [
+                _clamp01((ret_60d - 0.03) / 0.05),
+                _clamp01((dd + 0.06) / 0.06),
+                _clamp01((24 - vix_close) / 10),
+            ]
+        p2 = []
+        if momentum > 0.05 and ret_60d > 0.0 and vix_close < 25:
+            p2 = [
+                _clamp01((momentum - 0.05) / 0.07),
+                _clamp01(ret_60d / 0.03),
+                _clamp01((25 - vix_close) / 11),
+            ]
+        best = max(
+            sum(p1) / len(p1) if p1 else 0,
+            sum(p2) / len(p2) if p2 else 0,
+        )
+        return int(50 + 50 * best)
+
+    else:  # SIDEWAYS
+        ret_neutral = _clamp01(1.0 - abs(ret_60d) / 0.03)
+        vix_normal = _clamp01(1.0 - abs(vix_close - 20) / 10)
+        return int(50 + 50 * (ret_neutral + vix_normal) / 2)
+
+
 def detect_market_regime(
     lookback_days: int = 60,
     spy_data: Optional[pd.DataFrame] = None,

@@ -95,6 +95,7 @@ class Col:
 
     # ── Market Context ─────────────────────────────────────────────
     MARKET_REGIME = "Market_Regime"
+    MARKET_REGIME_CONFIDENCE = "Market_Regime_Confidence"
     DATA_INTEGRITY = "Data_Integrity"
 
     # ── Signal Quality ─────────────────────────────────────────────

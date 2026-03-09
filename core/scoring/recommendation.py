@@ -197,6 +197,7 @@ def compute_recommendation_scores(
 
     # ── Market regime ────────────────────────────────────────────
     market_regime = None
+    market_regime_confidence = 50
     data_integrity = "OK"
     try:
         if as_of_date is not None:
@@ -207,6 +208,8 @@ def compute_recommendation_scores(
             ctx = build_market_context_table(start_ctx, end_ctx)
             if ctx is not None and not ctx.empty:
                 market_regime = str(ctx["Market_Regime"].iloc[-1])
+                if "Market_Regime_Confidence" in ctx.columns:
+                    market_regime_confidence = int(ctx["Market_Regime_Confidence"].iloc[-1])
             else:
                 data_integrity = "DATA_INCOMPLETE"
     except (TypeError, ValueError, KeyError, AttributeError):
@@ -323,6 +326,7 @@ def compute_recommendation_scores(
             Col.PRICE_MEAN: ms_data.price_mean,
             Col.ML_CONFIDENCE_STATUS: ml_conf_status,
             Col.MARKET_REGIME: market_regime,
+            Col.MARKET_REGIME_CONFIDENCE: market_regime_confidence,
             Col.DATA_INTEGRITY: data_integrity,
         },
     )
