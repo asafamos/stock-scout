@@ -307,6 +307,8 @@ with st.sidebar:
                                 _hist_wyckoff = str(_hist_df["Market_Regime"].mode().iloc[0]).upper()
                                 if _hist_wyckoff and _hist_wyckoff != "NAN":
                                     st.session_state["wyckoff_phase"] = _hist_wyckoff
+                                if "Market_Regime_Confidence" in _hist_df.columns:
+                                    st.session_state["wyckoff_confidence"] = int(_hist_df["Market_Regime_Confidence"].mode().iloc[0])
                             except Exception:
                                 pass
                         st.success(f"Loaded: {_chosen['timestamp']} ({_chosen['count']} results)")
@@ -768,7 +770,8 @@ else:
     )
     _regime_details = market_regime_data.get("details", "")
 
-regime_confidence = market_regime_data.get("confidence", 50)
+# Prefer Wyckoff-specific confidence when available; fallback to simple regime confidence
+regime_confidence = st.session_state.get("wyckoff_confidence", market_regime_data.get("confidence", 50))
 
 st.markdown(
     f"""<div style='background:{_regime_color};color:white;padding:12px 16px;border-radius:var(--ss-radius-md);margin:10px 0;font-size:0.88rem;'>
@@ -790,6 +793,8 @@ if skip_pipeline:
             _pre_wyckoff = str(results["Market_Regime"].mode().iloc[0]).upper()
             if _pre_wyckoff and _pre_wyckoff != "NAN":
                 st.session_state["wyckoff_phase"] = _pre_wyckoff
+            if "Market_Regime_Confidence" in results.columns:
+                st.session_state["wyckoff_confidence"] = int(results["Market_Regime_Confidence"].mode().iloc[0])
         except Exception:
             pass
 
@@ -958,6 +963,8 @@ else:
             try:
                 _wyckoff_phase = str(results["Market_Regime"].mode().iloc[0]).upper()
                 st.session_state["wyckoff_phase"] = _wyckoff_phase
+                if "Market_Regime_Confidence" in results.columns:
+                    st.session_state["wyckoff_confidence"] = int(results["Market_Regime_Confidence"].mode().iloc[0])
             except Exception:
                 pass
         # Pipeline finished — clear the rerun guard
@@ -985,7 +992,7 @@ else:
 
 # Debug logging if enabled
 create_debug_expander({
-    "regime": regime,
+    "regime": _regime_label,
     "confidence": regime_confidence,
     "spy_trend": market_regime_data.get("spy_trend", 0),
     "qqq_trend": market_regime_data.get("qqq_trend", 0),

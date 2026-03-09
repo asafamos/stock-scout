@@ -140,6 +140,8 @@ def build_market_context_table(
     context_df["SPY_momentum_20d"] = context_df["SPY_momentum_20d"].fillna(0.0)
 
     # Regime classification
+    from core.market_regime import wyckoff_confidence as _wyckoff_conf
+
     def classify_regime(r):
         try:
             row_date = r.get("date") if isinstance(r, dict) else r.get("date", None)
@@ -156,29 +158,34 @@ def build_market_context_table(
             vix_close = r.get("VIX_close", 20.0)
             momentum = r.get("SPY_momentum_20d", 0.0)
             if pd.isna(dd) or pd.isna(ret_60d) or pd.isna(vix_pct) or not np.isfinite(breadth):
-                return "SIDEWAYS"
+                return "SIDEWAYS", 50
             # ── Negative regimes (checked first) ──
             if dd < -0.15 or vix_pct > 0.85 or vix_close > 30:
-                return "PANIC"
-            if dd < -0.08 or vix_pct > 0.70 or vix_close > 25:
-                return "CORRECTION"
-            if abs(ret_60d) <= 0.02 and breadth < 0.40:
-                return "DISTRIBUTION"
+                phase = "PANIC"
+            elif dd < -0.08 or vix_pct > 0.70 or vix_close > 25:
+                phase = "CORRECTION"
+            elif abs(ret_60d) <= 0.02 and breadth < 0.40:
+                phase = "DISTRIBUTION"
             # ── Strong uptrend ──
-            if ret_60d > 0.08 and dd > -0.05 and breadth > 0.55 and vix_close < 22:
-                return "TREND_UP"
-            if momentum > 0.12 and breadth > 0.50 and vix_close < 23:
-                return "TREND_UP"
-            # ── Moderate uptrend (new: fills gap between SIDEWAYS and TREND_UP) ──
-            if ret_60d > 0.03 and dd > -0.06 and vix_close < 24:
-                return "MODERATE_UP"
-            if momentum > 0.05 and ret_60d > 0.0 and vix_close < 25:
-                return "MODERATE_UP"
-            return "SIDEWAYS"
+            elif ret_60d > 0.08 and dd > -0.05 and breadth > 0.55 and vix_close < 22:
+                phase = "TREND_UP"
+            elif momentum > 0.12 and breadth > 0.50 and vix_close < 23:
+                phase = "TREND_UP"
+            # ── Moderate uptrend ──
+            elif ret_60d > 0.03 and dd > -0.06 and vix_close < 24:
+                phase = "MODERATE_UP"
+            elif momentum > 0.05 and ret_60d > 0.0 and vix_close < 25:
+                phase = "MODERATE_UP"
+            else:
+                phase = "SIDEWAYS"
+            conf = _wyckoff_conf(phase, dd, ret_60d, vix_pct, vix_close, momentum, breadth)
+            return phase, conf
         except Exception:
-            return "SIDEWAYS"
+            return "SIDEWAYS", 50
 
-    context_df["Market_Regime"] = context_df.apply(classify_regime, axis=1)
+    _regime_result = context_df.apply(classify_regime, axis=1, result_type="expand")
+    context_df["Market_Regime"] = _regime_result[0]
+    context_df["Market_Regime_Confidence"] = _regime_result[1]
 
     # One-hot flags
     context_df["Regime_TrendUp"] = (context_df["Market_Regime"] == "TREND_UP").astype(int)
