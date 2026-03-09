@@ -301,6 +301,14 @@ with st.sidebar:
                         st.session_state["precomputed_results"] = _hist_df
                         st.session_state["skip_pipeline"] = True
                         st.session_state["force_live_scan_once"] = False
+                        # Extract Wyckoff phase so regime banner updates
+                        if "Market_Regime" in _hist_df.columns:
+                            try:
+                                _hist_wyckoff = str(_hist_df["Market_Regime"].mode().iloc[0]).upper()
+                                if _hist_wyckoff and _hist_wyckoff != "NAN":
+                                    st.session_state["wyckoff_phase"] = _hist_wyckoff
+                            except Exception:
+                                pass
                         st.success(f"Loaded: {_chosen['timestamp']} ({_chosen['count']} results)")
                         st.rerun()
                     else:
@@ -534,7 +542,8 @@ def save_latest_scan_from_results(results_df: pd.DataFrame, metadata: Optional[D
             config=CONFIG,
             path_latest=path_latest,
             path_timestamped=None,  # Don't create timestamped backup for live scans
-            metadata=meta
+            metadata=meta,
+            user_id=user_id,
         )
         logger.info(f"✅ Saved live scan results: {len(results_df)} tickers to {path_latest}")
     except Exception as e:
@@ -727,31 +736,63 @@ def _cached_detect_market_regime(lookback_days: int = 60):
     return detect_market_regime(lookback_days=lookback_days)
 
 market_regime_data = _cached_detect_market_regime(lookback_days=60)
-regime = market_regime_data.get("regime", "neutral")
-regime_confidence = market_regime_data.get("confidence", 50)
 phase_times["market_regime"] = t_end(t0_regime)
 
-# Show regime with color coding
-regime_emoji = {"bullish": "📈", "neutral": "➡️", "bearish": "📉"}
-regime_color = {"bullish": "#16a34a", "neutral": "#f59e0b", "bearish": "#dc2626"}
+# Store simple regime in session state (used for target adjustments)
+st.session_state['market_regime'] = market_regime_data
+
+# Prefer pipeline's Wyckoff phase (set after live scan or precomputed load)
+_wyckoff = st.session_state.get("wyckoff_phase", "")
+_WYCKOFF_DISPLAY = {
+    "TREND_UP":    {"label": "Trend Up",     "emoji": "📈", "color": "#16a34a"},
+    "MODERATE_UP": {"label": "Moderate Up",   "emoji": "📈", "color": "#22c55e"},
+    "SIDEWAYS":    {"label": "Sideways",      "emoji": "➡️", "color": "#f59e0b"},
+    "DISTRIBUTION":{"label": "Distribution",  "emoji": "📉", "color": "#ea580c"},
+    "CORRECTION":  {"label": "Correction",    "emoji": "📉", "color": "#dc2626"},
+    "PANIC":       {"label": "Panic",         "emoji": "🔴", "color": "#991b1b"},
+}
+if _wyckoff and _wyckoff.upper() in _WYCKOFF_DISPLAY:
+    _wd = _WYCKOFF_DISPLAY[_wyckoff.upper()]
+    _regime_label = _wd["label"]
+    _regime_emoji = _wd["emoji"]
+    _regime_color = _wd["color"]
+    _regime_details = market_regime_data.get("details", "")
+else:
+    # Fallback to simple 3-state regime (first run, no pipeline data yet)
+    _regime_label = market_regime_data.get("regime", "neutral").title()
+    _regime_emoji = {"bullish": "📈", "neutral": "➡️", "bearish": "📉"}.get(
+        market_regime_data.get("regime", "neutral"), "➡️"
+    )
+    _regime_color = {"bullish": "#16a34a", "neutral": "#f59e0b", "bearish": "#dc2626"}.get(
+        market_regime_data.get("regime", "neutral"), "#f59e0b"
+    )
+    _regime_details = market_regime_data.get("details", "")
+
+regime_confidence = market_regime_data.get("confidence", 50)
 
 st.markdown(
-    f"""<div style='background:{regime_color[regime]};color:white;padding:12px 16px;border-radius:var(--ss-radius-md);margin:10px 0;font-size:0.88rem;'>
-    <strong>{regime_emoji[regime]} Market Regime: {regime.upper()}</strong> (confidence: {regime_confidence}%)<br>
-    <small style="opacity:0.85;">{market_regime_data.get('details', '')}</small>
+    f"""<div style='background:{_regime_color};color:white;padding:12px 16px;border-radius:var(--ss-radius-md);margin:10px 0;font-size:0.88rem;'>
+    <strong>{_regime_emoji} Market Regime: {_regime_label.upper()}</strong> (confidence: {regime_confidence}%)<br>
+    <small style="opacity:0.85;">{_regime_details}</small>
     </div>""",
     unsafe_allow_html=True
 )
-
-# Store in session state for use in target calculations
-st.session_state['market_regime'] = market_regime_data
 
 if skip_pipeline:
     # Use precomputed results from full pipeline
     t0_stage3 = time.perf_counter()
     results = st.session_state.get("precomputed_results")
     logger.info(f"[PRECOMPUTED] Loaded {len(results)} tickers from full pipeline scan")
-    
+
+    # Extract Wyckoff phase from precomputed results (so banner shows pipeline regime)
+    if "Market_Regime" in results.columns and not results.empty and not st.session_state.get("wyckoff_phase"):
+        try:
+            _pre_wyckoff = str(results["Market_Regime"].mode().iloc[0]).upper()
+            if _pre_wyckoff and _pre_wyckoff != "NAN":
+                st.session_state["wyckoff_phase"] = _pre_wyckoff
+        except Exception:
+            pass
+
     # Add 'Score' alias for overall_score_20d to maintain compatibility
     if "overall_score_20d" in results.columns and "Score" not in results.columns:
         results["Score"] = results["overall_score_20d"]
@@ -1973,9 +2014,10 @@ else:
     avg_score = None
     if score_label in sorted_df.columns:
         avg_score = float(sorted_df[score_label].mean())
-    regime = st.session_state.get("market_regime", {}).get("regime", "neutral")
+    # Prefer Wyckoff phase for KPI strip, fallback to simple regime
+    _kpi_regime = st.session_state.get("wyckoff_phase", "").lower() or st.session_state.get("market_regime", {}).get("regime", "neutral")
     st.markdown(
-        render_kpi_strip(len(sorted_df), _core_count, _spec_count, avg_score, regime),
+        render_kpi_strip(len(sorted_df), _core_count, _spec_count, avg_score, _kpi_regime),
         unsafe_allow_html=True,
     )
 

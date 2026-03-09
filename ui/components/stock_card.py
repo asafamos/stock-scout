@@ -331,7 +331,14 @@ def render_kpi_strip(total: int, core_count: int, spec_count: int,
         "bullish": "Bullish",
         "neutral": "Neutral",
         "bearish": "Bearish",
-    }.get(regime, regime.title())
+        # Wyckoff phases from pipeline
+        "trend_up": "Trend Up",
+        "moderate_up": "Moderate Up",
+        "sideways": "Sideways",
+        "distribution": "Distribution",
+        "correction": "Correction",
+        "panic": "Panic",
+    }.get(regime.lower() if regime else "neutral", regime.title() if regime else "Neutral")
 
     return (
         f'<div class="ss-kpi-strip">'

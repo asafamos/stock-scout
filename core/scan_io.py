@@ -24,6 +24,7 @@ def save_scan(
     path_latest: Path,
     path_timestamped: Optional[Path] = None,
     metadata: Optional[Dict[str, Any]] = None,
+    user_id: Optional[str] = None,
 ) -> None:
     """
     Save scan results and metadata to disk.
@@ -80,7 +81,7 @@ def save_scan(
     try:
         from core.db.scan_manager import get_scan_manager
 
-        sm = get_scan_manager()
+        sm = get_scan_manager(user_id or "default")
         if sm is not None:
             scan_id = (meta.get("scan_id")
                        or f"scan_{datetime.utcnow().strftime('%Y%m%dT%H%M%S')}_{uuid.uuid4().hex[:8]}")
