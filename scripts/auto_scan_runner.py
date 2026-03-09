@@ -247,14 +247,12 @@ if "Sector" not in df_to_save.columns and "sector" in results_df.columns:
     df_to_save["Sector"] = results_df["sector"]
 
 # Provide commonly-used card fields when missing
-# Entry_Price: prefer Unit_Price → Close → Price_Yahoo
+# Entry_Price: prefer Price_Yahoo → Close (not Unit_Price, which is a multi-source avg)
 if "Entry_Price" not in df_to_save.columns:
-    if "Unit_Price" in df_to_save.columns:
-        df_to_save["Entry_Price"] = df_to_save["Unit_Price"]
+    if "Price_Yahoo" in df_to_save.columns:
+        df_to_save["Entry_Price"] = df_to_save["Price_Yahoo"]
     elif "Close" in df_to_save.columns:
         df_to_save["Entry_Price"] = df_to_save["Close"]
-    elif "Price_Yahoo" in df_to_save.columns:
-        df_to_save["Entry_Price"] = df_to_save["Price_Yahoo"]
 
 # Reliability aliases: expose a unified percent and band if present
 if "reliability_pct" not in df_to_save.columns:

@@ -142,7 +142,7 @@ class SupabaseScanManager:
 
             # Also try pipeline-specific column names not in _REC_COL_MAP
             if "entry_price" not in mapped or mapped["entry_price"] is None:
-                for col in ("Entry_Price", "Unit_Price", "Price_Yahoo"):
+                for col in ("Entry_Price", "Price_Yahoo", "Close"):
                     if col in row.index and row[col] is not None:
                         mapped["entry_price"] = row[col]
                         break

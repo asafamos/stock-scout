@@ -8,6 +8,7 @@ from ui.card_helpers import (
     normalize_prob,
     ml_badge,
     get_ml_prob_from_row,
+    get_entry_price,
     risk_class,
     headline_story,
     fmt_num,
@@ -155,6 +156,55 @@ class TestGetReliabilityBand:
 
     def test_unknown(self):
         assert get_reliability_band(None) == "Unknown"
+
+
+# ── get_entry_price ─────────────────────────────────────────────────
+
+class TestGetEntryPrice:
+    """Verify canonical fallback: Entry_Price -> Price_Yahoo -> Close."""
+
+    def test_entry_price_preferred(self):
+        row = pd.Series({"Entry_Price": 100.0, "Price_Yahoo": 99.0, "Close": 98.0})
+        assert get_entry_price(row) == 100.0
+
+    def test_falls_back_to_price_yahoo(self):
+        row = pd.Series({"Price_Yahoo": 99.0, "Close": 98.0})
+        assert get_entry_price(row) == 99.0
+
+    def test_falls_back_to_close(self):
+        row = pd.Series({"Close": 98.0})
+        assert get_entry_price(row) == 98.0
+
+    def test_unit_price_excluded(self):
+        """Unit_Price (multi-source average) must NOT be used as entry price."""
+        row = pd.Series({"Unit_Price": 97.0})
+        assert np.isnan(get_entry_price(row))
+
+    def test_all_missing(self):
+        row = pd.Series({"Ticker": "TEST"})
+        assert np.isnan(get_entry_price(row))
+
+    def test_skips_nan_values(self):
+        row = pd.Series({"Entry_Price": np.nan, "Price_Yahoo": 50.0})
+        assert get_entry_price(row) == 50.0
+
+    def test_skips_zero(self):
+        row = pd.Series({"Entry_Price": 0.0, "Price_Yahoo": 50.0})
+        assert get_entry_price(row) == 50.0
+
+    def test_skips_negative(self):
+        row = pd.Series({"Entry_Price": -5.0, "Close": 42.0})
+        assert get_entry_price(row) == 42.0
+
+    def test_works_with_dict(self):
+        """Should work with plain dicts, not just pd.Series."""
+        row = {"Entry_Price": 100.0, "Close": 98.0}
+        assert get_entry_price(row) == 100.0
+
+    def test_string_coercion(self):
+        """Numeric strings should be coerced via to_float."""
+        row = pd.Series({"Entry_Price": "55.25"})
+        assert get_entry_price(row) == 55.25
 
 
 # ── get_reliability_components ───────────────────────────────────────

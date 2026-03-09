@@ -134,7 +134,8 @@ def render_native_recommendation_row(row: pd.Series, rank: int) -> None:
     score_fmt = f"{float(score):.0f}" if np.isfinite(score) else "N/A"
     
     # Extract key values
-    entry_price = row.get("Price_Yahoo", row.get("Unit_Price", np.nan))
+    from ui.card_helpers import get_entry_price
+    entry_price = get_entry_price(row)
     target_price = row.get("Target_Price", np.nan)
     ml_prob = row.get("ML_20d_Prob", row.get("ML_Probability", np.nan))
     risk_level = row.get("Risk_Level", "N/A").upper()

@@ -36,18 +36,8 @@ def build_clean_card(row: pd.Series, speculative: bool = False) -> str:
     overall_score = get_canonical_score(row)
     score_20d = row.get("FinalScore_20d", None)
     target_price = _num(row.get("Target_Price", np.nan))
-    entry_price = _num(
-        row.get(
-            "Entry_Price",
-            row.get(
-                "Price_Yahoo",
-                row.get(
-                    "Unit_Price",
-                    row.get("Close", np.nan)
-                )
-            )
-        )
-    )
+    from ui.card_helpers import get_entry_price
+    entry_price = get_entry_price(row)
     target_date = _safe_str(row.get("Target_Date", "N/A"))
     target_source = _safe_str(row.get("Target_Source", "N/A"))
     rr_ratio = _num(row.get("RR_Ratio", row.get("rr", np.nan)))

@@ -224,7 +224,8 @@ def render_recommendation_row_hebrew(row: pd.Series, rank: int) -> None:
     ticker = row.get("Ticker", "N/A")
     score = get_canonical_score(row)
     risk_level = row.get("Risk_Level", "core").lower()
-    price_entry = row.get("Price_Yahoo", row.get("Unit_Price", np.nan))
+    from ui.card_helpers import get_entry_price
+    price_entry = get_entry_price(row)
     price_target = row.get("Target_Price", np.nan)
     ml_prob = row.get("ML_20d_Prob", row.get("ML_Probability", np.nan))
     

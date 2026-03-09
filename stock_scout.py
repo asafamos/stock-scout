@@ -1824,7 +1824,8 @@ if not rec_df.empty:
 if not rec_df.empty and not rr_present:
     # ATR value may be stored under 'ATR' or 'ATR14' or 'ATR_Price'
     def _compute_rr_row(r):
-        entry = r.get("Entry_Price", r.get("Unit_Price", r.get("Price_Yahoo", np.nan)))
+        from ui.card_helpers import get_entry_price
+        entry = get_entry_price(r)
         target = r.get("Target_Price", np.nan)
         atr = r.get("ATR", r.get("ATR14", r.get("ATR14", np.nan)))
         # fallback ATR in price terms (ATR_Price)

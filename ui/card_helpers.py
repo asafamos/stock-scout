@@ -145,6 +145,25 @@ def get_reliability_band(reliability_val) -> str:
     return "Unknown"
 
 
+def get_entry_price(row) -> float:
+    """Return the canonical entry price for display and R:R calculations.
+
+    Fallback order:
+      1. Entry_Price  — pipeline-computed close price used for R:R/target/stop
+      2. Price_Yahoo  — single-source Yahoo price (closest to close)
+      3. Close        — raw historical close price
+
+    Unit_Price is intentionally excluded: it is Price_Mean_Rounded (a
+    multi-source average) which can diverge from the close price that
+    underpins all R:R calculations.
+    """
+    for col in ("Entry_Price", "Price_Yahoo", "Close"):
+        v = to_float(row.get(col, np.nan))
+        if np.isfinite(v) and v > 0:
+            return v
+    return np.nan
+
+
 def get_reliability_components(row: pd.Series) -> str:
     """Summarize reliability components as a compact string."""
     fund_rel = row.get("Fundamental_Reliability_v2", 0)

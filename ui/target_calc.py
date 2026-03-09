@@ -138,7 +138,8 @@ def calculate_targets(
 ) -> Tuple[float, float, str, str]:
     """Return ``(entry_price, target_price, target_date_str, source)``."""
     ticker = row.get("Ticker", "")
-    current_price = row.get("Unit_Price", row.get("Price_Yahoo", np.nan))
+    from ui.card_helpers import get_entry_price
+    current_price = get_entry_price(row)
     atr_val = row.get("ATR", np.nan)
     rr = row.get("RewardRisk", np.nan)
     rsi_val = row.get("RSI", np.nan)

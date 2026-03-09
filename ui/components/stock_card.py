@@ -14,6 +14,7 @@ from ui.card_helpers import (
     to_float,
     normalize_prob,
     get_ml_prob_from_row,
+    get_entry_price,
     risk_class,
     headline_story,
     fmt_num,
@@ -162,7 +163,7 @@ def render_stock_card(row: pd.Series, rank: int, score_label: str = "FinalScore_
     rel_str = f"{rel:.0f}" if np.isfinite(rel) else "—"
 
     # Entry / Target / Stop / Upside
-    entry_price = to_float(row.get("Price_Yahoo", row.get("Unit_Price", row.get("Entry_Price", row.get("Price", row.get("Close", np.nan))))))
+    entry_price = get_entry_price(row)
     target_price = to_float(row.get("Target_Price", np.nan))
     stop_price = to_float(row.get("Stop_Loss", row.get("stop_price", row.get("Stop_Price", np.nan))))
     if np.isfinite(entry_price) and np.isfinite(target_price) and entry_price > 0:

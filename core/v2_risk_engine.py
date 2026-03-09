@@ -751,7 +751,9 @@ def score_ticker_v2_enhanced(
         result["buy_amount_v2"] = buy_amount_v2
         
         # Calculate shares
-        unit_price = row.get("Unit_Price", row.get("Price_Yahoo", 0.0))
+        from ui.card_helpers import get_entry_price
+        _ep = get_entry_price(row)
+        unit_price = _ep if (isinstance(_ep, (int, float)) and np.isfinite(_ep) and _ep > 0) else 0.0
         if unit_price > 0:
             shares_v2 = int(buy_amount_v2 / unit_price)
         else:
