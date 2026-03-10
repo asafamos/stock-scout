@@ -1448,11 +1448,17 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
         # to down-day volume (rallies lack conviction).
         try:
             from core.scoring_config import DISTRIBUTION_VOLUME_PENALTY as _dvp_cfg
+            # Check regime using raw Wyckoff phase (not ATR-mapped name)
+            _dvp_raw_regime = ""
+            try:
+                if "Market_Regime" in ctx.results.columns and not ctx.results.empty:
+                    _dvp_raw_regime = str(ctx.results["Market_Regime"].mode().iloc[0]).lower()
+            except Exception:
+                pass
             if (
                 _dvp_cfg.get("enabled", False)
                 and "Volume_UpDown_Ratio" in ctx.results.columns
-                and isinstance(_rr_regime, str)
-                and _rr_regime.lower() in [r.lower() for r in _dvp_cfg.get("regimes", [])]
+                and _dvp_raw_regime in [r.lower() for r in _dvp_cfg.get("regimes", [])]
             ):
                 _vol_thresh = float(_dvp_cfg.get("up_down_volume_ratio_threshold", 0.85))
                 _vol_penalty = float(_dvp_cfg.get("penalty_points", 3.0))
@@ -1509,7 +1515,14 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
             # Regime R:R floor: in adverse regimes, override VIX-only threshold
             try:
                 from core.scoring_config import REGIME_RR_FLOOR
-                _regime_upper = str(raw_regime).upper() if 'raw_regime' in dir() else ""
+                # Recompute raw Wyckoff regime from results (don't rely on
+                # raw_regime variable which may be out of scope)
+                _regime_upper = ""
+                try:
+                    if "Market_Regime" in ctx.results.columns and not ctx.results.empty:
+                        _regime_upper = str(ctx.results["Market_Regime"].mode().iloc[0]).upper()
+                except Exception:
+                    pass
                 _regime_floor = float(REGIME_RR_FLOOR.get(_regime_upper, 0.0))
                 if _regime_floor > _min_rr:
                     logger.info(

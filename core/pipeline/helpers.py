@@ -314,7 +314,10 @@ def _compute_rr_for_row(
         # not a realistic breakout target. Using it inflates targets for stocks
         # that are topping out.
         _effective_resistance = resistance_target
-        if isinstance(market_regime, str) and market_regime.lower() in ("distribution", "correction"):
+        # Note: market_regime may arrive as the Wyckoff phase ("distribution")
+        # OR as the ATR-mapped name ("bearish") via _WYCKOFF_TO_ATR in runner.py.
+        _ADVERSE_REGIMES = ("distribution", "correction", "bearish", "panic")
+        if isinstance(market_regime, str) and market_regime.lower() in _ADVERSE_REGIMES:
             # If resistance is above ATR target, the stock is near its peak.
             # In distribution, lean on the more conservative ATR projection.
             if resistance_target > atr_target:
@@ -334,7 +337,7 @@ def _compute_rr_for_row(
         try:
             if (
                 isinstance(market_regime, str)
-                and market_regime.lower() in ("distribution", "correction")
+                and market_regime.lower() in _ADVERSE_REGIMES
                 and "Volume" in hdf.columns
                 and len(hdf) >= 10
             ):
