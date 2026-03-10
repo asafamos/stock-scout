@@ -170,8 +170,8 @@ FEATURE_SPECS_V3_1: List[FeatureSpec] = [
 ]
 
 
-# Current default version (v3.6 = production model, 23 features)
-DEFAULT_VERSION = "v3.6"
+# Current default version (v3.7 = production model, 16 features — pruned harmful)
+DEFAULT_VERSION = "v3.7"
 
 # =============================================================================
 # PUBLIC API
@@ -195,6 +195,7 @@ def get_feature_names(version: str = DEFAULT_VERSION) -> List[str]:
         "v3.4": FEATURE_SPECS_V3_4,
         "v3.5": FEATURE_SPECS_V3_5,
         "v3.6": FEATURE_SPECS_V3_6,
+        "v3.7": FEATURE_SPECS_V3_7,
     }
     if version not in specs_map:
         raise ValueError(f"Unknown feature version: {version}. Supported: {SUPPORTED_VERSIONS}")
@@ -219,6 +220,7 @@ def get_feature_specs(version: str = DEFAULT_VERSION) -> List[FeatureSpec]:
         "v3.4": FEATURE_SPECS_V3_4,
         "v3.5": FEATURE_SPECS_V3_5,
         "v3.6": FEATURE_SPECS_V3_6,
+        "v3.7": FEATURE_SPECS_V3_7,
     }
     if version not in specs_map:
         raise ValueError(f"Unknown feature version: {version}. Supported: {SUPPORTED_VERSIONS}")
@@ -496,6 +498,62 @@ FEATURE_SPECS_V3_6: List[FeatureSpec] = [
 
 
 # =============================================================================
+# FEATURE DEFINITIONS V3.7 (16 features) — pruned from v3.6 via permutation
+#   importance analysis (v3.6 AUC=0.6144).
+#
+#   Removed 7 features:
+#     HARMFUL (negative permutation importance):
+#       - MA50_Slope       (-0.0075) — most harmful feature overall
+#       - MACD_Hist        (-0.0041) — second most harmful
+#       - Distance_To_Resistance (-0.0016)
+#       - ATR_Delta_5d     (-0.0010)
+#       - Momentum_Acceleration  (-0.0009)
+#       - RS_vs_SPY_20d    (-0.0006)
+#     MULTICOLLINEARITY:
+#       - VCP_x_RS         (r=0.972 with RS_vs_SPY_20d; removing source makes
+#                           interaction meaningless)
+#
+#   All 16 remaining features have POSITIVE permutation importance.
+#   The top 4 features alone account for >75% of total importance:
+#     Distance_From_52w_Low (0.038), ATR_Pct (0.026),
+#     Consolidation_Tightness (0.021), Sector_Momentum (0.013).
+# =============================================================================
+FEATURE_SPECS_V3_7: List[FeatureSpec] = [
+    # --- Price Action (3) --- top importance features
+    FeatureSpec("Support_Strength", "fraction days near support", 0.2, (0, 1), "price_action"),
+    FeatureSpec("Distance_From_52w_Low", "(close-52w_low)/52w_low", 0.5, (-0.5, 5.0), "price_action"),
+    FeatureSpec("Consolidation_Tightness", "(20d_high-low)/avg", 0.1, (0.01, 0.5), "price_action"),
+
+    # --- Sector Relative (2) ---
+    FeatureSpec("Sector_Momentum", "sector_etf_ret_20d", 0.0, (-0.5, 0.5), "sector"),
+    FeatureSpec("Sector_Rank", "1 if stock beats sector in 5d", 0.5, (0, 1), "sector"),
+
+    # --- Momentum (2) ---
+    FeatureSpec("Return_20d", "20-day price return", 0.0, (-1.0, 2.0), "technical"),
+    FeatureSpec("Momentum_Consistency", "% positive days (last 20)", 0.5, (0, 1), "momentum"),
+
+    # --- Volatility Patterns (3) ---
+    FeatureSpec("Tightness_Ratio", "Range contraction: range_5d/range_20d", 1.0, (0.05, 2.0), "volatility"),
+    FeatureSpec("ATR_Pct", "Average True Range as % of price", 0.02, (0.001, 0.5), "technical"),
+    FeatureSpec("VCP_Ratio", "Volatility Contraction: ATR(10)/ATR(30)", 1.0, (0.1, 5.0), "volatility"),
+
+    # --- Volume (2) ---
+    FeatureSpec("Volume_Surge", "vol_5d_avg / vol_20d_avg", 1.0, (0.1, 10.0), "volume"),
+    FeatureSpec("Volume_Delta_5d", "Volume_Surge_now - Volume_Surge_5d_ago", 0.0, (-5, 5), "delta"),
+
+    # --- Trend (1) --- only ADX survived from v3.6 additions
+    FeatureSpec("ADX", "Average Directional Index (trend strength)", 25.0, (0, 100), "technical"),
+
+    # --- Delta (1) ---
+    FeatureSpec("RSI_Delta_5d", "RSI_now - RSI_5d_ago", 0.0, (-50, 50), "delta"),
+
+    # --- Interaction (2) --- VCP_x_RS removed (dependent on dropped RS_vs_SPY_20d)
+    FeatureSpec("Momentum_x_Volume", "Momentum_Consistency * Volume_Surge", 0.5, (0, 10), "interaction"),
+    FeatureSpec("Squeeze_x_Volume", "Squeeze_On_Flag * Volume_Surge", 0.0, (0, 10), "interaction"),
+]
+
+
+# =============================================================================
 # CONSTANTS
 # =============================================================================
 
@@ -521,5 +579,8 @@ assert FEATURE_COUNT_V3_5 == 20, f"Expected 20 features, got {FEATURE_COUNT_V3_5
 FEATURE_COUNT_V3_6 = len(FEATURE_SPECS_V3_6)
 assert FEATURE_COUNT_V3_6 == 23, f"Expected 23 features, got {FEATURE_COUNT_V3_6}"
 
+FEATURE_COUNT_V3_7 = len(FEATURE_SPECS_V3_7)
+assert FEATURE_COUNT_V3_7 == 16, f"Expected 16 features, got {FEATURE_COUNT_V3_7}"
+
 # List of all supported versions
-SUPPORTED_VERSIONS = ["v3", "v3.1", "v3.2", "v3.3", "v3.4", "v3.5", "v3.6"]
+SUPPORTED_VERSIONS = ["v3", "v3.1", "v3.2", "v3.3", "v3.4", "v3.5", "v3.6", "v3.7"]

@@ -178,7 +178,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "No model changes to commit."
           else
-            git commit -m "chore(ml): nightly training - update v3.6 model bundle (23 features, rank labels) [skip ci]"
+            git commit -m "chore(ml): nightly training - update v3.7 model bundle (16 features, rank labels) [skip ci]"
             # Retry push up to 3 times to handle concurrent pushes
             for attempt in 1 2 3; do
               if git push origin main; then
