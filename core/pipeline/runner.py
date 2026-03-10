@@ -1438,9 +1438,39 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
             "RR",
             "Target_Source",
             "Stop_Source",
+            "Volume_UpDown_Ratio",
         ]:
             if col in rr_updates.columns:
                 ctx.results[col] = rr_updates[col]
+
+        # ── Distribution volume penalty ─────────────────────────────────
+        # Penalize stocks in distribution where up-day volume is weak relative
+        # to down-day volume (rallies lack conviction).
+        try:
+            from core.scoring_config import DISTRIBUTION_VOLUME_PENALTY as _dvp_cfg
+            if (
+                _dvp_cfg.get("enabled", False)
+                and "Volume_UpDown_Ratio" in ctx.results.columns
+                and isinstance(_rr_regime, str)
+                and _rr_regime.lower() in [r.lower() for r in _dvp_cfg.get("regimes", [])]
+            ):
+                _vol_thresh = float(_dvp_cfg.get("up_down_volume_ratio_threshold", 0.85))
+                _vol_penalty = float(_dvp_cfg.get("penalty_points", 3.0))
+                _sc_col = "FinalScore_20d" if "FinalScore_20d" in ctx.results.columns else "Score"
+                for _vi in ctx.results.index:
+                    _vr = ctx.results.at[_vi, "Volume_UpDown_Ratio"]
+                    if isinstance(_vr, (int, float)) and np.isfinite(_vr) and _vr < _vol_thresh:
+                        if _sc_col in ctx.results.columns:
+                            _old_sc = float(ctx.results.at[_vi, _sc_col])
+                            ctx.results.at[_vi, _sc_col] = max(0.0, _old_sc - _vol_penalty)
+                            ctx.results.at[_vi, "Volume_Penalty"] = _vol_penalty
+                            logger.info(
+                                "[VOLUME] %s: weak rally volume (ratio=%.2f < %.2f) → -%.0f pts",
+                                ctx.results.at[_vi, "Ticker"] if "Ticker" in ctx.results.columns else _vi,
+                                _vr, _vol_thresh, _vol_penalty,
+                            )
+        except Exception as _dvp_exc:
+            logger.debug("Distribution volume penalty skipped: %s", _dvp_exc)
 
         # NOTE: Multiplicative RR gate REMOVED (2026-02-27) to eliminate double-gating.
         # RR is already included as 20% of the conviction score inside
@@ -1476,7 +1506,20 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
                     pass
             _min_rr_base = float(_hf_rr.get("min_rr", 0.0))
             _min_rr = get_vix_min_rr(_vix_val) if _vix_val is not None else _min_rr_base
-            logger.info("[PIPELINE] VIX-aware min R:R = %.2f (VIX=%.1f)", _min_rr, _vix_val or 0.0)
+            # Regime R:R floor: in adverse regimes, override VIX-only threshold
+            try:
+                from core.scoring_config import REGIME_RR_FLOOR
+                _regime_upper = str(raw_regime).upper() if 'raw_regime' in dir() else ""
+                _regime_floor = float(REGIME_RR_FLOOR.get(_regime_upper, 0.0))
+                if _regime_floor > _min_rr:
+                    logger.info(
+                        "[PIPELINE] Regime R:R floor: %s → %.1f (overrides VIX-based %.2f)",
+                        _regime_upper, _regime_floor, _min_rr,
+                    )
+                    _min_rr = _regime_floor
+            except Exception as _rf_exc:
+                logger.debug("Regime R:R floor skipped: %s", _rf_exc)
+            logger.info("[PIPELINE] Effective min R:R = %.2f (VIX=%.1f, regime=%s)", _min_rr, _vix_val or 0.0, _rr_regime)
             # Store VIX observability columns
             if not ctx.results.empty:
                 ctx.results["VIX_Value"] = _vix_val if _vix_val is not None else np.nan
@@ -1550,6 +1593,64 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
             ctx.results["Target_Date"] = ctx.results.apply(_target_dt, axis=1)
     except Exception as e:
         logger.debug("Holding_Days/Target_Date computation: %s", e)
+
+    # ── Analyst consensus cross-check ────────────────────────────────
+    # Fetch analyst price targets from FMP (already implemented in sentiment_data.py
+    # but never wired into the pipeline). Penalize stocks where the system target
+    # significantly exceeds analyst consensus or where analysts are bearish.
+    try:
+        from core.scoring_config import ANALYST_TARGET_PENALTY as _apt_cfg
+        if _apt_cfg.get("enabled", False) and not ctx.results.empty:
+            from core.sentiment_data import fetch_analyst_ratings_fmp
+            _score_col = "FinalScore_20d" if "FinalScore_20d" in ctx.results.columns else "Score"
+            for _a_idx in ctx.results.index:
+                _a_ticker = str(ctx.results.at[_a_idx, "Ticker"]) if "Ticker" in ctx.results.columns else ""
+                if not _a_ticker:
+                    continue
+                try:
+                    _analyst = fetch_analyst_ratings_fmp(_a_ticker)
+                    _pt_upside = _analyst.get("price_target_upside", None)
+                    ctx.results.at[_a_idx, "Price_Target_Upside"] = (
+                        float(_pt_upside) if _pt_upside is not None else np.nan
+                    )
+                    ctx.results.at[_a_idx, "Analyst_Count"] = float(_analyst.get("analyst_count", 0))
+                    # Apply score penalty for significant divergence
+                    if _pt_upside is not None and np.isfinite(float(_pt_upside)):
+                        _pt_upside_f = float(_pt_upside)
+                        _current_score = ctx.results.at[_a_idx, _score_col] if _score_col in ctx.results.columns else 0
+                        _penalty = 0.0
+                        if _pt_upside_f < 0:
+                            # Analysts think stock is overvalued (PT < current price)
+                            _penalty = float(_apt_cfg.get("negative_upside_penalty", 8.0))
+                            logger.info(
+                                "[ANALYST] %s: negative PT upside (%.1f%%) → -%.0f pts",
+                                _a_ticker, _pt_upside_f * 100, _penalty,
+                            )
+                        else:
+                            # Check if system target overshoots analyst target
+                            _entry = ctx.results.at[_a_idx, "Entry_Price"] if "Entry_Price" in ctx.results.columns else np.nan
+                            _target = ctx.results.at[_a_idx, "Target_Price"] if "Target_Price" in ctx.results.columns else np.nan
+                            if np.isfinite(_entry) and np.isfinite(_target) and _entry > 0:
+                                _sys_upside = (_target - _entry) / _entry
+                                _thresh = float(_apt_cfg.get("overestimate_threshold", 0.20))
+                                if _sys_upside > _pt_upside_f + _thresh:
+                                    _penalty = float(_apt_cfg.get("penalty_points", 5.0))
+                                    logger.info(
+                                        "[ANALYST] %s: system upside %.1f%% >> analyst %.1f%% → -%.0f pts",
+                                        _a_ticker, _sys_upside * 100, _pt_upside_f * 100, _penalty,
+                                    )
+                        if _penalty > 0 and _score_col in ctx.results.columns:
+                            _new_score = max(0.0, float(_current_score) - _penalty)
+                            ctx.results.at[_a_idx, _score_col] = _new_score
+                            ctx.results.at[_a_idx, "Analyst_Penalty"] = _penalty
+                            if "FinalScore" in ctx.results.columns:
+                                ctx.results.at[_a_idx, "FinalScore"] = _new_score
+                            if "Score" in ctx.results.columns:
+                                ctx.results.at[_a_idx, "Score"] = _new_score
+                except Exception as _ae:
+                    logger.debug("Analyst data for %s: %s", _a_ticker, _ae)
+    except Exception as _apt_exc:
+        logger.debug("Analyst consensus cross-check skipped: %s", _apt_exc)
 
     # No-Trade Signal: warn when market regime is unfavorable
     try:

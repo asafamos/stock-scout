@@ -943,6 +943,16 @@ def fetch_fundamentals_finnhub(ticker: str, provider_status: Dict | None = None)
     if not data or "metric" not in data:
         return None
     metric = data.get("metric", {})
+    # Finnhub returns marketCapitalization in MILLIONS of USD,
+    # while all other providers (FMP, Alpha, EODHD, Tiingo) return in dollars.
+    # Convert to dollars so the multi-source median aggregation is correct.
+    _fh_mcap = metric.get("marketCapitalization")
+    if _fh_mcap is not None:
+        try:
+            _fh_mcap = float(_fh_mcap) * 1_000_000  # millions → dollars
+        except (TypeError, ValueError):
+            _fh_mcap = None
+
     result = {
         "source": "finnhub",
         "pe": metric.get("peBasicExclExtraTTM"),
@@ -950,7 +960,7 @@ def fetch_fundamentals_finnhub(ticker: str, provider_status: Dict | None = None)
         "pb": metric.get("pbAnnual"),
         "roe": metric.get("roeTTM"),
         "margin": metric.get("netProfitMarginTTM"),
-        "market_cap": metric.get("marketCapitalization"),
+        "market_cap": _fh_mcap,
         "beta": metric.get("beta"),
         "debt_equity": metric.get("totalDebt/totalEquityAnnual"),
         "rev_yoy": metric.get("revenueGrowthTTMYoy"),
@@ -1642,10 +1652,31 @@ def aggregate_fundamentals(
             coverage[field] = contributing_sources
         else:
             # Multiple sources - use median and measure disagreement
+            # --- Unit-mismatch guard for market_cap ---
+            # If any two values differ by >10x, a unit mismatch is likely
+            # (e.g. millions vs dollars). Drop the outlier(s) and log a warning.
+            if field == "market_cap" and len(values) >= 2:
+                _sorted = sorted(values)
+                if _sorted[-1] > 10 * _sorted[0]:
+                    _max_val = _sorted[-1]
+                    _keep_pairs = [(v, s) for v, s in zip(values, contributing_sources) if v > _max_val / 5]
+                    _drop_pairs = [(v, s) for v, s in zip(values, contributing_sources) if v <= _max_val / 5]
+                    if _keep_pairs and _drop_pairs:
+                        logger.warning(
+                            "[AGGREGATE] market_cap unit mismatch for %s: dropping %s "
+                            "(values=%s → keeping=%s)",
+                            ticker,
+                            [s for _, s in _drop_pairs],
+                            values,
+                            [v for v, _ in _keep_pairs],
+                        )
+                        values = [v for v, _ in _keep_pairs]
+                        contributing_sources = [s for _, s in _keep_pairs]
+
             median_val = float(np.median(values))
             aggregated[field] = median_val
             coverage[field] = contributing_sources
-            
+
             # Disagreement: coefficient of variation
             if median_val != 0:
                 cv = np.std(values) / abs(median_val)

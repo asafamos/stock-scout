@@ -49,6 +49,8 @@ class TestCalculateTargets:
         defaults = {
             "Ticker": "AAPL",
             "Unit_Price": 150.0,
+            "Close": 150.0,
+            "Entry_Price": 150.0,
             "ATR": 3.0,
             "RewardRisk": 2.0,
             "RSI": 55.0,
@@ -67,7 +69,9 @@ class TestCalculateTargets:
         assert source in ("AI", "Default")
 
     def test_nan_price(self):
-        entry, target, date_str, source = calculate_targets(self._row(Unit_Price=np.nan))
+        entry, target, date_str, source = calculate_targets(
+            self._row(Unit_Price=np.nan, Close=np.nan, Entry_Price=np.nan)
+        )
         assert np.isnan(target)
         assert date_str == "N/A"
 

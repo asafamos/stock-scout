@@ -155,7 +155,13 @@ def calculate_targets(
         return current_price, np.nan, "N/A", "N/A"
 
     # -- entry price --------------------------------------------------------
-    entry_price = (current_price - 0.5 * atr_val) if np.isfinite(atr_val) else current_price * 0.98
+    # Use the same ENTRY_OFFSET as the pipeline (scoring_config) for consistency.
+    try:
+        from core.scoring_config import ENTRY_OFFSET as _cfg_offset
+        _entry_offset = float(_cfg_offset)
+    except Exception:
+        _entry_offset = 0.3
+    entry_price = (current_price - _entry_offset * atr_val) if np.isfinite(atr_val) else current_price * 0.98
 
     # -- multipliers --------------------------------------------------------
     atr_pct = (atr_val / current_price) if (np.isfinite(atr_val) and current_price > 0) else 0.02

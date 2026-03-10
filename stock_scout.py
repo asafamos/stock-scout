@@ -2032,6 +2032,20 @@ else:
     # ML legend
     st.markdown(render_ml_legend(), unsafe_allow_html=True)
 
+    # Market Caution Banner: display No_Trade_Signal warning (set by pipeline
+    # for DISTRIBUTION/CORRECTION/PANIC regimes but previously not shown in UI)
+    try:
+        _nts_col = sorted_df.get("No_Trade_Signal", pd.Series(False, index=sorted_df.index))
+        if not sorted_df.empty and _nts_col.any():
+            _caution_text = ""
+            if "Market_Caution" in sorted_df.columns:
+                _caution_text = str(sorted_df["Market_Caution"].iloc[0])
+            if not _caution_text or _caution_text in ("", "nan", "None"):
+                _caution_text = "Market regime is unfavorable for new positions. Consider reduced position sizes or waiting for regime change."
+            st.warning(f"⚠️ {_caution_text}")
+    except Exception:
+        pass
+
     # All recommendations sorted by score (each card has Core/Spec badge)
     st.markdown(
         render_section_header(f"Top Recommendations", len(sorted_df), "core"),

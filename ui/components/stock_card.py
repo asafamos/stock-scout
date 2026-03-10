@@ -21,6 +21,16 @@ from ui.card_helpers import (
 )
 
 
+def _fmt_analyst_pt(upside) -> str:
+    """Format analyst price target upside for display."""
+    if upside is None or not np.isfinite(upside):
+        return "—"
+    pct = upside * 100
+    if pct < 0:
+        return f'<span style="color:#e74c3c">{pct:+.1f}%</span>'
+    return f'<span style="color:#27ae60">{pct:+.1f}%</span>'
+
+
 def _score_tier(score: float) -> str:
     """Return 'high', 'medium', or 'low' based on score value."""
     if score >= 65:
@@ -176,6 +186,15 @@ def render_stock_card(row: pd.Series, rank: int, score_label: str = "FinalScore_
     target_str = f"${target_price:.2f}" if np.isfinite(target_price) else "—"
     stop_str = f"${stop_price:.2f}" if np.isfinite(stop_price) else "—"
 
+    # Entry staleness: warn if live price has moved >3% above entry (limit order unlikely to fill)
+    _live_price = to_float(row.get("Price_Yahoo", row.get("Close", np.nan)))
+    _entry_stale = False
+    if np.isfinite(_live_price) and np.isfinite(entry_price) and entry_price > 0:
+        if _live_price > entry_price * 1.03:
+            _entry_stale = True
+            _entry_gap_pct = ((_live_price - entry_price) / entry_price) * 100
+            entry_str = f"${entry_price:.2f} <span style='color:#e74c3c;font-size:0.7em'>(price +{_entry_gap_pct:.1f}%)</span>"
+
     # Target date — per-stock based on ATR/volatility holding period
     target_date_str = ""
     holding_days_val = to_float(row.get("Holding_Days", np.nan))
@@ -256,6 +275,8 @@ def render_stock_card(row: pd.Series, rank: int, score_label: str = "FinalScore_
     beta = to_float(row.get("Beta", row.get("beta", np.nan)))
     market_cap = to_float(row.get("Market_Cap", row.get("market_cap", np.nan)))
     fund_cov = to_float(row.get("Fund_Coverage_Pct", row.get("Fundamental_Coverage_Pct", np.nan)))
+    analyst_pt_upside = to_float(row.get("Price_Target_Upside", np.nan))
+    analyst_penalty = to_float(row.get("Analyst_Penalty", np.nan))
 
     # Build sector badge
     sector_badge = f'<span class="ss-sector-badge">{sector}</span>' if sector else ""
@@ -315,6 +336,7 @@ def render_stock_card(row: pd.Series, rank: int, score_label: str = "FinalScore_
         f'<div class="ss-detail-item"><span class="ss-detail-label">ATR/Price</span><span class="ss-detail-value">{fmt_num(atr_pct, ".3f")}</span></div>'
         f'<div class="ss-detail-item"><span class="ss-detail-label">Fund Sources</span><span class="ss-detail-value">{fmt_num(fund_src, ".0f")}</span></div>'
         f'<div class="ss-detail-item"><span class="ss-detail-label">Fund Coverage</span><span class="ss-detail-value">{fmt_num(fund_cov, ".0f")}%</span></div>'
+        f'<div class="ss-detail-item"><span class="ss-detail-label">Analyst PT</span><span class="ss-detail-value">{_fmt_analyst_pt(analyst_pt_upside)}</span></div>'
         f'</div>'
         f'{score_bd_html}'
         f'</details>'

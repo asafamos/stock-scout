@@ -308,15 +308,46 @@ def _compute_rr_for_row(
         ))
         atr_target = entry + atr_mult * atr14
 
-        # Final target: higher of ATR projection and resistance
-        target = float(max(atr_target, resistance_target))
-        target_source = "ATR_Projection" if atr_target >= resistance_target else "Resistance/Bollinger"
+        # Final target: higher of ATR projection and resistance.
+        # In distribution regime, cap resistance at the ATR-projected target.
+        # Rationale: the 60d/52w high in distribution is the distribution ceiling,
+        # not a realistic breakout target. Using it inflates targets for stocks
+        # that are topping out.
+        _effective_resistance = resistance_target
+        if isinstance(market_regime, str) and market_regime.lower() in ("distribution", "correction"):
+            # If resistance is above ATR target, the stock is near its peak.
+            # In distribution, lean on the more conservative ATR projection.
+            if resistance_target > atr_target:
+                _effective_resistance = atr_target
+        target = float(max(atr_target, _effective_resistance))
+        target_source = "ATR_Projection" if atr_target >= _effective_resistance else "Resistance/Bollinger"
 
         risk = float(entry - stop_price)
         reward = float(target - entry)
         rr = np.nan
         if risk > 0 and reward > 0:
             rr = float(np.clip(reward / risk, 0.0, 15.0))
+
+        # Volume confirmation: in distribution/correction, compute up-day vs
+        # down-day volume ratio.  Weak rally volume signals lack of conviction.
+        _vol_ud_ratio = np.nan
+        try:
+            if (
+                isinstance(market_regime, str)
+                and market_regime.lower() in ("distribution", "correction")
+                and "Volume" in hdf.columns
+                and len(hdf) >= 10
+            ):
+                _close_chg = hdf["Close"].diff()
+                _up_mask = _close_chg > 0
+                _dn_mask = _close_chg < 0
+                _up_vol = hdf.loc[_up_mask, "Volume"].tail(20).mean()
+                _dn_vol = hdf.loc[_dn_mask, "Volume"].tail(20).mean()
+                if _dn_vol and _dn_vol > 0:
+                    _vol_ud_ratio = float(_up_vol / _dn_vol)
+        except Exception:
+            pass
+
         return {
             "Entry_Price": entry,
             "Target_Price": target,
@@ -326,6 +357,7 @@ def _compute_rr_for_row(
             "RR": rr,
             "Target_Source": target_source,
             "Stop_Source": _stop_type,
+            "Volume_UpDown_Ratio": _vol_ud_ratio,
         }
     except (KeyError, TypeError, ValueError, ZeroDivisionError):
         return _nan_rr

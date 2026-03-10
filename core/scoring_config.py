@@ -330,11 +330,44 @@ def get_vix_min_rr(vix_value) -> float:
     return float(HARD_FILTERS.get("min_rr", 1.5))
 
 
+# Regime-based R:R floor: in adverse regimes, demand higher R:R regardless of VIX.
+# Applied as max(vix_min_rr, regime_rr_floor) in the post-RR safety check.
+# Rationale: distribution/correction environments have lower win rates, so
+# each trade must have a more favorable risk/reward to compensate.
+REGIME_RR_FLOOR: Dict[str, float] = {
+    "DISTRIBUTION": 2.0,   # distribution → only high-quality R:R
+    "CORRECTION": 2.5,     # correction → very selective
+    "BEARISH": 2.5,        # bearish → very selective
+    "PANIC": 99.0,         # effectively blocks all (matches REGIME_MIN_SCORE=100)
+}
+
+
 # ROE quality gate: penalty zone for marginal profitability (3-5%)
 ROE_QUALITY_GATE: Dict[str, float] = {
     "min_roe": 3.0,               # Stocks with ROE below this are hard-blocked
     "penalty_zone_max": 5.0,      # ROE between min_roe and this gets score penalty
     "penalty_points": 5.0,        # Max penalty points for ROE at the boundary
+}
+
+# Analyst consensus cross-check: penalize when system target diverges
+# significantly from Wall Street consensus, especially when analysts
+# think a stock is already overvalued (negative upside).
+ANALYST_TARGET_PENALTY: Dict[str, object] = {
+    "enabled": True,
+    "overestimate_threshold": 0.20,   # system target exceeds analyst by >20%
+    "penalty_points": 5.0,            # score penalty for overestimate
+    "negative_upside_penalty": 8.0,   # score penalty if analyst PT < current price
+}
+
+# Volume confirmation in distribution/correction: penalize stocks where
+# up-day volume is weak relative to down-day volume — a classic sign of
+# distribution where rallies lack conviction and sell-offs have conviction.
+DISTRIBUTION_VOLUME_PENALTY: Dict[str, object] = {
+    "enabled": True,
+    "regimes": ["distribution", "correction"],
+    "up_down_volume_ratio_threshold": 0.85,   # up-day vol / down-day vol
+    "penalty_points": 3.0,                     # score penalty
+    "lookback_days": 20,                       # days of volume to analyze
 }
 
 # Reliability band thresholds (used by v2_risk_engine and classification)
