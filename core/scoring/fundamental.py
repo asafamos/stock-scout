@@ -22,7 +22,7 @@ def _safe_float(value: object, scale_to_pct: bool = False) -> Optional[float]:
     
     Args:
         value: Raw value (can be None, string, numeric)
-        scale_to_pct: If True and value is in [0,2], assume decimal and scale to %
+        scale_to_pct: If True and value is in [0,0.5), assume decimal and scale to %
     
     Returns:
         Float value or None if invalid
@@ -34,7 +34,7 @@ def _safe_float(value: object, scale_to_pct: bool = False) -> Optional[float]:
         if not np.isfinite(val):
             return None
         # Auto-scale small decimals to percentages when requested
-        if scale_to_pct and 0 < abs(val) < 2:
+        if scale_to_pct and 0 < abs(val) < 0.5:
             val = val * 100.0
         return val
     except (ValueError, TypeError):
