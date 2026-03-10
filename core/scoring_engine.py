@@ -116,7 +116,7 @@ def compute_final_score_20d(row: pd.Series, *, return_breakdown: bool = False):
             from core.scoring_config import ROE_QUALITY_GATE
             _roe_raw = row.get("roe", row.get("ROE", row.get("ROE_f", None)))
             if _roe_raw is not None and isinstance(_roe_raw, (int, float)) and np.isfinite(float(_roe_raw)):
-                _roe_pct_v = float(_roe_raw) * 100.0 if abs(float(_roe_raw)) < 2 else float(_roe_raw)
+                _roe_pct_v = float(_roe_raw) * 100.0 if abs(float(_roe_raw)) < 0.5 else float(_roe_raw)
                 _rqg_min = ROE_QUALITY_GATE.get("min_roe", 3.0)
                 _rqg_max = ROE_QUALITY_GATE.get("penalty_zone_max", 5.0)
                 _rqg_pts = ROE_QUALITY_GATE.get("penalty_points", 5.0)
@@ -743,7 +743,7 @@ def calculate_quality_score(row: pd.Series) -> Tuple[float, str]:
     # ROE
     roe = row.get("ROE_f")
     if pd.notna(roe) and roe != 0:
-        roe_pct = roe * 100 if abs(roe) < 2 else roe
+        roe_pct = roe * 100 if abs(roe) < 0.5 else roe
         # ROE > 15% = good, < 5% = poor
         roe_score = np.clip((roe_pct - 5) / 10, 0, 1)  # Normalize 5-15% to 0-1
         scores.append(roe_score)
@@ -752,7 +752,7 @@ def calculate_quality_score(row: pd.Series) -> Tuple[float, str]:
     # Gross Margin
     gm = row.get("GM_f")
     if pd.notna(gm) and gm != 0:
-        gm_pct = gm * 100 if abs(gm) < 2 else gm
+        gm_pct = gm * 100 if abs(gm) < 0.5 else gm
         # GM > 30% = good, < 10% = poor
         gm_score = np.clip((gm_pct - 10) / 20, 0, 1)  # Normalize 10-30% to 0-1
         scores.append(gm_score)
@@ -761,7 +761,7 @@ def calculate_quality_score(row: pd.Series) -> Tuple[float, str]:
     # Profit Margin
     pm = row.get("ProfitMargin")
     if pd.notna(pm) and pm != 0:
-        pm_pct = pm * 100 if abs(pm) < 2 else pm
+        pm_pct = pm * 100 if abs(pm) < 0.5 else pm
         # PM > 10% = good, < 0% = poor
         pm_score = np.clip(pm_pct / 10, 0, 1)  # Normalize 0-10% to 0-1
         scores.append(pm_score)
@@ -771,7 +771,7 @@ def calculate_quality_score(row: pd.Series) -> Tuple[float, str]:
     # Revenue Growth
     rev_g = row.get("RevG_f") or row.get("RevenueGrowthYoY")
     if pd.notna(rev_g) and rev_g != 0:
-        rev_pct = rev_g * 100 if abs(rev_g) < 2 else rev_g
+        rev_pct = rev_g * 100 if abs(rev_g) < 0.5 else rev_g
         # Rev growth > 20% = great, 0-20% = acceptable, < 0% = poor
         if rev_pct >= 20:
             rev_score = 1.0
@@ -785,7 +785,7 @@ def calculate_quality_score(row: pd.Series) -> Tuple[float, str]:
     # EPS Growth
     eps_g = row.get("EPSG_f") or row.get("EPSGrowthYoY")
     if pd.notna(eps_g) and eps_g != 0:
-        eps_pct = eps_g * 100 if abs(eps_g) < 2 else eps_g
+        eps_pct = eps_g * 100 if abs(eps_g) < 0.5 else eps_g
         # EPS growth > 25% = great, 0-25% = acceptable, < 0% = poor
         if eps_pct >= 25:
             eps_score = 1.0

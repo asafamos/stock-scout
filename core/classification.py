@@ -104,7 +104,7 @@ def apply_safety_filters(row: pd.Series, earnings_window_days: int = 7) -> Dict[
         if _min_roe is not None:
             _roe_val = row.get("roe", row.get("ROE", row.get("ROE_f", None)))
             if _roe_val is not None and isinstance(_roe_val, (int, float)) and np.isfinite(_roe_val):
-                _roe_pct = float(_roe_val) * 100.0 if abs(float(_roe_val)) < 2 else float(_roe_val)
+                _roe_pct = float(_roe_val) * 100.0 if abs(float(_roe_val)) < 0.5 else float(_roe_val)
                 if _roe_pct < float(_min_roe):
                     reasons.append(f"low_roe({_roe_pct:.1f}%<{float(_min_roe):.0f}%)")
     except Exception:
