@@ -14,7 +14,7 @@ from core.market_context import (
     get_benchmark_series,
 )
 from core.ml_20d_inference import ML_20D_AVAILABLE, get_ml_health_meta
-from core.ml_feature_builder import build_all_ml_features_v3, build_all_ml_features_v3_5, build_all_ml_features_v3_6
+from core.ml_feature_builder import build_all_ml_features_v3, build_all_ml_features_v3_5, build_all_ml_features_v3_6, build_all_ml_features_v4
 from core.pattern_matcher import PatternMatcher
 from core.scoring import build_technical_indicators
 from core.scoring_config import ML_PROB_THRESHOLD, TECH_STRONG_THRESHOLD

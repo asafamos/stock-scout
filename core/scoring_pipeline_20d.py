@@ -9,7 +9,7 @@ from core.ml_20d_inference import (
     apply_live_v3_adjustments,
     PREFERRED_SCORING_MODE_20D,
 )
-from core.ml_feature_builder import build_all_ml_features_v3, build_all_ml_features_v3_5, build_all_ml_features_v3_6, get_market_context_from_row
+from core.ml_feature_builder import build_all_ml_features_v3, build_all_ml_features_v3_5, build_all_ml_features_v3_6, build_all_ml_features_v4, get_market_context_from_row
 
 
 def normalize_schema(df: pd.DataFrame) -> pd.DataFrame:

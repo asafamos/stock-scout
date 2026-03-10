@@ -170,8 +170,9 @@ FEATURE_SPECS_V3_1: List[FeatureSpec] = [
 ]
 
 
-# Current default version (v3.7 = production model, 16 features — pruned harmful)
-DEFAULT_VERSION = "v3.7"
+# Current default version (v3.6 = production model, 23 features)
+# v3.7 (16 features) available but not yet proven in production
+DEFAULT_VERSION = "v3.6"
 
 # =============================================================================
 # PUBLIC API
@@ -196,6 +197,7 @@ def get_feature_names(version: str = DEFAULT_VERSION) -> List[str]:
         "v3.5": FEATURE_SPECS_V3_5,
         "v3.6": FEATURE_SPECS_V3_6,
         "v3.7": FEATURE_SPECS_V3_7,
+        "v4": FEATURE_SPECS_V4,
     }
     if version not in specs_map:
         raise ValueError(f"Unknown feature version: {version}. Supported: {SUPPORTED_VERSIONS}")
@@ -207,7 +209,7 @@ def get_feature_specs(version: str = DEFAULT_VERSION) -> List[FeatureSpec]:
     Get full feature specifications.
 
     Args:
-        version: Feature version ("v3", "v3.1", "v3.2", "v3.3", "v3.4", "v3.5", "v3.6")
+        version: Feature version ("v3", "v3.1", ..., "v3.7", "v4")
 
     Returns:
         List of FeatureSpec objects with full metadata
@@ -221,6 +223,7 @@ def get_feature_specs(version: str = DEFAULT_VERSION) -> List[FeatureSpec]:
         "v3.5": FEATURE_SPECS_V3_5,
         "v3.6": FEATURE_SPECS_V3_6,
         "v3.7": FEATURE_SPECS_V3_7,
+        "v4": FEATURE_SPECS_V4,
     }
     if version not in specs_map:
         raise ValueError(f"Unknown feature version: {version}. Supported: {SUPPORTED_VERSIONS}")
@@ -582,5 +585,70 @@ assert FEATURE_COUNT_V3_6 == 23, f"Expected 23 features, got {FEATURE_COUNT_V3_6
 FEATURE_COUNT_V3_7 = len(FEATURE_SPECS_V3_7)
 assert FEATURE_COUNT_V3_7 == 16, f"Expected 16 features, got {FEATURE_COUNT_V3_7}"
 
+
+# =============================================================================
+# FEATURE DEFINITIONS V4.0 (30 features)
+#   19 retained technical (from v3.6, dropped 4 weakest: ADX, MACD_Hist,
+#   MA50_Slope, Squeeze_x_Volume) + 7 fundamental + 4 alternative/interaction.
+#
+#   First version to include fundamental & alternative data.
+#   Fundamentals come from FMP/Finnhub (already fetched by row_builder.py).
+#   Alternative data from sentiment_data.py (Finnhub insider, FMP analyst, earnings).
+# =============================================================================
+FEATURE_SPECS_V4: List[FeatureSpec] = [
+    # ── 19 Retained Technical Features ──
+
+    # Price Action (4)
+    FeatureSpec("Support_Strength", "fraction days near support", 0.2, (0, 1), "price_action"),
+    FeatureSpec("Distance_From_52w_Low", "(close-52w_low)/52w_low", 0.5, (-0.5, 5.0), "price_action"),
+    FeatureSpec("Consolidation_Tightness", "(20d_high-low)/avg", 0.1, (0.01, 0.5), "price_action"),
+    FeatureSpec("Distance_To_Resistance", "(20d_high-close)/close", 0.05, (0, 0.5), "price_action"),
+
+    # Sector (2)
+    FeatureSpec("Sector_Momentum", "sector_etf_ret_20d", 0.0, (-0.5, 0.5), "sector"),
+    FeatureSpec("Sector_Rank", "1 if stock beats sector in 5d", 0.5, (0, 1), "sector"),
+
+    # Momentum (3)
+    FeatureSpec("RS_vs_SPY_20d", "stock_ret_20d - spy_ret_20d", 0.0, (-1.0, 1.0), "momentum"),
+    FeatureSpec("Return_20d", "20-day price return", 0.0, (-1.0, 2.0), "technical"),
+    FeatureSpec("Momentum_Consistency", "% positive days (last 20)", 0.5, (0, 1), "momentum"),
+
+    # Volatility (3)
+    FeatureSpec("Tightness_Ratio", "Range contraction: range_5d/range_20d", 1.0, (0.05, 2.0), "volatility"),
+    FeatureSpec("ATR_Pct", "Average True Range as % of price", 0.02, (0.001, 0.5), "technical"),
+    FeatureSpec("VCP_Ratio", "Volatility Contraction: ATR(10)/ATR(30)", 1.0, (0.1, 5.0), "volatility"),
+
+    # Volume (1)
+    FeatureSpec("Volume_Surge", "vol_5d_avg / vol_20d_avg", 1.0, (0.1, 10.0), "volume"),
+
+    # Delta (4)
+    FeatureSpec("RSI_Delta_5d", "RSI_now - RSI_5d_ago", 0.0, (-50, 50), "delta"),
+    FeatureSpec("ATR_Delta_5d", "ATR_Pct_now - ATR_Pct_5d_ago", 0.0, (-0.1, 0.1), "delta"),
+    FeatureSpec("Volume_Delta_5d", "Volume_Surge_now - Volume_Surge_5d_ago", 0.0, (-5, 5), "delta"),
+    FeatureSpec("Momentum_Acceleration", "Return_5d - (Return_20d-Return_5d)/3", 0.0, (-0.3, 0.3), "delta"),
+
+    # Interaction (2)
+    FeatureSpec("VCP_x_RS", "VCP_Ratio * RS_vs_SPY_20d", 0.0, (-5, 5), "interaction"),
+    FeatureSpec("Momentum_x_Volume", "Momentum_Consistency * Volume_Surge", 0.5, (0, 10), "interaction"),
+
+    # ── 7 Fundamental Features (NEW) ──
+    FeatureSpec("ROE_Zscore", "ROE z-score within cross-section", 0.0, (-3, 3), "fundamental"),
+    FeatureSpec("PE_Rank", "PE percentile rank (inverted: low PE = high)", 0.5, (0, 1), "fundamental"),
+    FeatureSpec("Revenue_YoY", "Revenue growth year-over-year", 0.0, (-0.5, 2.0), "fundamental"),
+    FeatureSpec("EPS_Growth_YoY", "EPS growth year-over-year", 0.0, (-1.0, 3.0), "fundamental"),
+    FeatureSpec("Debt_Equity_Zscore", "Debt/Equity z-score (inverted: low=better)", 0.0, (-3, 3), "fundamental"),
+    FeatureSpec("Beta", "Market sensitivity", 1.0, (0.2, 3.0), "fundamental"),
+    FeatureSpec("Log_MarketCap", "Natural log of market capitalization", 23.0, (18, 28), "fundamental"),
+
+    # ── 4 Alternative/Sentiment Features (NEW) ──
+    FeatureSpec("Insider_Net_30d", "Net insider buy/sell (-1 to 1)", 0.0, (-1, 1), "alternative"),
+    FeatureSpec("Price_Target_Upside", "Analyst PT upside %", 0.1, (-0.5, 1.0), "alternative"),
+    FeatureSpec("Days_To_Earnings_Norm", "Days to earnings / 90", 0.5, (0, 1), "alternative"),
+    FeatureSpec("Quality_x_Momentum", "ROE_Zscore * Momentum_Consistency", 0.0, (-3, 3), "interaction"),
+]
+
+FEATURE_COUNT_V4 = len(FEATURE_SPECS_V4)
+assert FEATURE_COUNT_V4 == 30, f"Expected 30 features, got {FEATURE_COUNT_V4}"
+
 # List of all supported versions
-SUPPORTED_VERSIONS = ["v3", "v3.1", "v3.2", "v3.3", "v3.4", "v3.5", "v3.6", "v3.7"]
+SUPPORTED_VERSIONS = ["v3", "v3.1", "v3.2", "v3.3", "v3.4", "v3.5", "v3.6", "v3.7", "v4"]

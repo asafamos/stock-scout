@@ -715,12 +715,11 @@ class TestV35Features:
         expected_mom_vol = features["Momentum_Consistency"] * features["Volume_Surge"]
         assert abs(features["Momentum_x_Volume"] - expected_mom_vol) < 1e-6
 
-    def test_v4_removed(self):
-        from core.feature_registry import SUPPORTED_VERSIONS
-        assert "v4" not in SUPPORTED_VERSIONS
-        from core.feature_registry import get_feature_names
-        with pytest.raises(ValueError):
-            get_feature_names("v4")
+    def test_v4_registered(self):
+        """v4 is registered in the feature registry (30 features)."""
+        from core.feature_registry import SUPPORTED_VERSIONS, get_feature_names
+        assert "v4" in SUPPORTED_VERSIONS
+        assert len(get_feature_names("v4")) == 30
 
 
 # ============================================================================

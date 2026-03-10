@@ -160,7 +160,7 @@ def _finalize_model(
         BUNDLE_HAS_MISSING_METEOR_FEATURES = True
 
     # Version safety: validate feature count matches a known registry version
-    _KNOWN_FEATURE_COUNTS = {34: "v3", 39: "v3.1", 13: "v3.4", 20: "v3.5", 23: "v3.6", 16: "v3.7"}
+    _KNOWN_FEATURE_COUNTS = {34: "v3", 39: "v3.1", 13: "v3.4", 20: "v3.5", 23: "v3.6", 16: "v3.7", 30: "v4"}
     n_feat = len(feature_names)
     detected_version = _KNOWN_FEATURE_COUNTS.get(n_feat)
     if detected_version:
@@ -228,6 +228,15 @@ def _load_bundle_impl() -> tuple[bool, Any, list[str], str]:
                 raw_auc = metrics.get("oos_auc") or metrics.get("cv_auc_mean")
                 if raw_auc is not None:
                     meta_auc = float(raw_auc)
+                # Load fundamental stats for v4 inference z-scoring
+                fund_stats = meta_obj.get("fundamental_stats")
+                if fund_stats and isinstance(fund_stats, dict):
+                    try:
+                        from core.ml_feature_builder import load_fundamental_stats
+                        load_fundamental_stats(fund_stats)
+                        logger.info("Loaded fundamental_stats from model metadata")
+                    except Exception as exc:
+                        logger.debug("Failed to load fundamental_stats: %s", exc)
                 # Version check
                 try:
                     import sklearn
@@ -329,7 +338,7 @@ def compute_ml_20d_probabilities_raw(row: pd.Series) -> float:
         try:
             from core.feature_registry import get_feature_defaults, clip_features_to_range
             _n = len(FEATURE_COLS_20D)
-            _version = "v3.1" if _n >= 39 else ("v3.6" if _n >= 23 else ("v3.5" if _n >= 20 else ("v3.7" if _n >= 16 else ("v3.4" if _n >= 13 else "v3"))))
+            _version = "v4" if _n >= 30 else ("v3.1" if _n >= 39 else ("v3.6" if _n >= 23 else ("v3.5" if _n >= 20 else ("v3.7" if _n >= 16 else ("v3.4" if _n >= 13 else "v3")))))
             defaults = get_feature_defaults(_version)
         except Exception:
             defaults = {}
@@ -558,7 +567,7 @@ def get_ml_health_meta() -> Dict[str, Any]:
             or bool(ML_VERSION_WARNING)
         )
         _n = len(FEATURE_COLS_20D or [])
-        _detected = {34: "v3", 39: "v3.1", 13: "v3.4", 20: "v3.5", 23: "v3.6", 16: "v3.7"}.get(_n, f"unknown({_n})")
+        _detected = {34: "v3", 39: "v3.1", 13: "v3.4", 20: "v3.5", 23: "v3.6", 16: "v3.7", 30: "v4"}.get(_n, f"unknown({_n})")
         return {
             "ml_bundle_version_warning": bool(ML_VERSION_WARNING),
             "ml_bundle_warning_reason": ML_VERSION_WARNING_REASON,
