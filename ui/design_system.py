@@ -436,6 +436,26 @@ input, textarea, code, pre,
     color: var(--ss-spec-text);
 }
 
+/* Investment style badges */
+.ss-style-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    font-size: 0.65rem;
+    font-weight: 600;
+    border-radius: 4px;
+    margin-left: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+.ss-style-badge.momentum {
+    background: rgba(147, 112, 219, 0.15);
+    color: #9370DB;
+}
+.ss-style-badge.value-momentum {
+    background: rgba(0, 180, 160, 0.15);
+    color: #00B4A0;
+}
+
 /* Score circle */
 .ss-score-circle {
     width: 64px;

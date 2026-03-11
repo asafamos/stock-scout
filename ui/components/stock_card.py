@@ -278,6 +278,16 @@ def render_stock_card(row: pd.Series, rank: int, score_label: str = "FinalScore_
     analyst_pt_upside = to_float(row.get("Price_Target_Upside", np.nan))
     analyst_penalty = to_float(row.get("Analyst_Penalty", np.nan))
 
+    # Build investment-style badge (Momentum vs Value + Momentum)
+    style_badge = ""
+    if np.isfinite(pe) or np.isfinite(analyst_pt_upside):
+        _is_momentum = (np.isfinite(pe) and pe > 40) or \
+                       (np.isfinite(analyst_pt_upside) and analyst_pt_upside < -5)
+        if _is_momentum:
+            style_badge = '<span class="ss-style-badge momentum">Momentum</span>'
+        elif np.isfinite(tech_score_raw) and tech_score_raw >= 50:
+            style_badge = '<span class="ss-style-badge value-momentum">Value + Momentum</span>'
+
     # Build sector badge
     sector_badge = f'<span class="ss-sector-badge">{sector}</span>' if sector else ""
     company_div = f'<div class="ss-company">{company}</div>' if company else ""
@@ -292,6 +302,7 @@ def render_stock_card(row: pd.Series, rank: int, score_label: str = "FinalScore_
         f'<div class="ss-ticker-row">'
         f'<span class="ss-ticker">{ticker}</span>'
         f'<span class="ss-risk-badge {card_class}">{badge_label}</span>'
+        f'{style_badge}'
         f'{sector_badge}'
         f'</div>'
         f'{company_div}'
