@@ -1563,6 +1563,10 @@ rec_df = rec_df.copy()
 if rec_df.empty:
     st.info("No strong signals found in this scan.")
 else:
+    # Show warning banner when results are low-confidence fallbacks
+    if "LowConfidence" in rec_df.columns and rec_df["LowConfidence"].any():
+        _lc_reason = rec_df["LowConfidence_Reason"].iloc[0] if "LowConfidence_Reason" in rec_df.columns else ""
+        st.warning(f"Lower confidence — {_lc_reason or 'elevated market risk'}. Review with extra caution.")
     rec_df["Fallback_Display"] = False
 
 # Provider usage tracking (aggregate from source lines)

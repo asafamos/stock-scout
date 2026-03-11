@@ -461,6 +461,8 @@ ML_PROB_THRESHOLD: float = 0.62
 BYPASS_DISABLED_ABOVE_MIN_SCORE: float = 70.0
 # Default top-K limit for ranked signal output
 TOP_SIGNAL_K: int = 30
+# Minimum results to always return (with LowConfidence flag if thresholds not met)
+MIN_FALLBACK_K: int = 5
 # Technical score threshold indicating strong momentum
 TECH_STRONG_THRESHOLD: float = 65.0
 

@@ -56,7 +56,7 @@ from core.market_context import initialize_market_context
 from core.ml_20d_inference import ML_20D_AVAILABLE, get_ml_health_meta
 from core.provider_guard import get_provider_guard
 from core.scoring import compute_fundamental_score_with_breakdown
-from core.scoring_config import BYPASS_DISABLED_ABOVE_MIN_SCORE, ML_PROB_THRESHOLD, PATTERN_MIN_SCORE, REGIME_MIN_SCORE, SIGNAL_MIN_SCORE, TOP_SIGNAL_K
+from core.scoring_config import BYPASS_DISABLED_ABOVE_MIN_SCORE, MIN_FALLBACK_K, ML_PROB_THRESHOLD, PATTERN_MIN_SCORE, REGIME_MIN_SCORE, SIGNAL_MIN_SCORE, TOP_SIGNAL_K
 from core.scoring_engine import compute_final_score_20d
 from core.sector_mapping import get_stock_sector
 from core.telemetry import Telemetry
@@ -1773,25 +1773,17 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
 
             topn = int(ctx.config.get("topn_results", TOP_SIGNAL_K))
             if filtered.empty:
-                # In strict regimes (DISTRIBUTION+), do NOT fall back — show empty
-                if effective_min_score >= 75.0:
-                    ctx.results = pd.DataFrame(columns=ctx.results.columns)
-                    logger.info(
-                        "[PIPELINE] No candidates meet regime-aware threshold (%.0f) "
-                        "in %s market — returning empty (no recommendations)",
-                        effective_min_score,
-                        _regime_for_threshold,
-                    )
-                else:
-                    sort_cols_fb = ["_score_numeric"]
-                    asc_fb = [False]
-                    if "SignalReasons_Count" in ctx.results.columns:
-                        sort_cols_fb.append("SignalReasons_Count")
-                        asc_fb.append(False)
-                    sort_cols_fb.append("ML_20d_Prob")
+                # Fallback: try safety-respecting top-N first
+                sort_cols_fb = ["_score_numeric"]
+                asc_fb = [False]
+                if "SignalReasons_Count" in ctx.results.columns:
+                    sort_cols_fb.append("SignalReasons_Count")
                     asc_fb.append(False)
-                    # Fallback also respects safety filters
-                    safe_results = ctx.results[safety_ok] if safety_ok.any() else ctx.results
+                sort_cols_fb.append("ML_20d_Prob")
+                asc_fb.append(False)
+
+                safe_results = ctx.results[safety_ok] if safety_ok.any() else pd.DataFrame(columns=ctx.results.columns)
+                if not safe_results.empty:
                     fallback = (
                         safe_results.assign(
                             _score_numeric=pd.to_numeric(
@@ -1807,6 +1799,37 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
                         "using top-%d by score as fallback",
                         topn,
                     )
+                else:
+                    # Guaranteed minimum: ignore SafetyBlocked, return top-K
+                    # with LowConfidence flag so the UI can warn the user.
+                    # Only PANIC (score=100) truly blocks all output.
+                    if _regime_for_threshold == "PANIC":
+                        ctx.results = pd.DataFrame(columns=ctx.results.columns)
+                        logger.info(
+                            "[PIPELINE] PANIC regime — returning empty (no recommendations)"
+                        )
+                    else:
+                        all_sorted = (
+                            ctx.results.assign(
+                                _score_numeric=pd.to_numeric(
+                                    ctx.results[score_col], errors="coerce"
+                                )
+                            )
+                            .sort_values(by=sort_cols_fb, ascending=asc_fb)
+                            .drop(columns=["_score_numeric"])
+                        )
+                        ctx.results = all_sorted.head(MIN_FALLBACK_K).reset_index(drop=True)
+                        ctx.results["LowConfidence"] = True
+                        ctx.results["LowConfidence_Reason"] = (
+                            "Elevated market risk — no stocks met full quality thresholds"
+                        )
+                        logger.info(
+                            "[PIPELINE] Guaranteed fallback: returning top-%d with "
+                            "LowConfidence flag (regime=%s, threshold=%.0f)",
+                            MIN_FALLBACK_K,
+                            _regime_for_threshold,
+                            effective_min_score,
+                        )
             else:
                 ctx.results = filtered.head(topn).reset_index(drop=True)
                 logger.info(
