@@ -389,7 +389,7 @@ class _RateLimiter:
             self._last = time.monotonic()
 
 
-def get_universe_tickers(limit=2000):
+def get_universe_tickers(limit=1000):
     """Get training universe — robust fallback chain."""
     # 1. Use the same universe function as the scan pipeline
     try:

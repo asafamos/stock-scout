@@ -1,7 +1,7 @@
 name: Nightly ML Training (20d)
 
-# Nightly training workflow - retrains ML model with 2000 tickers and
-# 3 years of history from Polygon API (free tier: 5 req/min).
+# Nightly training workflow - retrains ML model with 1000 tickers and
+# 3 years of history from Polygon API (free tier: 4 req/min).
 # Runs on weeknights (Mon-Fri) after market close.
 # Uses rank-based labeling (v3.6 features, 23 features).
 
@@ -18,7 +18,7 @@ on:
 jobs:
   train:
     runs-on: ubuntu-latest
-    timeout-minutes: 360  # 2000 tickers × 4 req/min ≈ 500 min data (cached after 1st run) + training ≈ 60 min
+    timeout-minutes: 360  # 1000 tickers × 4 req/min ≈ 250 min data + training ≈ 60 min = ~310 min
     env:
       # REQUIRED: Polygon API key for historical data
       POLYGON_API_KEY: ${{ secrets.POLYGON_API_KEY }}
@@ -108,7 +108,7 @@ jobs:
         if: steps.market_check.outputs.skip != 'true'
         env:
           # Training configuration — must match variable names in train_rolling_ml_20d.py
-          ML_UNIVERSE_SIZE: '2000'
+          ML_UNIVERSE_SIZE: '1000'
           ML_TRAIN_YEARS: '3'
           POLYGON_RATE_LIMIT: '4'
           POLYGON_THREADS: '1'
