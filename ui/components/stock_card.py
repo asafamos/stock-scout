@@ -280,8 +280,15 @@ def render_stock_card(row: pd.Series, rank: int, score_label: str = "FinalScore_
 
     # Build investment-style badge (Momentum vs Value + Momentum)
     style_badge = ""
-    if np.isfinite(pe) or np.isfinite(analyst_pt_upside):
-        _is_momentum = (np.isfinite(pe) and pe > 40) or \
+    _pe_for_style = pe
+    # Fallback: if PE missing, try PEG * earnings-growth as rough proxy
+    if not np.isfinite(_pe_for_style):
+        _peg = to_float(row.get("PEG_Ratio", row.get("PEG", row.get("peg", np.nan))))
+        if np.isfinite(_peg) and _peg > 3:
+            _pe_for_style = 50.0  # treat high-PEG as high-PE for badge logic
+    _has_data = np.isfinite(_pe_for_style) or np.isfinite(analyst_pt_upside)
+    if _has_data:
+        _is_momentum = (np.isfinite(_pe_for_style) and _pe_for_style > 40) or \
                        (np.isfinite(analyst_pt_upside) and analyst_pt_upside < -5)
         if _is_momentum:
             style_badge = '<span class="ss-style-badge momentum">Momentum</span>'
