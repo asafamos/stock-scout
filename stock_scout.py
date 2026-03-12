@@ -680,25 +680,60 @@ if force_live_scan_once or st.session_state.get("_pipeline_running", False):
     status_manager.update_detail(f"Live scan forced — cached scan from {timestamp_str} skipped")
     use_precomputed = False
     st.session_state["skip_pipeline"] = False
-elif precomputed_df is not None and precomputed_meta is not None and not scan_too_old:
-    # Successfully loaded and NOT too old -> use precomputed snapshot
-    age_display = f"{scan_age_hours:.1f}" if isinstance(scan_age_hours, (int, float)) else "unknown"
-    status_manager.advance(
-        f"Precomputed scan loaded: {universe_size} tickers (last updated: {timestamp_str})"
-    )
-    status_manager.update_detail(f"Loaded {universe_size} stocks · {age_display}h old · auto-scan 4×/day")
-
-    st.session_state["skip_pipeline"] = True
-    st.session_state["precomputed_results"] = precomputed_df
-    try:
-        st.session_state["universe_size"] = int(universe_size)
-    except Exception as e:
-        logger.debug("_render_snapshot_banner: %s", e)
-    logger.info(f"[PERF] Precomputed scan: DataFrame shape {precomputed_df.shape}")
-    use_precomputed = True
 else:
-    # Either no snapshot exists, or scan is too old
-    if scan_too_old and precomputed_df is not None:
+    # --- Supabase preference: if a newer live scan exists in Supabase, use it ---
+    try:
+        from core.db.scan_manager import get_scan_manager as _gsm
+        _sm_check = _gsm(_user_id or "default")
+        if _sm_check is not None:
+            _supa_meta = _sm_check.get_latest_scan_meta()
+            if _supa_meta and _supa_meta.get("timestamp"):
+                _supa_ts = datetime.datetime.fromisoformat(
+                    str(_supa_meta["timestamp"]).replace("Z", "+00:00")
+                ).replace(tzinfo=None)
+                _precomp_ts = None
+                if precomputed_meta and precomputed_meta.get("timestamp"):
+                    try:
+                        _precomp_ts = datetime.datetime.fromisoformat(
+                            str(precomputed_meta["timestamp"]).replace("Z", "+00:00")
+                        ).replace(tzinfo=None)
+                    except Exception:
+                        pass
+                # If Supabase scan is newer than precomputed, load it
+                if _precomp_ts is None or _supa_ts > _precomp_ts:
+                    _supa_df = _sm_check.get_latest_scan()
+                    if _supa_df is not None and not _supa_df.empty:
+                        precomputed_df = _supa_df
+                        precomputed_meta = _supa_meta
+                        timestamp_str = str(_supa_meta.get("timestamp", "unknown"))
+                        universe_size = _supa_meta.get("total_recommended", len(_supa_df))
+                        scan_too_old = False
+                        logger.info(
+                            "[PERSISTENCE] Supabase scan preferred over precomputed "
+                            "(supa=%s > precomp=%s, %d recs)",
+                            _supa_ts, _precomp_ts, len(_supa_df),
+                        )
+    except Exception as _supa_exc:
+        logger.debug("Supabase preference check failed: %s", _supa_exc)
+
+    if precomputed_df is not None and precomputed_meta is not None and not scan_too_old:
+        # Successfully loaded and NOT too old -> use precomputed snapshot
+        age_display = f"{scan_age_hours:.1f}" if isinstance(scan_age_hours, (int, float)) else "unknown"
+        status_manager.advance(
+            f"Precomputed scan loaded: {universe_size} tickers (last updated: {timestamp_str})"
+        )
+        status_manager.update_detail(f"Loaded {universe_size} stocks · {age_display}h old · auto-scan 4×/day")
+
+        st.session_state["skip_pipeline"] = True
+        st.session_state["precomputed_results"] = precomputed_df
+        try:
+            st.session_state["universe_size"] = int(universe_size)
+        except Exception as e:
+            logger.debug("_render_snapshot_banner: %s", e)
+        logger.info(f"[PERF] Precomputed scan: DataFrame shape {precomputed_df.shape}")
+        use_precomputed = True
+    elif scan_too_old and precomputed_df is not None:
+        # Scan is too old
         age_display = f"{scan_age_hours:.1f}" if isinstance(scan_age_hours, (int, float)) else "unknown"
         status_manager.update_detail(f"⚠️ Stale scan ({age_display}h old) · next auto-scan coming soon")
         # Use old scan anyway but warn user

@@ -242,6 +242,24 @@ class SupabaseScanManager:
             logger.warning("Failed to load latest scan: %s", exc)
             return None
 
+    def get_latest_scan_meta(self) -> Optional[Dict[str, Any]]:
+        """Return metadata dict for the most recent scan, or None."""
+        try:
+            resp = (
+                self._scans_table
+                .select("*")
+                .eq("user_id", self._user_id)
+                .order("timestamp", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if not resp.data:
+                return None
+            return resp.data[0]
+        except Exception as exc:
+            logger.warning("Failed to load latest scan meta: %s", exc)
+            return None
+
     def get_recommendations_for_scan(self, scan_id: str) -> Optional[pd.DataFrame]:
         """All recommendations for a specific scan."""
         try:
