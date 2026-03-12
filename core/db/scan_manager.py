@@ -23,6 +23,39 @@ import pandas as pd
 
 from core.db.store import _REC_COL_MAP, _safe_float, _safe_int, _safe_str
 
+# Reverse mapping: DB snake_case → preferred pipeline PascalCase column names.
+# _REC_COL_MAP is many-to-one (e.g. "Score" and "FinalScore_20d" both map to
+# "final_score"), so we pick the canonical pipeline name for each DB column.
+_DB_TO_PIPELINE: Dict[str, str] = {
+    "ticker": "Ticker",
+    "final_score": "FinalScore_20d",
+    "tech_score": "TechScore_20d",
+    "fundamental_score": "Fundamental_Score",
+    "ml_prob": "ML_20d_Prob",
+    "pattern_score": "PatternScore",
+    "big_winner_score": "BigWinnerScore_20d",
+    "reliability_score": "ReliabilityScore",
+    "risk_meter": "Risk_Meter",
+    "entry_price": "Entry",
+    "target_price": "Target_20d",
+    "stop_price": "Stop",
+    "rr_ratio": "RR",
+    "risk_class": "RiskClass",
+    "risk_label": "Risk_Label",
+    "market_regime": "Market_Regime",
+    "sector": "Sector",
+    "market_cap": "MarketCap",
+    "rsi": "RSI",
+    "atr_pct": "ATR_Pct",
+    "volume_surge": "Volume_Surge",
+    "ma_alignment": "MA_Alignment",
+    "rs_vs_spy_20d": "RS_vs_SPY_20d",
+    "fundamental_coverage_pct": "Fund_Coverage_Pct",
+    "fundamental_sources_count": "Fundamental_Sources_Count",
+    "data_quality": "Data_Quality",
+    "holding_days": "Holding_Days",
+}
+
 logger = logging.getLogger("stock_scout.db.scan_manager")
 
 DEFAULT_USER = "default"
@@ -261,7 +294,12 @@ class SupabaseScanManager:
             return None
 
     def get_recommendations_for_scan(self, scan_id: str) -> Optional[pd.DataFrame]:
-        """All recommendations for a specific scan."""
+        """All recommendations for a specific scan.
+
+        Returns a DataFrame with pipeline-style PascalCase column names
+        (e.g. ``FinalScore_20d``, ``TechScore_20d``) so the UI can consume
+        it without special-casing Supabase data.
+        """
         try:
             resp = (
                 self._recs_table
@@ -272,7 +310,14 @@ class SupabaseScanManager:
             )
             if not resp.data:
                 return None
-            return pd.DataFrame(resp.data)
+            df = pd.DataFrame(resp.data)
+            # Rename DB columns → pipeline names so the UI works unchanged
+            rename = {k: v for k, v in _DB_TO_PIPELINE.items() if k in df.columns}
+            df = df.rename(columns=rename)
+            # Also create Score alias expected by some UI paths
+            if "FinalScore_20d" in df.columns and "Score" not in df.columns:
+                df["Score"] = df["FinalScore_20d"]
+            return df
         except Exception as exc:
             logger.warning("Failed to load scan %s: %s", scan_id, exc)
             return None
