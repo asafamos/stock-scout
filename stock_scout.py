@@ -1558,7 +1558,14 @@ try:
 except Exception:
     pass
 _ts_line = f' · Scan: {_scan_ts_display} (IL)' if _scan_ts_display else ''
-st.markdown(f'<p style="font-size:0.72rem; color:var(--ss-text-muted); margin:-8px 0 12px; direction:ltr;">Signal candidates shown. This is not investment advice.{_ts_line}</p>', unsafe_allow_html=True)
+if _scan_ts_display:
+    st.markdown(
+        f'<div style="background:var(--ss-card-bg, #1e1e2f); border:1px solid var(--ss-border, #333); '
+        f'border-radius:8px; padding:8px 14px; margin:0 0 12px; display:inline-block; direction:ltr;">'
+        f'<span style="font-size:0.8rem; color:var(--ss-text-muted, #888);">Scan time: </span>'
+        f'<span style="font-size:0.9rem; font-weight:600; color:var(--ss-text, #fff);">{_scan_ts_display} (IL)</span>'
+        f'</div>', unsafe_allow_html=True)
+st.markdown(f'<p style="font-size:0.72rem; color:var(--ss-text-muted); margin:-8px 0 12px; direction:ltr;">Signal candidates shown. This is not investment advice.</p>', unsafe_allow_html=True)
 
 # Sidebar filters
 # Sidebar removed - all controls moved to top bar above

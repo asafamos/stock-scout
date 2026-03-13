@@ -1,5 +1,6 @@
 """Per-ticker scoring and parallel indicator computation for the pipeline."""
 
+import gc
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -312,28 +313,30 @@ def _step_compute_scores_with_unified_logic(
         status_callback("Computing technical indicators (parallel)...")
 
     rows: List[pd.Series] = []
-    max_workers = min(6, max(1, len(data_map)))  # Conservative for Streamlit Cloud (1GB RAM)
-    batch_size = max(10, max_workers * 2)
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_map: dict = {}
-        items = list(data_map.items())
-        for i in range(0, len(items), batch_size):
-            batch = items[i : i + batch_size]
+    max_workers = min(4, max(1, len(data_map)))  # Conservative for Streamlit Cloud (1GB RAM)
+    batch_size = 20  # Process in small batches to limit peak memory
+    items = list(data_map.items())
+    for i in range(0, len(items), batch_size):
+        batch = items[i : i + batch_size]
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_map: dict = {}
             for tkr, df in batch:
                 future = executor.submit(
                     _process_single_ticker, tkr, df, skip_tech_filter,
                 )
                 future_map[future] = tkr
-            # small backoff between batches
-            time.sleep(0.5)
-        for future in as_completed(future_map):
-            tkr = future_map[future]
-            try:
-                res = future.result()
-                if res is not None:
-                    rows.append(res)
-            except Exception as exc:
-                logger.warning(f"Ticker {tkr} failed in parallel scoring: {exc}")
+            for future in as_completed(future_map):
+                tkr = future_map[future]
+                try:
+                    res = future.result()
+                    if res is not None:
+                        rows.append(res)
+                except Exception as exc:
+                    logger.warning(f"Ticker {tkr} failed in parallel scoring: {exc}")
+        # Free memory between batches
+        gc.collect()
+        if status_callback and i > 0 and i % 100 == 0:
+            status_callback(f"Scored {i}/{len(items)} tickers...")
 
     if not rows:
         return pd.DataFrame()
