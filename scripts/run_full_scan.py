@@ -199,9 +199,9 @@ def main():
     cfg = cfg_obj.to_dict()
     cfg.update(
         {
-            "lookback_days": int(os.getenv("LOOKBACK_DAYS", str(getattr(cfg_obj, "lookback_days", 90)))),
+            "lookback_days": int(os.getenv("LOOKBACK_DAYS", str(getattr(cfg_obj, "lookback_days", 250)))),
             "fundamental_enabled": True,
-            "beta_filter_enabled": False,
+            "beta_filter_enabled": True,
             "meteor_mode": False,
             "BUDGET_TOTAL": float(os.getenv("BUDGET_TOTAL", str(getattr(cfg_obj, "budget_total", 5000.0)))),
             "MIN_POSITION": float(os.getenv("MIN_POSITION", str(getattr(cfg_obj, "min_position", 500.0)))),
