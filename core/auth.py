@@ -93,46 +93,41 @@ def get_current_user() -> Dict[str, str]:
     if "_current_user" in st.session_state:
         return st.session_state["_current_user"]
 
-    email: str | None = None
+    # ── Single-user mode ──────────────────────────────────────────────
+    # Use a fixed user_id so that portfolio & scan data is ALWAYS the same
+    # regardless of whether SSO succeeds, fails, or runs locally.
+    # This prevents data "disappearing" on reboot when user_id flips
+    # between SSO email and "local".
+    FIXED_USER_ID = "stockscout_owner"
 
-    # 1. Try Streamlit Cloud built-in auth (Google SSO)
+    # Still try to resolve display name from SSO for the UI badge
+    email: str | None = None
     try:
         user_obj = st.user
         email = getattr(user_obj, "email", None)
-        if email and isinstance(email, str) and "@" in email:
-            logger.debug("SSO resolved email: %s", email)
-        else:
+        if not (email and isinstance(email, str) and "@" in email):
             email = None
     except Exception:
-        logger.debug("SSO lookup failed, will try fallbacks")
+        pass
 
-    # 2. Fallback: persisted identity file (survives session_state resets)
     if not email:
         saved = _load_identity()
         if saved and "@" in saved.get("email", ""):
-            logger.info("Using persisted identity: %s (SSO unavailable this rerun)", saved["email"])
-            st.session_state["_current_user"] = saved
-            return saved
+            email = saved["email"]
 
-    # 3. Fallback: environment variable (local dev)
     if not email:
         email = os.getenv("STOCK_SCOUT_USER", "local")
 
-    user_id = _sanitize_for_path(email)
-
-    if "@" in email:
-        display_name = email.split("@")[0]
-    else:
-        display_name = email
+    display_name = email.split("@")[0] if "@" in email else email
 
     result = {
         "email": email,
-        "user_id": user_id,
+        "user_id": FIXED_USER_ID,
         "display_name": display_name,
     }
     st.session_state["_current_user"] = result
 
-    # Persist to disk when we got a real SSO email
+    # Persist SSO email for display name resolution
     if "@" in email:
         _save_identity(result)
 
