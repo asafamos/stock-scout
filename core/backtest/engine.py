@@ -227,16 +227,25 @@ class FullPipelineBacktest:
                 except Exception:
                     pass
 
+                # Build v3.6 ML features explicitly (same as ticker_scoring.py)
+                try:
+                    from core.ml_feature_builder import build_all_ml_features_v3_6
+                    ml_feats = build_all_ml_features_v3_6(df_ind)
+                    if ml_feats is not None:
+                        for k, v in ml_feats.items():
+                            row[k] = v
+                except Exception:
+                    pass
+
                 # Score using production canonical function.
-                # as_of_date=None: skip per-stock market-context API calls
-                # (regime is computed once per date in post-scoring step,
-                #  fundamentals use defaults since historical API unreliable).
+                # use_multi_source=True: fetch real fundamentals (same as live scan)
+                # as_of_date=as_of: enable regime-aware ML calibration
                 scored = compute_recommendation_scores(
                     row,
                     ticker=ticker,
-                    as_of_date=None,
+                    as_of_date=as_of,
                     enable_ml=self.enable_ml,
-                    use_multi_source=False,  # avoid API calls in backtest
+                    use_multi_source=self.enable_fundamentals,
                 )
 
                 if scored is None:
@@ -284,10 +293,7 @@ class FullPipelineBacktest:
         df_scored["Market_Regime"] = market_regime.upper()
 
         # 2. Apply classification (safety filters + risk class)
-        # Populate fundamental defaults for missing data — backtest can't
-        # reliably fetch historical fundamentals via API.  Neutral values
-        # that pass the require_fundamental_data filter without inflating
-        # scores (Fundamental_S computed separately).
+        # Fill fundamentals defaults only for stocks where API fetch failed
         for _f_col, _f_default in [("ROE", 5.0), ("MarketCap", 1e10)]:
             if _f_col not in df_scored.columns:
                 df_scored[_f_col] = _f_default
@@ -368,7 +374,38 @@ class FullPipelineBacktest:
         except Exception as e:
             logger.warning("Dynamic RR computation failed at %s: %s", as_of, e)
 
-        # 4. Recompute FinalScore_20d with updated R:R and market regime
+        # 4. Recompute reliability post-enrichment (matches runner.py:1256-1301)
+        try:
+            def _recompute_reliability(row):
+                fund_sources = row.get("Fundamental_Sources_Count", 0)
+                if pd.isna(fund_sources):
+                    fund_sources = 0
+                fund_sources = int(fund_sources)
+                fund_score = min(fund_sources, 4) * 15 + 20
+                price_bonus = 0
+                if pd.notna(row.get("Price_Yahoo", row.get("Close"))):
+                    price_bonus += 10
+                if pd.notna(row.get("ATR")):
+                    price_bonus += 5
+                if pd.notna(row.get("RSI")):
+                    price_bonus += 5
+                fund_data_bonus = 0
+                fund_s = row.get("Fundamental_S", 50.0)
+                has_real_fund = any(
+                    pd.notna(row.get(f))
+                    for f in ["pe", "roe", "pb", "margin", "debt_equity",
+                              "PE_Ratio", "ROE", "PB_Ratio", "Debt_to_Equity"]
+                )
+                if has_real_fund and fund_s != 50.0:
+                    fund_data_bonus = 10
+                return min(fund_score + price_bonus + fund_data_bonus, 100)
+
+            df_scored["ReliabilityScore"] = df_scored.apply(_recompute_reliability, axis=1)
+            df_scored["Reliability_Score"] = df_scored["ReliabilityScore"]
+        except Exception as e:
+            logger.debug("Reliability recompute skipped at %s: %s", as_of, e)
+
+        # 5. Recompute FinalScore_20d with updated R:R, reliability, and market regime
         try:
             from core.scoring_engine import compute_final_score_20d
 
@@ -380,11 +417,25 @@ class FullPipelineBacktest:
         except Exception as e:
             logger.warning("FinalScore recompute failed at %s: %s", as_of, e)
 
-        # 5. Post-RR safety re-check (matches runner.py:1447-1470)
+        # 6. Post-RR safety re-check with VIX-adjusted min R:R (matches runner.py)
         try:
-            from core.scoring_config import HARD_FILTERS
+            from core.scoring_config import HARD_FILTERS, get_vix_min_rr, REGIME_RR_FLOOR
 
-            min_rr = float(HARD_FILTERS.get("min_rr", 0.0))
+            # Get VIX value from SPY data for this date
+            _vix_val = None
+            try:
+                spy_hist = self._get_historical_df("SPY", as_of)
+                if spy_hist is not None and len(spy_hist) > 20:
+                    # Use ATR-based VIX proxy if real VIX not available
+                    _spy_ret = spy_hist["Close"].pct_change().dropna()
+                    _vix_val = float(_spy_ret.tail(20).std() * np.sqrt(252) * 100)
+            except Exception:
+                pass
+
+            min_rr = get_vix_min_rr(_vix_val)
+            # Apply regime floor override (stricter in adverse regimes)
+            regime_floor = REGIME_RR_FLOOR.get(market_regime.upper(), 0.0)
+            min_rr = max(min_rr, regime_floor)
             if min_rr > 0 and not df_scored.empty:
                 for idx in df_scored.index:
                     rr_val = None
@@ -417,7 +468,7 @@ class FullPipelineBacktest:
         except Exception as e:
             logger.debug("Post-RR safety re-check skipped: %s", e)
 
-        # 6. Dynamic holding days per stock (matches runner.py:1478-1498)
+        # 7. Dynamic holding days per stock (matches runner.py:1478-1498)
         try:
             if "ATR_Pct" in df_scored.columns and not df_scored.empty:
                 atr_vals = df_scored["ATR_Pct"].dropna()
