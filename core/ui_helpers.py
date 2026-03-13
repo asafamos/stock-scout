@@ -95,6 +95,11 @@ class StatusManager:
                 self._stage_times[prev_stage_name] = elapsed
 
         self.current_stage += 1
+        # Persist progress to session_state so Streamlit reruns don't reset the bar
+        try:
+            st.session_state["_sm_current_stage"] = self.current_stage
+        except Exception:
+            pass
         progress = min(self.current_stage / total, 1.0)
 
         stage_name = self.stages[self.current_stage - 1] if self.current_stage <= total else "Complete"

@@ -15,12 +15,12 @@ on:
         description: 'Backtest start date (YYYY-MM-DD)'
         required: false
         type: string
-        default: '2024-06-01'
+        default: '2025-06-01'
       end_date:
         description: 'Backtest end date (YYYY-MM-DD)'
         required: false
         type: string
-        default: '2025-12-31'
+        default: '2026-03-13'
       ablation:
         description: 'Run ablation study'
         required: false
@@ -30,7 +30,7 @@ on:
 jobs:
   backtest:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 240
     env:
       FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
       POLYGON_API_KEY: ${{ secrets.POLYGON_API_KEY }}
@@ -57,8 +57,8 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: |
-          START="${{ inputs.start_date || '2024-06-01' }}"
-          END="${{ inputs.end_date || '2025-12-31' }}"
+          START="${{ inputs.start_date || '2025-06-01' }}"
+          END="${{ inputs.end_date || '2026-03-13' }}"
           ABLATION_FLAG=""
           if [ "${{ inputs.ablation }}" = "true" ]; then
             ABLATION_FLAG="--ablation"
