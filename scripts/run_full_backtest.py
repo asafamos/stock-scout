@@ -35,9 +35,21 @@ def main() -> None:
     parser.add_argument("--no-ml", action="store_true", help="Disable ML scoring")
     parser.add_argument("--no-fundamentals", action="store_true", help="Disable fundamental scoring")
     parser.add_argument("--no-patterns", action="store_true", help="Disable pattern matching")
+    parser.add_argument("--universe-size", type=int, default=200, help="Universe size (fetched dynamically)")
     parser.add_argument("--ablation", action="store_true", help="Run ablation study (all variants)")
     parser.add_argument("--output", type=str, default="reports/backtest_latest.json", help="Output file")
     args = parser.parse_args()
+
+    # Fetch universe dynamically (same source as live pipeline)
+    universe = None
+    if args.universe_size > 0:
+        try:
+            from core.pipeline_runner import fetch_top_us_tickers_by_market_cap
+            universe = fetch_top_us_tickers_by_market_cap(limit=args.universe_size)
+            if universe:
+                logger.info("Fetched %d tickers for backtest", len(universe))
+        except Exception as e:
+            logger.warning("Universe fetch failed: %s — using engine default", e)
 
     config = {
         "start_date": args.start,
@@ -50,6 +62,8 @@ def main() -> None:
         "enable_fundamentals": not args.no_fundamentals,
         "enable_patterns": not args.no_patterns,
     }
+    if universe:
+        config["universe"] = universe
 
     def status(msg: str) -> None:
         logger.info("[STATUS] %s", msg)

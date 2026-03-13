@@ -34,6 +34,9 @@ jobs:
     env:
       FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
       POLYGON_API_KEY: ${{ secrets.POLYGON_API_KEY }}
+      FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+      ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
+      TIINGO_API_KEY: ${{ secrets.TIINGO_API_KEY }}
 
     steps:
       - name: Checkout repository
@@ -65,6 +68,7 @@ jobs:
           fi
           python scripts/run_full_backtest.py \
             --start "$START" --end "$END" \
+            --universe-size 200 \
             --output reports/backtest_latest.json \
             $ABLATION_FLAG
 
