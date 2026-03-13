@@ -312,7 +312,7 @@ def _step_compute_scores_with_unified_logic(
         status_callback("Computing technical indicators (parallel)...")
 
     rows: List[pd.Series] = []
-    max_workers = min(16, max(1, len(data_map)))  # Increased for larger universes
+    max_workers = min(6, max(1, len(data_map)))  # Conservative for Streamlit Cloud (1GB RAM)
     batch_size = max(10, max_workers * 2)
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_map: dict = {}
