@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from sklearn.ensemble import HistGradientBoostingClassifier, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
+from lightgbm import LGBMClassifier
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.metrics import roc_auc_score, log_loss
 from sklearn.model_selection import TimeSeriesSplit, train_test_split
@@ -1074,22 +1075,27 @@ def train_and_save_bundle():
             print(f"   Fold {fold}: ⚠️  Skipped (insufficient positive samples)")
             continue
         
-        fold_model = HistGradientBoostingClassifier(
-            max_iter=500,              # Maximum iterations (will stop early)
-            learning_rate=0.05,
-            max_depth=8,               # Deeper trees for 55k+ samples
-            min_samples_leaf=15,       # Allow finer splits with large dataset
-            l2_regularization=0.1,     # L2 regularization
-            class_weight='balanced',   # Built-in class balancing
-            early_stopping=True,       # Enable early stopping
-            validation_fraction=0.15,  # Use 15% for early stopping validation
-            n_iter_no_change=10,       # Stop if no improvement for 10 iterations
-            random_state=42,
+        # Train mini-ensemble for this CV fold (matches final model architecture)
+        _cv_histgb = HistGradientBoostingClassifier(
+            max_iter=500, learning_rate=0.05, max_depth=8,
+            min_samples_leaf=15, l2_regularization=0.1,
+            class_weight='balanced', early_stopping=True,
+            validation_fraction=0.15, n_iter_no_change=10, random_state=42,
         )
-        fold_model.fit(X_train, y_train)
-        
-        # Out-of-sample predictions
-        y_pred_proba = fold_model.predict_proba(X_val)[:, 1]
+        _cv_histgb.fit(X_train, y_train)
+
+        _cv_lgbm = LGBMClassifier(
+            n_estimators=300, learning_rate=0.05, max_depth=6,
+            num_leaves=31, min_child_samples=20, subsample=0.8,
+            colsample_bytree=0.8, reg_alpha=0.1, reg_lambda=0.1,
+            is_unbalance=True, random_state=42, verbose=-1, n_jobs=-1,
+        )
+        _cv_lgbm.fit(X_train, y_train)
+
+        # Weighted average of HistGB + LightGBM for CV (skip RF+LR for speed)
+        _p1 = _cv_histgb.predict_proba(X_val)[:, 1]
+        _p2 = _cv_lgbm.predict_proba(X_val)[:, 1]
+        y_pred_proba = _p1 * 0.5 + _p2 * 0.5
         
         # Calculate metrics
         fold_auc = roc_auc_score(y_val, y_pred_proba)
@@ -1218,33 +1224,61 @@ def train_and_save_bundle():
     )
     model2.fit(X_train_final, y_train_final)
     print(f"      RandomForest trained with {model2.n_estimators} trees")
-    
-    # Train base model 3: LogisticRegression (linear baseline, needs scaling)
-    print("   Training Model 3/3: LogisticRegression...")
+
+    # Train base model 3: LightGBM (gradient boosting with leaf-wise growth)
+    print("   Training Model 3/4: LGBMClassifier...")
+    model3_lgbm = LGBMClassifier(
+        n_estimators=500,
+        learning_rate=0.05,
+        max_depth=6,
+        num_leaves=31,
+        min_child_samples=20,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        reg_alpha=0.1,
+        reg_lambda=0.1,
+        is_unbalance=True,
+        random_state=42,
+        verbose=-1,
+        n_jobs=-1,
+    )
+    # Use early stopping with calibration set
+    model3_lgbm.fit(
+        X_train_final, y_train_final,
+        eval_set=[(X_calib, y_calib)],
+        callbacks=[
+            __import__('lightgbm').early_stopping(stopping_rounds=20, verbose=False),
+            __import__('lightgbm').log_evaluation(period=0),
+        ],
+    )
+    print(f"      LightGBM best iteration: {model3_lgbm.best_iteration_}")
+
+    # Train base model 4: LogisticRegression (linear baseline, needs scaling)
+    print("   Training Model 4/4: LogisticRegression...")
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train_final)
-    model3 = LogisticRegression(
+    model4_lr = LogisticRegression(
         class_weight='balanced',
         max_iter=1000,
         C=1.0,  # Regularization (sklearn default; 0.1 was over-regularized)
         random_state=42,
     )
-    model3.fit(X_train_scaled, y_train_final)
-    model3._needs_scaling = True  # Mark for ensemble
+    model4_lr.fit(X_train_scaled, y_train_final)
+    model4_lr._needs_scaling = True  # Mark for ensemble
     print("      LogisticRegression converged")
-    
-    # Create ensemble with weights favoring tree models
-    ensemble_weights = [0.45, 0.35, 0.20]  # HistGB, RF, LR
+
+    # Create ensemble with weights favoring gradient boosting models
+    ensemble_weights = [0.30, 0.25, 0.30, 0.15]  # HistGB, RF, LightGBM, LR
     base_model = EnsembleClassifier(
-        models=[model1, model2, model3],
+        models=[model1, model2, model3_lgbm, model4_lr],
         weights=ensemble_weights,
         scaler=scaler,
     )
-    print(f"   Ensemble created with weights: HistGB={ensemble_weights[0]}, RF={ensemble_weights[1]}, LR={ensemble_weights[2]}")
+    print(f"   Ensemble created with weights: HistGB={ensemble_weights[0]}, RF={ensemble_weights[1]}, LightGBM={ensemble_weights[2]}, LR={ensemble_weights[3]}")
 
     # Per-model AUC diagnostics (identify weak ensemble members)
     print("\n📊 Individual Model AUCs (on calibration set):")
-    for name, m in [("HistGB", model1), ("RF", model2), ("LR", model3)]:
+    for name, m in [("HistGB", model1), ("RF", model2), ("LightGBM", model3_lgbm), ("LR", model4_lr)]:
         try:
             if hasattr(m, '_needs_scaling') and m._needs_scaling:
                 p = m.predict_proba(scaler.transform(X_calib))[:, 1]
@@ -1333,19 +1367,28 @@ def train_and_save_bundle():
 
         # RF importance
         imp2 = model2.feature_importances_
+        # LightGBM importance
+        imp3_lgbm = model3_lgbm.feature_importances_.astype(float)
+        imp3_lgbm = imp3_lgbm / imp3_lgbm.sum() if imp3_lgbm.sum() > 0 else np.ones(len(features)) / len(features)
         # LR coefficients (absolute value as importance proxy)
-        imp3 = np.abs(model3.coef_[0])
-        imp3 = imp3 / imp3.sum()  # Normalize to sum to 1
+        imp4_lr = np.abs(model4_lr.coef_[0])
+        imp4_lr = imp4_lr / imp4_lr.sum()  # Normalize to sum to 1
 
         # Weighted average matching ensemble weights
-        avg_importance = imp1 * ensemble_weights[0] + imp2 * ensemble_weights[1] + imp3 * ensemble_weights[2]
+        avg_importance = (
+            imp1 * ensemble_weights[0]
+            + imp2 * ensemble_weights[1]
+            + imp3_lgbm * ensemble_weights[2]
+            + imp4_lr * ensemble_weights[3]
+        )
 
         importance_df = pd.DataFrame({
             'feature': features,
             'importance': avg_importance,
             'histgb': imp1,
             'rf': imp2,
-            'lr': imp3,
+            'lightgbm': imp3_lgbm,
+            'lr': imp4_lr,
         }).sort_values('importance', ascending=False)
 
         for _, row in importance_df.iterrows():
@@ -1422,7 +1465,7 @@ def train_and_save_bundle():
         "feature_version": "v3.6",
         "feature_list": features,
         "training_timestamp_utc": datetime.utcnow().isoformat(),
-        "model_type": "CalibratedEnsemble(HistGB+RF+LR)",
+        "model_type": "CalibratedEnsemble(HistGB+RF+LightGBM+LR)",
         "model_name": "ml_20d_v3_ensemble_calibrated",
         "cv_method": f"RollingWindow(folds={len(oos_aucs)})",
         "target": (
@@ -1454,19 +1497,25 @@ def train_and_save_bundle():
             "class_weighting": "balanced",
         },
         "ensemble": {
-            "models": ["HistGradientBoostingClassifier", "RandomForestClassifier", "LogisticRegression"],
+            "models": ["HistGradientBoostingClassifier", "RandomForestClassifier", "LGBMClassifier", "LogisticRegression"],
             "weights": ensemble_weights,
         },
         "early_stopping": {
             "enabled": True,
             "histgb_stopped_at_iter": model1.n_iter_,
-            "max_iter": 300,
-            "n_iter_no_change": 15,
+            "histgb_max_iter": 500,
+            "histgb_n_iter_no_change": 15,
+            "lgbm_best_iteration": model3_lgbm.best_iteration_,
+            "lgbm_n_estimators": 500,
+            "lgbm_stopping_rounds": 20,
         },
         "regularization": {
             "histgb_l2": 0.1,
             "histgb_max_depth": 8,
             "rf_max_depth": 8,
+            "lgbm_max_depth": 6,
+            "lgbm_reg_alpha": 0.1,
+            "lgbm_reg_lambda": 0.1,
             "lr_C": 1.0,
             "min_samples_leaf": 15,
         },
