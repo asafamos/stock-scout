@@ -445,7 +445,16 @@ st.session_state["_tiingo_ok"] = tiin_ok
 st.session_state["_fmp_ok"] = fmp_ok
 
 # Initialize centralized status manager
+# Persist progress across Streamlit reruns so mid-pipeline reruns don't reset the bar
 status_manager = StatusManager(get_pipeline_stages())
+if "_sm_current_stage" in st.session_state:
+    status_manager.current_stage = st.session_state["_sm_current_stage"]
+    # Re-render the bar at the persisted progress level
+    _total = len(status_manager.stages)
+    if status_manager.current_stage > 0:
+        _prog = min(status_manager.current_stage / _total, 1.0)
+        _stage_label = status_manager.stages[min(status_manager.current_stage, _total) - 1]
+        status_manager._render_bar(_prog, _stage_label, min(status_manager.current_stage, _total))
 
 # Map pipeline detail messages to status stage advancements
 _stage_triggers = [
@@ -456,7 +465,10 @@ _stage_triggers = [
     ("Fetching fundamentals", "Fundamentals Enrichment"),
     ("Classifying & Allocating", "Signal Evaluation"),
 ]
-_completed_stages: Set[str] = set()
+# Persist completed stages across Streamlit reruns
+if "_completed_stages" not in st.session_state:
+    st.session_state["_completed_stages"] = set()
+_completed_stages: Set[str] = st.session_state["_completed_stages"]
 
 
 def _make_pipeline_callback(st_status):
@@ -502,6 +514,9 @@ if "av_calls" not in st.session_state:
 if st.button("🔄 Run Live Scan Now", key="live_scan_button", type="primary"):
     st.session_state["force_live_scan_once"] = True
     st.session_state["skip_pipeline"] = False  # ensure live path
+    # Reset progress tracking for the new scan
+    st.session_state["_sm_current_stage"] = 0
+    st.session_state["_completed_stages"] = set()
     st.rerun()
 
 force_live_scan_once = st.session_state.get("force_live_scan_once", False)
