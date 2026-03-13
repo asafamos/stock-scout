@@ -1008,7 +1008,7 @@ else:
         st.session_state["_pipeline_running"] = False
         # Record scan timestamp for UI display (stored as UTC ISO string)
         from datetime import datetime as _dt_now, timezone as _tz_utc
-        st.session_state["last_scan_timestamp"] = _dt_now.now(_tz_utc).isoformat()
+        st.session_state["last_scan_timestamp"] = _dt_now.now(_tz_utc.utc).isoformat()
         # Always store results (even empty) so UI can display the right state
         st.session_state["precomputed_results"] = results
         if not results.empty:
