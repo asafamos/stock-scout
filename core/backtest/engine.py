@@ -33,10 +33,9 @@ from core.backtest.result import BacktestResult
 
 logger = logging.getLogger("stock_scout.backtest.engine")
 
-# Default S&P 500 tickers — a representative subset used when a full
-# universe list isn't provided.  Keeping ~50 for speed; the full 500
-# can be supplied via the ``universe`` parameter.
-_DEFAULT_UNIVERSE = [
+# Default universe: dynamically fetched at runtime via fetch_top_us_tickers.
+# Fallback to S&P 500 subset if fetch fails.
+_FALLBACK_UNIVERSE = [
     "AAPL", "MSFT", "AMZN", "GOOGL", "META", "NVDA", "TSLA", "BRK-B",
     "UNH", "JNJ", "V", "XOM", "JPM", "MA", "PG", "HD", "CVX", "MRK",
     "ABBV", "PEP", "KO", "COST", "AVGO", "LLY", "TMO", "MCD", "WMT",
@@ -44,6 +43,21 @@ _DEFAULT_UNIVERSE = [
     "UPS", "RTX", "LOW", "INTC", "QCOM", "AMAT", "INTU", "ISRG",
     "AMD", "BKNG", "ADI", "MDLZ", "ADP", "GILD",
 ]
+
+_DEFAULT_UNIVERSE_SIZE = 200
+
+
+def _fetch_default_universe(size: int = _DEFAULT_UNIVERSE_SIZE) -> List[str]:
+    """Fetch universe dynamically, same as live pipeline."""
+    try:
+        from core.pipeline_runner import fetch_top_us_tickers_by_market_cap
+        tickers = fetch_top_us_tickers_by_market_cap(limit=size)
+        if tickers and len(tickers) >= 20:
+            logger.info("Fetched %d tickers for backtest universe", len(tickers))
+            return tickers
+    except Exception as e:
+        logger.warning("Dynamic universe fetch failed: %s — using fallback", e)
+    return _FALLBACK_UNIVERSE
 
 
 class FullPipelineBacktest:
@@ -82,7 +96,7 @@ class FullPipelineBacktest:
         self.rebalance_freq = rebalance_freq
         self.top_k = top_k
         self.holding_days = holding_days
-        self.universe = universe or _DEFAULT_UNIVERSE
+        self.universe = universe or _fetch_default_universe()
         self.initial_capital = initial_capital
         self.max_positions = max_positions
         self.enable_ml = enable_ml
@@ -208,6 +222,18 @@ class FullPipelineBacktest:
                 if df is None or len(df) < 50:
                     continue
 
+                # Tier 1 OHLCV filter (same as live pipeline)
+                last = df.iloc[-1]
+                price = float(last.get("Close", 0))
+                volume = float(last.get("Volume", 0))
+                avg_vol_20 = float(df["Volume"].tail(20).mean()) if "Volume" in df.columns else 0
+                if price < 3.0 or price > 10000:
+                    continue
+                if avg_vol_20 < 500_000:
+                    continue
+                if price * avg_vol_20 < 5_000_000:
+                    continue
+
                 # Build technical indicators (same as production)
                 df_ind = build_technical_indicators(df)
                 if df_ind.empty:
@@ -287,6 +313,30 @@ class FullPipelineBacktest:
         df_scored = pd.DataFrame(results)
 
         # --- Sync with live pipeline (_phase_finalize equivalent) ---
+
+        # 0. Blended RS ranking (same as runner.py:365-404, applied for >100 tickers)
+        if len(df_scored) >= 20 and "RS_vs_SPY_20d" in df_scored.columns:
+            try:
+                rs_20 = pd.to_numeric(df_scored["RS_vs_SPY_20d"], errors="coerce")
+                # Compute 63d RS from cached price data
+                rs_63_vals = []
+                for _, row in df_scored.iterrows():
+                    ticker = row.get("Ticker", "")
+                    hist = self._get_historical_df(ticker, as_of)
+                    spy_hist = self._get_historical_df("SPY", as_of)
+                    if hist is not None and spy_hist is not None and len(hist) >= 63 and len(spy_hist) >= 63:
+                        stock_ret = float(hist["Close"].iloc[-1] / hist["Close"].iloc[-63] - 1)
+                        spy_ret = float(spy_hist["Close"].iloc[-1] / spy_hist["Close"].iloc[-63] - 1)
+                        rs_63_vals.append(stock_ret - spy_ret)
+                    else:
+                        rs_63_vals.append(np.nan)
+                rs_63 = pd.Series(rs_63_vals, index=df_scored.index)
+                # Blend: 70% 63d + 30% 21d (same as live)
+                rs_blend = 0.7 * rs_63.fillna(0) + 0.3 * rs_20.fillna(0)
+                df_scored["RS_Blend"] = rs_blend
+                df_scored["RS_Pctile"] = rs_blend.rank(pct=True)
+            except Exception as e:
+                logger.debug("Blended RS computation failed: %s", e)
 
         # 1. Detect market regime for this date (look-ahead-safe)
         market_regime = self._detect_regime_for_date(as_of)
@@ -432,8 +482,10 @@ class FullPipelineBacktest:
             except Exception:
                 pass
 
+            # RR as scoring component (20% of conviction), NOT hard gate
+            # Aligned with live pipeline (runner.py:1481-1485) which removed
+            # hard RR gating to eliminate double-gating.
             min_rr = get_vix_min_rr(_vix_val)
-            # Apply regime floor override (stricter in adverse regimes)
             regime_floor = REGIME_RR_FLOOR.get(market_regime.upper(), 0.0)
             min_rr = max(min_rr, regime_floor)
             if min_rr > 0 and not df_scored.empty:
@@ -449,22 +501,13 @@ class FullPipelineBacktest:
                             ):
                                 rr_val = float(v)
                                 break
-                    if rr_val is not None and rr_val < min_rr:
-                        if "SafetyBlocked" in df_scored.columns:
-                            df_scored.at[idx, "SafetyBlocked"] = True
-                        if "RiskClass" in df_scored.columns:
-                            df_scored.at[idx, "RiskClass"] = "REJECT"
-                # Remove newly blocked stocks
-                blocked = df_scored.get(
-                    "SafetyBlocked", pd.Series(False, index=df_scored.index)
-                ) == True  # noqa: E712
-                rr_rejected = (
-                    df_scored.get(
-                        "RiskClass", pd.Series("CORE", index=df_scored.index)
-                    )
-                    == "REJECT"
-                )
-                df_scored = df_scored[~(blocked | rr_rejected)]
+                    # Apply RR as 20% penalty to FinalScore instead of hard reject
+                    if rr_val is not None and "FinalScore_20d" in df_scored.columns:
+                        rr_ratio = min(rr_val / max(min_rr, 0.5), 1.5)  # cap at 1.5x
+                        rr_factor = 0.8 + 0.2 * min(rr_ratio, 1.0)  # 0.8-1.0 range
+                        df_scored.at[idx, "FinalScore_20d"] = (
+                            float(df_scored.at[idx, "FinalScore_20d"]) * rr_factor
+                        )
         except Exception as e:
             logger.debug("Post-RR safety re-check skipped: %s", e)
 
