@@ -726,6 +726,7 @@ else:
 
         st.session_state["skip_pipeline"] = True
         st.session_state["precomputed_results"] = precomputed_df
+        st.session_state["last_scan_timestamp"] = timestamp_str or ""
         try:
             st.session_state["universe_size"] = int(universe_size)
         except Exception as e:
@@ -868,7 +869,8 @@ if skip_pipeline:
 else:
     # Live scan execution fallback
     st.session_state["_pipeline_running"] = True  # Guard against mid-pipeline reruns
-    with st.status("🚀 Running Live Scan...", expanded=False) as status:
+    try:
+     with st.status("🚀 Running Live Scan...", expanded=False) as status:
         status = status or NullStatus()
         pipeline_cb = _make_pipeline_callback(status)
 
@@ -1004,6 +1006,9 @@ else:
                 pass
         # Pipeline finished — clear the rerun guard
         st.session_state["_pipeline_running"] = False
+        # Record scan timestamp for UI display (stored as UTC ISO string)
+        from datetime import datetime as _dt_now, timezone as _tz_utc
+        st.session_state["last_scan_timestamp"] = _dt_now.now(_tz_utc).isoformat()
         # Always store results (even empty) so UI can display the right state
         st.session_state["precomputed_results"] = results
         if not results.empty:
@@ -1024,6 +1029,11 @@ else:
             pass
         # Safety: ensure _pipeline_running is cleared even on partial failures
         st.session_state["_pipeline_running"] = False
+    except Exception as _scan_exc:
+        st.session_state["_pipeline_running"] = False
+        logger.error("Live scan pipeline crashed: %s", _scan_exc, exc_info=True)
+        st.error(f"Scan failed: {_scan_exc}. Please try again.")
+        results = pd.DataFrame()
 
 # Debug logging if enabled
 create_debug_expander({
@@ -1522,7 +1532,33 @@ st.markdown("""
   <h2>Market Scan Results</h2>
 </div>
 """, unsafe_allow_html=True)
-st.markdown('<p style="font-size:0.72rem; color:var(--ss-text-muted); margin:-8px 0 12px; direction:ltr;">Signal candidates shown. This is not investment advice.</p>', unsafe_allow_html=True)
+# Show scan timestamp so user knows if results are fresh or loaded from history
+_scan_ts_display = ""
+try:
+    _scan_ts_raw = st.session_state.get("last_scan_timestamp") or st.session_state.get("scan_timestamp")
+    if _scan_ts_raw:
+        from datetime import datetime as _dt_parse, timezone as _tz_utc_parse
+        from zoneinfo import ZoneInfo as _ZI
+        _il_tz = _ZI("Asia/Jerusalem")
+        if isinstance(_scan_ts_raw, str):
+            _ts_str = _scan_ts_raw.strip()
+            # Try parsing as ISO with timezone info
+            try:
+                _ts_dt = _dt_parse.fromisoformat(_ts_str)
+            except ValueError:
+                _ts_dt = _dt_parse.strptime(_ts_str[:19], "%Y-%m-%d %H:%M:%S")
+            # If naive, assume UTC
+            if _ts_dt.tzinfo is None:
+                _ts_dt = _ts_dt.replace(tzinfo=_tz_utc_parse.utc)
+            _scan_ts_display = _ts_dt.astimezone(_il_tz).strftime("%Y-%m-%d %H:%M")
+        elif isinstance(_scan_ts_raw, _dt_parse):
+            if _scan_ts_raw.tzinfo is None:
+                _scan_ts_raw = _scan_ts_raw.replace(tzinfo=_tz_utc_parse.utc)
+            _scan_ts_display = _scan_ts_raw.astimezone(_il_tz).strftime("%Y-%m-%d %H:%M")
+except Exception:
+    pass
+_ts_line = f' · Scan: {_scan_ts_display} (IL)' if _scan_ts_display else ''
+st.markdown(f'<p style="font-size:0.72rem; color:var(--ss-text-muted); margin:-8px 0 12px; direction:ltr;">Signal candidates shown. This is not investment advice.{_ts_line}</p>', unsafe_allow_html=True)
 
 # Sidebar filters
 # Sidebar removed - all controls moved to top bar above

@@ -234,7 +234,11 @@ class SupabaseScanManager:
     # --- Read ---------------------------------------------------------------
 
     def get_scan_history(self, days: int = 30, limit: int = 50) -> pd.DataFrame:
-        """List recent scans as a DataFrame."""
+        """List recent scans as a DataFrame.
+
+        Queries by user_id first; if empty, retries without user_id filter
+        to handle user_id mismatches (local/test/SSO) in single-user mode.
+        """
         cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
         try:
             resp = (
@@ -249,6 +253,21 @@ class SupabaseScanManager:
                 .limit(limit)
                 .execute()
             )
+            if resp.data:
+                return pd.DataFrame(resp.data)
+            # Fallback: query without user_id filter (single-user mode)
+            logger.info("No scans for user_id=%s, retrying without user filter", self._user_id)
+            resp = (
+                self._scans_table
+                .select(
+                    "scan_id, timestamp, universe_name, universe_size, "
+                    "market_regime, total_recommended, ml_model_version, scan_type"
+                )
+                .gte("timestamp", cutoff)
+                .order("timestamp", desc=True)
+                .limit(limit)
+                .execute()
+            )
             if not resp.data:
                 return pd.DataFrame()
             return pd.DataFrame(resp.data)
@@ -256,20 +275,28 @@ class SupabaseScanManager:
             logger.warning("Failed to load scan history: %s", exc)
             return pd.DataFrame()
 
+    def _latest_scan_id(self) -> Optional[str]:
+        """Return the scan_id of the most recent scan.
+
+        Tries user-specific first, falls back to any user (single-user mode).
+        """
+        for use_filter in (True, False):
+            query = self._scans_table.select("scan_id").order("timestamp", desc=True).limit(1)
+            if use_filter:
+                query = query.eq("user_id", self._user_id)
+            resp = query.execute()
+            if resp.data:
+                return resp.data[0]["scan_id"]
+            if use_filter:
+                logger.info("No latest scan for user_id=%s, retrying without filter", self._user_id)
+        return None
+
     def get_latest_scan(self) -> Optional[pd.DataFrame]:
         """Load most recent scan's recommendations."""
         try:
-            resp = (
-                self._scans_table
-                .select("scan_id")
-                .eq("user_id", self._user_id)
-                .order("timestamp", desc=True)
-                .limit(1)
-                .execute()
-            )
-            if not resp.data:
+            scan_id = self._latest_scan_id()
+            if not scan_id:
                 return None
-            scan_id = resp.data[0]["scan_id"]
             return self.get_recommendations_for_scan(scan_id)
         except Exception as exc:
             logger.warning("Failed to load latest scan: %s", exc)
@@ -286,6 +313,15 @@ class SupabaseScanManager:
                 .limit(1)
                 .execute()
             )
+            # Fallback without user filter
+            if not resp.data:
+                resp = (
+                    self._scans_table
+                    .select("*")
+                    .order("timestamp", desc=True)
+                    .limit(1)
+                    .execute()
+                )
             if not resp.data:
                 return None
             return resp.data[0]
