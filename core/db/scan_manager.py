@@ -222,6 +222,26 @@ class SupabaseScanManager:
                 "fundamental_sources_count": _safe_int(mapped.get("fundamental_sources_count")),
                 "data_quality": _safe_str(mapped.get("data_quality")),
             }
+            # Store full pipeline row as JSON blob for lossless historical loading
+            try:
+                _row_dict = {}
+                for col in row.index:
+                    val = row[col]
+                    if isinstance(val, (np.integer,)):
+                        val = int(val)
+                    elif isinstance(val, (np.floating,)):
+                        val = float(val) if np.isfinite(val) else None
+                    elif isinstance(val, (np.bool_,)):
+                        val = bool(val)
+                    elif pd.isna(val):
+                        val = None
+                    elif not isinstance(val, (int, float, bool, str, type(None))):
+                        val = str(val)
+                    _row_dict[col] = val
+                rec_row["full_row_json"] = json.dumps(_row_dict, default=str)
+            except Exception as _json_exc:
+                logger.debug("Could not serialize full row for %s: %s", ticker, _json_exc)
+                rec_row["full_row_json"] = None
             try:
                 self._recs_table.upsert(rec_row).execute()
                 inserted += 1
@@ -347,10 +367,28 @@ class SupabaseScanManager:
             if not resp.data:
                 return None
             df = pd.DataFrame(resp.data)
-            # Rename DB columns → pipeline names so the UI works unchanged
-            rename = {k: v for k, v in _DB_TO_PIPELINE.items() if k in df.columns}
-            df = df.rename(columns=rename)
-            # Also create Score alias expected by some UI paths
+
+            # If full_row_json is available, expand it for lossless data
+            if "full_row_json" in df.columns and df["full_row_json"].notna().any():
+                expanded = []
+                for _, row in df.iterrows():
+                    blob = row.get("full_row_json")
+                    if blob and isinstance(blob, (str, dict)):
+                        d = json.loads(blob) if isinstance(blob, str) else blob
+                        expanded.append(d)
+                    else:
+                        # Fallback: use the explicit columns with rename
+                        row_dict = row.to_dict()
+                        renamed = {_DB_TO_PIPELINE.get(k, k): v for k, v in row_dict.items()}
+                        expanded.append(renamed)
+                if expanded:
+                    df = pd.DataFrame(expanded)
+            else:
+                # Legacy path: rename DB columns → pipeline names
+                rename = {k: v for k, v in _DB_TO_PIPELINE.items() if k in df.columns}
+                df = df.rename(columns=rename)
+
+            # Ensure Score alias exists
             if "FinalScore_20d" in df.columns and "Score" not in df.columns:
                 df["Score"] = df["FinalScore_20d"]
             return df
