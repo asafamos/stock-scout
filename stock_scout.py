@@ -237,10 +237,17 @@ with st.sidebar:
             if _ts_raw:
                 try:
                     _parsed = datetime.datetime.fromisoformat(str(_ts_raw).replace("Z", "+00:00"))
-                    if _parsed.tzinfo is not None:
-                        _parsed = _parsed.replace(tzinfo=None)
-                    _sort_ts = _parsed
-                    _ts_display = _parsed.strftime("%Y-%m-%d %H:%M")
+                    # Convert to Israel time for display
+                    try:
+                        import zoneinfo as _zi_sb
+                        _parsed_il = _parsed.astimezone(_zi_sb.ZoneInfo("Asia/Jerusalem"))
+                        _sort_ts = _parsed_il.replace(tzinfo=None)
+                        _ts_display = _parsed_il.strftime("%Y-%m-%d %H:%M")
+                    except Exception:
+                        if _parsed.tzinfo is not None:
+                            _parsed = _parsed.replace(tzinfo=None)
+                        _sort_ts = _parsed
+                        _ts_display = _parsed.strftime("%Y-%m-%d %H:%M")
                 except Exception:
                     _ts_display = str(_ts_raw)[:16]
             _count = _rec.get("total_recommended", _rec.get("results_count", _rec.get("total_tickers", _rec.get("universe_size", "?"))))
