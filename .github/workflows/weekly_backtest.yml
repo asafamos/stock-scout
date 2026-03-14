@@ -30,7 +30,7 @@ on:
 jobs:
   backtest:
     runs-on: ubuntu-latest
-    timeout-minutes: 240
+    timeout-minutes: 360
     env:
       FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
       POLYGON_API_KEY: ${{ secrets.POLYGON_API_KEY }}
