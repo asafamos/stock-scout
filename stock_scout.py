@@ -2171,7 +2171,7 @@ else:
     if score_label in sorted_df.columns:
         avg_score = float(sorted_df[score_label].mean())
     # Prefer Wyckoff phase for KPI strip, fallback to simple regime
-    _kpi_regime = st.session_state.get("wyckoff_phase", "").lower() or st.session_state.get("market_regime", {}).get("regime", "neutral")
+    _kpi_regime = (st.session_state.get("wyckoff_phase") or "").lower() or st.session_state.get("market_regime", {}).get("regime", "neutral")
     st.markdown(
         render_kpi_strip(len(sorted_df), _core_count, _spec_count, avg_score, _kpi_regime),
         unsafe_allow_html=True,
