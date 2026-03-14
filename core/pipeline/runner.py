@@ -127,6 +127,12 @@ class _PipelineContext:
     results: pd.DataFrame = dataclasses.field(default_factory=pd.DataFrame)
     fundamentals_status: str = "not_requested"
     start_universe: int = 0
+    scan_health: Dict[str, Any] = dataclasses.field(default_factory=lambda: {
+        "providers_used": [],
+        "providers_failed": [],
+        "warnings": [],
+        "data_completeness": {},
+    })
 
 
 def _build_pipeline_meta(ctx: _PipelineContext, **overrides) -> Dict[str, Any]:
@@ -162,8 +168,10 @@ def _build_pipeline_meta(ctx: _PipelineContext, **overrides) -> Dict[str, Any]:
             meta["ml_mode"] = "HYBRID_DEGRADED"
         else:
             meta["ml_mode"] = "HYBRID"
-    except (ImportError, AttributeError, TypeError, KeyError):
-        pass
+    except (ImportError, AttributeError, TypeError, KeyError) as exc:
+        logger.warning("ML health meta unavailable: %s", exc)
+    # Include scan health in meta
+    meta["scan_health"] = ctx.scan_health
     return meta
 
 
@@ -224,13 +232,13 @@ def _phase_init_context(ctx: _PipelineContext) -> Optional[Dict[str, Any]]:
         except (AttributeError, TypeError, KeyError):
             pass
     except Exception as e:
-        logger.debug("[PIPELINE] Market context init skipped: %s", e)
+        logger.warning("[PIPELINE] Market context init failed: %s", e)
 
     # ---- ML context ----
     try:
         _initialize_ml_context()
     except Exception as e:
-        logger.debug("[PIPELINE] ML context init skipped: %s", e)
+        logger.warning("[PIPELINE] ML context init failed: %s", e)
 
     # ---- API Preflight ----
     try:
@@ -278,7 +286,7 @@ def _phase_init_context(ctx: _PipelineContext) -> Optional[Dict[str, Any]]:
         except (ImportError, AttributeError):
             pass
     except (ImportError, KeyError) as exc:
-        logger.debug("API preflight skipped: %s", exc)
+        logger.warning("API preflight skipped: %s", exc)
         ctx.provider_status = {}
         ctx.run_mode = "OK"
 
@@ -538,7 +546,7 @@ def _phase_fetch_and_tier1(ctx: _PipelineContext) -> None:
                     }
                 )
         except Exception as exc:
-            logger.debug("Tier1 filter failed for %s: %s", tkr, exc)
+            logger.warning("Tier1 filter failed for %s: %s", tkr, exc)
             ctx.diagnostics.setdefault(tkr, {"tier1_reasons": [], "tier2_reasons": []})
             ctx.diagnostics[tkr]["tier1_reasons"].append(
                 {
@@ -1570,20 +1578,14 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
             _atr_vals = ctx.results["ATR_Pct"].dropna()
             _median_atr = float(_atr_vals.median()) if len(_atr_vals) > 0 else 0.025
 
-            def _dynamic_holding(row):
-                atr = row.get("ATR_Pct", _median_atr)
-                if not isinstance(atr, (int, float)) or pd.isna(atr) or atr <= 0:
-                    atr = _median_atr
-                # Low vol (< 2%) → 25 days; Med (2-4%) → 20; High (> 4%) → 12
-                if atr < 0.015:
-                    return 28
-                if atr < 0.025:
-                    return 22
-                if atr < 0.04:
-                    return 18
-                return 12
-
-            ctx.results["Holding_Days"] = ctx.results.apply(_dynamic_holding, axis=1)
+            # Vectorized holding days based on ATR buckets
+            _atr = pd.to_numeric(ctx.results["ATR_Pct"], errors="coerce").fillna(_median_atr)
+            _atr = _atr.where(_atr > 0, _median_atr)
+            ctx.results["Holding_Days"] = np.select(
+                [_atr < 0.015, _atr < 0.025, _atr < 0.04],
+                [28, 22, 18],
+                default=12,
+            )
         elif "Holding_Days" not in ctx.results.columns:
             ctx.results["Holding_Days"] = 20
 

@@ -56,6 +56,13 @@ from core.pipeline_runner import (
 )
 from core.data_sources_v2 import clear_cache, reset_disabled_providers
 
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _cached_universe(limit: int):
+    """Cache universe ticker list for 1 hour (doesn't change within a session)."""
+    return fetch_top_us_tickers_by_market_cap(limit=limit)
+
+
 # ── optional: OpenAI ────────────────────────────────────────────────
 try:
     from openai import OpenAI
@@ -195,9 +202,40 @@ st.markdown("""
   <p class="ss-subtitle">ML-powered stock scanner &amp; swing-trade recommendations &nbsp;·&nbsp; 20-day horizon &nbsp;·&nbsp; Research only</p>
 </div>
 """, unsafe_allow_html=True)
-st.session_state["enable_openai_targets"] = False
 
-# Force ML always on (no visible toggle)
+# ── Centralized session state initialization ────────────────────────
+# All session_state keys are initialized here with defaults.
+# This prevents KeyError and ensures consistent state across reruns.
+_SESSION_DEFAULTS = {
+    "enable_openai_targets": False,
+    "ENABLE_ML": True,
+    "USE_FINAL_SCORE_SORT": True,
+    "skip_pipeline": False,
+    "force_live_scan_once": False,
+    "precomputed_results": None,
+    "last_scan_timestamp": "",
+    "universe_size": 0,
+    "wyckoff_phase": None,
+    "wyckoff_confidence": 50,
+    "market_regime": None,
+    "engine_mode": "SIGNAL_ONLY",
+    "_pipeline_running": False,
+    "_sm_current_stage": 0,
+    "_completed_stages": set(),
+    "_alpha_ok": False,
+    "_alpha_vantage_ok": False,
+    "_finnhub_ok": False,
+    "_polygon_ok": False,
+    "_tiingo_ok": False,
+    "_fmp_ok": False,
+    "av_calls": 0,
+}
+for _key, _default in _SESSION_DEFAULTS.items():
+    if _key not in st.session_state:
+        st.session_state[_key] = _default
+
+# Force these values on every rerun (not conditional)
+st.session_state["enable_openai_targets"] = False
 st.session_state["ENABLE_ML"] = True
 st.session_state["USE_FINAL_SCORE_SORT"] = True
 
@@ -457,17 +495,15 @@ if "_sm_current_stage" in st.session_state:
         status_manager._render_bar(_prog, _stage_label, min(status_manager.current_stage, _total))
 
 # Map pipeline detail messages to status stage advancements
-_stage_triggers = [
+_stage_triggers = (
     ("Fetching historical data", "Historical Data Fetch"),
     ("Computing technical indicators", "Technical Indicators"),
     ("Applying Beta filter", "Beta Filter"),
     ("Applying advanced filters", "Advanced Filters"),
     ("Fetching fundamentals", "Fundamentals Enrichment"),
     ("Classifying & Allocating", "Signal Evaluation"),
-]
-# Persist completed stages across Streamlit reruns
-if "_completed_stages" not in st.session_state:
-    st.session_state["_completed_stages"] = set()
+)
+# Completed stages persist across Streamlit reruns (initialized in centralized init above)
 _completed_stages: Set[str] = st.session_state["_completed_stages"]
 
 
@@ -502,9 +538,9 @@ def t_end(t0: float) -> float:
     return time.perf_counter() - t0
 
 
-phase_times: Dict[str, float] = {}
-if "av_calls" not in st.session_state:
-    st.session_state.av_calls = 0
+if "phase_times" not in st.session_state:
+    st.session_state["phase_times"] = {}
+phase_times: Dict[str, float] = st.session_state["phase_times"]
 
 # ==================== DATA SOURCE MODE ====================
 
@@ -908,7 +944,7 @@ else:
         # 1. Fetch Universe
         status_manager.advance("Universe Building")
         _completed_stages.add("Universe Building")
-        universe = fetch_top_us_tickers_by_market_cap(limit=CONFIG["UNIVERSE_LIMIT"])
+        universe = _cached_universe(limit=CONFIG["UNIVERSE_LIMIT"])
         pipeline_cb(f"Fetched universe: {len(universe)} tickers")
 
         # 2. Run Pipeline (now returns wrapper {result, meta})

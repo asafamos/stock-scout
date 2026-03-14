@@ -1491,97 +1491,77 @@ def aggregate_fundamentals(
             logger.info(f"FastFundamental: using cached snapshot for {ticker}")
             return snap
 
-    # Fetch from all sources (sequential, rate-limit friendly)
+    # Fetch from available sources (parallel where possible)
     sources_data = {}
 
     # Determine fundamentals priority using dynamic latency-based routing
     fetch_funcs = get_prioritized_fetch_funcs(provider_status)
     first_attempted: Optional[str] = fetch_funcs[0][0] if fetch_funcs else None
 
-    for source_name, fetch_func in fetch_funcs:
-        # Respect preflight minimally: skip only when auth/no_key or cannot serve fundamentals
+    _KEY_MAP = {
+        "fmp": "FMP", "finnhub": "FINNHUB", "tiingo": "TIINGO",
+        "alpha": "ALPHAVANTAGE", "eodhd": "EODHD", "simfin": "SIMFIN",
+    }
+    _KEY_FIELDS = ["pe", "ps", "pb", "roe", "margin", "rev_yoy", "eps_yoy", "debt_equity", "market_cap", "beta"]
+
+    def _is_allowed(source_name: str) -> bool:
+        """Check if a source is allowed by preflight, guard, and blacklist."""
         if provider_status is not None:
-            key_map = {
-                "fmp": "FMP",
-                "finnhub": "FINNHUB",
-                "tiingo": "TIINGO",
-                "alpha": "ALPHAVANTAGE",
-                "eodhd": "EODHD",
-                "simfin": "SIMFIN",
-            }
-            s = provider_status.get(key_map.get(source_name, source_name))
+            s = provider_status.get(_KEY_MAP.get(source_name, source_name))
             if s and (s.get("status") in ("auth_error", "no_key") or (s.get("can_fund") is False)):
-                try:
-                    record_api_call(
-                        provider=key_map.get(source_name, source_name),
-                        endpoint="fundamentals",
-                        status="skipped_preflight",
-                        latency_sec=0.0,
-                        extra={"ticker": ticker, "reason": s.get("status", "capability_off")},
-                    )
-                except (TypeError, AttributeError):
-                    pass
-                continue
-        # ProviderGuard runtime block (cooldown/permanent)
+                return False
         try:
-            upper = {
-                "fmp": "FMP",
-                "finnhub": "FINNHUB",
-                "tiingo": "TIINGO",
-                "alpha": "ALPHAVANTAGE",
-                "eodhd": "EODHD",
-                "simfin": "SIMFIN",
-            }.get(source_name, source_name.upper())
-            allowed, reason, decision = get_provider_guard().allow(upper, "fundamentals")
+            upper = _KEY_MAP.get(source_name, source_name.upper())
+            allowed, _, _ = get_provider_guard().allow(upper, "fundamentals")
             if not allowed:
-                try:
-                    record_api_call(
-                        provider=upper,
-                        endpoint="fundamentals",
-                        status="skipped_guard",
-                        latency_sec=0.0,
-                        extra={"ticker": ticker, "reason": reason, "decision": decision},
-                    )
-                except (TypeError, AttributeError):
-                    pass
-                continue
+                return False
         except (ImportError, AttributeError, TypeError):
             pass
-        # Skip category-level blacklists for the session
         if source_name == "fmp" and ("fmp:fundamentals" in DISABLED_PROVIDERS):
-            try:
-                record_api_call(
-                    provider="FMP",
-                    endpoint="fundamentals",
-                    status="skipped_blacklist",
-                    latency_sec=0.0,
-                    extra={"ticker": ticker, "reason": "session_blacklist"},
-                )
-            except (TypeError, AttributeError):
-                pass
-            continue
+            return False
         if source_name == "eodhd" and ("eodhd:fundamentals" in DISABLED_PROVIDERS):
-            continue
+            return False
         if source_name == "simfin" and ("simfin:fundamentals" in DISABLED_PROVIDERS):
-            continue
+            return False
+        return True
+
+    def _fetch_one(source_name: str, fetch_func) -> tuple:
+        """Fetch fundamentals from a single source. Returns (source_name, result_or_None)."""
         try:
             result = fetch_func(ticker, provider_status=provider_status)
             if result:
-                # Validate that at least one key field is present and finite
-                key_fields = ["pe", "ps", "pb", "roe", "margin", "rev_yoy", "eps_yoy", "debt_equity", "market_cap", "beta"]
-                has_signal = False
-                for k in key_fields:
-                    v = result.get(k)
-                    if v is not None and np.isfinite(v):
-                        has_signal = True
-                        break
+                has_signal = any(
+                    result.get(k) is not None and np.isfinite(result.get(k, float('nan')))
+                    for k in _KEY_FIELDS
+                )
                 if has_signal:
-                    sources_data[source_name] = result
-                    logger.debug(f"✓ {source_name} data fetched for {ticker}")
-                else:
-                    logger.debug(f"✗ {source_name} returned no usable fundamentals for {ticker}")
+                    logger.debug(f"Fundamentals: {source_name} returned data for {ticker}")
+                    return (source_name, result)
         except Exception as e:
-            logger.warning(f"Failed to fetch from {source_name} for {ticker}: {e}")
+            logger.warning(f"Fundamentals fetch from {source_name} failed for {ticker}: {e}")
+        return (source_name, None)
+
+    # Filter to allowed providers
+    allowed_funcs = [(name, func) for name, func in fetch_funcs if _is_allowed(name)]
+
+    # Parallel fetch: launch top providers simultaneously (max 3 workers)
+    from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = {
+            executor.submit(_fetch_one, name, func): name
+            for name, func in allowed_funcs
+        }
+        try:
+            for future in as_completed(futures, timeout=10):
+                try:
+                    source_name, result = future.result(timeout=5)
+                    if result is not None:
+                        sources_data[source_name] = result
+                except Exception as e:
+                    src = futures[future]
+                    logger.warning(f"Fundamentals future failed for {src}/{ticker}: {e}")
+        except FuturesTimeoutError:
+            logger.warning(f"Fundamentals parallel fetch timed out for {ticker} ({len(sources_data)} sources collected)")
     
     if not sources_data:
         logger.warning(f"No fundamental data available for {ticker}")
