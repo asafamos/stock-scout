@@ -381,16 +381,6 @@ def compute_ml_20d_probabilities_raw(row: pd.Series) -> float:
             if len(missing) > 10:
                 logger.debug("ML 20d: filled %d missing features with defaults", len(missing))
 
-        # Feature validation gate: if >50% of features are missing,
-        # the prediction is unreliable — return neutral probability
-        _total_features = len(FEATURE_COLS_20D)
-        if _total_features > 0 and len(missing) > _total_features * 0.5:
-            logger.warning(
-                "ML 20d: %d/%d features missing (>50%%) — returning neutral 0.5",
-                len(missing), _total_features,
-            )
-            return 0.5
-
         # Build DataFrame
         X = pd.DataFrame([feature_dict])[FEATURE_COLS_20D]
         X = X.fillna(0.0).replace([np.inf, -np.inf], 0.0)
