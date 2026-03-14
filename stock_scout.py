@@ -220,6 +220,7 @@ _SESSION_DEFAULTS = {
     "market_regime": None,
     "engine_mode": "SIGNAL_ONLY",
     "_pipeline_running": False,
+    "_live_scan_just_finished": False,
     "_sm_current_stage": 0,
     "_completed_stages": set(),
     "_alpha_ok": False,
@@ -738,6 +739,12 @@ if force_live_scan_once or st.session_state.get("_pipeline_running", False):
     status_manager.update_detail(f"Live scan forced — cached scan from {timestamp_str} skipped")
     use_precomputed = False
     st.session_state["skip_pipeline"] = False
+elif st.session_state.get("_live_scan_just_finished"):
+    # Live scan just completed on the previous run — use its results, don't reload from disk/Supabase
+    st.session_state["_live_scan_just_finished"] = False
+    use_precomputed = True
+    st.session_state["skip_pipeline"] = True
+    logger.info("[PIPELINE] Using fresh live scan results from session state (post-scan rerun)")
 else:
     # --- Supabase preference: if a newer live scan exists in Supabase, use it ---
     try:
@@ -1064,6 +1071,7 @@ else:
                 pass
         # Pipeline finished — clear the rerun guard
         st.session_state["_pipeline_running"] = False
+        st.session_state["_live_scan_just_finished"] = True  # Prevent next rerun from overwriting results
         # Record scan timestamp for UI display (stored as UTC ISO string)
         from datetime import datetime as _dt_now, timezone as _tz_utc
         st.session_state["last_scan_timestamp"] = _dt_now.now(_tz_utc.utc).isoformat()
