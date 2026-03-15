@@ -73,8 +73,8 @@ PATTERN_SCORE_WEIGHTS: Dict[str, float] = {
 # confirmed these weights are near-optimal. Optimized: fund=0.24, mom=0.31, rr=0.26, rel=0.19
 # Test Sharpe improvement was only +0.005 (below 0.1 adoption threshold). Keeping originals.
 CONVICTION_WEIGHTS: Dict[str, float] = {
-    "fundamental": 0.25,
-    "momentum": 0.30,
+    "fundamental": 0.15,
+    "momentum": 0.40,
     "risk_reward": 0.25,
     "reliability": 0.20,
 }
@@ -84,8 +84,8 @@ CONVICTION_WEIGHTS: Dict[str, float] = {
 # Derived from FINAL_SCORE_WEIGHTS by removing ML and renormalizing:
 # tech=0.55/(0.55+0.30)=0.647, fund=0.30/(0.55+0.30)=0.353
 BASE_SCORE_WEIGHTS: Dict[str, float] = {
-    "technical": 0.65,
-    "fundamental": 0.35,
+    "technical": 0.80,
+    "fundamental": 0.20,
 }
 
 # ML gate thresholds and multipliers (single source of truth)
@@ -137,12 +137,12 @@ RR_GATES: Dict[str, float] = {
 # Entry timing thresholds (used by compute_final_score_20d)
 # Penalize stocks near ATH without consolidation setup; reward pullback entries.
 ENTRY_TIMING: Dict[str, float] = {
-    "near_ath_penalty": 8.0,      # Within 3% of 52w high, no VCP setup
-    "near_high_penalty": 4.0,     # Within 5% of 52w high, no VCP setup
-    "pullback_bonus": 5.0,        # 5-15% below 52w high (quality entry zone)
+    "near_ath_penalty": 5.0,      # Within 3% of 52w high, no VCP setup (was 8.0 — too aggressive for momentum)
+    "near_high_penalty": 2.0,     # Within 5% of 52w high, no VCP setup (was 4.0)
+    "pullback_bonus": 3.0,        # 5-15% below 52w high (quality entry zone) (was 5.0)
     "pullback_max_return": 0.10,  # Pullback bonus only if return_20d < 10% (genuine pullback)
     "runup_threshold": 0.15,      # 15% return in 20d = already extended
-    "runup_penalty": 5.0,         # Penalty for rapid run-up
+    "runup_penalty": 3.0,         # Penalty for rapid run-up (was 5.0 — penalizing momentum too harshly)
     "vcp_ath_threshold": 0.4,     # VCP score to bypass ATH penalty
     "vcp_near_threshold": 0.3,    # VCP score to bypass near-high penalty
     # RR hard caps — prevent momentum from overriding poor risk/reward
@@ -172,11 +172,11 @@ BONUS_CONFIG: Dict[str, float] = {
     "tightness_ratio_threshold": 0.6,   # Tightness_Ratio below this → extra bonus
     "tightness_bonus": 2.0,             # Bonus for tight consolidation
     "vcp_tightness_cap": 4.0,           # Local cap for VCP + tightness bonus (was 5.0)
-    "pattern_multiplier": 3.0,          # Pattern_Score → bonus multiplier (was 5.0)
-    "pattern_bonus_max": 3.0,           # Max pattern bonus points (was 5.0)
+    "pattern_multiplier": 0.0,          # Disabled — ablation study showed patterns HURT (Sharpe 0.34→0.29)
+    "pattern_bonus_max": 0.0,           # Disabled — patterns shifted selection toward underperformers
     "big_winner_threshold": 50.0,       # BW signal above this → bonus
-    "big_winner_multiplier": 2.5,       # Max BW bonus points (was 4.0)
-    "total_bonus_cap": 6.0,             # Total cap for VCP+pattern+BW bonuses (was 10.0)
+    "big_winner_multiplier": 0.0,       # Disabled — part of pattern noise per ablation study
+    "total_bonus_cap": 4.0,             # Reduced from 6.0 — only VCP+tightness remain
     "hunter_floor": 45.0,               # Min score for VCP/coil setups with good RR
 }
 

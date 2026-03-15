@@ -32,7 +32,7 @@ from scripts.train_rolling_ml_20d import (
     fetch_sector_etf_data,
     get_universe_tickers,
     precision_at_k,
-    POLYGON_KEY,
+    _get_polygon_key,
 )
 
 # Directories
@@ -43,7 +43,9 @@ DATA_DIR = Path("data")
 
 def _check_api_key():
     """Verify POLYGON_API_KEY is set."""
-    if not POLYGON_KEY:
+    try:
+        _get_polygon_key()
+    except (ValueError, RuntimeError):
         print("❌ ERROR: POLYGON_API_KEY environment variable is required.")
         print("   export POLYGON_API_KEY=your_api_key_here")
         sys.exit(1)
