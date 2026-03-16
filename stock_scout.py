@@ -2219,6 +2219,7 @@ else:
             risk_cls = str(row.get("Risk_Level", row.get("risk_class", "")))
             sector = str(row.get("Sector", row.get("sector", "")))
             scan_id = str(st.session_state.get("last_scan_id", ""))
+            target_date_raw = row.get("Target_Date", row.get("target_date"))
 
             try:
                 target_p = float(target_p) if target_p is not None and not pd.isna(target_p) else None
@@ -2233,11 +2234,20 @@ else:
             except (TypeError, ValueError):
                 score = None
 
+            # Parse target_date
+            target_date_val = None
+            if target_date_raw is not None:
+                try:
+                    target_date_val = pd.Timestamp(target_date_raw).date()
+                except Exception:
+                    pass
+
             pm.add_position(
                 ticker=ticker,
                 entry_price=entry_p,
                 target_price=target_p,
                 stop_price=stop_p,
+                target_date=target_date_val,
                 holding_days=holding,
                 scan_id=scan_id if scan_id else None,
                 final_score=score,
