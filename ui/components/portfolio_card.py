@@ -99,6 +99,14 @@ def render_open_position_card(pos: Dict[str, Any]) -> str:
       <div class="pf-metric-value">{_fmt_price(target_price)}</div>
     </div>
     <div>
+      <div class="pf-metric-label">Stop</div>
+      <div class="pf-metric-value">{_fmt_price(stop_price)}</div>
+    </div>
+    <div>
+      <div class="pf-metric-label">Entered</div>
+      <div class="pf-metric-value">{str(entry_dt)[:10] if entry_dt else '—'}</div>
+    </div>
+    <div>
       <div class="pf-metric-label">Days</div>
       <div class="pf-metric-value">{days}/{holding_days}</div>
     </div>
