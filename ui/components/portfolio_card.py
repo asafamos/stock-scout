@@ -66,6 +66,7 @@ def render_open_position_card(pos: Dict[str, Any]) -> str:
     stop_price = pos.get("stop_price")
     ret_pct = pos.get("current_return_pct", 0)
     entry_dt = pos.get("entry_date")
+    target_dt = pos.get("target_date")
     days = _days_held(entry_dt)
     holding_days = pos.get("holding_days", 20)
     risk_class = str(pos.get("risk_class", ""))
@@ -97,6 +98,7 @@ def render_open_position_card(pos: Dict[str, Any]) -> str:
     <div>
       <div class="pf-metric-label">Target</div>
       <div class="pf-metric-value">{_fmt_price(target_price)}</div>
+      <div class="pf-metric-sub">{str(target_dt)[:10] if target_dt else ''}</div>
     </div>
     <div>
       <div class="pf-metric-label">Stop</div>

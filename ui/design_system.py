@@ -1374,6 +1374,13 @@ div[data-testid="stExpander"] {
     font-size: 0.78rem;
 }
 
+.ss-portfolio-card .pf-metric-sub {
+    color: var(--ss-text-muted);
+    font-size: 0.6rem;
+    font-family: var(--ss-mono);
+    margin-top: 1px;
+}
+
 /* Portfolio sidebar summary */
 .ss-portfolio-summary {
     background: var(--ss-bg-card);
