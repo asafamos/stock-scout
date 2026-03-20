@@ -198,14 +198,25 @@ class TestPortfolioStats:
         pid1 = pm.add_position(ticker="WIN1", entry_price=100.0)
         pid2 = pm.add_position(ticker="LOSE1", entry_price=100.0)
 
-        pm.remove_position(pid1, exit_price=110.0)  # +10%
-        pm.remove_position(pid2, exit_price=95.0)   # -5%
+        pm.remove_position(pid1, exit_price=110.0, exit_reason="target")  # +10%
+        pm.remove_position(pid2, exit_price=95.0, exit_reason="stop")     # -5%
 
         stats = pm.get_portfolio_stats()
         assert stats["closed_count"] == 2
         assert stats["win_rate"] == 0.5
         # Average return: (10 + -5) / 2 = 2.5
         assert stats["avg_return"] == pytest.approx(2.5, abs=0.1)
+
+    def test_manual_closes_excluded_from_stats(self, pm):
+        pid1 = pm.add_position(ticker="SYS1", entry_price=100.0)
+        pid2 = pm.add_position(ticker="MAN1", entry_price=100.0)
+
+        pm.remove_position(pid1, exit_price=110.0, exit_reason="target")  # system close
+        pm.remove_position(pid2, exit_price=90.0, exit_reason="manual")   # manual close
+
+        stats = pm.get_portfolio_stats()
+        assert stats["closed_count"] == 1  # only system close counted
+        assert stats["win_rate"] == 1.0    # the one system close was a win
 
 
 # ---------------------------------------------------------------------------
