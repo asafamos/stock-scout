@@ -335,13 +335,15 @@ class PortfolioManager:
             total_invested = float(open_row[1])
             current_value = float(open_row[2])
 
-            # Closed positions
+            # Closed positions (exclude manual closes — they reflect old code
+            # versions or user overrides and would pollute system performance stats)
             closed_row = con.execute(
                 "SELECT COUNT(*), "
                 "COALESCE(SUM(CASE WHEN realized_return_pct > 0 THEN 1 ELSE 0 END), 0), "
                 "COALESCE(AVG(realized_return_pct), 0), "
                 "COALESCE(SUM(CASE WHEN prediction_correct THEN 1 ELSE 0 END), 0) "
-                "FROM portfolio_positions WHERE user_id = ? AND status = 'closed'",
+                "FROM portfolio_positions WHERE user_id = ? AND status = 'closed' "
+                "AND COALESCE(exit_reason, '') != 'manual'",
                 [self._user_id],
             ).fetchone()
             closed_count = int(closed_row[0])
@@ -692,12 +694,14 @@ class SupabasePortfolioManager:
         total_invested = sum(float(r["entry_price"] or 0) * int(r["shares"] or 100) for r in open_rows)
         current_value = sum(float(r["current_price"] or r["entry_price"] or 0) * int(r["shares"] or 100) for r in open_rows)
 
-        # Closed positions
+        # Closed positions (exclude manual closes — they reflect old code
+        # versions or user overrides and would pollute system performance stats)
         closed_resp = (
             self._table
             .select("realized_return_pct, prediction_correct")
             .eq("user_id", self._user_id)
             .eq("status", "closed")
+            .neq("exit_reason", "manual")
             .execute()
         )
         closed_rows = closed_resp.data or []
