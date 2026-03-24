@@ -33,6 +33,7 @@ logger = logging.getLogger("stock_scout.db.portfolio")
 
 DEFAULT_USER = "default"
 DEFAULT_SHARES = 100
+TARGET_POSITION_USD = 1000  # Fixed dollar amount per virtual portfolio position
 
 # ---------------------------------------------------------------------------
 # Per-user instance cache (thread-safe)

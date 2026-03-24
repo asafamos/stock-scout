@@ -84,7 +84,7 @@ class NullStatus:
 from ui.data_sources import render_data_sources_overview
 
 # ── project: virtual portfolio ─────────────────────────────────────
-from core.db.portfolio_manager import get_portfolio_manager, PortfolioManager
+from core.db.portfolio_manager import get_portfolio_manager, PortfolioManager, TARGET_POSITION_USD
 from ui.components.outcome_dashboard import (
     render_performance_kpis,
     render_outcomes_table,
@@ -2242,6 +2242,7 @@ else:
                 except Exception:
                     pass
 
+            shares = max(1, round(TARGET_POSITION_USD / entry_p)) if entry_p and entry_p > 0 else 1
             pm.add_position(
                 ticker=ticker,
                 entry_price=entry_p,
@@ -2249,6 +2250,7 @@ else:
                 stop_price=stop_p,
                 target_date=target_date_val,
                 holding_days=holding,
+                shares=shares,
                 scan_id=scan_id if scan_id else None,
                 final_score=score,
                 risk_class=risk_cls if risk_cls else None,
