@@ -216,7 +216,7 @@ def render_portfolio_sidebar_summary(stats: Dict[str, Any]) -> str:
     if closed_count > 0:
         rows += (
             f'<div class="pf-stat-row">'
-            f'<span class="pf-stat-label">Win Rate</span>'
+            f'<span class="pf-stat-label">Target Hit Rate</span>'
             f'<span class="pf-stat-value" style="color:var(--ss-green);">{win_rate:.0%}</span>'
             f'</div>'
             f'<div class="pf-stat-row">'
@@ -225,10 +225,10 @@ def render_portfolio_sidebar_summary(stats: Dict[str, Any]) -> str:
             f'</div>'
         )
 
-    if open_count > 0:
+    if open_count > 0 or closed_count > 0:
         rows += (
             f'<div class="pf-stat-row" style="border-top:1px solid var(--ss-border); padding-top:6px; margin-top:4px;">'
-            f'<span class="pf-stat-label">Portfolio P&amp;L</span>'
+            f'<span class="pf-stat-label">Total P&amp;L</span>'
             f'<span class="pf-stat-value pf-return {ret_cls}">{_fmt_pct(total_return)}</span>'
             f'</div>'
         )

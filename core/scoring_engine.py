@@ -75,7 +75,7 @@ def compute_final_score_20d(row: pd.Series, *, return_breakdown: bool = False):
         # Reduced to 1.05x (2026-03-07 v2): VCP already gets 25% of tech weight +
         # up to +3 additive bonus.  A large multiplier here triple-counts the pattern.
         # 1.05x is a mild nudge that rewards coiled setups without overwhelming
-        # the fundamental quality signal (which is now 25% of the score).
+        # the fundamental quality signal (which is 15% of the score).
         coil_bonus_active = False
         try:
             coil_bonus_active = bool(row.get("Coil_Bonus", 0)) or str(row.get("Coil_Bonus", "0")) in ("1", "True")
@@ -129,7 +129,7 @@ def compute_final_score_20d(row: pd.Series, *, return_breakdown: bool = False):
 
         # Optional ML adjustment with AUC gate + reliability gating
         ml_prob = row.get("ML_20d_Prob", None)
-        delta = ml_boost_component(ml_prob)  # now ±6 range
+        delta = ml_boost_component(ml_prob)  # ±8 range (AUC 0.6259)
         # AUC gate: disable ML noise when model is weak
         try:
             from core.ml_20d_inference import get_ml_weight_multiplier
@@ -565,7 +565,7 @@ def compute_overall_score(row: pd.Series) -> Tuple[float, Dict[str, float]]:
         reliability * w["reliability"]
     )
     
-    # Calculate ML adjustment (bounded to ±6, matching ml_boost_component)
+    # Calculate ML adjustment (bounded to ±8, matching ml_boost_component)
     ml_delta = 0.0
     if ml_prob is not None:
         ml_delta = ml_boost_component(ml_prob)  # Range: -6 to +6

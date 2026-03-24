@@ -56,7 +56,7 @@ from core.market_context import initialize_market_context
 from core.ml_20d_inference import ML_20D_AVAILABLE, get_ml_health_meta
 from core.provider_guard import get_provider_guard
 from core.scoring import compute_fundamental_score_with_breakdown
-from core.scoring_config import BYPASS_DISABLED_ABOVE_MIN_SCORE, MIN_FALLBACK_K, ML_PROB_THRESHOLD, PATTERN_MIN_SCORE, REGIME_MIN_SCORE, SIGNAL_MIN_SCORE, TOP_SIGNAL_K
+from core.scoring_config import BYPASS_DISABLED_ABOVE_MIN_SCORE, MIN_FALLBACK_K, ML_PROB_THRESHOLD, PATTERN_MIN_SCORE, REGIME_MIN_SCORE, SIGNAL_MIN_SCORE, TOP_SIGNAL_K, VIX_MAX_SIGNALS
 from core.scoring_engine import compute_final_score_20d
 from core.sector_mapping import get_stock_sector
 from core.telemetry import Telemetry
@@ -1774,6 +1774,21 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
             )
 
             topn = int(ctx.config.get("topn_results", TOP_SIGNAL_K))
+            # VIX-aware cap: in high-volatility markets, concentrate on best signals only
+            try:
+                _vix_for_cap = None
+                if "VIX_Value" in filtered.columns and not filtered.empty:
+                    _v = filtered["VIX_Value"].dropna()
+                    _vix_for_cap = float(_v.iloc[0]) if not _v.empty else None
+                if _vix_for_cap is None and hasattr(ctx, "market_regime_data") and ctx.market_regime_data:
+                    _vix_for_cap = ctx.market_regime_data.get("vix_value")
+                if _vix_for_cap is not None and isinstance(_vix_for_cap, (int, float)):
+                    for _tier in VIX_MAX_SIGNALS:
+                        if float(_vix_for_cap) < _tier["vix_max"]:
+                            topn = min(topn, _tier["max_signals"])
+                            break
+            except Exception:
+                pass
             if filtered.empty:
                 # Fallback: try safety-respecting top-N first
                 sort_cols_fb = ["_score_numeric"]

@@ -248,6 +248,27 @@ class PortfolioManager:
                     exit_reason = "target"
                 elif days_held >= holding:
                     exit_reason = "expiry"
+                else:
+                    # Time-stop: exit stagnant positions after halfway_days
+                    # if less than min_progress_pct of entry→target has been covered.
+                    try:
+                        from core.scoring_config import TIME_STOP_CONFIG
+                        _halfway = int(TIME_STOP_CONFIG.get("halfway_days", 10))
+                        _min_prog = float(TIME_STOP_CONFIG.get("min_progress_pct", 0.30))
+                        _buffer = int(TIME_STOP_CONFIG.get("buffer_days", 2))
+                        if (
+                            days_held >= _halfway
+                            and days_held < holding - _buffer
+                            and target_p is not None
+                            and entry_p > 0
+                        ):
+                            _upside = target_p - entry_p
+                            if _upside > 0:
+                                _progress = (price - entry_p) / _upside
+                                if _progress < _min_prog:
+                                    exit_reason = "time_stop"
+                    except Exception:
+                        pass
 
                 pid = pos["position_id"]
 
@@ -270,15 +291,40 @@ class PortfolioManager:
                     auto_closed += 1
                     logger.info("Auto-closed %s (%s, ret=%.1f%%)", tkr, exit_reason, ret_pct)
                 else:
+                    # Break-even / trailing stop: ratchet stop up as position advances
+                    new_stop_p = _safe_float(pos.get("stop_price"))
+                    try:
+                        from core.scoring_config import TRAILING_STOP_CONFIG
+                        if target_p is not None and entry_p > 0:
+                            _upside = target_p - entry_p
+                            _progress = (price - entry_p) / _upside if _upside > 0 else 0.0
+                            _be_trig = TRAILING_STOP_CONFIG.get("breakeven_trigger_pct", 0.50)
+                            _trail_trig = TRAILING_STOP_CONFIG.get("trail_trigger_pct", 0.75)
+                            _trail_mult = TRAILING_STOP_CONFIG.get("trail_atr_mult", 1.5)
+                            _atr_pct = float(pos.get("atr_pct") or 0.03)
+                            _atr_abs = entry_p * _atr_pct
+                            if _progress >= _trail_trig and _atr_abs > 0:
+                                # Trailing stop: price - 1.5×ATR (never below break-even)
+                                _trail_stop = price - _trail_mult * _atr_abs
+                                _trail_stop = max(_trail_stop, entry_p)
+                                if new_stop_p is None or _trail_stop > new_stop_p:
+                                    new_stop_p = _trail_stop
+                            elif _progress >= _be_trig:
+                                # Break-even: move stop to entry price
+                                if new_stop_p is None or entry_p > new_stop_p:
+                                    new_stop_p = entry_p
+                    except Exception:
+                        pass
+
                     con.execute(
                         """
                         UPDATE portfolio_positions
                         SET current_price = ?, current_return_pct = ?,
-                            max_price = ?, min_price = ?,
+                            max_price = ?, min_price = ?, stop_price = ?,
                             updated_at = CURRENT_TIMESTAMP
                         WHERE position_id = ?
                         """,
-                        [price, ret_pct, new_max, new_min, pid],
+                        [price, ret_pct, new_max, new_min, new_stop_p, pid],
                     )
                 updated += 1
 
@@ -321,7 +367,13 @@ class PortfolioManager:
             con.close()
 
     def get_portfolio_stats(self) -> Dict[str, Any]:
-        """Return portfolio-level aggregate statistics."""
+        """Return portfolio-level aggregate statistics.
+
+        Win Rate = fraction of auto-closed positions that hit the target price.
+        Portfolio P&L = combined unrealized (open) + realized (closed) return
+                        as a % of total cost basis across all positions.
+        Manual closes are excluded — they reflect user overrides, not system perf.
+        """
         con = self._store._connect()
         try:
             # Open positions
@@ -332,16 +384,17 @@ class PortfolioManager:
                 [self._user_id],
             ).fetchone()
             open_count = int(open_row[0])
-            total_invested = float(open_row[1])
+            open_invested = float(open_row[1])
             current_value = float(open_row[2])
 
-            # Closed positions (exclude manual closes — they reflect old code
-            # versions or user overrides and would pollute system performance stats)
+            # Closed positions — exclude manual closes, win = hit target
             closed_row = con.execute(
                 "SELECT COUNT(*), "
-                "COALESCE(SUM(CASE WHEN realized_return_pct > 0 THEN 1 ELSE 0 END), 0), "
+                "COALESCE(SUM(CASE WHEN exit_reason = 'target' THEN 1 ELSE 0 END), 0), "
                 "COALESCE(AVG(realized_return_pct), 0), "
-                "COALESCE(SUM(CASE WHEN prediction_correct THEN 1 ELSE 0 END), 0) "
+                "COALESCE(SUM(CASE WHEN prediction_correct THEN 1 ELSE 0 END), 0), "
+                "COALESCE(SUM(entry_price * shares), 0), "
+                "COALESCE(SUM((realized_return_pct / 100.0) * entry_price * shares), 0) "
                 "FROM portfolio_positions WHERE user_id = ? AND status = 'closed' "
                 "AND COALESCE(exit_reason, '') != 'manual'",
                 [self._user_id],
@@ -350,17 +403,26 @@ class PortfolioManager:
             win_count = int(closed_row[1])
             avg_return = float(closed_row[2])
             correct_count = int(closed_row[3])
+            closed_invested = float(closed_row[4])
+            realized_pnl = float(closed_row[5])
 
-            total_return_pct = ((current_value / total_invested) - 1.0) * 100.0 if total_invested > 0 else 0.0
+            # Combined P&L: unrealized (open) + realized (closed) over total cost basis
+            unrealized_pnl = current_value - open_invested
+            total_cost_basis = open_invested + closed_invested
+            combined_pnl_pct = (
+                (unrealized_pnl + realized_pnl) / total_cost_basis * 100.0
+                if total_cost_basis > 0 else 0.0
+            )
+
             win_rate = win_count / closed_count if closed_count > 0 else 0.0
             prediction_accuracy = correct_count / closed_count if closed_count > 0 else 0.0
 
             return {
                 "open_count": open_count,
                 "closed_count": closed_count,
-                "total_invested": total_invested,
+                "total_invested": open_invested,
                 "current_value": current_value,
-                "total_return_pct": total_return_pct,
+                "total_return_pct": combined_pnl_pct,
                 "win_rate": win_rate,
                 "avg_return": avg_return,
                 "prediction_accuracy": prediction_accuracy,
@@ -602,6 +664,26 @@ class SupabasePortfolioManager:
                 exit_reason = "target"
             elif days_held >= holding:
                 exit_reason = "expiry"
+            else:
+                # Time-stop: exit stagnant positions after halfway_days
+                try:
+                    from core.scoring_config import TIME_STOP_CONFIG
+                    _halfway = int(TIME_STOP_CONFIG.get("halfway_days", 10))
+                    _min_prog = float(TIME_STOP_CONFIG.get("min_progress_pct", 0.30))
+                    _buffer = int(TIME_STOP_CONFIG.get("buffer_days", 2))
+                    if (
+                        days_held >= _halfway
+                        and days_held < holding - _buffer
+                        and target_p is not None
+                        and entry_p > 0
+                    ):
+                        _upside = target_p - entry_p
+                        if _upside > 0:
+                            _progress = (price - entry_p) / _upside
+                            if _progress < _min_prog:
+                                exit_reason = "time_stop"
+                except Exception:
+                    pass
 
             pid = pos["position_id"]
 
@@ -627,14 +709,39 @@ class SupabasePortfolioManager:
                 auto_closed += 1
                 logger.info("Auto-closed %s (%s, ret=%.1f%%)", tkr, exit_reason, ret_pct)
             else:
+                # Break-even / trailing stop: ratchet stop up as position advances
+                update_payload: Dict[str, Any] = {
+                    "current_price": price,
+                    "current_return_pct": ret_pct,
+                    "max_price": new_max,
+                    "min_price": new_min,
+                }
+                try:
+                    from core.scoring_config import TRAILING_STOP_CONFIG
+                    _cur_stop = _safe_float(pos.get("stop_price"))
+                    if target_p is not None and entry_p > 0:
+                        _upside = target_p - entry_p
+                        _progress = (price - entry_p) / _upside if _upside > 0 else 0.0
+                        _be_trig = TRAILING_STOP_CONFIG.get("breakeven_trigger_pct", 0.50)
+                        _trail_trig = TRAILING_STOP_CONFIG.get("trail_trigger_pct", 0.75)
+                        _trail_mult = TRAILING_STOP_CONFIG.get("trail_atr_mult", 1.5)
+                        _atr_pct = float(pos.get("atr_pct") or 0.03)
+                        _atr_abs = entry_p * _atr_pct
+                        new_stop_p = _cur_stop
+                        if _progress >= _trail_trig and _atr_abs > 0:
+                            _trail_stop = max(price - _trail_mult * _atr_abs, entry_p)
+                            if new_stop_p is None or _trail_stop > new_stop_p:
+                                new_stop_p = _trail_stop
+                        elif _progress >= _be_trig:
+                            if new_stop_p is None or entry_p > new_stop_p:
+                                new_stop_p = entry_p
+                        if new_stop_p != _cur_stop:
+                            update_payload["stop_price"] = new_stop_p
+                except Exception:
+                    pass
                 (
                     self._table
-                    .update({
-                        "current_price": price,
-                        "current_return_pct": ret_pct,
-                        "max_price": new_max,
-                        "min_price": new_min,
-                    })
+                    .update(update_payload)
                     .eq("position_id", pid)
                     .execute()
                 )
@@ -680,7 +787,13 @@ class SupabasePortfolioManager:
         return pd.DataFrame(resp.data)
 
     def get_portfolio_stats(self) -> Dict[str, Any]:
-        """Return portfolio-level aggregate statistics."""
+        """Return portfolio-level aggregate statistics.
+
+        Win Rate = fraction of auto-closed positions that hit the target price.
+        Portfolio P&L = combined unrealized (open) + realized (closed) return
+                        as a % of total cost basis across all positions.
+        Manual closes are excluded — they reflect user overrides, not system perf.
+        """
         # Open positions
         open_resp = (
             self._table
@@ -691,14 +804,13 @@ class SupabasePortfolioManager:
         )
         open_rows = open_resp.data or []
         open_count = len(open_rows)
-        total_invested = sum(float(r["entry_price"] or 0) * int(r["shares"] or 100) for r in open_rows)
+        open_invested = sum(float(r["entry_price"] or 0) * int(r["shares"] or 100) for r in open_rows)
         current_value = sum(float(r["current_price"] or r["entry_price"] or 0) * int(r["shares"] or 100) for r in open_rows)
 
-        # Closed positions (exclude manual closes — they reflect old code
-        # versions or user overrides and would pollute system performance stats)
+        # Closed positions — exclude manual closes, win = hit target
         closed_resp = (
             self._table
-            .select("realized_return_pct, prediction_correct")
+            .select("realized_return_pct, prediction_correct, exit_reason, entry_price, shares")
             .eq("user_id", self._user_id)
             .eq("status", "closed")
             .neq("exit_reason", "manual")
@@ -706,24 +818,40 @@ class SupabasePortfolioManager:
         )
         closed_rows = closed_resp.data or []
         closed_count = len(closed_rows)
-        win_count = sum(1 for r in closed_rows if (r.get("realized_return_pct") or 0) > 0)
+        win_count = sum(1 for r in closed_rows if r.get("exit_reason") == "target")
         correct_count = sum(1 for r in closed_rows if r.get("prediction_correct"))
         avg_return = (
             sum(float(r.get("realized_return_pct") or 0) for r in closed_rows) / closed_count
             if closed_count > 0
             else 0.0
         )
+        closed_invested = sum(
+            float(r.get("entry_price") or 0) * int(r.get("shares") or 100) for r in closed_rows
+        )
+        realized_pnl = sum(
+            (float(r.get("realized_return_pct") or 0) / 100.0)
+            * float(r.get("entry_price") or 0)
+            * int(r.get("shares") or 100)
+            for r in closed_rows
+        )
 
-        total_return_pct = ((current_value / total_invested) - 1.0) * 100.0 if total_invested > 0 else 0.0
+        # Combined P&L: unrealized (open) + realized (closed) over total cost basis
+        unrealized_pnl = current_value - open_invested
+        total_cost_basis = open_invested + closed_invested
+        combined_pnl_pct = (
+            (unrealized_pnl + realized_pnl) / total_cost_basis * 100.0
+            if total_cost_basis > 0 else 0.0
+        )
+
         win_rate = win_count / closed_count if closed_count > 0 else 0.0
         prediction_accuracy = correct_count / closed_count if closed_count > 0 else 0.0
 
         return {
             "open_count": open_count,
             "closed_count": closed_count,
-            "total_invested": total_invested,
+            "total_invested": open_invested,
             "current_value": current_value,
-            "total_return_pct": total_return_pct,
+            "total_return_pct": combined_pnl_pct,
             "win_rate": win_rate,
             "avg_return": avg_return,
             "prediction_accuracy": prediction_accuracy,

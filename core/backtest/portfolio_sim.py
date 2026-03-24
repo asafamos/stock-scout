@@ -49,6 +49,7 @@ class Trade:
     # Risk management
     stop_price: Optional[float] = None
     target_price: Optional[float] = None
+    atr_pct: float = 0.03  # ATR as fraction of entry price (for trailing stop)
 
 
 @dataclass
@@ -83,7 +84,7 @@ class PortfolioSimulator:
         holding_days: int = 20,
         stop_loss_atr_mult: float = 2.0,
         target_atr_mult: float = 4.0,
-        slippage_pct: float = 0.05,
+        slippage_pct: float = 0.10,  # raised from 0.05 — realistic for mid/small caps
         commission_per_trade: float = 0.0,
     ):
         self.initial_capital = initial_capital
@@ -187,6 +188,7 @@ class PortfolioSimulator:
                 stop_price=stop_price,
                 target_price=target_price,
                 max_holding_days=max_hd,
+                atr_pct=atr_pct,
                 final_score=float(row.get("FinalScore_20d", 0)),
                 tech_score=float(row.get("TechScore_20d", 0)),
                 fundamental_score=float(row.get("Fundamental_Score", 0)),
@@ -231,6 +233,30 @@ class PortfolioSimulator:
             pos.max_price = max(pos.max_price, price)
             pos.min_price = min(pos.min_price, price)
 
+            # Break-even / trailing stop: ratchet stop up as position advances
+            try:
+                from core.scoring_config import TRAILING_STOP_CONFIG
+                if (
+                    pos.trade.target_price is not None
+                    and pos.trade.entry_price > 0
+                    and pos.trade.stop_price is not None
+                ):
+                    _upside = pos.trade.target_price - pos.trade.entry_price
+                    _progress = (price - pos.trade.entry_price) / _upside if _upside > 0 else 0.0
+                    _be_trig = TRAILING_STOP_CONFIG.get("breakeven_trigger_pct", 0.50)
+                    _trail_trig = TRAILING_STOP_CONFIG.get("trail_trigger_pct", 0.75)
+                    _trail_mult = TRAILING_STOP_CONFIG.get("trail_atr_mult", 1.5)
+                    _atr_abs = pos.trade.entry_price * float(getattr(pos.trade, "atr_pct", 0.03) or 0.03)
+                    if _progress >= _trail_trig and _atr_abs > 0:
+                        _new_stop = max(price - _trail_mult * _atr_abs, pos.trade.entry_price)
+                        if _new_stop > pos.trade.stop_price:
+                            pos.trade.stop_price = _new_stop
+                    elif _progress >= _be_trig:
+                        if pos.trade.entry_price > pos.trade.stop_price:
+                            pos.trade.stop_price = pos.trade.entry_price
+            except Exception:
+                pass
+
             # Check exits
             cal_days = (dt - pos.trade.entry_date).days
             trading_days = int(cal_days * 5 / 7)
@@ -241,6 +267,26 @@ class PortfolioSimulator:
                 to_close.append((i, "target"))
             elif trading_days >= pos.trade.max_holding_days:
                 to_close.append((i, "expiry"))
+            else:
+                # Time-stop: exit stagnant positions after halfway_days trading days
+                try:
+                    from core.scoring_config import TIME_STOP_CONFIG
+                    _halfway = int(TIME_STOP_CONFIG.get("halfway_days", 10))
+                    _min_prog = float(TIME_STOP_CONFIG.get("min_progress_pct", 0.30))
+                    _buffer = int(TIME_STOP_CONFIG.get("buffer_days", 2))
+                    if (
+                        trading_days >= _halfway
+                        and trading_days < pos.trade.max_holding_days - _buffer
+                        and pos.trade.target_price is not None
+                        and pos.trade.entry_price > 0
+                    ):
+                        _upside = pos.trade.target_price - pos.trade.entry_price
+                        if _upside > 0:
+                            _progress = (price - pos.trade.entry_price) / _upside
+                            if _progress < _min_prog:
+                                to_close.append((i, "time_stop"))
+                except Exception:
+                    pass
 
         # Close in reverse order to preserve indices
         for idx, reason in sorted(to_close, reverse=True):

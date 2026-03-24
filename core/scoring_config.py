@@ -342,11 +342,14 @@ REGIME_RR_FLOOR: Dict[str, float] = {
 }
 
 
-# ROE quality gate: penalty zone for marginal profitability (3-5%)
+# ROE quality gate: penalty zone for marginal profitability (3-8%)
+# Extended from 3-5% (max 5 pts) to 3-8% (max 8 pts) so that stocks with
+# ROE 5-8% (e.g. ESLT 6.3%, HAFN 6.8%, NSA 7.5%) face a meaningful penalty
+# that can actually affect top-K selection, not just the absolute worst names.
 ROE_QUALITY_GATE: Dict[str, float] = {
     "min_roe": 3.0,               # Stocks with ROE below this are hard-blocked
-    "penalty_zone_max": 5.0,      # ROE between min_roe and this gets score penalty
-    "penalty_points": 5.0,        # Max penalty points for ROE at the boundary
+    "penalty_zone_max": 8.0,      # ROE between min_roe and this gets score penalty
+    "penalty_points": 8.0,        # Max penalty points for ROE at the boundary
 }
 
 # Analyst consensus cross-check: penalize when system target diverges
@@ -441,8 +444,8 @@ REGIME_MIN_SCORE: Dict[str, float] = {
     "TREND_UP": 55.0,
     "BULLISH": 55.0,
     "MODERATE_UP": 60.0,
-    "SIDEWAYS": 65.0,
-    "NEUTRAL": 65.0,
+    "SIDEWAYS": 70.0,   # raised from 65 — in neutral markets demand higher quality
+    "NEUTRAL": 70.0,    # raised from 65
     "DISTRIBUTION": 75.0,
     "CORRECTION": 80.0,
     "BEARISH": 80.0,
@@ -463,8 +466,35 @@ BYPASS_DISABLED_ABOVE_MIN_SCORE: float = 70.0
 TOP_SIGNAL_K: int = 30
 # Minimum results to always return (with LowConfidence flag if thresholds not met)
 MIN_FALLBACK_K: int = 5
+# VIX-aware max signals: higher VIX → fewer recommendations (force concentration).
+# Applied as an additional cap on top of REGIME_MIN_SCORE filtering.
+VIX_MAX_SIGNALS: list = [
+    {"vix_max": 20.0, "max_signals": 30},  # calm market: show all
+    {"vix_max": 25.0, "max_signals": 20},  # elevated VIX: limit
+    {"vix_max": 30.0, "max_signals": 12},  # high VIX: concentrate on best
+    {"vix_max": 999.0, "max_signals": 8},  # extreme VIX: only highest conviction
+]
 # Technical score threshold indicating strong momentum
 TECH_STRONG_THRESHOLD: float = 65.0
+
+# Time-stop: exit stagnant positions that haven't made enough progress toward target.
+# After halfway_days, if the position has made less than min_progress_pct of the
+# distance from entry to target, exit (reason="time_stop").
+# Rationale: capital stuck in a non-moving stock should be redeployed.
+# Set min_progress_pct=0.0 to disable without removing the feature.
+TIME_STOP_CONFIG: Dict[str, float] = {
+    "halfway_days": 10,           # evaluate progress after this many days held
+    "min_progress_pct": 0.30,     # must have covered 30% of entry→target distance
+    "buffer_days": 2,             # don't trigger within this many days of expiry
+}
+
+# Break-even and trailing stop: lock in gains as a position advances toward target.
+# Both are applied as stop_price updates (never moving stop DOWN).
+TRAILING_STOP_CONFIG: Dict[str, float] = {
+    "breakeven_trigger_pct": 0.50,  # move stop to entry when 50% of target reached
+    "trail_trigger_pct": 0.75,      # start trailing stop when 75% of target reached
+    "trail_atr_mult": 1.5,          # trailing stop = current_price - trail_atr_mult × ATR
+}
 
 
 @dataclass
