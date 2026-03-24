@@ -483,17 +483,18 @@ TECH_STRONG_THRESHOLD: float = 65.0
 # Rationale: capital stuck in a non-moving stock should be redeployed.
 # Set min_progress_pct=0.0 to disable without removing the feature.
 TIME_STOP_CONFIG: Dict[str, float] = {
-    "halfway_days": 10,           # evaluate progress after this many days held
-    "min_progress_pct": 0.30,     # must have covered 30% of entry→target distance
-    "buffer_days": 2,             # don't trigger within this many days of expiry
+    "halfway_days": 15,           # evaluate at 75% of holding period (was 10 — too early)
+    "min_progress_pct": 0.15,     # only exit truly stagnant positions (<15% of target; was 0.30)
+    "buffer_days": 3,             # don't trigger within this many days of expiry
 }
 
 # Break-even and trailing stop: lock in gains as a position advances toward target.
 # Both are applied as stop_price updates (never moving stop DOWN).
+# Triggers set conservatively: only activate near target to avoid cutting momentum winners.
 TRAILING_STOP_CONFIG: Dict[str, float] = {
-    "breakeven_trigger_pct": 0.50,  # move stop to entry when 50% of target reached
-    "trail_trigger_pct": 0.75,      # start trailing stop when 75% of target reached
-    "trail_atr_mult": 1.5,          # trailing stop = current_price - trail_atr_mult × ATR
+    "breakeven_trigger_pct": 0.80,  # move stop to entry when 80% of target reached (was 0.50)
+    "trail_trigger_pct": 0.90,      # start trailing stop when 90% of target reached (was 0.75)
+    "trail_atr_mult": 2.0,          # wider trail = less noise-stopped (was 1.5)
 }
 
 
