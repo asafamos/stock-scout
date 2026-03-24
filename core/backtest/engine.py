@@ -90,11 +90,17 @@ class FullPipelineBacktest:
         enable_patterns: bool = True,
         lookback_days: int = 252,
         status_callback: Optional[Callable[[str], None]] = None,
+        min_score: Optional[float] = None,
     ):
         self.start_date = datetime.strptime(start_date, "%Y-%m-%d").date()
         self.end_date = datetime.strptime(end_date, "%Y-%m-%d").date()
         self.rebalance_freq = rebalance_freq
         self.top_k = top_k
+        # Default to the same threshold used by the live signal engine
+        if min_score is None:
+            from core.scoring_config import SIGNAL_MIN_SCORE
+            min_score = SIGNAL_MIN_SCORE
+        self.min_score = min_score
         self.holding_days = holding_days
         self.universe = universe or _fetch_default_universe()
         self.initial_capital = initial_capital
@@ -159,7 +165,14 @@ class FullPipelineBacktest:
                     if scored is not None and not scored.empty:
                         # Save full scored universe for weight optimization
                         self._scored_universes[day] = scored.copy()
-                        selections = scored.head(self.top_k)
+                        candidates = scored
+                        if self.min_score > 0 and "FinalScore_20d" in candidates.columns:
+                            candidates = candidates[candidates["FinalScore_20d"] >= self.min_score]
+                            logger.debug(
+                                "min_score=%.1f filtered %d→%d candidates at %s",
+                                self.min_score, len(scored), len(candidates), day,
+                            )
+                        selections = candidates.head(self.top_k)
                         sim.open_positions(day, selections, prices_today)
                 except Exception as e:
                     logger.warning("Scoring failed for %s: %s", day, e)
@@ -181,6 +194,7 @@ class FullPipelineBacktest:
             "end_date": str(self.end_date),
             "rebalance_freq": self.rebalance_freq,
             "top_k": self.top_k,
+            "min_score": self.min_score,
             "holding_days": self.holding_days,
             "universe_size": len(self.universe),
             "initial_capital": self.initial_capital,

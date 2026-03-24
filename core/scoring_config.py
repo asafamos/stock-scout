@@ -437,12 +437,13 @@ BIG_WINNER_THRESHOLDS = {
 
 # --- Signal Engine (Allocation-Free) Thresholds ---
 # Minimum final score (0-100 scale) to consider as a signal candidate
-SIGNAL_MIN_SCORE: float = 55.0
+# Raised from 55→58 to filter out marginal entries and improve signal quality.
+SIGNAL_MIN_SCORE: float = 58.0
 # Regime-aware minimum scores: in weaker regimes, demand higher quality.
 # Prevents recommending stocks that merely "survived" a penalty multiplier.
 REGIME_MIN_SCORE: Dict[str, float] = {
-    "TREND_UP": 55.0,
-    "BULLISH": 55.0,
+    "TREND_UP": 58.0,
+    "BULLISH": 58.0,
     "MODERATE_UP": 60.0,
     "SIDEWAYS": 70.0,   # raised from 65 — in neutral markets demand higher quality
     "NEUTRAL": 70.0,    # raised from 65

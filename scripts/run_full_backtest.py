@@ -29,6 +29,7 @@ def main() -> None:
     parser.add_argument("--start", type=str, default="2025-06-01", help="Start date (YYYY-MM-DD)")
     parser.add_argument("--end", type=str, default="2026-03-13", help="End date (YYYY-MM-DD)")
     parser.add_argument("--top-k", type=int, default=10, help="Top-K stocks per rebalance")
+    parser.add_argument("--min-score", type=float, default=0.0, help="Minimum FinalScore_20d to include in selection")
     parser.add_argument("--holding-days", type=int, default=20, help="Holding period in trading days")
     parser.add_argument("--rebalance", type=str, default="monthly", help="Rebalance frequency")
     parser.add_argument("--capital", type=float, default=100_000, help="Initial capital")
@@ -55,6 +56,7 @@ def main() -> None:
         "start_date": args.start,
         "end_date": args.end,
         "top_k": args.top_k,
+        "min_score": args.min_score,
         "holding_days": args.holding_days,
         "rebalance_freq": args.rebalance,
         "initial_capital": args.capital,
