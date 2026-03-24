@@ -502,7 +502,7 @@ _stage_triggers = (
     ("Applying Beta filter", "Beta Filter"),
     ("Applying advanced filters", "Advanced Filters"),
     ("Fetching fundamentals", "Fundamentals Enrichment"),
-    ("Classifying & Allocating", "Signal Evaluation"),
+    ("Classifying & Allocating", "Recommendations"),
 )
 # Completed stages persist across Streamlit reruns (initialized in centralized init above)
 _completed_stages: Set[str] = st.session_state["_completed_stages"]

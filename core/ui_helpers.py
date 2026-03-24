@@ -346,7 +346,7 @@ def get_pipeline_stages() -> list[str]:
         "Fundamentals Enrichment",
         "Risk Classification",
         "Price Verification",
-        "Recommendations & Allocation"
+        "Recommendations"
     ]
 
 

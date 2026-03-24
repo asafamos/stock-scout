@@ -188,7 +188,7 @@ class TestPipelineStages:
         assert "Historical Data Fetch" in stages
         assert "Technical Indicators" in stages
         assert "Fundamentals Enrichment" in stages
-        assert "Recommendations & Allocation" in stages
+        assert "Recommendations" in stages
 
         # Should be in logical order
         assert stages.index("Universe Building") < stages.index("Historical Data Fetch")
