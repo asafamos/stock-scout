@@ -934,6 +934,12 @@ if skip_pipeline:
 else:
     # Live scan execution fallback
     st.session_state["_pipeline_running"] = True  # Guard against mid-pipeline reruns
+    # Reset progress bar so _pipeline_running-triggered reruns don't start from 10/10
+    status_manager.current_stage = 0
+    st.session_state["_sm_current_stage"] = 0
+    st.session_state["_completed_stages"] = set()
+    _completed_stages = st.session_state["_completed_stages"]
+    status_manager._render_bar(0.0, "Initializing...", 0)
     try:
      with st.status("🚀 Running Live Scan...", expanded=False) as status:
         status = status or NullStatus()
