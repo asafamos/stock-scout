@@ -325,6 +325,19 @@ def _compute_rr_for_row(
         target = float(max(atr_target, _effective_resistance))
         target_source = "ATR_Projection" if atr_target >= _effective_resistance else "Resistance/Bollinger"
 
+        # Cap target at MAX_TARGET_UPSIDE_PCT to prevent unrealistic targets.
+        # When resistance (e.g. 52w high) is far above entry, the raw target
+        # can imply 100%+ upside which is not achievable in 12-22 day holds.
+        try:
+            from core.scoring_config import MAX_TARGET_UPSIDE_PCT
+            _max_upside = float(MAX_TARGET_UPSIDE_PCT)
+        except Exception:
+            _max_upside = 0.30
+        _max_target = entry * (1.0 + _max_upside)
+        if target > _max_target:
+            target = _max_target
+            target_source += "_capped"
+
         risk = float(entry - stop_price)
         reward = float(target - entry)
         rr = np.nan

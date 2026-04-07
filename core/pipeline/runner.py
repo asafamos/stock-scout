@@ -1567,6 +1567,28 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
         except Exception as _rr_exc:
             logger.debug("Post-RR safety re-check skipped: %s", _rr_exc)
 
+        # ── RSI hard filter ──────────────────────────────────────────────
+        # Block overbought stocks (RSI above hard threshold).
+        try:
+            _max_rsi = float(_hf_rr.get("max_rsi", 75.0))
+            if _max_rsi > 0 and not ctx.results.empty:
+                _rsi_col = "RSI" if "RSI" in ctx.results.columns else ("RSI_14" if "RSI_14" in ctx.results.columns else None)
+                if _rsi_col:
+                    for _idx in ctx.results.index:
+                        _rsi_v = ctx.results.at[_idx, _rsi_col]
+                        if isinstance(_rsi_v, (int, float)) and np.isfinite(_rsi_v) and _rsi_v > _max_rsi:
+                            if "SafetyBlocked" in ctx.results.columns:
+                                ctx.results.at[_idx, "SafetyBlocked"] = True
+                            if "RiskClass" in ctx.results.columns:
+                                ctx.results.at[_idx, "RiskClass"] = "REJECT"
+                            logger.info(
+                                "[PIPELINE] RSI hard filter: %s blocked (RSI=%.1f > %.0f)",
+                                ctx.results.at[_idx, "Ticker"] if "Ticker" in ctx.results.columns else _idx,
+                                _rsi_v, _max_rsi,
+                            )
+        except Exception as _rsi_exc:
+            logger.debug("RSI hard filter skipped: %s", _rsi_exc)
+
     except Exception as e:
         logger.warning("[PIPELINE] Dynamic RR computation failed: %s", e)
 

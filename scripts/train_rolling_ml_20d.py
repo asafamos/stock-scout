@@ -1242,16 +1242,28 @@ def train_and_save_bundle():
         verbose=-1,
         n_jobs=-1,
     )
-    # Use early stopping with calibration set
+    # Use early stopping with calibration set.
+    # stopping_rounds=50 + first_metric_only: the calibration set is time-ordered
+    # (future data), so validation loss can plateau early due to distribution
+    # shift. A higher patience prevents premature stopping (was 20 → stopped
+    # at iteration 4, severely undertraining the model).
     model3_lgbm.fit(
         X_train_final, y_train_final,
         eval_set=[(X_calib, y_calib)],
         callbacks=[
-            __import__('lightgbm').early_stopping(stopping_rounds=20, verbose=False),
+            __import__('lightgbm').early_stopping(stopping_rounds=50, first_metric_only=True, verbose=False),
             __import__('lightgbm').log_evaluation(period=0),
         ],
     )
-    print(f"      LightGBM best iteration: {model3_lgbm.best_iteration_}")
+    _lgbm_best = model3_lgbm.best_iteration_
+    # Guard: if early stopping triggered too early, retrain without it.
+    # A model with <20 iterations is effectively untrained.
+    if _lgbm_best < 20:
+        print(f"      LightGBM early stopping triggered too early (iter={_lgbm_best}), retraining without early stopping...")
+        model3_lgbm.set_params(n_estimators=200)
+        model3_lgbm.fit(X_train_final, y_train_final)
+        _lgbm_best = 200
+    print(f"      LightGBM best iteration: {_lgbm_best}")
 
     # Train base model 4: LogisticRegression (linear baseline, needs scaling)
     print("   Training Model 4/4: LogisticRegression...")
@@ -1505,9 +1517,9 @@ def train_and_save_bundle():
             "histgb_stopped_at_iter": model1.n_iter_,
             "histgb_max_iter": 500,
             "histgb_n_iter_no_change": 15,
-            "lgbm_best_iteration": model3_lgbm.best_iteration_,
+            "lgbm_best_iteration": _lgbm_best,
             "lgbm_n_estimators": 500,
-            "lgbm_stopping_rounds": 20,
+            "lgbm_stopping_rounds": 50,
         },
         "regularization": {
             "histgb_l2": 0.1,

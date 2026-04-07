@@ -241,6 +241,7 @@ HARD_FILTERS: Dict[str, object] = {
     "min_rr": 1.5,                      # minimum Reward:Risk ratio
     "min_roe": 3.0,                     # block ROE below 3% (weak profitability)
     "require_fundamental_data": True,   # block if BOTH ROE and MarketCap are missing
+    "max_rsi": 75.0,                    # block overbought stocks (RSI > 75)
 }
 
 # Dynamic R:R adjustments — per-stock target/stop modifiers.
@@ -284,6 +285,11 @@ ATR_TARGET_MULTIPLIERS: Dict[str, Dict[str, float]] = {
 }
 # Stop-loss ATR multiplier (used by _compute_rr_for_row in pipeline/helpers.py)
 ATR_STOP_MULTIPLIER: float = 1.5
+
+# Maximum allowed upside (%) for target price relative to entry.
+# Prevents unrealistic targets when resistance (e.g. 52w high) is far above entry.
+# Stocks that crashed 50%+ from highs would otherwise show 100%+ upside in 12 days.
+MAX_TARGET_UPSIDE_PCT: float = 0.30  # 30% max upside cap
 
 # Entry offset: simulate limit order below Close. Entry = Close - ENTRY_OFFSET * ATR14.
 # Set to 0.0 to revert to close-based entry (legacy behavior).
