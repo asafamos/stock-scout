@@ -18,6 +18,7 @@ from core.trading.config import CONFIG, TradingConfig
 from core.trading.ibkr_client import IBKRClient, TradeResult
 from core.trading.position_tracker import PositionTracker
 from core.trading.risk_manager import RiskManager
+from core.trading import notifications as notify
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +79,7 @@ class OrderManager:
         finally:
             self.client.disconnect()
 
-        # 5. Summary
+        # 5. Summary + notifications
         bought = [r for r in results if r.get("status") == "success"]
         skipped = [r for r in results if r.get("status") == "skipped"]
         failed = [r for r in results if r.get("status") == "error"]
@@ -86,6 +87,16 @@ class OrderManager:
             "AUTO-TRADE complete: %d bought, %d skipped, %d failed",
             len(bought), len(skipped), len(failed),
         )
+
+        # Telegram notification
+        notify.notify_scan_complete(
+            total=len(scan_df) if scan_df is not None else 0,
+            candidates=len(candidates),
+            bought=len(bought),
+        )
+        for r in failed:
+            notify.notify_error("Trade", f"{r.get('ticker')}: {r.get('error')}")
+
         return results
 
     def check_exits(self) -> List[Dict]:
@@ -217,27 +228,31 @@ class OrderManager:
         logger.info("EXECUTING: BUY %d x %s @ ~$%.2f (score=%.1f, RR=%.2f)",
                      qty, ticker, price, score, rr)
 
-        # Step 1: Buy at market
-        buy_result = self.client.buy_market(ticker, qty)
+        # Execute as OCA bracket: buy + trailing stop + limit sell (linked)
+        bracket = self.client.buy_with_bracket(
+            ticker=ticker,
+            qty=qty,
+            trail_pct=self.cfg.trailing_stop_pct,
+            target_price=target,
+        )
+
+        buy_result = bracket["buy"]
         if buy_result.status in ("Error",):
             return {"ticker": ticker, "status": "error",
                     "error": buy_result.error}
 
         filled_price = buy_result.filled_price or price
-        order_ids = {"buy": buy_result.order_id}
+        order_ids = {
+            "buy": buy_result.order_id,
+            "trailing_stop": bracket["trailing_stop"].order_id,
+            "limit_sell": bracket["limit_sell"].order_id,
+            "oca_group": bracket.get("oca_group", ""),
+        }
 
-        # Step 2: Set trailing stop
-        trail = self.client.set_trailing_stop(
-            ticker, qty, self.cfg.trailing_stop_pct
-        )
-        order_ids["trailing_stop"] = trail.order_id
+        # Step 4: Notify
+        notify.notify_buy(ticker, qty, filled_price, stop, target, score)
 
-        # Step 3: Set limit sell at target (if target available)
-        if target > 0:
-            limit = self.client.set_limit_sell(ticker, qty, target)
-            order_ids["limit_sell"] = limit.order_id
-
-        # Step 4: Track position
+        # Step 5: Track position
         self.tracker.add_position(
             ticker=ticker,
             quantity=qty,

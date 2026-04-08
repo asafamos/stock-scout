@@ -253,6 +253,148 @@ class IBKRClient:
                 error=str(e),
             )
 
+    def buy_with_bracket(
+        self,
+        ticker: str,
+        qty: int,
+        trail_pct: float,
+        target_price: float,
+    ) -> dict:
+        """Buy + trailing stop + limit sell as OCA bracket.
+
+        When one exit order fills, the other is automatically cancelled.
+        Returns dict with order IDs for all three legs.
+        """
+        if self.cfg.dry_run:
+            logger.info(
+                "[DRY RUN] BRACKET BUY %d x %s | Trail: %.1f%% | Target: $%.2f",
+                qty, ticker, trail_pct, target_price,
+            )
+            return {
+                "buy": TradeResult(ticker=ticker, action="BUY", order_type="MKT",
+                                   quantity=qty, filled_price=0.0, status="DRY_RUN"),
+                "trailing_stop": TradeResult(ticker=ticker, action="SELL",
+                                              order_type="TRAIL", quantity=qty,
+                                              filled_price=0.0, status="DRY_RUN"),
+                "limit_sell": TradeResult(ticker=ticker, action="SELL",
+                                          order_type="LMT", quantity=qty,
+                                          filled_price=0.0, status="DRY_RUN"),
+            }
+        try:
+            from ib_insync import Stock, Order
+            import time as _time
+
+            contract = Stock(ticker, "SMART", "USD")
+            self._ib.qualifyContracts(contract)
+
+            # Generate OCA group name (unique per trade)
+            oca_group = f"SS_{ticker}_{int(_time.time())}"
+
+            # Leg 1: Market buy (parent)
+            buy_order = Order()
+            buy_order.action = "BUY"
+            buy_order.totalQuantity = qty
+            buy_order.orderType = "MKT"
+            buy_order.transmit = True
+            buy_trade = self._ib.placeOrder(contract, buy_order)
+
+            # Wait for fill
+            for _ in range(30):
+                self._ib.sleep(1)
+                if buy_trade.orderStatus.status == "Filled":
+                    break
+
+            filled = buy_trade.orderStatus.avgFillPrice or 0.0
+
+            # Leg 2: Trailing stop (OCA)
+            trail_order = Order()
+            trail_order.action = "SELL"
+            trail_order.totalQuantity = qty
+            trail_order.orderType = "TRAIL"
+            trail_order.trailingPercent = trail_pct
+            trail_order.ocaGroup = oca_group
+            trail_order.ocaType = 1  # Cancel remaining on fill
+            trail_order.transmit = True
+            trail_trade = self._ib.placeOrder(contract, trail_order)
+
+            # Leg 3: Limit sell at target (OCA — same group)
+            if target_price > 0:
+                limit_order = Order()
+                limit_order.action = "SELL"
+                limit_order.totalQuantity = qty
+                limit_order.orderType = "LMT"
+                limit_order.lmtPrice = target_price
+                limit_order.ocaGroup = oca_group
+                limit_order.ocaType = 1
+                limit_order.transmit = True
+                limit_trade = self._ib.placeOrder(contract, limit_order)
+            else:
+                limit_trade = None
+
+            self._ib.sleep(2)
+
+            return {
+                "buy": TradeResult(
+                    ticker=ticker, action="BUY", order_type="MKT",
+                    quantity=qty, filled_price=filled,
+                    status=buy_trade.orderStatus.status,
+                    order_id=buy_trade.order.orderId,
+                ),
+                "trailing_stop": TradeResult(
+                    ticker=ticker, action="SELL", order_type="TRAIL",
+                    quantity=qty, filled_price=0.0,
+                    status=trail_trade.orderStatus.status,
+                    order_id=trail_trade.order.orderId,
+                ),
+                "limit_sell": TradeResult(
+                    ticker=ticker, action="SELL", order_type="LMT",
+                    quantity=qty, filled_price=0.0,
+                    status=limit_trade.orderStatus.status if limit_trade else "N/A",
+                    order_id=limit_trade.order.orderId if limit_trade else 0,
+                ),
+                "oca_group": oca_group,
+            }
+        except Exception as e:
+            logger.error("BRACKET order failed for %s: %s", ticker, e)
+            return {
+                "buy": TradeResult(ticker=ticker, action="BUY", order_type="MKT",
+                                   quantity=qty, filled_price=0.0, status="Error",
+                                   error=str(e)),
+                "trailing_stop": TradeResult(ticker=ticker, action="SELL",
+                                              order_type="TRAIL", quantity=qty,
+                                              filled_price=0.0, status="Error"),
+                "limit_sell": TradeResult(ticker=ticker, action="SELL",
+                                          order_type="LMT", quantity=qty,
+                                          filled_price=0.0, status="Error"),
+            }
+
+    def get_open_orders(self) -> List[dict]:
+        """Get all open/pending orders."""
+        if self.cfg.dry_run:
+            return []
+        try:
+            trades = self._ib.openTrades()
+            return [
+                {
+                    "order_id": t.order.orderId,
+                    "ticker": t.contract.symbol,
+                    "action": t.order.action,
+                    "order_type": t.order.orderType,
+                    "quantity": t.order.totalQuantity,
+                    "status": t.orderStatus.status,
+                    "filled": t.orderStatus.filled,
+                    "oca_group": t.order.ocaGroup or "",
+                }
+                for t in trades
+            ]
+        except Exception as e:
+            logger.error("Failed to get open orders: %s", e)
+            return []
+
+    def sync_positions(self) -> List[Position]:
+        """Get live positions from IBKR for reconciliation."""
+        return self.get_positions()
+
     def cancel_all_orders(self) -> bool:
         """Emergency: cancel all open orders."""
         if self.cfg.dry_run:
