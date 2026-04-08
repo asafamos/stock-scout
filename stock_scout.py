@@ -85,6 +85,7 @@ from ui.data_sources import render_data_sources_overview
 
 # ── project: virtual portfolio ─────────────────────────────────────
 from core.db.portfolio_manager import get_portfolio_manager, PortfolioManager
+from ui.components.market_status import render_market_status
 from ui.components.outcome_dashboard import (
     render_performance_kpis,
     render_outcomes_table,
@@ -202,6 +203,8 @@ st.markdown("""
   <p class="ss-subtitle">ML-powered stock scanner &amp; swing-trade recommendations &nbsp;·&nbsp; 20-day horizon &nbsp;·&nbsp; Research only</p>
 </div>
 """, unsafe_allow_html=True)
+
+render_market_status()
 
 # ── Centralized session state initialization ────────────────────────
 # All session_state keys are initialized here with defaults.
