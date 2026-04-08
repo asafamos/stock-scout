@@ -1256,13 +1256,20 @@ def train_and_save_bundle():
         ],
     )
     _lgbm_best = model3_lgbm.best_iteration_
-    # Guard: if early stopping triggered too early, retrain without it.
+    # Guard: if early stopping triggered too early, retrain with relaxed patience.
     # A model with <20 iterations is effectively untrained.
     if _lgbm_best < 20:
-        print(f"      LightGBM early stopping triggered too early (iter={_lgbm_best}), retraining without early stopping...")
-        model3_lgbm.set_params(n_estimators=200)
-        model3_lgbm.fit(X_train_final, y_train_final)
-        _lgbm_best = 200
+        print(f"      LightGBM early stopping triggered too early (iter={_lgbm_best}), retraining with relaxed patience...")
+        model3_lgbm.set_params(n_estimators=300)
+        model3_lgbm.fit(
+            X_train_final, y_train_final,
+            eval_set=[(X_calib, y_calib)],
+            callbacks=[
+                __import__('lightgbm').early_stopping(stopping_rounds=100, first_metric_only=True, verbose=False),
+                __import__('lightgbm').log_evaluation(period=0),
+            ],
+        )
+        _lgbm_best = model3_lgbm.best_iteration_
     print(f"      LightGBM best iteration: {_lgbm_best}")
 
     # Train base model 4: LogisticRegression (linear baseline, needs scaling)

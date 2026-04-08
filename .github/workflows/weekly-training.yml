@@ -22,7 +22,7 @@ concurrency:
 jobs:
   train:
     runs-on: ubuntu-latest
-    timeout-minutes: 360  # 1000 tickers × 4 req/min ≈ 250 min data + training ≈ 60 min = ~310 min
+    timeout-minutes: 420  # 1000 tickers × 4 req/min ≈ 250 min data + training ≈ 90 min = ~340 min + buffer
     env:
       # REQUIRED: Polygon API key for historical data
       POLYGON_API_KEY: ${{ secrets.POLYGON_API_KEY }}
