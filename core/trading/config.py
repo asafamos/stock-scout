@@ -68,12 +68,23 @@ class TradingConfig:
     min_score_to_trade: float = field(
         default_factory=lambda: _env_float("MIN_SCORE", 75.0)
     )
+    max_score_to_trade: float = field(
+        default_factory=lambda: _env_float("MAX_SCORE", 95.0)
+    )  # Q5 (highest scores) underperform — cap at 95
     min_rr_to_trade: float = field(
         default_factory=lambda: _env_float("MIN_RR", 2.0)
     )
     min_confidence: str = field(
         default_factory=lambda: _env("MIN_CONFIDENCE", "High")
     )
+    min_ml_prob: float = field(
+        default_factory=lambda: _env_float("MIN_ML_PROB", 0.40)
+    )  # ML<0.4 has negative expected return
+
+    # ── Sector Blocklist (portfolio analysis: Consumer Defensive = -4.47%, 20% win) ──
+    blocked_sectors: str = field(
+        default_factory=lambda: _env("BLOCKED_SECTORS", "Consumer Defensive")
+    )  # Comma-separated list
 
     # ── Stop / Target ─────────────────────────────────────────
     trailing_stop_pct: float = field(
@@ -92,6 +103,10 @@ class TradingConfig:
     def ibkr_port(self) -> int:
         return self.ibkr_port_paper if self.paper_mode else self.ibkr_port_live
 
+    @property
+    def blocked_sectors_list(self) -> list:
+        return [s.strip() for s in self.blocked_sectors.split(",") if s.strip()]
+
     def summary(self) -> str:
         mode = "DRY RUN" if self.dry_run else ("PAPER" if self.paper_mode else "LIVE")
         return (
@@ -99,7 +114,8 @@ class TradingConfig:
             f"  Position: ${self.max_position_size:,.0f} | "
             f"Max open: {self.max_open_positions} | "
             f"Daily limit: {self.max_daily_buys}\n"
-            f"  Filters: Score>={self.min_score_to_trade} | "
+            f"  Filters: Score {self.min_score_to_trade}-{self.max_score_to_trade} | "
+            f"ML>={self.min_ml_prob} | "
             f"RR>={self.min_rr_to_trade} | "
             f"Confidence>={self.min_confidence}\n"
             f"  Stop: Trailing {self.trailing_stop_pct}%\n"

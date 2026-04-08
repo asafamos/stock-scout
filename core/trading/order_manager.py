@@ -160,11 +160,19 @@ class OrderManager:
             return None
 
     def _filter_candidates(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Apply score, RR, and duplicate filters."""
+        """Apply portfolio-informed smart filters for auto-trading.
+
+        Filters based on virtual portfolio analysis (98 closed trades):
+        - Score sweet spot: Q3-Q4 perform best, Q5 underperforms
+        - ML Prob >= 0.4: below this, expected return is negative
+        - Blocked sectors: Consumer Defensive = -4.47% avg, 20% win rate
+        """
         # Normalize column names
         score_col = self._find_col(df, ["FinalScore_20d", "Score", "final_score"])
         rr_col = self._find_col(df, ["RewardRisk", "RR_Ratio", "RR", "rr"])
         ticker_col = self._find_col(df, ["Ticker", "ticker", "Symbol"])
+        ml_col = self._find_col(df, ["ML_20d_Prob", "ml_prob", "ML_Prob"])
+        sector_col = self._find_col(df, ["Sector", "sector"])
 
         if not score_col or not ticker_col:
             logger.error("Missing required columns (Score/Ticker) in %s",
@@ -172,18 +180,44 @@ class OrderManager:
             return pd.DataFrame()
 
         result = df.copy()
+        initial_count = len(result)
 
-        # Score filter
+        # Score band filter (Q3-Q4 sweet spot)
+        scores = pd.to_numeric(result[score_col], errors="coerce")
         result = result[
-            pd.to_numeric(result[score_col], errors="coerce")
-            >= self.cfg.min_score_to_trade
+            (scores >= self.cfg.min_score_to_trade) &
+            (scores <= self.cfg.max_score_to_trade)
         ]
         if result.empty:
-            logger.info("No stocks pass score filter (>= %.0f)", self.cfg.min_score_to_trade)
+            logger.info("No stocks pass score filter (%.0f-%.0f)",
+                        self.cfg.min_score_to_trade, self.cfg.max_score_to_trade)
             return result
 
+        # ML probability filter
+        if ml_col and ml_col in result.columns:
+            ml_vals = pd.to_numeric(result[ml_col], errors="coerce")
+            before = len(result)
+            result = result[ml_vals >= self.cfg.min_ml_prob]
+            dropped = before - len(result)
+            if dropped:
+                logger.info("ML filter dropped %d stocks (ML < %.2f)",
+                            dropped, self.cfg.min_ml_prob)
+            if result.empty:
+                logger.info("No stocks pass ML filter (>= %.2f)", self.cfg.min_ml_prob)
+                return result
+
+        # Sector blocklist filter
+        blocked = self.cfg.blocked_sectors_list
+        if blocked and sector_col and sector_col in result.columns:
+            before = len(result)
+            result = result[~result[sector_col].isin(blocked)]
+            dropped = before - len(result)
+            if dropped:
+                logger.info("Sector filter dropped %d stocks (blocked: %s)",
+                            dropped, blocked)
+
         # RR filter
-        if rr_col:
+        if rr_col and rr_col in result.columns:
             rr_vals = pd.to_numeric(result[rr_col], errors="coerce")
             result = result[rr_vals >= self.cfg.min_rr_to_trade]
             if result.empty:
@@ -194,6 +228,8 @@ class OrderManager:
         result = result[
             ~result[ticker_col].apply(self.tracker.is_holding)
         ]
+
+        logger.info("Smart filter: %d → %d candidates", initial_count, len(result))
 
         # Sort by score descending
         result = result.sort_values(score_col, ascending=False)
