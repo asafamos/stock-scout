@@ -65,7 +65,9 @@ def compute_technical_score(
     elif meteor_mode:
         rsi_score = 1.0 if rsi_val >= 55 else (0.8 if rsi_val >= 45 else 0.4)
     else:
-        rsi_score = 1.0 if 25 <= rsi_val <= 75 else max(0.0, 1.0 - (abs(rsi_val - 50) - 25) / 50.0)
+        # Bell curve centered at 52 (mild bullish sweet spot), width 20.
+        # RSI 52 → 1.0, RSI 70 → ~0.44, RSI 75 → ~0.28, RSI 30 → ~0.28
+        rsi_score = float(np.exp(-0.5 * ((rsi_val - 52.0) / 20.0) ** 2))
 
     vol_surge = _get("VolSurge", 1.0)
     vol_score = float(np.clip(vol_surge / 2.0, 0.0, 1.0))
@@ -231,7 +233,7 @@ def compute_tech_score_20d_v2_components(row: pd.Series) -> dict:
     rsi = row.get("RSI", np.nan)
     if pd.notna(rsi):
         # Best RSI range: 45-60 (mild bullish). Penalize extremes.
-        location_score = _smooth(rsi, 52.0, 18.0)
+        location_score = _smooth(rsi, 52.0, 15.0)
         # Slight boost for oversold bounce potential (RSI 30-40)
         if 30 <= rsi <= 42:
             location_score = max(location_score, 0.65)
