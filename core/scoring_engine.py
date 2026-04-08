@@ -86,6 +86,26 @@ def compute_final_score_20d(row: pd.Series, *, return_breakdown: bool = False):
         # Try multiple field names for reliability
         rel = _safe_score(row, "Reliability_Score", "ReliabilityScore", "Reliability_v2", "reliability_pct")
 
+        # ── Momentum damping near 52w high ────────────────────
+        # When a stock is near its ATH without a VCP setup, momentum is
+        # naturally maxed out and inflates the score.  Dampen the momentum
+        # contribution BEFORE the weighted sum so the effect is proportional.
+        _mom_damper = 1.0
+        try:
+            _dh_pre = row.get("Dist_52w_High", np.nan)
+            _vcp_pre = float(row.get("Volatility_Contraction_Score", 0) or 0)
+            if pd.notna(_dh_pre):
+                _dh_f = float(_dh_pre)
+                if _dh_f > -0.03 and _vcp_pre < ENTRY_TIMING["vcp_ath_threshold"]:
+                    _mom_damper = ENTRY_TIMING.get("ath_momentum_damper", 0.70)
+                elif _dh_f > -0.05 and _vcp_pre < ENTRY_TIMING["vcp_near_threshold"]:
+                    _mom_damper = ENTRY_TIMING.get("near_high_momentum_damper", 0.85)
+            if _mom_damper < 1.0:
+                mom = float(mom) * _mom_damper
+        except Exception as _e:
+            logger.debug("Momentum damping near ATH failed: %s", _e)
+        _bd["mom_damper"] = _mom_damper
+
         # RR ratio → score (0-100)
         rr_ratio = row.get("RR", None)
         rr_score, _, _ = evaluate_rr_unified(rr_ratio) if rr_ratio is not None else (50.0, 0.0, "N/A")
@@ -233,6 +253,27 @@ def compute_final_score_20d(row: pd.Series, *, return_breakdown: bool = False):
             _bd["entry_adj"] = round(entry_adj, 1)
         except Exception as e:
             logger.debug("Entry timing adjustment failed: %s", e)
+
+        # ── Crisis-momentum penalty ───────────────────────────────
+        # Penalize stocks in geopolitically-sensitive sectors that rallied
+        # sharply — the momentum may reverse when the crisis de-escalates.
+        try:
+            from core.scoring_config import CRISIS_MOMENTUM_PENALTY as _cmp_cfg
+            if _cmp_cfg.get("enabled", False):
+                _sector = str(row.get("Sector", row.get("sector", ""))).strip()
+                _cmp_sectors = _cmp_cfg.get("sectors", [])
+                _ret_20d_cmp = float(row.get("Return_20d", row.get("Return_1m", 0)) or 0)
+                if _sector in _cmp_sectors and _ret_20d_cmp > _cmp_cfg.get("high_momentum_threshold", 0.20):
+                    _cmp_pen = float(_cmp_cfg.get("penalty_points", 4.0))
+                    # Double penalty if RSI also elevated
+                    _rsi_cmp = float(row.get("RSI", row.get("RSI_14", 50)))
+                    if _rsi_cmp > _cmp_cfg.get("rsi_amplifier_threshold", 65.0):
+                        _cmp_pen *= 2.0
+                    final_score -= _cmp_pen
+                    _bd["crisis_momentum_penalty"] = round(_cmp_pen, 1)
+                    _bd["crisis_sector"] = _sector
+        except Exception as _cmp_e:
+            logger.debug("Crisis-momentum penalty failed: %s", _cmp_e)
 
         # ── RSI timing adjustment (regime-aware) ──────────────────
         # Pre-rise picks should NOT be overbought.  Penalties scale with

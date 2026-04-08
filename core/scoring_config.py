@@ -145,6 +145,11 @@ ENTRY_TIMING: Dict[str, float] = {
     "runup_penalty": 3.0,         # Penalty for rapid run-up (was 5.0 — penalizing momentum too harshly)
     "vcp_ath_threshold": 0.4,     # VCP score to bypass ATH penalty
     "vcp_near_threshold": 0.3,    # VCP score to bypass near-high penalty
+    # Momentum damping near ATH: reduce momentum contribution when stock is
+    # near 52w high without a VCP setup.  Addresses inflated scores (e.g. RRC 97)
+    # caused by momentum (40% weight) being naturally maxed at highs.
+    "ath_momentum_damper": 0.70,       # Within 3% of ATH → mom *= 0.70
+    "near_high_momentum_damper": 0.85, # Within 5% of ATH → mom *= 0.85
     # RR hard caps — prevent momentum from overriding poor risk/reward
     "rr_cap_harsh_lt": 1.5,       # RR < 1.5 → cap score at 90
     "rr_cap_harsh_max": 90.0,
@@ -363,9 +368,35 @@ ROE_QUALITY_GATE: Dict[str, float] = {
 # think a stock is already overvalued (negative upside).
 ANALYST_TARGET_PENALTY: Dict[str, object] = {
     "enabled": True,
-    "overestimate_threshold": 0.20,   # system target exceeds analyst by >20%
-    "penalty_points": 5.0,            # score penalty for overestimate
-    "negative_upside_penalty": 8.0,   # score penalty if analyst PT < current price
+    "overestimate_threshold": 0.20,           # system target exceeds analyst by >20%
+    "penalty_points": 8.0,                    # score penalty for overestimate (was 5.0)
+    "extreme_overestimate_threshold": 0.40,   # system target exceeds analyst by >40%
+    "extreme_penalty_points": 12.0,           # severe penalty for extreme divergence
+    "negative_upside_penalty": 12.0,          # analyst PT < current price (was 8.0)
+}
+
+# News sentiment penalty: penalize stocks with strongly negative recent news.
+# Uses existing fetch_news_sentiment_finnhub() from core/sentiment_data.py.
+# Applied as a post-score adjustment in the pipeline runner (like analyst penalty).
+NEWS_SENTIMENT_PENALTY: Dict[str, object] = {
+    "enabled": True,
+    "negative_threshold": -0.15,        # sentiment_avg below this → negative news
+    "negative_penalty": 5.0,            # score penalty for negative sentiment
+    "strong_negative_threshold": -0.30,  # strongly negative news
+    "strong_negative_penalty": 8.0,     # larger penalty
+    "min_news_count": 0.03,             # normalized; need at least ~3 articles for signal
+}
+
+# Crisis-momentum penalty: stocks in geopolitically-sensitive sectors that
+# rallied sharply (e.g. tankers during Hormuz crisis) risk reversal when
+# the crisis de-escalates.  Penalize high-momentum crisis-sector stocks
+# to temper score inflation from event-driven momentum.
+CRISIS_MOMENTUM_PENALTY: Dict[str, object] = {
+    "enabled": True,
+    "sectors": ["Energy", "Materials"],   # sectors most sensitive to geopolitical events
+    "high_momentum_threshold": 0.20,      # 20%+ return in 20d → crisis-driven rally
+    "penalty_points": 4.0,               # base score penalty
+    "rsi_amplifier_threshold": 65.0,     # if RSI also elevated → double penalty
 }
 
 # Volume confirmation in distribution/correction: penalize stocks where

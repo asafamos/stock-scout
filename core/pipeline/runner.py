@@ -1670,8 +1670,15 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
                             if np.isfinite(_entry) and np.isfinite(_target) and _entry > 0:
                                 _sys_upside = (_target - _entry) / _entry
                                 _thresh = float(_apt_cfg.get("overestimate_threshold", 0.20))
-                                if _sys_upside > _pt_upside_f + _thresh:
-                                    _penalty = float(_apt_cfg.get("penalty_points", 5.0))
+                                _extreme_thresh = float(_apt_cfg.get("extreme_overestimate_threshold", 0.40))
+                                if _sys_upside > _pt_upside_f + _extreme_thresh:
+                                    _penalty = float(_apt_cfg.get("extreme_penalty_points", 12.0))
+                                    logger.info(
+                                        "[ANALYST] %s: EXTREME system upside %.1f%% >> analyst %.1f%% → -%.0f pts",
+                                        _a_ticker, _sys_upside * 100, _pt_upside_f * 100, _penalty,
+                                    )
+                                elif _sys_upside > _pt_upside_f + _thresh:
+                                    _penalty = float(_apt_cfg.get("penalty_points", 8.0))
                                     logger.info(
                                         "[ANALYST] %s: system upside %.1f%% >> analyst %.1f%% → -%.0f pts",
                                         _a_ticker, _sys_upside * 100, _pt_upside_f * 100, _penalty,
@@ -1688,6 +1695,48 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
                     logger.debug("Analyst data for %s: %s", _a_ticker, _ae)
     except Exception as _apt_exc:
         logger.debug("Analyst consensus cross-check skipped: %s", _apt_exc)
+
+    # ── News sentiment penalty ────────────────────────────────────
+    # Penalize stocks with strongly negative recent news sentiment.
+    try:
+        from core.scoring_config import NEWS_SENTIMENT_PENALTY as _nsp_cfg
+        if _nsp_cfg.get("enabled", False) and not ctx.results.empty:
+            from core.sentiment_data import fetch_news_sentiment_finnhub
+            _score_col_ns = "FinalScore_20d" if "FinalScore_20d" in ctx.results.columns else "Score"
+            for _ns_idx in ctx.results.index:
+                _ns_ticker = str(ctx.results.at[_ns_idx, "Ticker"]) if "Ticker" in ctx.results.columns else ""
+                if not _ns_ticker:
+                    continue
+                try:
+                    _sent = fetch_news_sentiment_finnhub(_ns_ticker)
+                    _sent_avg = float(_sent.get("sentiment_avg", 0))
+                    _news_count = float(_sent.get("news_count", 0))
+                    ctx.results.at[_ns_idx, "News_Sentiment_7d"] = _sent_avg
+                    ctx.results.at[_ns_idx, "News_Volume_7d"] = _news_count
+                    # Only apply penalty when we have enough articles for a signal
+                    _ns_penalty = 0.0
+                    if _news_count >= float(_nsp_cfg.get("min_news_count", 0.03)):
+                        if _sent_avg < float(_nsp_cfg.get("strong_negative_threshold", -0.30)):
+                            _ns_penalty = float(_nsp_cfg.get("strong_negative_penalty", 8.0))
+                        elif _sent_avg < float(_nsp_cfg.get("negative_threshold", -0.15)):
+                            _ns_penalty = float(_nsp_cfg.get("negative_penalty", 5.0))
+                    if _ns_penalty > 0 and _score_col_ns in ctx.results.columns:
+                        _ns_current = float(ctx.results.at[_ns_idx, _score_col_ns])
+                        _ns_new = max(0.0, _ns_current - _ns_penalty)
+                        ctx.results.at[_ns_idx, _score_col_ns] = _ns_new
+                        ctx.results.at[_ns_idx, "News_Penalty"] = _ns_penalty
+                        if "FinalScore" in ctx.results.columns:
+                            ctx.results.at[_ns_idx, "FinalScore"] = _ns_new
+                        if "Score" in ctx.results.columns:
+                            ctx.results.at[_ns_idx, "Score"] = _ns_new
+                        logger.info(
+                            "[NEWS] %s: sentiment=%.2f, news_count=%.2f → -%.0f pts",
+                            _ns_ticker, _sent_avg, _news_count, _ns_penalty,
+                        )
+                except Exception as _ns_e:
+                    logger.debug("News sentiment for %s: %s", _ns_ticker, _ns_e)
+    except Exception as _nsp_exc:
+        logger.debug("News sentiment penalty skipped: %s", _nsp_exc)
 
     # No-Trade Signal: warn when market regime is unfavorable
     try:
@@ -1886,6 +1935,35 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
     except Exception as e:
         logger.warning("[PIPELINE] Signal-first filtering failed: %s", e)
 
+    # ── Sector diversification cap ────────────────────────────────
+    # Limit max stocks per sector to prevent concentration risk.
+    # Config lives in core/config.py: sector_cap_enabled, sector_cap_max.
+    try:
+        _sec_cap_enabled = ctx.config.get("sector_cap_enabled", ctx.config.get("SECTOR_CAP_ENABLED", True))
+        _sec_cap_max = int(ctx.config.get("sector_cap_max", ctx.config.get("SECTOR_CAP_MAX", 3)))
+        if _sec_cap_enabled and not ctx.results.empty and "Sector" in ctx.results.columns:
+            _pre_cap_len = len(ctx.results)
+            _score_col_cap = "FinalScore_20d" if "FinalScore_20d" in ctx.results.columns else "Score"
+            # Ensure sorted by score descending before applying cap
+            if _score_col_cap in ctx.results.columns:
+                ctx.results = ctx.results.sort_values(_score_col_cap, ascending=False).reset_index(drop=True)
+            # Rank within each sector, keep top N per sector
+            ctx.results["_sector_rank"] = ctx.results.groupby("Sector", sort=False).cumcount() + 1
+            _capped = ctx.results[ctx.results["_sector_rank"] <= _sec_cap_max].drop(columns=["_sector_rank"]).reset_index(drop=True)
+            _dropped = _pre_cap_len - len(_capped)
+            if _dropped > 0:
+                # Log which sectors were capped
+                _sector_counts = ctx.results.groupby("Sector").size()
+                _capped_sectors = _sector_counts[_sector_counts > _sec_cap_max].to_dict()
+                logger.info(
+                    "[PIPELINE] Sector cap applied (max %d/sector): dropped %d stocks. "
+                    "Capped sectors: %s",
+                    _sec_cap_max, _dropped, _capped_sectors,
+                )
+            ctx.results = _capped
+    except Exception as _sec_exc:
+        logger.debug("[PIPELINE] Sector cap failed: %s", _sec_exc)
+
     # Persist latest results
     try:
         to_save = ctx.results.copy()
@@ -1936,6 +2014,19 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
                 _regime = str(to_save["Market_Regime"].mode().iloc[0])
             except Exception:
                 pass
+        # Sector concentration analysis
+        _sector_dist = {}
+        _max_sector_pct = 0.0
+        if "Sector" in to_save.columns and not to_save.empty:
+            _sector_counts = to_save["Sector"].value_counts()
+            _sector_dist = _sector_counts.to_dict()
+            _max_sector_pct = round(float(_sector_counts.iloc[0]) / len(to_save) * 100, 1) if len(to_save) > 0 else 0.0
+            if _max_sector_pct > 33.0:
+                _top_sector = str(_sector_counts.index[0])
+                logger.warning(
+                    "[PIPELINE] WARNING: sector concentration — %s has %.0f%% of recommendations (%d/%d)",
+                    _top_sector, _max_sector_pct, int(_sector_counts.iloc[0]), len(to_save),
+                )
         _scan_meta = {
             "results_count": len(to_save),
             "timestamp": _dt.utcnow().isoformat(),
@@ -1947,6 +2038,8 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
             "features_used": len([c for c in to_save.columns if c.startswith(("ML_", "VCP", "RS_"))]),
             "ml_model_version": ctx.config.get("ml_model_version", "v3.1"),
             "total_tickers": len(to_save),
+            "sector_distribution": _sector_dist,
+            "max_sector_concentration_pct": _max_sector_pct,
         }
         (scans_dir / "latest_scan_live.meta.json").write_text(
             _json.dumps(_scan_meta, indent=2)
