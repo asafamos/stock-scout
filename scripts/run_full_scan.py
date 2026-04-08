@@ -269,6 +269,22 @@ def main():
         except Exception as e:
             print(json.dumps({"warning": f"alert_failed: {e}"}))
 
+    # Auto-trade: execute recommendations via IBKR (if enabled)
+    if os.getenv("AUTO_TRADE_ENABLED") == "1" and results is not None and not results.empty:
+        try:
+            from core.trading.order_manager import OrderManager
+            manager = OrderManager()
+            trade_results = manager.execute_recommendations(results)
+            print(json.dumps({
+                "auto_trade": {
+                    "executed": len([r for r in trade_results if r.get("status") == "success"]),
+                    "skipped": len([r for r in trade_results if r.get("status") == "skipped"]),
+                    "errors": len([r for r in trade_results if r.get("status") == "error"]),
+                }
+            }))
+        except Exception as e:
+            print(json.dumps({"warning": f"auto_trade_failed: {e}"}))
+
     # Build terminal report (JSON) with flags and FinalScore_20d
     df = results.copy() if results is not None else pd.DataFrame()
     if df.empty:

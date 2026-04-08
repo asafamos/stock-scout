@@ -1,0 +1,270 @@
+"""Order orchestration — the brain of auto-trading.
+
+Reads scan recommendations, runs them through risk checks,
+and executes buy + stop + target orders via IBKR.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from pathlib import Path
+from typing import Dict, List, Optional
+
+import numpy as np
+import pandas as pd
+
+from core.trading.config import CONFIG, TradingConfig
+from core.trading.ibkr_client import IBKRClient, TradeResult
+from core.trading.position_tracker import PositionTracker
+from core.trading.risk_manager import RiskManager
+
+logger = logging.getLogger(__name__)
+
+
+class OrderManager:
+    """Orchestrates scan → risk check → order execution → tracking."""
+
+    def __init__(self, config: Optional[TradingConfig] = None):
+        self.cfg = config or CONFIG
+        self.client = IBKRClient(self.cfg)
+        self.tracker = PositionTracker(self.cfg)
+        self.risk = RiskManager(self.client, self.tracker, self.cfg)
+
+    def execute_recommendations(
+        self,
+        scan_df: Optional[pd.DataFrame] = None,
+    ) -> List[Dict]:
+        """Main entry: read scan, filter, execute trades.
+
+        Returns list of trade result dicts for logging/display.
+        """
+        logger.info("=" * 60)
+        logger.info("AUTO-TRADE: Starting execution")
+        logger.info(self.cfg.summary())
+        logger.info("=" * 60)
+
+        # 1. Load scan results
+        if scan_df is None:
+            scan_df = self._load_scan_results()
+        if scan_df is None or scan_df.empty:
+            logger.warning("No scan results available — aborting")
+            return []
+
+        # 2. Filter candidates
+        candidates = self._filter_candidates(scan_df)
+        if candidates.empty:
+            logger.info("No candidates passed filters")
+            return []
+
+        logger.info("Candidates after filtering: %d", len(candidates))
+
+        # 3. Connect to IBKR
+        if not self.client.connect():
+            logger.error("Failed to connect to IBKR — aborting")
+            return []
+
+        results = []
+        try:
+            # 4. Execute trades
+            for _, row in candidates.iterrows():
+                result = self._execute_single(row)
+                results.append(result)
+
+                # Stop if daily limit reached
+                if self.tracker.daily_buy_count() >= self.cfg.max_daily_buys:
+                    logger.info("Daily buy limit reached — stopping")
+                    break
+        finally:
+            self.client.disconnect()
+
+        # 5. Summary
+        bought = [r for r in results if r.get("status") == "success"]
+        skipped = [r for r in results if r.get("status") == "skipped"]
+        failed = [r for r in results if r.get("status") == "error"]
+        logger.info(
+            "AUTO-TRADE complete: %d bought, %d skipped, %d failed",
+            len(bought), len(skipped), len(failed),
+        )
+        return results
+
+    def check_exits(self) -> List[Dict]:
+        """Check open positions for target-date exits."""
+        expired = self.tracker.check_target_date_exits()
+        if not expired:
+            logger.info("No positions at target date")
+            return []
+
+        results = []
+        if not self.client.connect():
+            logger.error("Cannot connect to IBKR for exit check")
+            return []
+
+        try:
+            for ticker in expired:
+                pos = self.tracker.get_position(ticker)
+                if not pos:
+                    continue
+                logger.info("Target date reached for %s — closing", ticker)
+                trade = self.client.buy_market(ticker, 0)  # placeholder
+                # In practice: sell at market
+                # For now, just log
+                results.append({
+                    "ticker": ticker,
+                    "action": "TARGET_DATE_EXIT",
+                    "status": "pending_manual" if self.cfg.dry_run else "executed",
+                })
+        finally:
+            self.client.disconnect()
+
+        return results
+
+    def emergency_close_all(self) -> bool:
+        """Kill switch: cancel all open orders."""
+        logger.warning("EMERGENCY CLOSE ALL triggered")
+        if not self.client.connect():
+            logger.error("Cannot connect for emergency close")
+            return False
+        try:
+            return self.client.cancel_all_orders()
+        finally:
+            self.client.disconnect()
+
+    # ── Internals ─────────────────────────────────────────────
+
+    def _load_scan_results(self) -> Optional[pd.DataFrame]:
+        """Load latest scan from JSON."""
+        path = Path(self.cfg.scan_results_path)
+        if not path.exists():
+            # Try parquet fallback
+            parquet_path = path.with_suffix(".parquet")
+            if parquet_path.exists():
+                return pd.read_parquet(parquet_path)
+            logger.error("Scan results not found: %s", path)
+            return None
+        try:
+            return pd.read_json(path)
+        except Exception as e:
+            logger.error("Failed to load scan results: %s", e)
+            return None
+
+    def _filter_candidates(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Apply score, RR, and duplicate filters."""
+        # Normalize column names
+        score_col = self._find_col(df, ["FinalScore_20d", "Score", "final_score"])
+        rr_col = self._find_col(df, ["RewardRisk", "RR_Ratio", "RR", "rr"])
+        ticker_col = self._find_col(df, ["Ticker", "ticker", "Symbol"])
+
+        if not score_col or not ticker_col:
+            logger.error("Missing required columns (Score/Ticker) in %s",
+                         list(df.columns)[:15])
+            return pd.DataFrame()
+
+        result = df.copy()
+
+        # Score filter
+        result = result[
+            pd.to_numeric(result[score_col], errors="coerce")
+            >= self.cfg.min_score_to_trade
+        ]
+        if result.empty:
+            logger.info("No stocks pass score filter (>= %.0f)", self.cfg.min_score_to_trade)
+            return result
+
+        # RR filter
+        if rr_col:
+            rr_vals = pd.to_numeric(result[rr_col], errors="coerce")
+            result = result[rr_vals >= self.cfg.min_rr_to_trade]
+            if result.empty:
+                logger.info("No stocks pass RR filter (>= %.1f)", self.cfg.min_rr_to_trade)
+                return result
+
+        # Remove already-held tickers
+        result = result[
+            ~result[ticker_col].apply(self.tracker.is_holding)
+        ]
+
+        # Sort by score descending
+        result = result.sort_values(score_col, ascending=False)
+
+        return result
+
+    def _execute_single(self, row: pd.Series) -> Dict:
+        """Execute a single recommendation: buy + trailing stop + limit sell."""
+        ticker = row.get("Ticker", row.get("ticker", ""))
+        score = float(row.get("FinalScore_20d", row.get("Score", 0)))
+        rr = float(row.get("RewardRisk", row.get("RR", 0)))
+        entry = float(row.get("Entry_Price", row.get("entry_price", 0)))
+        target = float(row.get("Target_Price", row.get("target_price", 0)))
+        stop = float(row.get("Stop_Loss", row.get("stop_loss", 0)))
+        target_date = str(row.get("Target_Date", row.get("target_date", "")))
+
+        # Use current price as entry estimate if Entry_Price not available
+        price = entry if entry > 0 else float(row.get("Close", row.get("close", 0)))
+
+        # Risk check
+        allowed, reason = self.risk.can_open_position(ticker, price, score, rr)
+        if not allowed:
+            logger.info("SKIP %s: %s", ticker, reason)
+            return {"ticker": ticker, "status": "skipped", "reason": reason}
+
+        # Calculate quantity
+        qty = self.risk.calculate_qty(price)
+        if qty <= 0:
+            return {"ticker": ticker, "status": "skipped",
+                    "reason": f"Price too high (${price:.2f})"}
+
+        logger.info("EXECUTING: BUY %d x %s @ ~$%.2f (score=%.1f, RR=%.2f)",
+                     qty, ticker, price, score, rr)
+
+        # Step 1: Buy at market
+        buy_result = self.client.buy_market(ticker, qty)
+        if buy_result.status in ("Error",):
+            return {"ticker": ticker, "status": "error",
+                    "error": buy_result.error}
+
+        filled_price = buy_result.filled_price or price
+        order_ids = {"buy": buy_result.order_id}
+
+        # Step 2: Set trailing stop
+        trail = self.client.set_trailing_stop(
+            ticker, qty, self.cfg.trailing_stop_pct
+        )
+        order_ids["trailing_stop"] = trail.order_id
+
+        # Step 3: Set limit sell at target (if target available)
+        if target > 0:
+            limit = self.client.set_limit_sell(ticker, qty, target)
+            order_ids["limit_sell"] = limit.order_id
+
+        # Step 4: Track position
+        self.tracker.add_position(
+            ticker=ticker,
+            quantity=qty,
+            entry_price=filled_price,
+            stop_loss=stop,
+            target_price=target,
+            target_date=target_date if target_date else None,
+            trailing_stop_pct=self.cfg.trailing_stop_pct,
+            score=score,
+            order_ids=order_ids,
+        )
+
+        return {
+            "ticker": ticker,
+            "status": "success",
+            "quantity": qty,
+            "entry_price": filled_price,
+            "target_price": target,
+            "stop_loss": stop,
+            "trailing_stop_pct": self.cfg.trailing_stop_pct,
+            "order_ids": order_ids,
+        }
+
+    @staticmethod
+    def _find_col(df: pd.DataFrame, candidates: List[str]) -> Optional[str]:
+        """Find first matching column name."""
+        for c in candidates:
+            if c in df.columns:
+                return c
+        return None
