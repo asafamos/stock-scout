@@ -66,7 +66,7 @@ class TradingConfig:
 
     # ── Trade Filters ──────────────────────────────────────────
     min_score_to_trade: float = field(
-        default_factory=lambda: _env_float("MIN_SCORE", 80.0)
+        default_factory=lambda: _env_float("MIN_SCORE", 75.0)
     )
     min_rr_to_trade: float = field(
         default_factory=lambda: _env_float("MIN_RR", 2.0)

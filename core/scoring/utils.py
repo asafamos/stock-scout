@@ -87,20 +87,20 @@ def evaluate_rr_unified(
 
 
 def ml_boost_component(prob: float) -> float:
-    """Return a bounded adjustment (±15) based on ML probability.
+    """Return a bounded adjustment (±12) based on ML probability.
 
-    Range was ±8, increased to ±15 so that a strongly negative ML signal
-    (e.g. 37%) actually drags the final score down meaningfully.
+    Range was ±8 (too weak), tried ±15 (too aggressive combined with
+    ML_GATES multiplicative penalty). Settled on ±12 as balanced middle.
     The AUC gate in compute_final_score_20d further scales this down
-    for weak models (AUC ≤ 0.58 → 0.5x, AUC ≤ 0.52 → disabled).
+    for weak models (AUC ≤ 0.58 → 0.75x, AUC ≤ 0.52 → disabled).
 
-    Neutral (0.5) → 0; High (1.0) → +15; Low (0.0) → −15.
+    Neutral (0.5) → 0; High (1.0) → +12; Low (0.0) → −12.
     """
     try:
         if prob is None or not np.isfinite(prob):
             return 0.0
         p = float(np.clip(prob, 0.0, 1.0))
-        delta = (p - 0.5) * 2.0 * 15.0
-        return float(np.clip(delta, -15.0, 15.0))
+        delta = (p - 0.5) * 2.0 * 12.0
+        return float(np.clip(delta, -12.0, 12.0))
     except Exception:
         return 0.0
