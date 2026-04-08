@@ -96,18 +96,18 @@ BASE_SCORE_WEIGHTS: Dict[str, float] = {
 # only for the most extreme positive signals. Effect is mild until a
 # better model is trained.
 ML_GATES: Dict[str, float] = {
-    "penalty_lt": 0.30,     # was 0.15 — more stocks penalized when model says NO
-    "bonus_gt": 0.75,       # was 0.62 — only exceptional ML confidence gets bonus
-    "penalty_mult": 0.85,   # was 0.60 — softer penalty (ML not reliable enough for harsh cut)
-    "bonus_mult": 1.08,     # was 1.15 — smaller bonus (ML doesn't warrant big boost)
+    "penalty_lt": 0.45,     # was 0.30 — penalize anything below neutral-ish
+    "bonus_gt": 0.75,       # only exceptional ML confidence gets bonus
+    "penalty_mult": 0.88,   # multiplicative penalty (12% reduction)
+    "bonus_mult": 1.08,     # smaller bonus (ML doesn't warrant big boost)
 }
 
 # Strong ML gates — activated when model AUC ≥ 0.58 (proven signal)
 # Lower bonus threshold (model outputs are reliable) and bigger bonus multiplier
 ML_GATES_STRONG: Dict[str, float] = {
-    "penalty_lt": 0.25,     # Slightly more aggressive penalty for proven model
+    "penalty_lt": 0.45,     # was 0.25 — penalize below neutral
     "bonus_gt": 0.60,       # Lower bar — model has earned trust at AUC ≥ 0.58
-    "penalty_mult": 0.80,   # Stronger penalty — model's NO signal is reliable
+    "penalty_mult": 0.82,   # Stronger penalty — model's NO signal is reliable (18% cut)
     "bonus_mult": 1.15,     # Bigger bonus — model's YES signal is reliable
 }
 
@@ -188,9 +188,9 @@ BONUS_CONFIG: Dict[str, float] = {
 # RSI timing adjustment thresholds for compute_final_score_20d
 RSI_ADJUSTMENTS: Dict[str, float] = {
     "overbought_hard_threshold": 75.0,  # Above this → strong penalty
-    "overbought_hard_penalty": 5.0,     # Points deducted for strongly overbought
-    "overbought_threshold": 70.0,       # Above this → mild penalty
-    "overbought_penalty": 3.0,          # Points deducted for overbought
+    "overbought_hard_penalty": 8.0,     # Points deducted for strongly overbought
+    "overbought_threshold": 70.0,       # Above this → moderate penalty
+    "overbought_penalty": 5.0,          # Points deducted for overbought
     "sweet_spot_min": 45.0,             # Sweet spot lower bound
     "sweet_spot_max": 60.0,             # Sweet spot upper bound
     "sweet_spot_bonus": 2.0,            # Points added for sweet spot RSI
@@ -200,15 +200,15 @@ RSI_ADJUSTMENTS: Dict[str, float] = {
 # Values are additive adjustments (negative = penalty, positive = bonus).
 # Fallback to NEUTRAL when regime is missing or unknown.
 RSI_REGIME_ADJUSTMENTS: Dict[str, Dict[str, float]] = {
-    "BULLISH":      {"overbought_75": -3.0, "overbought_70": -2.0, "sweet_spot": 2.0},
-    "TREND_UP":     {"overbought_75": -3.0, "overbought_70": -2.0, "sweet_spot": 2.0},
-    "MODERATE_UP":  {"overbought_75": -4.0, "overbought_70": -2.5, "sweet_spot": 2.0},
-    "NEUTRAL":      {"overbought_75": -5.0, "overbought_70": -3.0, "sweet_spot": 2.0},
-    "SIDEWAYS":     {"overbought_75": -5.0, "overbought_70": -3.0, "sweet_spot": 2.0},
-    "DISTRIBUTION": {"overbought_75": -7.0, "overbought_70": -5.0, "sweet_spot": 1.0},
-    "BEARISH":      {"overbought_75": -8.0, "overbought_70": -6.0, "sweet_spot": 0.0},
-    "CORRECTION":   {"overbought_75": -8.0, "overbought_70": -6.0, "sweet_spot": 0.0},
-    "PANIC":        {"overbought_75": -8.0, "overbought_70": -6.0, "sweet_spot": 0.0},
+    "BULLISH":      {"overbought_75": -6.0, "overbought_70": -4.0, "sweet_spot": 2.0},
+    "TREND_UP":     {"overbought_75": -6.0, "overbought_70": -4.0, "sweet_spot": 2.0},
+    "MODERATE_UP":  {"overbought_75": -7.0, "overbought_70": -5.0, "sweet_spot": 2.0},
+    "NEUTRAL":      {"overbought_75": -8.0, "overbought_70": -5.0, "sweet_spot": 2.0},
+    "SIDEWAYS":     {"overbought_75": -8.0, "overbought_70": -5.0, "sweet_spot": 2.0},
+    "DISTRIBUTION": {"overbought_75": -10.0, "overbought_70": -7.0, "sweet_spot": 1.0},
+    "BEARISH":      {"overbought_75": -12.0, "overbought_70": -8.0, "sweet_spot": 0.0},
+    "CORRECTION":   {"overbought_75": -12.0, "overbought_70": -8.0, "sweet_spot": 0.0},
+    "PANIC":        {"overbought_75": -12.0, "overbought_70": -8.0, "sweet_spot": 0.0},
 }
 
 # R:R Score floor: prevent weak R:R stocks from being top-ranked.
@@ -246,7 +246,7 @@ HARD_FILTERS: Dict[str, object] = {
     "min_rr": 1.5,                      # minimum Reward:Risk ratio
     "min_roe": 3.0,                     # block ROE below 3% (weak profitability)
     "require_fundamental_data": True,   # block if BOTH ROE and MarketCap are missing
-    "max_rsi": 75.0,                    # block overbought stocks (RSI > 75)
+    "max_rsi": 72.0,                    # block overbought stocks (RSI > 72)
 }
 
 # Dynamic R:R adjustments — per-stock target/stop modifiers.

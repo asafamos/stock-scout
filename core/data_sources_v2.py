@@ -1638,9 +1638,17 @@ def aggregate_fundamentals(
             if field == "market_cap" and len(values) >= 2:
                 _sorted = sorted(values)
                 if _sorted[-1] > 10 * _sorted[0]:
-                    _max_val = _sorted[-1]
-                    _keep_pairs = [(v, s) for v, s in zip(values, contributing_sources) if v > _max_val / 5]
-                    _drop_pairs = [(v, s) for v, s in zip(values, contributing_sources) if v <= _max_val / 5]
+                    # Unit mismatch detected (e.g. USD vs local currency like CLP).
+                    # Strategy: cluster values and keep the cluster closest to the
+                    # median of the *smaller* group — foreign-currency values are
+                    # typically the outlier (1000x larger for CLP, BRL, etc.).
+                    _median_val = float(np.median(values))
+                    _keep_pairs = [(v, s) for v, s in zip(values, contributing_sources) if v < _median_val * 5]
+                    _drop_pairs = [(v, s) for v, s in zip(values, contributing_sources) if v >= _median_val * 5]
+                    # Fallback: if all values are on the same side, keep all
+                    if not _keep_pairs:
+                        _keep_pairs = list(zip(values, contributing_sources))
+                        _drop_pairs = []
                     if _keep_pairs and _drop_pairs:
                         logger.warning(
                             "[AGGREGATE] market_cap unit mismatch for %s: dropping %s "

@@ -21,7 +21,7 @@ from core.scoring_config import (
     CONVICTION_WEIGHTS, ENTRY_TIMING, FINAL_SCORE_WEIGHTS,
     PATTERN_SCORE_WEIGHTS, REGIME_MULTIPLIERS,
     BONUS_CONFIG, RSI_ADJUSTMENTS, RSI_REGIME_ADJUSTMENTS,
-    RR_SCORE_FLOOR,
+    RR_SCORE_FLOOR, ML_GATES, ML_GATES_STRONG,
 )
 
 # Re-export from new canonical locations
@@ -147,17 +147,14 @@ def compute_final_score_20d(row: pd.Series, *, return_breakdown: bool = False):
         except Exception:
             pass
 
-        # Optional ML adjustment with AUC gate + reliability gating
+        # Optional ML adjustment with AUC gate + reliability gating + ML_GATES
         ml_prob = row.get("ML_20d_Prob", None)
-        delta = ml_boost_component(ml_prob)  # ±8 range (AUC 0.6259)
-        # AUC gate: disable ML noise when model is weak
+        delta = ml_boost_component(ml_prob)  # ±15 range
+        # AUC gate: scale ML based on model quality
         try:
             from core.ml_20d_inference import get_ml_weight_multiplier
             ml_mult = get_ml_weight_multiplier()
-            if ml_mult < 0.5:
-                delta = 0.0  # AUC too low — don't add noise
-            else:
-                delta *= ml_mult
+            delta *= ml_mult
         except Exception as e:
             logger.debug("ML AUC gate failed: %s", e)
         # Reliability gating on top of AUC gate
@@ -166,6 +163,22 @@ def compute_final_score_20d(row: pd.Series, *, return_breakdown: bool = False):
             delta *= BONUS_CONFIG["reliability_low_ml_mult"]
         elif reliability < BONUS_CONFIG["reliability_med_threshold"]:
             delta *= BONUS_CONFIG["reliability_med_ml_mult"]
+
+        # ML_GATES: multiplicative penalty/bonus for extreme ML signals.
+        # This was previously defined in scoring_config but never wired up.
+        try:
+            from core.ml_20d_inference import get_ml_weight_multiplier as _gw
+            _auc_mult = _gw()
+            _gates = ML_GATES_STRONG if _auc_mult >= 1.0 else ML_GATES
+            if ml_prob is not None and np.isfinite(ml_prob):
+                if ml_prob < _gates["penalty_lt"]:
+                    base *= _gates["penalty_mult"]
+                    _bd["ml_gate_penalty"] = _gates["penalty_mult"]
+                elif ml_prob > _gates["bonus_gt"]:
+                    base *= _gates["bonus_mult"]
+                    _bd["ml_gate_bonus"] = _gates["bonus_mult"]
+        except Exception as e:
+            logger.debug("ML_GATES application failed: %s", e)
 
         # Pattern bonus: additive VCP/coil bonus (reduced — VCP already contributes
         # ~11 pts via TechScore_20d (TECH_WEIGHTS["vcp"]=0.25) + Coil_Bonus 1.25x amplifier)

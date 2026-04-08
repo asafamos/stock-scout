@@ -302,21 +302,21 @@ def get_ml_weight_multiplier() -> float:
     """Return a weight multiplier (0.0–1.0) based on model quality.
 
     AUC ≤ 0.52  → 0.0  (disabled — indistinguishable from random)
-    AUC ≤ 0.55  → 0.25 (heavily reduced — marginal signal at best)
-    AUC ≤ 0.58  → 0.5  (halved — some signal but noisy)
+    AUC ≤ 0.55  → 0.5  (reduced but still meaningful for negative signals)
+    AUC ≤ 0.58  → 0.75 (most of the signal preserved)
     AUC > 0.58  → 1.0  (full weight — meaningful signal)
 
-    After retraining with v3.3 (16 features, rank-based labels), AUC should improve.
-    These gates remain conservative until the retrained model proves itself.
+    Previous thresholds (0.25/0.5) were too aggressive and suppressed
+    genuinely negative ML signals — e.g. VIST ML=37% was reduced to ~0.5pts.
     """
     if BUNDLE_AUC is None:
-        return 0.5  # unknown AUC — don't trust or distrust; halve ML weight
+        return 0.6  # unknown AUC — lean toward preserving signal
     if BUNDLE_AUC <= 0.52:
         return 0.0
     if BUNDLE_AUC <= 0.55:
-        return 0.25
-    if BUNDLE_AUC <= 0.58:
         return 0.5
+    if BUNDLE_AUC <= 0.58:
+        return 0.75
     return 1.0
 
 
