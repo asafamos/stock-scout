@@ -201,13 +201,13 @@ class OutcomeTracker:
 
                 # Determine which horizon columns to fill
                 updates: Dict[str, Any] = {}
-                if trading_days >= 5 and row["return_5d"] is None:
+                if trading_days >= 5 and pd.isna(row["return_5d"]):
                     updates["return_5d"] = current_return
-                if trading_days >= 10 and row["return_10d"] is None:
+                if trading_days >= 10 and pd.isna(row["return_10d"]):
                     updates["return_10d"] = current_return
-                if trading_days >= 20 and row["return_20d"] is None:
+                if trading_days >= 20 and pd.isna(row["return_20d"]):
                     updates["return_20d"] = current_return
-                if trading_days >= 40 and row["return_40d"] is None:
+                if trading_days >= 40 and pd.isna(row["return_40d"]):
                     updates["return_40d"] = current_return
 
                 # Track extremes

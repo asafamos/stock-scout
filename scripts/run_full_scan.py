@@ -187,15 +187,15 @@ def main():
     clear_cache()
     reset_disabled_providers()
 
+    # Config for full run
+    cfg_obj = get_config()
+
     # Universe — use the same limit as the Streamlit UI (config-driven, default 3000)
     _universe_limit = int(os.getenv("UNIVERSE_LIMIT", str(getattr(cfg_obj, "universe_limit", 3000))))
     universe = fetch_top_us_tickers_by_market_cap(limit=_universe_limit)
     if not universe:
         print(json.dumps({"error": "Universe fetch failed"}))
         return
-
-    # Config for full run
-    cfg_obj = get_config()
     cfg = cfg_obj.to_dict()
     cfg.update(
         {
