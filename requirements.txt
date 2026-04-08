@@ -31,8 +31,8 @@ lightgbm>=4.0.0
 duckdb>=1.1.0
 supabase>=2.0.0
 
-# Auto-trading (IBKR)
-ib_insync>=0.9.86
+# Auto-trading (IBKR) — install manually: pip install ib_insync>=0.9.86
+# Not included here to avoid breaking Streamlit Cloud deploys.
 
 # Testing
 pytest>=7.0.0

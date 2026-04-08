@@ -1,6 +1,11 @@
 [logger]
 level = "info"
 
+[server]
+maxMessageSize = 500
+maxUploadSize = 50
+runOnSave = false
+
 [theme]
 primaryColor = "#3b82f6"
 font = "sans serif"
