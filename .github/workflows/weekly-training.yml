@@ -15,6 +15,10 @@ on:
     - cron: '0 22 * * 1-5'
   workflow_dispatch: {}  # Manual trigger for testing
 
+concurrency:
+  group: nightly-training
+  cancel-in-progress: true  # If a new run starts, cancel the old one
+
 jobs:
   train:
     runs-on: ubuntu-latest
