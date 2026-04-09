@@ -497,7 +497,7 @@ REGIME_MIN_SCORE: Dict[str, float] = {
 # Prevents low-score stocks from passing solely due to marginal pattern matches.
 PATTERN_MIN_SCORE: float = 35.0
 # ML probability threshold to qualify as a candidate even if final score is lower
-ML_PROB_THRESHOLD: float = 0.62
+ML_PROB_THRESHOLD: float = 0.70  # was 0.62 — raised because ML AUC is only 0.63, bypass should require strong conviction
 
 # Regime-aware bypass policy: in strict regimes (effective_min_score >= this),
 # disable ML and pattern bypasses entirely — stocks MUST meet the regime score.
