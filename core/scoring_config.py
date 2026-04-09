@@ -142,7 +142,9 @@ ENTRY_TIMING: Dict[str, float] = {
     "pullback_bonus": 3.0,        # 5-15% below 52w high (quality entry zone) (was 5.0)
     "pullback_max_return": 0.10,  # Pullback bonus only if return_20d < 10% (genuine pullback)
     "runup_threshold": 0.15,      # 15% return in 20d = already extended
-    "runup_penalty": 3.0,         # Penalty for rapid run-up (was 5.0 — penalizing momentum too harshly)
+    "runup_penalty": 5.0,         # Penalty for rapid run-up (restored from 3.0 — need to filter extended stocks like COKE +34%)
+    "extreme_runup_threshold": 0.25,  # 25% return in 20d = severely overextended
+    "extreme_runup_penalty": 10.0,    # Strong penalty for extreme run-up
     "vcp_ath_threshold": 0.4,     # VCP score to bypass ATH penalty
     "vcp_near_threshold": 0.3,    # VCP score to bypass near-high penalty
     # Momentum damping near ATH: reduce momentum contribution when stock is
@@ -244,9 +246,9 @@ ATR_RULES = {
 # Hard filters — stocks violating these are REJECTED (SafetyBlocked=True)
 HARD_FILTERS: Dict[str, object] = {
     "min_rr": 1.5,                      # minimum Reward:Risk ratio
-    "min_roe": 3.0,                     # block ROE below 3% (weak profitability)
+    "min_roe": 5.0,                     # block ROE below 5% (was 3.0 — too lenient, let through marginal names like ANDE 3.8%, BWLP 4.8%)
     "require_fundamental_data": True,   # block if BOTH ROE and MarketCap are missing
-    "max_rsi": 72.0,                    # block overbought stocks (RSI > 72)
+    "max_rsi": 70.0,                    # block overbought stocks (was 72.0 — tightened to filter extended momentum like BTSG RSI 71.9)
 }
 
 # Dynamic R:R adjustments — per-stock target/stop modifiers.
@@ -358,9 +360,9 @@ REGIME_RR_FLOOR: Dict[str, float] = {
 # ROE 5-8% (e.g. ESLT 6.3%, HAFN 6.8%, NSA 7.5%) face a meaningful penalty
 # that can actually affect top-K selection, not just the absolute worst names.
 ROE_QUALITY_GATE: Dict[str, float] = {
-    "min_roe": 3.0,               # Stocks with ROE below this are hard-blocked
-    "penalty_zone_max": 8.0,      # ROE between min_roe and this gets score penalty
-    "penalty_points": 8.0,        # Max penalty points for ROE at the boundary
+    "min_roe": 5.0,               # Stocks with ROE below this are hard-blocked (aligned with HARD_FILTERS)
+    "penalty_zone_max": 10.0,     # ROE between 5% and 10% gets score penalty (was 8% — extend to penalize marginal profitability)
+    "penalty_points": 10.0,       # Max penalty points for ROE at the boundary (was 8.0)
 }
 
 # Analyst consensus cross-check: penalize when system target diverges
@@ -373,6 +375,9 @@ ANALYST_TARGET_PENALTY: Dict[str, object] = {
     "extreme_overestimate_threshold": 0.40,   # system target exceeds analyst by >40%
     "extreme_penalty_points": 12.0,           # severe penalty for extreme divergence
     "negative_upside_penalty": 12.0,          # analyst PT < current price (was 8.0)
+    "hard_block_negative_upside": True,       # BLOCK stock entirely when analyst consensus PT < current price (catches M&A inflated prices, overvalued stocks)
+    "hard_block_threshold": -0.10,            # block when analyst upside < -10% (significant overvaluation per consensus)
+    "min_analysts_for_block": 3,              # require at least 3 analysts to trust the consensus
 }
 
 # News sentiment penalty: penalize stocks with strongly negative recent news.

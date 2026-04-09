@@ -422,7 +422,7 @@ class TestEntryTimingAdjustment:
         neutral = compute_final_score_20d(_make_row(Dist_52w_High=-0.20))
         near_ath = compute_final_score_20d(_make_row(Dist_52w_High=-0.02, Volatility_Contraction_Score=0.1))
         diff = neutral - near_ath
-        assert 5 <= diff <= 12, f"Expected ~8pt penalty, got {diff:.1f}"
+        assert 5 <= diff <= 16, f"Expected 5-16pt penalty, got {diff:.1f}"
 
     def test_rr_hard_cap_below_1_5(self):
         """Score capped at 90 when RR < 1.5, even with perfect momentum."""

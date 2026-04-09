@@ -260,7 +260,9 @@ def compute_final_score_20d(row: pd.Series, *, return_breakdown: bool = False):
                 elif -0.15 <= _dh <= -0.05 and _ret_val < ENTRY_TIMING["pullback_max_return"]:
                     entry_adj += ENTRY_TIMING["pullback_bonus"]
             # Rapid run-up penalty (>15% in 20d — late entry, stock already moved)
-            if _ret_val > ENTRY_TIMING["runup_threshold"]:
+            if _ret_val > ENTRY_TIMING.get("extreme_runup_threshold", 0.25):
+                entry_adj -= ENTRY_TIMING.get("extreme_runup_penalty", 10.0)
+            elif _ret_val > ENTRY_TIMING["runup_threshold"]:
                 entry_adj -= ENTRY_TIMING["runup_penalty"]
             final_score += entry_adj
             _bd["entry_adj"] = round(entry_adj, 1)

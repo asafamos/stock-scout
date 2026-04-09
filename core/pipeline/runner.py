@@ -1656,6 +1656,26 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
                         _pt_upside_f = float(_pt_upside)
                         _current_score = ctx.results.at[_a_idx, _score_col] if _score_col in ctx.results.columns else 0
                         _penalty = 0.0
+
+                        # Hard-block when analyst consensus sees significant downside
+                        _analyst_count = float(_analyst.get("analyst_count", 0))
+                        _min_analysts = float(_apt_cfg.get("min_analysts_for_block", 3))
+                        _block_thresh = float(_apt_cfg.get("hard_block_threshold", -0.10))
+                        if (
+                            _apt_cfg.get("hard_block_negative_upside", False)
+                            and _pt_upside_f < _block_thresh
+                            and _analyst_count >= _min_analysts
+                        ):
+                            if "SafetyBlocked" in ctx.results.columns:
+                                ctx.results.at[_a_idx, "SafetyBlocked"] = True
+                            if "RiskClass" in ctx.results.columns:
+                                ctx.results.at[_a_idx, "RiskClass"] = "REJECT"
+                            logger.info(
+                                "[ANALYST] %s: HARD BLOCK — analyst consensus upside %.1f%% < %.0f%% (%d analysts)",
+                                _a_ticker, _pt_upside_f * 100, _block_thresh * 100, int(_analyst_count),
+                            )
+                            continue  # skip further penalty logic for blocked stock
+
                         if _pt_upside_f < 0:
                             # Analysts think stock is overvalued (PT < current price)
                             _penalty = float(_apt_cfg.get("negative_upside_penalty", 8.0))
