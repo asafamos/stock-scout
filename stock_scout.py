@@ -936,8 +936,22 @@ if skip_pipeline:
     
 else:
     # Live scan execution fallback
+    # CRITICAL: Check if we're in a Streamlit rerun while a pipeline is already executing.
+    # Streamlit reruns the entire script on connection pings, tab switches, etc.
+    # If _pipeline_running is already True, this is a rerun — do NOT restart the pipeline.
+    if st.session_state.get("_pipeline_running", False) and not force_live_scan_once:
+        # Mid-pipeline rerun detected — show a waiting message and stop execution here.
+        # The original pipeline execution (in the other "thread") will complete and set
+        # _live_scan_just_finished=True, which will be picked up on the next rerun.
+        st.info("⏳ Scan in progress... please wait for it to complete.")
+        _completed_stages = st.session_state.get("_completed_stages", set())
+        _cur_stage = st.session_state.get("_sm_current_stage", 0)
+        status_manager.current_stage = _cur_stage
+        status_manager._render_bar(_cur_stage / max(len(get_pipeline_stages()), 1), "Running...", _cur_stage)
+        st.stop()  # Halt this rerun — don't restart the pipeline
+
     st.session_state["_pipeline_running"] = True  # Guard against mid-pipeline reruns
-    # Reset progress bar so _pipeline_running-triggered reruns don't start from 10/10
+    # Reset progress bar for fresh scan start
     status_manager.current_stage = 0
     st.session_state["_sm_current_stage"] = 0
     st.session_state["_completed_stages"] = set()
