@@ -366,29 +366,36 @@ class PortfolioManager:
         finally:
             con.close()
 
-    def get_portfolio_stats(self) -> Dict[str, Any]:
+    def get_portfolio_stats(self, since_date: Optional[date] = None) -> Dict[str, Any]:
         """Return portfolio-level aggregate statistics.
 
         Win Rate = fraction of auto-closed positions that hit the target price.
         Portfolio P&L = combined unrealized (open) + realized (closed) return
                         as a % of total cost basis across all positions.
         Manual closes are excluded — they reflect user overrides, not system perf.
+
+        Args:
+            since_date: If provided, only include positions entered/exited on or after this date.
         """
         con = self._store._connect()
         try:
             # Open positions
-            open_row = con.execute(
+            open_sql = (
                 "SELECT COUNT(*), COALESCE(SUM(entry_price * shares), 0), "
                 "COALESCE(SUM(current_price * shares), 0) "
-                "FROM portfolio_positions WHERE user_id = ? AND status = 'open'",
-                [self._user_id],
-            ).fetchone()
+                "FROM portfolio_positions WHERE user_id = ? AND status = 'open'"
+            )
+            open_params: list = [self._user_id]
+            if since_date is not None:
+                open_sql += " AND entry_date >= ?"
+                open_params.append(since_date)
+            open_row = con.execute(open_sql, open_params).fetchone()
             open_count = int(open_row[0])
             open_invested = float(open_row[1])
             current_value = float(open_row[2])
 
             # Closed positions — exclude manual closes, win = hit target
-            closed_row = con.execute(
+            closed_sql = (
                 "SELECT COUNT(*), "
                 "COALESCE(SUM(CASE WHEN exit_reason = 'target' THEN 1 ELSE 0 END), 0), "
                 "COALESCE(AVG(realized_return_pct), 0), "
@@ -396,9 +403,13 @@ class PortfolioManager:
                 "COALESCE(SUM(entry_price * shares), 0), "
                 "COALESCE(SUM((realized_return_pct / 100.0) * entry_price * shares), 0) "
                 "FROM portfolio_positions WHERE user_id = ? AND status = 'closed' "
-                "AND COALESCE(exit_reason, '') != 'manual'",
-                [self._user_id],
-            ).fetchone()
+                "AND COALESCE(exit_reason, '') != 'manual'"
+            )
+            closed_params: list = [self._user_id]
+            if since_date is not None:
+                closed_sql += " AND exit_date >= ?"
+                closed_params.append(since_date)
+            closed_row = con.execute(closed_sql, closed_params).fetchone()
             closed_count = int(closed_row[0])
             win_count = int(closed_row[1])
             avg_return = float(closed_row[2])
@@ -427,6 +438,25 @@ class PortfolioManager:
                 "avg_return": avg_return,
                 "prediction_accuracy": prediction_accuracy,
             }
+        finally:
+            con.close()
+
+    def get_exit_reason_counts(self, since_date: Optional[date] = None) -> Dict[str, int]:
+        """Return count of closed positions grouped by exit_reason."""
+        con = self._store._connect()
+        try:
+            sql = (
+                "SELECT exit_reason, COUNT(*) FROM portfolio_positions "
+                "WHERE user_id = ? AND status = 'closed' "
+                "AND COALESCE(exit_reason, '') != 'manual'"
+            )
+            params: list = [self._user_id]
+            if since_date is not None:
+                sql += " AND exit_date >= ?"
+                params.append(since_date)
+            sql += " GROUP BY exit_reason"
+            rows = con.execute(sql, params).fetchall()
+            return {r[0]: int(r[1]) for r in rows if r[0]}
         finally:
             con.close()
 
@@ -786,36 +816,43 @@ class SupabasePortfolioManager:
             return pd.DataFrame()
         return pd.DataFrame(resp.data)
 
-    def get_portfolio_stats(self) -> Dict[str, Any]:
+    def get_portfolio_stats(self, since_date: Optional[date] = None) -> Dict[str, Any]:
         """Return portfolio-level aggregate statistics.
 
         Win Rate = fraction of auto-closed positions that hit the target price.
         Portfolio P&L = combined unrealized (open) + realized (closed) return
                         as a % of total cost basis across all positions.
         Manual closes are excluded — they reflect user overrides, not system perf.
+
+        Args:
+            since_date: If provided, only include positions entered/exited on or after this date.
         """
         # Open positions
-        open_resp = (
+        open_query = (
             self._table
             .select("entry_price, current_price, shares")
             .eq("user_id", self._user_id)
             .eq("status", "open")
-            .execute()
         )
+        if since_date is not None:
+            open_query = open_query.gte("entry_date", since_date.isoformat())
+        open_resp = open_query.execute()
         open_rows = open_resp.data or []
         open_count = len(open_rows)
         open_invested = sum(float(r["entry_price"] or 0) * int(r["shares"] or 100) for r in open_rows)
         current_value = sum(float(r["current_price"] or r["entry_price"] or 0) * int(r["shares"] or 100) for r in open_rows)
 
         # Closed positions — exclude manual closes, win = hit target
-        closed_resp = (
+        closed_query = (
             self._table
             .select("realized_return_pct, prediction_correct, exit_reason, entry_price, shares")
             .eq("user_id", self._user_id)
             .eq("status", "closed")
             .neq("exit_reason", "manual")
-            .execute()
         )
+        if since_date is not None:
+            closed_query = closed_query.gte("exit_date", since_date.isoformat())
+        closed_resp = closed_query.execute()
         closed_rows = closed_resp.data or []
         closed_count = len(closed_rows)
         win_count = sum(1 for r in closed_rows if r.get("exit_reason") == "target")
@@ -856,6 +893,25 @@ class SupabasePortfolioManager:
             "avg_return": avg_return,
             "prediction_accuracy": prediction_accuracy,
         }
+
+    def get_exit_reason_counts(self, since_date: Optional[date] = None) -> Dict[str, int]:
+        """Return count of closed positions grouped by exit_reason."""
+        query = (
+            self._table
+            .select("exit_reason")
+            .eq("user_id", self._user_id)
+            .eq("status", "closed")
+            .neq("exit_reason", "manual")
+        )
+        if since_date is not None:
+            query = query.gte("exit_date", since_date.isoformat())
+        rows = query.execute().data or []
+        counts: Dict[str, int] = {}
+        for r in rows:
+            reason = r.get("exit_reason")
+            if reason:
+                counts[reason] = counts.get(reason, 0) + 1
+        return counts
 
     def is_in_portfolio(self, ticker: str) -> bool:
         """Check if ticker has an open position."""

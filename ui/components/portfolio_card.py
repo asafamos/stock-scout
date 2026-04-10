@@ -241,3 +241,98 @@ def render_portfolio_sidebar_summary(stats: Dict[str, Any]) -> str:
         f'{rows}'
         f'</div>'
     )
+
+
+def _render_stats_rows(stats: Dict[str, Any]) -> str:
+    """Render hit rate / avg return / P&L rows from a stats dict."""
+    closed = stats.get("closed_count", 0)
+    if closed == 0:
+        return (
+            '<div class="pf-stat-row">'
+            '<span class="pf-stat-label" style="color:var(--ss-text-muted); font-style:italic;">No closes yet</span>'
+            '</div>'
+        )
+    win_rate = stats.get("win_rate", 0)
+    avg_return = stats.get("avg_return", 0)
+    total_return = stats.get("total_return_pct", 0)
+    ret_cls = _return_class(total_return)
+    return (
+        f'<div class="pf-stat-row">'
+        f'<span class="pf-stat-label">Target Hit Rate</span>'
+        f'<span class="pf-stat-value" style="color:var(--ss-green);">{win_rate:.0%}</span>'
+        f'</div>'
+        f'<div class="pf-stat-row">'
+        f'<span class="pf-stat-label">Avg Return</span>'
+        f'<span class="pf-stat-value">{_fmt_pct(avg_return)}</span>'
+        f'</div>'
+        f'<div class="pf-stat-row">'
+        f'<span class="pf-stat-label">Total P&amp;L</span>'
+        f'<span class="pf-stat-value pf-return {ret_cls}">{_fmt_pct(total_return)}</span>'
+        f'</div>'
+    )
+
+
+_EXIT_ICONS = {
+    "target": "🎯",
+    "stop": "🛑",
+    "expiry": "⏰",
+    "time_stop": "⌛",
+}
+
+
+def render_portfolio_sidebar_full(
+    all_stats: Dict[str, Any],
+    recent_stats: Dict[str, Any],
+    exit_counts: Dict[str, int],
+) -> str:
+    """Render portfolio sidebar with all-time / recent split and exit breakdown.
+
+    Args:
+        all_stats: Dict from get_portfolio_stats() (no date filter).
+        recent_stats: Dict from get_portfolio_stats(since_date=30d ago).
+        exit_counts: Dict from get_exit_reason_counts().
+    """
+    open_count = all_stats.get("open_count", 0)
+    closed_count = all_stats.get("closed_count", 0)
+
+    # Header + open/closed counts
+    html = (
+        '<div class="ss-portfolio-summary">'
+        '<div style="font-size:0.78rem; font-weight:700; color:var(--ss-text-muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px;">'
+        '💼 Virtual Portfolio'
+        '</div>'
+        '<div class="pf-stat-row">'
+        f'<span class="pf-stat-label">Open Positions</span>'
+        f'<span class="pf-stat-value">{open_count}</span>'
+        '</div>'
+        '<div class="pf-stat-row">'
+        f'<span class="pf-stat-label">Closed</span>'
+        f'<span class="pf-stat-value">{closed_count}</span>'
+        '</div>'
+    )
+
+    # All Time section
+    html += (
+        '<div class="pf-section-label">All Time</div>'
+        + _render_stats_rows(all_stats)
+    )
+
+    # Recent 30d section
+    html += (
+        '<div class="pf-section-label">Recent 30d</div>'
+        + _render_stats_rows(recent_stats)
+    )
+
+    # Exit reason breakdown
+    if exit_counts:
+        badges = ""
+        for reason in ("target", "stop", "expiry", "time_stop"):
+            count = exit_counts.get(reason, 0)
+            if count > 0:
+                icon = _EXIT_ICONS.get(reason, "")
+                badges += f'<span>{icon} {count}</span>'
+        if badges:
+            html += f'<div class="pf-exit-row">{badges}</div>'
+
+    html += '</div>'
+    return html

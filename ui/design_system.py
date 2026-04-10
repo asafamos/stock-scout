@@ -1411,5 +1411,32 @@ div[data-testid="stExpander"] {
     font-family: var(--ss-mono);
 }
 
+.ss-portfolio-summary .pf-section-label {
+    font-size: 0.68rem;
+    font-weight: 700;
+    color: var(--ss-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin: 6px 0 2px;
+    border-top: 1px solid var(--ss-border);
+    padding-top: 6px;
+}
+
+.ss-portfolio-summary .pf-exit-row {
+    display: flex;
+    gap: 10px;
+    padding: 4px 0;
+    margin-top: 4px;
+    border-top: 1px solid var(--ss-border);
+    padding-top: 6px;
+    font-size: 0.72rem;
+    color: var(--ss-text-muted);
+}
+
+.ss-portfolio-summary .pf-exit-row span {
+    font-family: var(--ss-mono);
+    font-weight: 600;
+}
+
 </style>
 """

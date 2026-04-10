@@ -12,7 +12,7 @@ import json
 import logging
 import warnings
 import datetime
-from datetime import timedelta
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -95,6 +95,7 @@ from ui.components.outcome_dashboard import (
 from ui.components.portfolio_card import (
     render_open_position_card,
     render_closed_position_card,
+    render_portfolio_sidebar_full,
     render_portfolio_sidebar_summary,
 )
 
@@ -416,7 +417,13 @@ with st.sidebar:
         _pm_sidebar = get_portfolio_manager(_user_id)
         _pf_stats = _pm_sidebar.get_portfolio_stats()
         if _pf_stats.get("open_count", 0) > 0 or _pf_stats.get("closed_count", 0) > 0:
-            st.markdown(render_portfolio_sidebar_summary(_pf_stats), unsafe_allow_html=True)
+            _recent_date = date.today() - timedelta(days=30)
+            _recent_stats = _pm_sidebar.get_portfolio_stats(since_date=_recent_date)
+            _exit_counts = _pm_sidebar.get_exit_reason_counts()
+            st.markdown(
+                render_portfolio_sidebar_full(_pf_stats, _recent_stats, _exit_counts),
+                unsafe_allow_html=True,
+            )
         else:
             st.markdown("""
             <div class="ss-portfolio-summary">
