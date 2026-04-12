@@ -23,7 +23,7 @@ on:
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     env:
       PYTHONPATH: ${{ github.workspace }}
       FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
