@@ -254,6 +254,22 @@ def main():
     except Exception as e:
         print(json.dumps({"warning": f"save_failed: {e}"}))
 
+    # Send Telegram notification when scan completes
+    if results is not None and not results.empty:
+        try:
+            from core.trading.notifications import _send
+            score_col = "FinalScore_20d" if "FinalScore_20d" in results.columns else "Score"
+            top_stocks = results.nlargest(5, score_col)["Ticker"].tolist() if score_col in results.columns else []
+            _send(
+                f"<b>Scan Complete (Auto)</b>\n"
+                f"  Scanned: {meta.get('universe_count', 0)} stocks\n"
+                f"  Results: {len(results)}\n"
+                f"  Runtime: {meta.get('runtime_seconds', 0):.0f}s\n"
+                f"  Top: {', '.join(top_stocks[:5])}"
+            )
+        except Exception:
+            pass  # Telegram is best-effort
+
     # Send alerts for high-confidence ML signals
     if results is not None and not results.empty:
         try:
