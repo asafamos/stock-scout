@@ -190,8 +190,8 @@ def main():
     # Config for full run
     cfg_obj = get_config()
 
-    # Universe — use the same limit as the Streamlit UI (config-driven, default 3000)
-    _universe_limit = int(os.getenv("UNIVERSE_LIMIT", str(getattr(cfg_obj, "universe_limit", 3000))))
+    # Universe — match Streamlit UI default (2000)
+    _universe_limit = int(os.getenv("UNIVERSE_LIMIT", str(getattr(cfg_obj, "universe_limit", 2000))))
     universe = fetch_top_us_tickers_by_market_cap(limit=_universe_limit)
     if not universe:
         print(json.dumps({"error": "Universe fetch failed"}))
@@ -222,45 +222,37 @@ def main():
     out_dir = Path(__file__).resolve().parents[1] / "data" / "scans"
     out_dir.mkdir(parents=True, exist_ok=True)
     parquet_path = out_dir / "latest_scan.parquet"
-    meta_path = out_dir / "latest_scan.meta.json"
 
-    # Save Parquet and metadata even if empty (captures failure context)
-    try:
-        if results is None:
-            results = pd.DataFrame()
-        # Drop non-serializable object columns before Parquet save
-        save_df = results.copy()
-        for col in save_df.columns:
-            if save_df[col].dtype == object:
-                sample = save_df[col].dropna().head(1)
-                if not sample.empty and not isinstance(sample.iloc[0], (str, list, dict, int, float, bool)):
-                    save_df = save_df.drop(columns=[col])
-        save_df.to_parquet(parquet_path, index=False)
-        # Also save a timestamped backup for scan history
-        ts_str = datetime.utcnow().strftime("%Y%m%d_%H%M")
-        ts_path = out_dir / f"scan_{ts_str}.parquet"
-        save_df.to_parquet(ts_path, index=False)
-    except Exception as e:
-        print(json.dumps({"warning": f"parquet_save_failed: {e}"}))
+    if results is None:
+        results = pd.DataFrame()
 
     meta = {
         "timestamp": datetime.utcnow().isoformat() + "Z",
+        "scan_type": "auto_github_actions",
         "universe_count": len(universe),
         "provider": LAST_UNIVERSE_PROVIDER,
-        "results_count": 0 if results is None else int(len(results)),
+        "results_count": int(len(results)),
         "batches_ok": int(batches_ok),
         "lookback_days": int(cfg.get("lookback_days", 90)),
         "beta_filter_enabled": bool(cfg.get("beta_filter_enabled", False)),
         "fundamental_enabled": bool(cfg.get("fundamental_enabled", True)),
         "runtime_seconds": round(time.perf_counter() - t0, 2),
     }
+
+    # Save to disk AND Supabase using the same save_scan as Streamlit
     try:
-        meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
-        # Also save timestamped metadata for history
-        ts_meta_path = out_dir / f"scan_{datetime.utcnow().strftime('%Y%m%d_%H%M')}.meta.json"
-        ts_meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+        from core.scan_io import save_scan as _save_scan
+        _save_scan(
+            results_df=results,
+            config=cfg,
+            path_latest=parquet_path,
+            path_timestamped=out_dir / f"scan_{datetime.utcnow().strftime('%Y%m%d_%H%M')}.parquet",
+            metadata=meta,
+            user_id="stockscout_owner",
+        )
+        print(json.dumps({"save": "ok", "path": str(parquet_path), "supabase": True}))
     except Exception as e:
-        print(json.dumps({"warning": f"meta_save_failed: {e}"}))
+        print(json.dumps({"warning": f"save_failed: {e}"}))
 
     # Send alerts for high-confidence ML signals
     if results is not None and not results.empty:

@@ -41,6 +41,8 @@ jobs:
       MARKETSTACK_API_KEY: ${{ secrets.MARKETSTACK_API_KEY }}
       TRADE_TELEGRAM_TOKEN: ${{ secrets.TRADE_TELEGRAM_TOKEN }}
       TRADE_TELEGRAM_CHAT_ID: ${{ secrets.TRADE_TELEGRAM_CHAT_ID }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
 
     steps:
       - name: Checkout repository
