@@ -284,11 +284,22 @@ class OrderManager:
         logger.info("EXECUTING: BUY %d x %s @ ~$%.2f (score=%.1f, RR=%.2f)",
                      qty, ticker, price, score, rr)
 
+        # Calculate trailing stop % from scan's stop loss (adaptive per stock)
+        # instead of using a fixed 5% for everything
+        if stop > 0 and price > 0:
+            scan_stop_pct = round((price - stop) / price * 100, 1)
+            # Use scan's stop % but floor at 3% (avoid too tight) and cap at 8%
+            trail_pct = max(3.0, min(scan_stop_pct, 8.0))
+        else:
+            trail_pct = self.cfg.trailing_stop_pct
+        logger.info("  Trail stop: %.1f%% (scan recommends %.1f%%)",
+                     trail_pct, scan_stop_pct if stop > 0 else 0)
+
         # Execute as OCA bracket: buy + trailing stop + limit sell (linked)
         bracket = self.client.buy_with_bracket(
             ticker=ticker,
             qty=qty,
-            trail_pct=self.cfg.trailing_stop_pct,
+            trail_pct=trail_pct,
             target_price=target,
         )
 
