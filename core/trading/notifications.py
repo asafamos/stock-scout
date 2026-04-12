@@ -50,13 +50,19 @@ def _send(text: str) -> bool:
 # ── Trade Notifications ──────────────────────────────────────
 
 def notify_buy(ticker: str, qty: int, price: float,
-               stop: float, target: float, score: float):
+               stop: float, target: float, score: float,
+               trail_pct: float = 5.0, rr: float = 0.0,
+               target_date: str = ""):
+    rr_line = f"  R:R: {rr:.1f}\n" if rr > 0 else ""
+    date_line = f"  Exit by: {target_date}\n" if target_date else ""
     _send(
         f"<b>BUY {ticker}</b>\n"
         f"  Qty: {qty} shares @ ${price:.2f}\n"
-        f"  Trailing Stop: active\n"
-        f"  Target: ${target:.2f}\n"
-        f"  Score: {score:.0f}\n"
+        f"  Stop: {trail_pct:.1f}% trailing (${stop:.2f})\n"
+        f"  Target: ${target:.2f} (+{(target/price-1)*100:.1f}%)\n"
+        f"{rr_line}"
+        f"  Score: {score:.1f}\n"
+        f"{date_line}"
         f"  Total: ${qty * price:,.0f}"
     )
 

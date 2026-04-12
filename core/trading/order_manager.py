@@ -317,7 +317,8 @@ class OrderManager:
         }
 
         # Step 4: Notify
-        notify.notify_buy(ticker, qty, filled_price, stop, target, score)
+        notify.notify_buy(ticker, qty, filled_price, stop, target, score,
+                          trail_pct=trail_pct, rr=rr, target_date=target_date)
 
         # Step 5: Track position
         self.tracker.add_position(
