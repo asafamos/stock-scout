@@ -18,14 +18,15 @@ AI-powered stock recommendation system that scans 3,000+ US stocks using technic
 - **Connection tested**: Successfully connects from Mac to IB Gateway
 
 ### Trading Config (adjusted for $977 balance)
-- Max position size: $300
+- Max position size: $300 (allows 1 share up to $600 for expensive stocks)
 - Max open positions: 3
-- Max daily buys: 2
+- Max daily buys: 3
 - Max portfolio exposure: $900
-- Score filter: 75-95 (Q3-Q4 sweet spot)
+- Score filter: 73-95 (lowered from 75 to catch near-miss stocks like BURL)
 - ML probability min: 0.40
-- Trailing stop: 5%
+- Trailing stop: adaptive per stock from scan's stop loss (floor 3%, cap 8%)
 - Blocked sectors: Consumer Defensive
+- Selection: sorted by 60% score + 40% R:R ratio (not just score)
 
 ### Trading Architecture
 - `core/trading/ibkr_client.py` - IB connection + OCA bracket orders (buy + trailing stop + limit sell)

@@ -24,6 +24,9 @@ jobs:
   scan:
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    concurrency:
+      group: auto-scan
+      cancel-in-progress: true
     env:
       PYTHONPATH: ${{ github.workspace }}
       FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
@@ -32,6 +35,12 @@ jobs:
       ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
       TIINGO_API_KEY: ${{ secrets.TIINGO_API_KEY }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      EODHD_API_KEY: ${{ secrets.EODHD_API_KEY }}
+      SIMFIN_API_KEY: ${{ secrets.SIMFIN_API_KEY }}
+      NASDAQ_API_KEY: ${{ secrets.NASDAQ_API_KEY }}
+      MARKETSTACK_API_KEY: ${{ secrets.MARKETSTACK_API_KEY }}
+      TRADE_TELEGRAM_TOKEN: ${{ secrets.TRADE_TELEGRAM_TOKEN }}
+      TRADE_TELEGRAM_CHAT_ID: ${{ secrets.TRADE_TELEGRAM_CHAT_ID }}
 
     steps:
       - name: Checkout repository
