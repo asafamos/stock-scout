@@ -53,7 +53,7 @@ class Config:
     max_position_pct: float = 15.0
     
     # Universe & Data
-    universe_limit: int = int(_get_config_value('UNIVERSE_LIMIT', '3000'))
+    universe_limit: int = int(_get_config_value('UNIVERSE_LIMIT', '2000'))
     lookback_days: int = int(_get_config_value('LOOKBACK_DAYS', '250'))
     smart_scan: bool = _get_config_value('SMART_SCAN', 'true').lower() in ('true', '1', 'yes')
     

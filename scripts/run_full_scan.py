@@ -239,6 +239,13 @@ def main():
         "runtime_seconds": round(time.perf_counter() - t0, 2),
     }
 
+    # Convert non-serializable object columns to strings before saving
+    for col in results.columns:
+        if results[col].dtype == object:
+            sample = results[col].dropna().head(1)
+            if not sample.empty and not isinstance(sample.iloc[0], (str, list, dict, int, float, bool)):
+                results[col] = results[col].astype(str)
+
     # Save to disk AND Supabase using the same save_scan as Streamlit
     try:
         from core.scan_io import save_scan as _save_scan
