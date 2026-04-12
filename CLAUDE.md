@@ -41,12 +41,10 @@ AI-powered stock recommendation system that scans 3,000+ US stocks using technic
 
 ## Telegram Bot
 - Bot name: StockScout Alerts (@stockscout_asaf_bot)
-- Bot Token: 8502546938:AAE1l92Ucy54j22W8EFFm-wMc6aijYH0u7k
-- Chat ID: 5600927421 (Asaf Amos)
+- Token & Chat ID: stored in GitHub Secrets + .streamlit/secrets.toml (NEVER in code)
 - Connected and working since April 8, 2026
 - Sends: buy alerts, sell alerts, errors, scan summaries, daily summaries
 - Config via: TRADE_TELEGRAM_TOKEN and TRADE_TELEGRAM_CHAT_ID env vars
-- Stored in: GitHub Secrets + .streamlit/secrets.toml (local)
 
 ## Automation
 - **GitHub Actions**: 4x daily scans (pre-market, 10AM, 3PM, EOD), nightly outcome tracking, weekly ML retraining + backtest

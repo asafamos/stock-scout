@@ -1111,6 +1111,8 @@ else:
         # Pipeline finished — clear the rerun guard
         st.session_state["_pipeline_running"] = False
         st.session_state["_live_scan_just_finished"] = True  # Prevent next rerun from overwriting results
+        # Record scan timestamp for UI display (stored as UTC ISO string)
+        from datetime import datetime as _dt_now, timezone as _tz_utc
         # Save results to Supabase/disk IMMEDIATELY before Streamlit can rerun
         try:
             _save_meta = {
@@ -1122,8 +1124,6 @@ else:
             logger.info(f"✅ Saved live scan immediately: {len(results)} tickers")
         except Exception as _save_err:
             logger.warning(f"Failed to save live scan immediately: {_save_err}")
-        # Record scan timestamp for UI display (stored as UTC ISO string)
-        from datetime import datetime as _dt_now, timezone as _tz_utc
         st.session_state["last_scan_timestamp"] = _dt_now.now(_tz_utc.utc).isoformat()
         # Always store results (even empty) so UI can display the right state
         st.session_state["precomputed_results"] = results
