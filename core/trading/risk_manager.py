@@ -49,17 +49,20 @@ class RiskManager:
                 f"Daily buy limit reached ({daily}/{self.cfg.max_daily_buys})"
             )
 
-        # 4. Portfolio exposure
-        new_exposure = self.tracker.total_exposure + self.cfg.max_position_size
+        # 4. Portfolio exposure (use actual price, not max_position_size)
+        estimated_cost = min(price, self.cfg.max_position_size * 2)  # Account for expensive single-share buys
+        qty_est = self.calculate_qty(price)
+        actual_cost = qty_est * price if qty_est > 0 else price
+        new_exposure = self.tracker.total_exposure + actual_cost
         if new_exposure > self.cfg.max_portfolio_exposure:
             return False, (
                 f"Would exceed max exposure "
                 f"(${new_exposure:,.0f} > ${self.cfg.max_portfolio_exposure:,.0f})"
             )
 
-        # 5. Cash balance
+        # 5. Cash balance (use actual cost, not max_position_size)
         cash = self.client.get_cash_balance()
-        if cash < self.cfg.max_position_size:
+        if cash < actual_cost:
             return False, (
                 f"Insufficient cash (${cash:,.0f} < "
                 f"${self.cfg.max_position_size:,.0f})"

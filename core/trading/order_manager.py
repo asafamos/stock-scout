@@ -231,8 +231,19 @@ class OrderManager:
 
         logger.info("Smart filter: %d → %d candidates", initial_count, len(result))
 
-        # Sort by score descending
-        result = result.sort_values(score_col, ascending=False)
+        # Sort by combined rank: 60% score + 40% R:R (normalized)
+        # This ensures high R:R stocks like CVE (3.9) aren't pushed out
+        # by marginally higher-scoring stocks with R:R of only 2.0
+        scores_norm = pd.to_numeric(result[score_col], errors="coerce")
+        scores_norm = (scores_norm - scores_norm.min()) / (scores_norm.max() - scores_norm.min() + 1e-9)
+        if rr_col and rr_col in result.columns:
+            rr_norm = pd.to_numeric(result[rr_col], errors="coerce")
+            rr_norm = (rr_norm - rr_norm.min()) / (rr_norm.max() - rr_norm.min() + 1e-9)
+            result["_rank_score"] = 0.6 * scores_norm + 0.4 * rr_norm
+        else:
+            result["_rank_score"] = scores_norm
+        result = result.sort_values("_rank_score", ascending=False)
+        result = result.drop(columns=["_rank_score"])
 
         return result
 

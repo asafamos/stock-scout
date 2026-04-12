@@ -58,7 +58,7 @@ class TradingConfig:
         default_factory=lambda: _env_int("MAX_OPEN_POSITIONS", 3)
     )
     max_daily_buys: int = field(
-        default_factory=lambda: _env_int("MAX_DAILY_BUYS", 2)
+        default_factory=lambda: _env_int("MAX_DAILY_BUYS", 3)
     )
     max_portfolio_exposure: float = field(
         default_factory=lambda: _env_float("MAX_PORTFOLIO_EXPOSURE", 900.0)
@@ -66,7 +66,7 @@ class TradingConfig:
 
     # ── Trade Filters ──────────────────────────────────────────
     min_score_to_trade: float = field(
-        default_factory=lambda: _env_float("MIN_SCORE", 75.0)
+        default_factory=lambda: _env_float("MIN_SCORE", 73.0)
     )
     max_score_to_trade: float = field(
         default_factory=lambda: _env_float("MAX_SCORE", 95.0)
