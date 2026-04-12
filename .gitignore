@@ -65,6 +65,10 @@ data/latest_scan_live.*
 data/fundamentals_store.sqlite
 data/*.sqlite
 
+# DuckDB — Supabase is the primary DB; DuckDB is local-only fallback
+data/*.duckdb
+data/*.duckdb.wal
+
 # Model artifacts (keep only production model)
 model_5d.pkl
 model_5d_full.pkl
