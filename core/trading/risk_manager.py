@@ -82,10 +82,17 @@ class RiskManager:
         return True, ""
 
     def calculate_qty(self, price: float) -> int:
-        """Calculate number of shares to buy within position size limit."""
+        """Calculate number of shares to buy within position size limit.
+
+        Allows buying 1 share of expensive stocks (up to 2x max_position_size)
+        so high-scoring stocks like UTHR ($564) aren't skipped entirely.
+        """
         if price <= 0:
             return 0
         qty = math.floor(self.cfg.max_position_size / price)
+        # Allow 1 share if price is within 2x max position size
+        if qty == 0 and price <= self.cfg.max_position_size * 2:
+            qty = 1
         return max(qty, 0)
 
     def get_portfolio_summary(self) -> dict:

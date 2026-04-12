@@ -244,7 +244,16 @@ class OrderManager:
         entry = float(row.get("Entry_Price", row.get("entry_price", 0)))
         target = float(row.get("Target_Price", row.get("target_price", 0)))
         stop = float(row.get("Stop_Loss", row.get("stop_loss", 0)))
-        target_date = str(row.get("Target_Date", row.get("target_date", "")))
+        # Compute target exit date from HoldingDays or Target_Date
+        _raw_target_date = row.get("Target_Date", row.get("target_date", ""))
+        _holding_days = row.get("HoldingDays", row.get("holding_days", 0))
+        if _raw_target_date and str(_raw_target_date).strip():
+            target_date = str(_raw_target_date)
+        elif _holding_days and int(_holding_days) > 0:
+            from datetime import datetime, timedelta
+            target_date = (datetime.utcnow() + timedelta(days=int(_holding_days))).strftime("%Y-%m-%d")
+        else:
+            target_date = ""
 
         # Use current price as entry estimate if Entry_Price not available
         price = entry if entry > 0 else float(row.get("Close", row.get("close", 0)))
