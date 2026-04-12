@@ -52,9 +52,28 @@ AI-powered stock recommendation system that scans 3,000+ US stocks using technic
 - **VPS deploy script**: `deploy/setup_vps.sh` for Ubuntu VPS (~$5/month) - NOT YET DEPLOYED
 - **Next step**: Move from running on Mac to VPS for 24/7 operation
 
-## Known Issues (Fixed)
-- Streamlit scan freezing at 30-80%: Fixed April 12 by adding timeouts to as_completed() loops
+## How to Run Auto-Trade (Manual from Mac)
+```bash
+# 1. Open IB Gateway 10.37 → Log in (Live Trading, IB API)
+# 2. DRY RUN first:
+cd ~/StockScout/stock-scout-2
+.venv/bin/python -m scripts.run_auto_trade
+# 3. LIVE (requires typed "CONFIRM LIVE"):
+TRADE_DRY_RUN=0 .venv/bin/python -m scripts.run_auto_trade
+# 4. Monitor positions:
+.venv/bin/python -m scripts.monitor_positions --daemon
+```
+
+## Known Issues (Fixed on April 12, 2026)
+- Streamlit scan freezing at 30-80%: added timeouts to as_completed() loops
+- Streamlit scan completes but results not saved: moved Supabase save to immediately after pipeline completion (was 400 lines later, Streamlit rerun killed it before reaching save)
+- Streamlit scan crash on Python 3.13: added .python-version=3.11 (KeyError: 'core.indicators')
+- GitHub Actions scans cancelled at 45min: increased timeout to 90min
+- GitHub Actions missing 5 API keys: added EODHD, SIMFIN, NASDAQ, MARKETSTACK, Telegram
+- GitHub Actions overlapping scans: added concurrency group
+- Telegram token exposed in CLAUDE.md: removed, token revoked and replaced
 - ib_insync removed from requirements.txt to not break Streamlit Cloud deployment
+- Git pushes during Streamlit scan kill the scan: avoid pushing while scan runs
 
 ## Tech Stack
 - Python 3.11, Streamlit, XGBoost, scikit-learn, pandas
