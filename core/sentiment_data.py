@@ -19,7 +19,7 @@ import pandas as pd
 from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime, timedelta
 from functools import lru_cache
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
 
 from core.config import get_secret
 from core.api_monitor import record_api_call
@@ -512,11 +512,15 @@ def fetch_alternative_data_batch(
     
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {executor.submit(_fetch_one, t): t for t in tickers}
-        for future in as_completed(futures):
-            try:
-                results.append(future.result())
-            except Exception as e:
-                logger.debug(f"Future failed: {e}")
+        try:
+            for future in as_completed(futures, timeout=60):
+                try:
+                    results.append(future.result())
+                except Exception as e:
+                    logger.debug(f"Future failed: {e}")
+        except FuturesTimeoutError:
+            pending = [futures[f] for f in futures if not f.done()]
+            logger.warning(f"Sentiment data fetch timed out after 60s. Skipping pending tickers: {pending}")
     
     df = pd.DataFrame(results)
     logger.info(f"Fetched alternative data for {len(df)} tickers")

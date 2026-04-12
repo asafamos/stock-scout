@@ -947,6 +947,14 @@ else:
     # Streamlit reruns the entire script on connection pings, tab switches, etc.
     # If _pipeline_running is already True, this is a rerun — do NOT restart the pipeline.
     if st.session_state.get("_pipeline_running", False) and not force_live_scan_once:
+        # Safety timeout: if the pipeline has been "running" for more than 10 minutes,
+        # it's likely stuck. Reset the flag so the user can re-trigger a scan.
+        _pipeline_start = st.session_state.get("_pipeline_start_time", None)
+        if _pipeline_start is not None and (time.time() - _pipeline_start) > 600:
+            logger.warning("Pipeline running flag stuck for >600s — resetting to allow re-run")
+            st.session_state["_pipeline_running"] = False
+            st.session_state.pop("_pipeline_start_time", None)
+            st.rerun()
         # Mid-pipeline rerun detected — show a waiting message and stop execution here.
         # The original pipeline execution (in the other "thread") will complete and set
         # _live_scan_just_finished=True, which will be picked up on the next rerun.
@@ -958,6 +966,7 @@ else:
         st.stop()  # Halt this rerun — don't restart the pipeline
 
     st.session_state["_pipeline_running"] = True  # Guard against mid-pipeline reruns
+    st.session_state["_pipeline_start_time"] = time.time()  # Track start for safety timeout
     # Reset progress bar for fresh scan start
     status_manager.current_stage = 0
     st.session_state["_sm_current_stage"] = 0

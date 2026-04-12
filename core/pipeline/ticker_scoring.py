@@ -3,7 +3,7 @@
 import gc
 import logging
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
 from typing import Any, Callable, Dict, List, Optional
 
 import numpy as np
@@ -325,14 +325,18 @@ def _step_compute_scores_with_unified_logic(
                     _process_single_ticker, tkr, df, skip_tech_filter,
                 )
                 future_map[future] = tkr
-            for future in as_completed(future_map):
-                tkr = future_map[future]
-                try:
-                    res = future.result()
-                    if res is not None:
-                        rows.append(res)
-                except Exception as exc:
-                    logger.warning(f"Ticker {tkr} failed in parallel scoring: {exc}")
+            try:
+                for future in as_completed(future_map, timeout=120):
+                    tkr = future_map[future]
+                    try:
+                        res = future.result()
+                        if res is not None:
+                            rows.append(res)
+                    except Exception as exc:
+                        logger.warning(f"Ticker {tkr} failed in parallel scoring: {exc}")
+            except FuturesTimeoutError:
+                pending = [future_map[f] for f in future_map if not f.done()]
+                logger.warning(f"Ticker scoring batch timed out after 120s. Skipping pending tickers: {pending}")
         # Free memory between batches
         gc.collect()
         if status_callback and i > 0 and i % 100 == 0:

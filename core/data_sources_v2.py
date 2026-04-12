@@ -46,7 +46,7 @@ from core.exceptions import (
     DataFetchError, RateLimitError, AuthenticationError, 
     ProviderUnavailableError, DataValidationError, classify_http_error
 )
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
 import threading
 from core.fundamental import DataMode
 from core.fundamental_store import init_fundamentals_store, save_fundamentals_snapshot, load_fundamentals_as_of
@@ -2570,13 +2570,17 @@ def fetch_fundamentals_batch(tickers: List[str], provider_status: Dict | None = 
                 continue
             future = executor.submit(aggregate_fundamentals, t, chosen, provider_status, mode, as_of_date, telemetry)
             future_to_ticker[future] = t
-        for future in as_completed(future_to_ticker):
-            tkr = future_to_ticker[future]
-            try:
-                res = future.result()
-                rows.append(res)
-            except Exception as e:
-                logger.error(f"Batch fetch failed for {tkr}: {e}")
+        try:
+            for future in as_completed(future_to_ticker, timeout=120):
+                tkr = future_to_ticker[future]
+                try:
+                    res = future.result()
+                    rows.append(res)
+                except Exception as e:
+                    logger.error(f"Batch fetch failed for {tkr}: {e}")
+        except FuturesTimeoutError:
+            pending = [future_to_ticker[f] for f in future_to_ticker if not f.done()]
+            logger.warning(f"Fundamentals batch timed out after 120s. Skipping pending tickers: {pending}")
                 
     if not rows:
         # Return neutral DataFrame with index tickers when batch yielded no rows
