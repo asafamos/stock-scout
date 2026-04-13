@@ -1,11 +1,11 @@
 {
-  "timestamp": "2026-03-03T20:52:39.896583Z",
-  "universe_count": 2000,
+  "timestamp": "2026-04-12T18:30:40.794538Z",
+  "universe_count": 500,
   "provider": "Unknown",
-  "results_count": 250,
-  "batches_ok": 10,
-  "lookback_days": 250,
-  "beta_filter_enabled": false,
+  "results_count": 46,
+  "batches_ok": 3,
+  "lookback_days": 120,
+  "beta_filter_enabled": true,
   "fundamental_enabled": true,
-  "runtime_seconds": 2441.43
+  "runtime_seconds": 566.75
 }
