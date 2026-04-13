@@ -97,6 +97,12 @@ jobs:
         if: steps.market_check.outputs.market_closed != 'true'
         id: scan
         run: |
+          # Enable auto-trade simulation (DRY RUN) to send Telegram alerts
+          # showing what the system WOULD buy. Only on the 10:00 AM scan.
+          HOUR=$(date -u +%H)
+          if [ "$HOUR" = "15" ]; then
+            export AUTO_TRADE_ENABLED=1
+          fi
           python scripts/run_full_scan.py
         continue-on-error: true
 
