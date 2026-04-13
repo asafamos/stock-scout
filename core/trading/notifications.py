@@ -17,8 +17,31 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-TELEGRAM_TOKEN = os.getenv("TRADE_TELEGRAM_TOKEN", "")
-TELEGRAM_CHAT_ID = os.getenv("TRADE_TELEGRAM_CHAT_ID", "")
+def _load_telegram_creds() -> tuple:
+    """Load Telegram creds from env vars or .streamlit/secrets.toml."""
+    token = os.getenv("TRADE_TELEGRAM_TOKEN", "")
+    chat_id = os.getenv("TRADE_TELEGRAM_CHAT_ID", "")
+    if token and chat_id:
+        return token, chat_id
+    # Fallback: read from .streamlit/secrets.toml (local Mac runs)
+    try:
+        from pathlib import Path
+        secrets_path = Path(__file__).resolve().parents[2] / ".streamlit" / "secrets.toml"
+        if secrets_path.exists():
+            for line in secrets_path.read_text().splitlines():
+                if "=" in line and not line.strip().startswith("#"):
+                    key, val = line.split("=", 1)
+                    key, val = key.strip(), val.strip().strip('"').strip("'")
+                    if key == "TRADE_TELEGRAM_TOKEN" and not token:
+                        token = val
+                    elif key == "TRADE_TELEGRAM_CHAT_ID" and not chat_id:
+                        chat_id = val
+    except Exception:
+        pass
+    return token, chat_id
+
+
+TELEGRAM_TOKEN, TELEGRAM_CHAT_ID = _load_telegram_creds()
 TELEGRAM_API = "https://api.telegram.org/bot{token}/sendMessage"
 
 

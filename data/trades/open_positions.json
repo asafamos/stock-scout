@@ -1,0 +1,36 @@
+[
+  {
+    "ticker": "VAL",
+    "quantity": 3,
+    "entry_price": 99.36,
+    "stop_loss": 93.55699920654297,
+    "target_price": 112.17340545654298,
+    "target_date": "2026-04-29 00:00:00",
+    "trailing_stop_pct": 5.0,
+    "score": 78.52919218321763,
+    "opened_at": "2026-04-13T18:48:13.472701",
+    "order_ids": {
+      "buy": 5,
+      "trailing_stop": 6,
+      "limit_sell": 7,
+      "oca_group": "SS_VAL_1776106090"
+    }
+  },
+  {
+    "ticker": "UTHR",
+    "quantity": 1,
+    "entry_price": 574.31,
+    "stop_loss": 551.2999877929688,
+    "target_price": 636.7040405273438,
+    "target_date": "2026-05-07 00:00:00",
+    "trailing_stop_pct": 5.0,
+    "score": 77.2354391114361,
+    "opened_at": "2026-04-13T18:48:16.668363",
+    "order_ids": {
+      "buy": 9,
+      "trailing_stop": 10,
+      "limit_sell": 11,
+      "oca_group": "SS_UTHR_1776106093"
+    }
+  }
+]

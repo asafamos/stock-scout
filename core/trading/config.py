@@ -78,8 +78,8 @@ class TradingConfig:
         default_factory=lambda: _env("MIN_CONFIDENCE", "High")
     )
     min_ml_prob: float = field(
-        default_factory=lambda: _env_float("MIN_ML_PROB", 0.40)
-    )  # ML<0.4 has negative expected return
+        default_factory=lambda: _env_float("MIN_ML_PROB", 0.33)
+    )  # Calibrated to real ML output range (0.30-0.37); filters bottom half
 
     # ── Sector Blocklist (portfolio analysis: Consumer Defensive = -4.47%, 20% win) ──
     blocked_sectors: str = field(

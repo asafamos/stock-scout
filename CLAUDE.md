@@ -23,14 +23,14 @@ AI-powered stock recommendation system that scans 3,000+ US stocks using technic
 - Max daily buys: 3
 - Max portfolio exposure: $900
 - Score filter: 73-95 (lowered from 75 to catch near-miss stocks like BURL)
-- ML probability min: 0.40
+- ML probability min: 0.33 (lowered from 0.40 — real ML output range is 0.30-0.37, 0.40 blocked 100%)
 - Trailing stop: adaptive per stock from scan's stop loss (floor 3%, cap 8%)
 - Blocked sectors: Consumer Defensive
 - Selection: sorted by 60% score + 40% R:R ratio (not just score)
 
 ### Trading Architecture
 - `core/trading/ibkr_client.py` - IB connection + OCA bracket orders (buy + trailing stop + limit sell)
-- `core/trading/order_manager.py` - Scan → filter → risk check → execute → track
+- `core/trading/order_manager.py` - Scan → filter → risk check → execute → track (auto-picks newest scan: GH Actions or Streamlit)
 - `core/trading/position_tracker.py` - JSON-backed position tracking
 - `core/trading/risk_manager.py` - Pre-trade validation
 - `core/trading/notifications.py` - Telegram alerts
@@ -52,7 +52,8 @@ AI-powered stock recommendation system that scans 3,000+ US stocks using technic
 - **10AM scan** triggers auto-trade DRY RUN → sends Telegram alerts showing what it WOULD buy
 - **Both scans (GH Actions + Streamlit)** save to Supabase with user_id=stockscout_owner
 - **VPS deploy script**: `deploy/setup_vps.sh` for Ubuntu VPS (~$5/month) - NOT YET DEPLOYED
-- **Next step**: Test live trading from Mac → then move to VPS for 24/7 operation
+- **Next step**: Run first LIVE trade from Mac → then move to VPS for 24/7 operation
+- **Scan loading**: order_manager auto-picks the most recent scan file (GH Actions parquet or Streamlit JSON) by modification time
 
 ## How to Run Auto-Trade (Manual from Mac)
 ```bash

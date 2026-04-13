@@ -144,19 +144,40 @@ class OrderManager:
     # ── Internals ─────────────────────────────────────────────
 
     def _load_scan_results(self) -> Optional[pd.DataFrame]:
-        """Load latest scan from JSON."""
-        path = Path(self.cfg.scan_results_path)
-        if not path.exists():
-            # Try parquet fallback
-            parquet_path = path.with_suffix(".parquet")
-            if parquet_path.exists():
-                return pd.read_parquet(parquet_path)
-            logger.error("Scan results not found: %s", path)
+        """Load the most recent scan — auto (GH Actions) or manual (Streamlit).
+
+        Compares modification times of:
+          - data/scans/latest_scan_live.json/.parquet  (Streamlit / manual)
+          - data/scans/latest_scan.parquet/.json       (GH Actions / auto)
+        and loads whichever is newer.
+        """
+        scans_dir = Path("data/scans")
+        candidates = [
+            scans_dir / "latest_scan_live.json",
+            scans_dir / "latest_scan_live.parquet",
+            scans_dir / "latest_scan.parquet",
+        ]
+        # Find the most recently modified scan file
+        best_path = None
+        best_mtime = 0.0
+        for p in candidates:
+            if p.exists() and p.stat().st_mtime > best_mtime:
+                best_mtime = p.stat().st_mtime
+                best_path = p
+
+        if best_path is None:
+            logger.error("No scan results found in %s", scans_dir)
             return None
+
+        logger.info("Loading scan from: %s (modified %s)",
+                     best_path.name,
+                     pd.Timestamp.fromtimestamp(best_mtime).strftime("%Y-%m-%d %H:%M"))
         try:
-            return pd.read_json(path)
+            if best_path.suffix == ".parquet":
+                return pd.read_parquet(best_path)
+            return pd.read_json(best_path)
         except Exception as e:
-            logger.error("Failed to load scan results: %s", e)
+            logger.error("Failed to load scan results from %s: %s", best_path, e)
             return None
 
     def _filter_candidates(self, df: pd.DataFrame) -> pd.DataFrame:
