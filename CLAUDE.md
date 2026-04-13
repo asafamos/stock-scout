@@ -48,9 +48,11 @@ AI-powered stock recommendation system that scans 3,000+ US stocks using technic
 - Config via: TRADE_TELEGRAM_TOKEN and TRADE_TELEGRAM_CHAT_ID env vars
 
 ## Automation
-- **GitHub Actions**: 4x daily scans (pre-market, 10AM, 3PM, EOD), nightly outcome tracking, weekly ML retraining + backtest
+- **GitHub Actions**: 4x daily scans (pre-market 8:30AM, 10AM, 3PM, 4:30PM ET), nightly outcome tracking, weekly ML retraining + backtest
+- **10AM scan** triggers auto-trade DRY RUN → sends Telegram alerts showing what it WOULD buy
+- **Both scans (GH Actions + Streamlit)** save to Supabase with user_id=stockscout_owner
 - **VPS deploy script**: `deploy/setup_vps.sh` for Ubuntu VPS (~$5/month) - NOT YET DEPLOYED
-- **Next step**: Move from running on Mac to VPS for 24/7 operation
+- **Next step**: Test live trading from Mac → then move to VPS for 24/7 operation
 
 ## How to Run Auto-Trade (Manual from Mac)
 ```bash
@@ -64,6 +66,13 @@ TRADE_DRY_RUN=0 .venv/bin/python -m scripts.run_auto_trade
 .venv/bin/python -m scripts.monitor_positions --daemon
 ```
 
+## Important Notes
+- OCA bracket orders (trailing stop + limit sell) live on IB servers - no Mac dependency
+- Target date exits require monitor_positions daemon (Mac or VPS must be running)
+- System correctly abstains from buying when market regime is NEUTRAL (lower scores)
+- Scans and auto-trade are identical between GH Actions and Streamlit (same pipeline, same save)
+- Streamlit Cloud scans can get stuck on long runs (Streamlit reruns kill them) - GH Actions is more reliable
+
 ## Known Issues (Fixed on April 12, 2026)
 - Streamlit scan freezing at 30-80%: added timeouts to as_completed() loops
 - Streamlit scan completes but results not saved: moved Supabase save to immediately after pipeline completion (was 400 lines later, Streamlit rerun killed it before reaching save)
@@ -74,6 +83,9 @@ TRADE_DRY_RUN=0 .venv/bin/python -m scripts.run_auto_trade
 - Telegram token exposed in CLAUDE.md: removed, token revoked and replaced
 - ib_insync removed from requirements.txt to not break Streamlit Cloud deployment
 - Git pushes during Streamlit scan kill the scan: avoid pushing while scan runs
+- GitHub Actions scan not saving to Supabase: switched to core.scan_io.save_scan (same as Streamlit)
+- GitHub Actions final save crash on Fundamental_Breakdown column: added object-to-string conversion
+- GitHub Actions scanned 3000 instead of 2000: fixed default in core/config.py
 
 ## Tech Stack
 - Python 3.11, Streamlit, XGBoost, scikit-learn, pandas
