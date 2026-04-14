@@ -435,7 +435,7 @@ class OrderManager:
             stop_loss=stop,
             target_price=target,
             target_date=target_date if target_date else None,
-            trailing_stop_pct=self.cfg.trailing_stop_pct,
+            trailing_stop_pct=trail_pct,
             score=score,
             order_ids=order_ids,
         )
@@ -447,7 +447,7 @@ class OrderManager:
             "entry_price": filled_price,
             "target_price": target,
             "stop_loss": stop,
-            "trailing_stop_pct": self.cfg.trailing_stop_pct,
+            "trailing_stop_pct": trail_pct,
             "order_ids": order_ids,
         }
 

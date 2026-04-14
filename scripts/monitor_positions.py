@@ -64,17 +64,27 @@ def run_check():
                 # Position was closed (stop or target hit)
                 logger.info("Position %s no longer in IBKR — marking closed", ticker)
 
-                # Try to determine exit price and reason from orders
+                # Try to determine exit price and reason from filled orders
                 exit_price = 0.0
                 reason = "closed_externally"
 
-                # Check if any OCA order was filled
-                oca = pos.get("order_ids", {}).get("oca_group", "")
-                if oca:
-                    for order in ibkr_orders:
-                        if order.get("oca_group") == oca and order.get("filled", 0) > 0:
-                            reason = f"{order.get('order_type', 'unknown')}_filled"
-                            break
+                # Check completed trades for fill info
+                for trade in client._ib.trades():
+                    if (trade.contract.symbol == ticker
+                            and trade.order.action == "SELL"
+                            and trade.orderStatus.status == "Filled"):
+                        exit_price = trade.orderStatus.avgFillPrice or 0.0
+                        reason = f"{trade.order.orderType}_filled"
+                        break
+
+                # Fallback: check OCA orders
+                if exit_price == 0.0:
+                    oca = pos.get("order_ids", {}).get("oca_group", "")
+                    if oca:
+                        for order in ibkr_orders:
+                            if order.get("oca_group") == oca and order.get("filled", 0) > 0:
+                                reason = f"{order.get('order_type', 'unknown')}_filled"
+                                break
 
                 tracker.remove_position(ticker, exit_price, reason)
                 pnl = (exit_price - pos["entry_price"]) * pos["quantity"] if exit_price else 0
