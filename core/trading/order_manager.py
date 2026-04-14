@@ -130,6 +130,92 @@ class OrderManager:
 
         return results
 
+    def resubmit_protections(self) -> List[Dict]:
+        """Re-submit protective orders (trailing stop + limit sell) for all open positions.
+
+        Use when orders expired because they were placed as DAY instead of GTC.
+        """
+        positions = self.tracker.get_open_positions()
+        if not positions:
+            logger.info("No open positions — nothing to resubmit")
+            return []
+
+        if not self.client.connect():
+            logger.error("Failed to connect to IBKR — cannot resubmit")
+            return []
+
+        results = []
+        try:
+            for pos in positions:
+                ticker = pos["ticker"]
+                qty = pos["quantity"]
+                entry_price = pos["entry_price"]
+                stop_loss = pos.get("stop_loss", 0)
+                target_price = pos.get("target_price", 0)
+
+                # Calculate trailing stop % from stored stop loss
+                if stop_loss > 0 and entry_price > 0:
+                    trail_pct = round((entry_price - stop_loss) / entry_price * 100, 1)
+                    trail_pct = max(3.0, min(trail_pct, 8.0))
+                else:
+                    trail_pct = pos.get("trailing_stop_pct", self.cfg.trailing_stop_pct)
+
+                logger.info(
+                    "RESUBMIT: %s x%d | Trail: %.1f%% | Target: $%.2f",
+                    ticker, qty, trail_pct, target_price,
+                )
+
+                result = self.client.resubmit_protective_orders(
+                    ticker=ticker,
+                    qty=qty,
+                    trail_pct=trail_pct,
+                    target_price=target_price,
+                )
+
+                # Update position with new order IDs
+                new_order_ids = {
+                    "buy": pos.get("order_ids", {}).get("buy", 0),
+                    "trailing_stop": result["trailing_stop"].order_id,
+                    "limit_sell": result["limit_sell"].order_id,
+                    "oca_group": result.get("oca_group", ""),
+                }
+                self._update_position_order_ids(ticker, new_order_ids)
+
+                status = "success" if result["trailing_stop"].status != "Error" else "error"
+                results.append({
+                    "ticker": ticker,
+                    "status": status,
+                    "trail_pct": trail_pct,
+                    "target_price": target_price,
+                    "order_ids": new_order_ids,
+                })
+
+                # Notify
+                notify.notify_buy(
+                    ticker, qty, entry_price, stop_loss, target_price,
+                    pos.get("score", 0),
+                    trail_pct=trail_pct,
+                    rr=0,
+                    target_date=pos.get("target_date", ""),
+                    prefix="🔄 RESUBMIT",
+                )
+        finally:
+            self.client.disconnect()
+
+        ok = sum(1 for r in results if r["status"] == "success")
+        fail = sum(1 for r in results if r["status"] == "error")
+        logger.info("RESUBMIT complete: %d ok, %d failed", ok, fail)
+        return results
+
+    def _update_position_order_ids(self, ticker: str, new_order_ids: dict):
+        """Update order IDs for an existing position."""
+        positions = self.tracker.get_open_positions()
+        for p in positions:
+            if p["ticker"] == ticker:
+                p["order_ids"] = new_order_ids
+                break
+        self.tracker._save_positions(positions)
+
     def emergency_close_all(self) -> bool:
         """Kill switch: cancel all open orders."""
         logger.warning("EMERGENCY CLOSE ALL triggered")

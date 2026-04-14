@@ -11,9 +11,9 @@
     "opened_at": "2026-04-13T18:48:13.472701",
     "order_ids": {
       "buy": 5,
-      "trailing_stop": 6,
-      "limit_sell": 7,
-      "oca_group": "SS_VAL_1776106090"
+      "trailing_stop": 4,
+      "limit_sell": 5,
+      "oca_group": "SS_VAL_1776153120"
     }
   },
   {
@@ -28,9 +28,9 @@
     "opened_at": "2026-04-13T18:48:16.668363",
     "order_ids": {
       "buy": 9,
-      "trailing_stop": 10,
-      "limit_sell": 11,
-      "oca_group": "SS_UTHR_1776106093"
+      "trailing_stop": 7,
+      "limit_sell": 8,
+      "oca_group": "SS_UTHR_1776153126"
     }
   }
 ]

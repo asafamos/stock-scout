@@ -203,6 +203,7 @@ class IBKRClient:
             order.totalQuantity = qty
             order.orderType = "TRAIL"
             order.trailingPercent = trail_pct
+            order.tif = "GTC"
 
             trade = self._ib.placeOrder(contract, order)
             self._ib.sleep(2)
@@ -235,7 +236,8 @@ class IBKRClient:
             from ib_insync import Stock, LimitOrder
             contract = Stock(ticker, "SMART", "USD")
             self._ib.qualifyContracts(contract)
-            order = LimitOrder("SELL", qty, price)
+            order = LimitOrder("SELL", qty, round(price, 2))
+            order.tif = "GTC"
             trade = self._ib.placeOrder(contract, order)
             self._ib.sleep(2)
 
@@ -312,6 +314,7 @@ class IBKRClient:
             trail_order.totalQuantity = qty
             trail_order.orderType = "TRAIL"
             trail_order.trailingPercent = trail_pct
+            trail_order.tif = "GTC"
             trail_order.ocaGroup = oca_group
             trail_order.ocaType = 1  # Cancel remaining on fill
             trail_order.transmit = True
@@ -323,7 +326,8 @@ class IBKRClient:
                 limit_order.action = "SELL"
                 limit_order.totalQuantity = qty
                 limit_order.orderType = "LMT"
-                limit_order.lmtPrice = target_price
+                limit_order.lmtPrice = round(target_price, 2)
+                limit_order.tif = "GTC"
                 limit_order.ocaGroup = oca_group
                 limit_order.ocaType = 1
                 limit_order.transmit = True
@@ -363,6 +367,94 @@ class IBKRClient:
                 "trailing_stop": TradeResult(ticker=ticker, action="SELL",
                                               order_type="TRAIL", quantity=qty,
                                               filled_price=0.0, status="Error"),
+                "limit_sell": TradeResult(ticker=ticker, action="SELL",
+                                          order_type="LMT", quantity=qty,
+                                          filled_price=0.0, status="Error"),
+            }
+
+    def resubmit_protective_orders(
+        self,
+        ticker: str,
+        qty: int,
+        trail_pct: float,
+        target_price: float,
+    ) -> dict:
+        """Re-submit trailing stop + limit sell as OCA for an existing position.
+
+        Use when protective orders expired (e.g. were placed as DAY instead of GTC).
+        """
+        if self.cfg.dry_run:
+            logger.info(
+                "[DRY RUN] RESUBMIT protection for %d x %s | Trail: %.1f%% | Target: $%.2f",
+                qty, ticker, trail_pct, target_price,
+            )
+            return {
+                "trailing_stop": TradeResult(ticker=ticker, action="SELL",
+                                              order_type="TRAIL", quantity=qty,
+                                              filled_price=0.0, status="DRY_RUN"),
+                "limit_sell": TradeResult(ticker=ticker, action="SELL",
+                                          order_type="LMT", quantity=qty,
+                                          filled_price=0.0, status="DRY_RUN"),
+            }
+        try:
+            from ib_insync import Stock, Order
+            import time as _time
+
+            contract = Stock(ticker, "SMART", "USD")
+            self._ib.qualifyContracts(contract)
+
+            oca_group = f"SS_{ticker}_{int(_time.time())}"
+
+            # Trailing stop (GTC + OCA)
+            trail_order = Order()
+            trail_order.action = "SELL"
+            trail_order.totalQuantity = qty
+            trail_order.orderType = "TRAIL"
+            trail_order.trailingPercent = trail_pct
+            trail_order.tif = "GTC"
+            trail_order.ocaGroup = oca_group
+            trail_order.ocaType = 1
+            trail_order.transmit = True
+            trail_trade = self._ib.placeOrder(contract, trail_order)
+
+            # Limit sell at target (GTC + OCA)
+            limit_trade = None
+            if target_price > 0:
+                limit_order = Order()
+                limit_order.action = "SELL"
+                limit_order.totalQuantity = qty
+                limit_order.orderType = "LMT"
+                limit_order.lmtPrice = round(target_price, 2)
+                limit_order.tif = "GTC"
+                limit_order.ocaGroup = oca_group
+                limit_order.ocaType = 1
+                limit_order.transmit = True
+                limit_trade = self._ib.placeOrder(contract, limit_order)
+
+            self._ib.sleep(2)
+
+            return {
+                "trailing_stop": TradeResult(
+                    ticker=ticker, action="SELL", order_type="TRAIL",
+                    quantity=qty, filled_price=0.0,
+                    status=trail_trade.orderStatus.status,
+                    order_id=trail_trade.order.orderId,
+                ),
+                "limit_sell": TradeResult(
+                    ticker=ticker, action="SELL", order_type="LMT",
+                    quantity=qty, filled_price=0.0,
+                    status=limit_trade.orderStatus.status if limit_trade else "N/A",
+                    order_id=limit_trade.order.orderId if limit_trade else 0,
+                ),
+                "oca_group": oca_group,
+            }
+        except Exception as e:
+            logger.error("RESUBMIT protective orders failed for %s: %s", ticker, e)
+            return {
+                "trailing_stop": TradeResult(ticker=ticker, action="SELL",
+                                              order_type="TRAIL", quantity=qty,
+                                              filled_price=0.0, status="Error",
+                                              error=str(e)),
                 "limit_sell": TradeResult(ticker=ticker, action="SELL",
                                           order_type="LMT", quantity=qty,
                                           filled_price=0.0, status="Error"),

@@ -4,6 +4,9 @@ Usage:
     # Dry run (default — logs only, no real orders):
     python -m scripts.run_auto_trade
 
+    # Resubmit protective orders for existing positions:
+    python -m scripts.run_auto_trade --resubmit
+
     # Paper trading (real orders on IBKR paper account):
     TRADE_DRY_RUN=0 TRADE_PAPER_MODE=1 python -m scripts.run_auto_trade
 
@@ -11,7 +14,6 @@ Usage:
     TRADE_DRY_RUN=0 TRADE_PAPER_MODE=0 python -m scripts.run_auto_trade
 """
 
-import json
 import logging
 import sys
 from datetime import datetime
@@ -27,8 +29,13 @@ def main():
     from core.trading.config import CONFIG
     from core.trading.order_manager import OrderManager
 
+    resubmit_mode = "--resubmit" in sys.argv
+
     print("=" * 60)
-    print("  StockScout Auto-Trade")
+    if resubmit_mode:
+        print("  StockScout — Resubmit Protective Orders")
+    else:
+        print("  StockScout Auto-Trade")
     print(f"  {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}")
     print("=" * 60)
     print()
@@ -44,27 +51,46 @@ def main():
             sys.exit(0)
 
     manager = OrderManager()
-    results = manager.execute_recommendations()
 
-    # Print summary
-    print()
-    print("=" * 60)
-    print("  Results Summary")
-    print("=" * 60)
+    if resubmit_mode:
+        print(manager.tracker.summary())
+        print()
+        results = manager.resubmit_protections()
 
-    if not results:
-        print("  No trades executed.")
+        print()
+        print("=" * 60)
+        print("  Resubmit Results")
+        print("=" * 60)
+        if not results:
+            print("  No positions to resubmit.")
+        else:
+            for r in results:
+                ticker = r.get("ticker", "?")
+                if r["status"] == "success":
+                    print(f"  OK {ticker}: Trail {r['trail_pct']}% + Target ${r['target_price']:.2f} (GTC)")
+                else:
+                    print(f"  ERROR {ticker}")
     else:
-        for r in results:
-            status = r.get("status", "unknown")
-            ticker = r.get("ticker", "?")
-            if status == "success":
-                print(f"  BUY {ticker}: {r['quantity']} shares @ ${r['entry_price']:.2f} "
-                      f"| Trail: {r['trailing_stop_pct']}% | Target: ${r['target_price']:.2f}")
-            elif status == "skipped":
-                print(f"  SKIP {ticker}: {r['reason']}")
-            elif status == "error":
-                print(f"  ERROR {ticker}: {r['error']}")
+        results = manager.execute_recommendations()
+
+        print()
+        print("=" * 60)
+        print("  Results Summary")
+        print("=" * 60)
+
+        if not results:
+            print("  No trades executed.")
+        else:
+            for r in results:
+                status = r.get("status", "unknown")
+                ticker = r.get("ticker", "?")
+                if status == "success":
+                    print(f"  BUY {ticker}: {r['quantity']} shares @ ${r['entry_price']:.2f} "
+                          f"| Trail: {r['trailing_stop_pct']}% | Target: ${r['target_price']:.2f}")
+                elif status == "skipped":
+                    print(f"  SKIP {ticker}: {r['reason']}")
+                elif status == "error":
+                    print(f"  ERROR {ticker}: {r['error']}")
 
     print()
     print(manager.tracker.summary())
