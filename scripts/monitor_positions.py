@@ -60,13 +60,24 @@ def run_check():
             ticker = pos["ticker"]
 
             # Check if position still exists in IBKR
-            # But skip if there's a pending BUY order (not filled yet)
+            # Safety: skip if there's a pending BUY, OR if we have very few
+            # positions from IBKR (could mean incomplete sync after reconnect)
             has_pending_buy = any(
                 o.get("ticker") == ticker and o.get("action") == "BUY"
                 and o.get("status") in ("PreSubmitted", "Submitted")
                 for o in ibkr_orders
             )
+            # Don't close if IBKR returned 0 positions (likely a sync issue)
+            if not ibkr_positions:
+                logger.warning("IBKR returned 0 positions — skipping close check (possible sync issue)")
+                break
             if ticker not in ibkr_positions and not CONFIG.dry_run and not has_pending_buy:
+                # Double-check: verify we have protective orders for OTHER positions
+                # If we don't see ANY positions, it's likely a connection issue, not a real close
+                other_positions_exist = any(t != ticker for t in ibkr_positions)
+                if not other_positions_exist and len(positions) > 1:
+                    logger.warning("Only %s missing but no other IB positions seen — skipping (possible sync issue)", ticker)
+                    continue
                 # Position was closed (stop or target hit)
                 logger.info("Position %s no longer in IBKR — marking closed", ticker)
 
