@@ -460,6 +460,41 @@ class IBKRClient:
                                           filled_price=0.0, status="Error"),
             }
 
+    def _sell_market(self, ticker: str, qty: int) -> TradeResult:
+        """Place a market sell order (used for target-date exits)."""
+        if self.cfg.dry_run:
+            logger.info("[DRY RUN] SELL MKT %d x %s", qty, ticker)
+            return TradeResult(
+                ticker=ticker, action="SELL", order_type="MKT",
+                quantity=qty, filled_price=0.0, status="DRY_RUN",
+            )
+        try:
+            from ib_insync import Stock, MarketOrder
+            contract = Stock(ticker, "SMART", "USD")
+            self._ib.qualifyContracts(contract)
+            order = MarketOrder("SELL", qty)
+            trade = self._ib.placeOrder(contract, order)
+
+            for _ in range(30):
+                self._ib.sleep(1)
+                if trade.orderStatus.status == "Filled":
+                    break
+
+            return TradeResult(
+                ticker=ticker, action="SELL", order_type="MKT",
+                quantity=qty,
+                filled_price=trade.orderStatus.avgFillPrice or 0.0,
+                status=trade.orderStatus.status,
+                order_id=trade.order.orderId,
+            )
+        except Exception as e:
+            logger.error("SELL MKT failed for %s: %s", ticker, e)
+            return TradeResult(
+                ticker=ticker, action="SELL", order_type="MKT",
+                quantity=qty, filled_price=0.0, status="Error",
+                error=str(e),
+            )
+
     def get_open_orders(self) -> List[dict]:
         """Get all open/pending orders."""
         if self.cfg.dry_run:

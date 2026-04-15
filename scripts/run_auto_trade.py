@@ -15,6 +15,7 @@ Usage:
 """
 
 import logging
+import os
 import sys
 from datetime import datetime
 
@@ -44,11 +45,14 @@ def main():
 
     # Safety confirmation for live mode
     if not CONFIG.dry_run and not CONFIG.paper_mode:
-        print("WARNING: LIVE TRADING MODE")
-        confirm = input("Type 'CONFIRM LIVE' to proceed: ")
-        if confirm.strip() != "CONFIRM LIVE":
-            print("Aborted.")
-            sys.exit(0)
+        if os.getenv("TRADE_AUTO_CONFIRM") == "1":
+            logger.warning("LIVE TRADING — auto-confirmed via TRADE_AUTO_CONFIRM")
+        else:
+            print("WARNING: LIVE TRADING MODE")
+            confirm = input("Type 'CONFIRM LIVE' to proceed: ")
+            if confirm.strip() != "CONFIRM LIVE":
+                print("Aborted.")
+                sys.exit(0)
 
     manager = OrderManager()
 

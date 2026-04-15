@@ -20,5 +20,36 @@
     "target_price": 636.7040405273438,
     "target_date": "2026-05-07 00:00:00",
     "score": 77.2354391114361
+  },
+  {
+    "action": "CLOSE",
+    "ticker": "VAL",
+    "quantity": 3,
+    "price": 98.69,
+    "timestamp": "2026-04-14T13:30:01",
+    "reason": "Market sell (below stop loss)",
+    "pnl": -2.01
+  },
+  {
+    "action": "OPEN",
+    "ticker": "VAL",
+    "quantity": 3,
+    "price": 98.45767489842007,
+    "timestamp": "2026-04-14T19:00:29.847748",
+    "stop_loss": 93.55699920654297,
+    "target_price": 112.17340545654298,
+    "target_date": "2026-04-29 00:00:00",
+    "score": 78.52919218321763
+  },
+  {
+    "action": "OPEN",
+    "ticker": "TDW",
+    "quantity": 3,
+    "price": 83.19033649989537,
+    "timestamp": "2026-04-14T21:51:03.865825",
+    "stop_loss": 80.73999786376953,
+    "target_price": 94.45018005371094,
+    "target_date": "2026-04-30 00:00:00",
+    "score": 78.09732785687585
   }
 ]
