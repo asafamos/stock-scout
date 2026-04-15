@@ -166,9 +166,23 @@ def _verify_protections(tracker, client, ibkr_orders, notify):
         if oca and o.get("status") in ("Submitted", "PreSubmitted"):
             active_ocas.add(oca)
 
+    # Build set of tickers that actually exist in IBKR (filled, not pending)
+    ibkr_held = set()
+    try:
+        for p in client.get_positions():
+            if p.quantity > 0:
+                ibkr_held.add(p.ticker)
+    except Exception:
+        pass
+
     for pos in positions:
         ticker = pos["ticker"]
         oca = pos.get("order_ids", {}).get("oca_group", "")
+
+        # Skip if position not yet in IBKR (buy not filled yet)
+        if ticker not in ibkr_held:
+            logger.info("⏳ %s not yet in IBKR (buy pending) — skipping protection check", ticker)
+            continue
 
         # Check if this position's OCA group has live orders
         if oca and oca in active_ocas:
