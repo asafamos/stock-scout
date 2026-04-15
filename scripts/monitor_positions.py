@@ -60,7 +60,13 @@ def run_check():
             ticker = pos["ticker"]
 
             # Check if position still exists in IBKR
-            if ticker not in ibkr_positions and not CONFIG.dry_run:
+            # But skip if there's a pending BUY order (not filled yet)
+            has_pending_buy = any(
+                o.get("ticker") == ticker and o.get("action") == "BUY"
+                and o.get("status") in ("PreSubmitted", "Submitted")
+                for o in ibkr_orders
+            )
+            if ticker not in ibkr_positions and not CONFIG.dry_run and not has_pending_buy:
                 # Position was closed (stop or target hit)
                 logger.info("Position %s no longer in IBKR — marking closed", ticker)
 
