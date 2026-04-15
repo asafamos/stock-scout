@@ -1,0 +1,41 @@
+{
+  "original_weights": {
+    "fundamental": 0.25,
+    "momentum": 0.3,
+    "risk_reward": 0.25,
+    "reliability": 0.2
+  },
+  "optimized_weights": {
+    "fundamental": 0.2375,
+    "momentum": 0.31,
+    "risk_reward": 0.2583,
+    "reliability": 0.1942
+  },
+  "train_period": "2024-01-01 \u2192 2025-06-30",
+  "test_period": "2025-07-01 \u2192 2026-03-01",
+  "train": {
+    "original_sharpe": 0.648,
+    "optimized_sharpe": 0.712,
+    "improvement": 0.064,
+    "original_trades": 180,
+    "optimized_trades": 180,
+    "original_winrate": 37.8,
+    "optimized_winrate": 38.9,
+    "original_avg_return": 1.2,
+    "optimized_avg_return": 1.33
+  },
+  "test": {
+    "original_sharpe": 0.481,
+    "optimized_sharpe": 0.486,
+    "improvement": 0.005,
+    "original_trades": 80,
+    "optimized_trades": 80,
+    "original_winrate": 43.8,
+    "optimized_winrate": 43.8,
+    "original_avg_return": 0.83,
+    "optimized_avg_return": 0.83
+  },
+  "adopt_recommendation": "NO",
+  "optimizer_converged": true,
+  "optimizer_iterations": 14
+}

@@ -331,9 +331,18 @@ class OrderManager:
                 logger.info("No stocks pass RR filter (>= %.1f)", self.cfg.min_rr_to_trade)
                 return result
 
-        # Remove already-held tickers
+        # Remove already-held tickers (check both tracker AND live IBKR positions)
+        ibkr_held = set()
+        try:
+            for p in self.client.get_positions():
+                if p.quantity > 0:
+                    ibkr_held.add(p.ticker)
+        except Exception:
+            pass  # If not connected yet, rely on tracker only
         result = result[
-            ~result[ticker_col].apply(self.tracker.is_holding)
+            ~result[ticker_col].apply(
+                lambda t: self.tracker.is_holding(t) or t in ibkr_held
+            )
         ]
 
         logger.info("Smart filter: %d → %d candidates", initial_count, len(result))
@@ -416,6 +425,22 @@ class OrderManager:
                     "error": buy_result.error}
 
         filled_price = buy_result.filled_price or price
+
+        # Validate protective orders — if rejected (margin etc), retry after fill
+        trail_ok = bracket["trailing_stop"].status not in ("Error", "Cancelled", "Inactive")
+        limit_ok = bracket["limit_sell"].status not in ("Error", "Cancelled", "Inactive")
+
+        if not trail_ok or not limit_ok:
+            logger.warning("Protective orders rejected for %s (trail=%s, limit=%s) — "
+                           "will retry via monitor after fill",
+                           ticker, bracket["trailing_stop"].status,
+                           bracket["limit_sell"].status)
+            notify.notify_error("Protection",
+                f"⚠️ {ticker}: Protective orders REJECTED after buy! "
+                f"Trail: {bracket['trailing_stop'].status}, "
+                f"Limit: {bracket['limit_sell'].status}. "
+                f"Monitor will auto-resubmit after fill.")
+
         order_ids = {
             "buy": buy_result.order_id,
             "trailing_stop": bracket["trailing_stop"].order_id,

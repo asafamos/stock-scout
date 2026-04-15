@@ -133,9 +133,9 @@ def run_check():
                     notify.notify_error("Monitor",
                         f"Target date sell for {ticker} failed: {result.status}")
 
-        # 4. Daily summary (at ~3:00-3:10 PM ET)
+        # 4. Daily summary (at ~4:00-4:10 PM ET = 20:00-20:10 UTC, after market close)
         now = datetime.utcnow()
-        if now.hour == 19 and now.minute < 10:
+        if now.hour == 20 and now.minute < 10:
             cash = client.get_cash_balance()
             net = client.get_net_liquidation()
             notify.notify_daily_summary(
@@ -193,6 +193,21 @@ def _verify_protections(tracker, client, ibkr_orders, notify):
 
         logger.info("Resubmitting protections for %s: trail=%.1f%%, target=$%.2f",
                      ticker, trail_pct, target_price)
+
+        # Cancel old OCA orders first to prevent double-sells
+        old_oca = pos.get("order_ids", {}).get("oca_group", "")
+        if old_oca:
+            for o in ibkr_orders:
+                if o.get("oca_group") == old_oca and o.get("status") in ("Submitted", "PreSubmitted"):
+                    try:
+                        for t in client._ib.openTrades():
+                            if t.order.orderId == o["order_id"]:
+                                logger.info("Cancelling old OCA order #%d for %s", o["order_id"], ticker)
+                                client._ib.cancelOrder(t.order)
+                                break
+                    except Exception:
+                        pass
+            client._ib.sleep(1)
 
         result = client.resubmit_protective_orders(
             ticker=ticker,
