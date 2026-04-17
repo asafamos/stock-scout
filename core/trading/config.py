@@ -80,6 +80,18 @@ class TradingConfig:
     min_ml_prob: float = field(
         default_factory=lambda: _env_float("MIN_ML_PROB", 0.33)
     )  # Calibrated to real ML output range (0.30-0.37); filters bottom half
+    min_reliability: float = field(
+        default_factory=lambda: _env_float("MIN_RELIABILITY", 50.0)
+    )  # Filter stocks with incomplete data (Reliability_Score < 50)
+
+    # ── Market Regime Gate ────────────────────────────────────
+    # Skip buying when market is unfavorable
+    blocked_regimes: str = field(
+        default_factory=lambda: _env("BLOCKED_REGIMES", "PANIC,CORRECTION")
+    )  # Comma-separated list of regime names to block entirely
+    reduce_regimes: str = field(
+        default_factory=lambda: _env("REDUCE_REGIMES", "DISTRIBUTION")
+    )  # Regimes where we still trade but smaller (half size)
 
     # ── Sector Blocklist (portfolio analysis: Consumer Defensive = -4.47%, 20% win) ──
     blocked_sectors: str = field(
@@ -107,6 +119,14 @@ class TradingConfig:
     def blocked_sectors_list(self) -> list:
         return [s.strip() for s in self.blocked_sectors.split(",") if s.strip()]
 
+    @property
+    def blocked_regimes_list(self) -> list:
+        return [s.strip().upper() for s in self.blocked_regimes.split(",") if s.strip()]
+
+    @property
+    def reduce_regimes_list(self) -> list:
+        return [s.strip().upper() for s in self.reduce_regimes.split(",") if s.strip()]
+
     def summary(self) -> str:
         mode = "DRY RUN" if self.dry_run else ("PAPER" if self.paper_mode else "LIVE")
         return (
@@ -117,7 +137,10 @@ class TradingConfig:
             f"  Filters: Score {self.min_score_to_trade}-{self.max_score_to_trade} | "
             f"ML>={self.min_ml_prob} | "
             f"RR>={self.min_rr_to_trade} | "
-            f"Confidence>={self.min_confidence}\n"
+            f"Confidence>={self.min_confidence} | "
+            f"Reliability>={self.min_reliability:.0f}\n"
+            f"  Regimes: Block {self.blocked_regimes_list} | "
+            f"Reduce {self.reduce_regimes_list}\n"
             f"  Stop: Trailing {self.trailing_stop_pct}%\n"
             f"  IBKR: {self.ibkr_host}:{self.ibkr_port} (client {self.ibkr_client_id})"
         )

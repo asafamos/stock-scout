@@ -280,6 +280,11 @@ class OrderManager:
         ticker_col = self._find_col(df, ["Ticker", "ticker", "Symbol"])
         ml_col = self._find_col(df, ["ML_20d_Prob", "ml_prob", "ML_Prob"])
         sector_col = self._find_col(df, ["Sector", "sector"])
+        regime_col = self._find_col(df, ["Market_Regime", "market_regime", "Regime"])
+        # SignalQuality is the richer signal (High/Medium/Speculative based on signal count);
+        # Confidence_Level is always "medium" for most scans, less useful
+        confidence_col = self._find_col(df, ["SignalQuality", "Signal_Quality", "Confidence_Level", "Confidence"])
+        reliability_col = self._find_col(df, ["Reliability_Score", "Reliability", "reliability"])
 
         if not score_col or not ticker_col:
             logger.error("Missing required columns (Score/Ticker) in %s",
@@ -288,6 +293,24 @@ class OrderManager:
 
         result = df.copy()
         initial_count = len(result)
+
+        # ── Market Regime Gate (CRITICAL) ───────────────────────
+        # Don't trade at all if market is in PANIC/CORRECTION
+        if regime_col and regime_col in result.columns:
+            # Check the regime — it should be consistent across all rows (market-wide)
+            regimes = result[regime_col].dropna().astype(str).str.upper().unique()
+            blocked = [r for r in regimes if r in self.cfg.blocked_regimes_list]
+            if blocked:
+                logger.warning(
+                    "MARKET REGIME BLOCK: regime=%s is blocked — no trades today",
+                    blocked[0],
+                )
+                from core.trading import notifications as notify
+                notify.notify_error(
+                    "Market Regime",
+                    f"Market regime is {blocked[0]} — auto-trade BLOCKED. No buys today."
+                )
+                return pd.DataFrame()
 
         # Score band filter (Q3-Q4 sweet spot)
         scores = pd.to_numeric(result[score_col], errors="coerce")
@@ -329,6 +352,39 @@ class OrderManager:
             result = result[rr_vals >= self.cfg.min_rr_to_trade]
             if result.empty:
                 logger.info("No stocks pass RR filter (>= %.1f)", self.cfg.min_rr_to_trade)
+                return result
+
+        # Confidence filter — only trade high-confidence setups
+        if confidence_col and confidence_col in result.columns:
+            # Map confidence levels: High=3, Medium=2, Low/Speculative=1
+            conf_map = {
+                "HIGH": 3, "MEDIUM": 2, "LOW": 1, "SPECULATIVE": 1, "NONE": 0
+            }
+            min_conf_val = conf_map.get(self.cfg.min_confidence.upper(), 3)
+            conf_vals = result[confidence_col].astype(str).str.upper().map(
+                lambda x: conf_map.get(x, 0)
+            )
+            before = len(result)
+            result = result[conf_vals >= min_conf_val]
+            dropped = before - len(result)
+            if dropped:
+                logger.info("Confidence filter dropped %d stocks (< %s)",
+                            dropped, self.cfg.min_confidence)
+            if result.empty:
+                logger.info("No stocks pass confidence filter (>= %s)", self.cfg.min_confidence)
+                return result
+
+        # Reliability filter — only trade stocks with reliable data
+        if reliability_col and reliability_col in result.columns:
+            rel_vals = pd.to_numeric(result[reliability_col], errors="coerce")
+            before = len(result)
+            result = result[rel_vals >= self.cfg.min_reliability]
+            dropped = before - len(result)
+            if dropped:
+                logger.info("Reliability filter dropped %d stocks (< %.0f)",
+                            dropped, self.cfg.min_reliability)
+            if result.empty:
+                logger.info("No stocks pass reliability filter (>= %.0f)", self.cfg.min_reliability)
                 return result
 
         # Remove already-held tickers (check both tracker AND live IBKR positions)
@@ -396,6 +452,12 @@ class OrderManager:
         if qty <= 0:
             return {"ticker": ticker, "status": "skipped",
                     "reason": f"Price too high (${price:.2f})"}
+
+        # Reduce position size in cautious regimes (DISTRIBUTION)
+        regime = str(row.get("Market_Regime", "")).upper()
+        if regime in self.cfg.reduce_regimes_list:
+            qty = max(1, qty // 2)
+            logger.info("REGIME CAUTION: %s — reducing %s qty to %d", regime, ticker, qty)
 
         logger.info("EXECUTING: BUY %d x %s @ ~$%.2f (score=%.1f, RR=%.2f)",
                      qty, ticker, price, score, rr)
