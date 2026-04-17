@@ -279,13 +279,20 @@ ExecStart=/home/stockscout/stock-scout-2/.venv/bin/python -m scripts.run_auto_tr
 TimeoutStartSec=300
 SVCEOF
 
-# Timer: 16:00 UTC = 11:00 AM ET (after 10 AM GH Actions scan completes)
+# Timer: 4 trade windows per day, after each GH Actions scan completes
 sudo tee /etc/systemd/system/stockscout-trade.timer > /dev/null << 'SVCEOF'
 [Unit]
 Description=StockScout daily trade timer
 
 [Timer]
-OnCalendar=Mon..Fri 16:00:00 UTC
+# 9:35 AM ET — on pre-market scan (8:30 AM)
+OnCalendar=Mon..Fri 13:35:00 UTC
+# 11:55 AM ET — on morning scan (10:00 AM)
+OnCalendar=Mon..Fri 15:55:00 UTC
+# 2:30 PM ET — afternoon window on 10:00 AM scan
+OnCalendar=Mon..Fri 18:30:00 UTC
+# 3:55 PM ET — end-of-day on 3:00 PM scan
+OnCalendar=Mon..Fri 20:55:00 UTC
 Persistent=true
 
 [Install]
