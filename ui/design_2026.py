@@ -12,10 +12,10 @@ Overlays the existing design system with 2026-era polish:
 def get_design_2026_css() -> str:
     return """
 <style>
+/* STOCKSCOUT 2026 v3 - cache bust 20260421 */
 /* ================================================================
-   STOCK SCOUT 2026 — MODERN UI LAYER
-   Imports Inter Variable for sharp typography, adds glass effects,
-   refined shadows, smooth animations.
+   STOCK SCOUT 2026 — MODERN UI LAYER (forced overlay)
+   All rules use !important to guarantee override of design_system.py
    ================================================================ */
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
@@ -75,27 +75,27 @@ def get_design_2026_css() -> str:
 }
 
 /* ---------- Global Typography ---------- */
-html, body, [class*="css"], .stApp {
+html, body, [class*="css"], .stApp, .main, [data-testid="stAppViewContainer"] {
     font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif !important;
-    font-feature-settings: 'cv11', 'ss01', 'ss03', 'cv04', 'cv02';
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    text-rendering: optimizeLegibility;
+    font-feature-settings: 'cv11', 'ss01', 'ss03', 'cv04', 'cv02' !important;
+    -webkit-font-smoothing: antialiased !important;
+    -moz-osx-font-smoothing: grayscale !important;
+    text-rendering: optimizeLegibility !important;
 }
 
 h1, h2, h3, h4, h5, h6 {
-    letter-spacing: -0.02em;
-    font-weight: 700;
-    color: var(--ss-text-primary);
+    letter-spacing: -0.02em !important;
+    font-weight: 700 !important;
+    color: var(--ss-text-primary) !important;
 }
 
-h1 { font-size: 2rem; line-height: 1.2; }
-h2 { font-size: 1.5rem; line-height: 1.3; }
-h3 { font-size: 1.25rem; line-height: 1.4; }
+h1 { font-size: 2rem !important; line-height: 1.2 !important; }
+h2 { font-size: 1.5rem !important; line-height: 1.3 !important; }
+h3 { font-size: 1.25rem !important; line-height: 1.4 !important; }
 
 /* ---------- Streamlit App Container ---------- */
-.stApp {
-    background: var(--ss-grad-bg);
+.stApp, [data-testid="stAppViewContainer"] {
+    background: var(--ss-grad-bg) !important;
 }
 
 /* ---------- Main Content Area ---------- */
@@ -133,21 +133,33 @@ h3 { font-size: 1.25rem; line-height: 1.4; }
     box-shadow: var(--ss-shadow-sm);
 }
 
-/* ---------- Cards ---------- */
-.ss-card, .ss-recommendation-card, [data-testid="stVerticalBlockBorderWrapper"] {
+/* ---------- Cards (all variants) ---------- */
+.ss-card,
+.ss-recommendation-card,
+.ss-card-wrapper,
+[data-testid="stVerticalBlockBorderWrapper"],
+div[style*="border"][style*="radius"]:not([class*="ss-portfolio"]):not(.ss-section-header) {
     background: var(--ss-bg-card) !important;
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(16px) saturate(1.2) !important;
+    -webkit-backdrop-filter: blur(16px) saturate(1.2) !important;
     border: 1px solid var(--ss-border) !important;
-    border-radius: 14px !important;
-    box-shadow: var(--ss-shadow-md);
-    transition: all var(--ss-dur-med) var(--ss-ease);
+    border-radius: 16px !important;
+    box-shadow: var(--ss-shadow-md) !important;
+    transition: transform var(--ss-dur-med) var(--ss-ease),
+                box-shadow var(--ss-dur-med) var(--ss-ease),
+                border-color var(--ss-dur-fast) var(--ss-ease) !important;
 }
 
-.ss-card:hover, .ss-recommendation-card:hover {
-    box-shadow: var(--ss-shadow-lg);
-    border-color: rgba(59, 130, 246, 0.3) !important;
-    transform: translateY(-1px);
+.ss-card:hover,
+.ss-recommendation-card:hover {
+    box-shadow: var(--ss-shadow-lg) !important;
+    border-color: rgba(59, 130, 246, 0.4) !important;
+    transform: translateY(-2px) !important;
+}
+
+/* Score circle — make it pop */
+.ss-score-circle, [class*="score-circle"] {
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25) !important;
 }
 
 /* ---------- Portfolio Summary (Sidebar) ---------- */
