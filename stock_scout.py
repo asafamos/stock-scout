@@ -2381,7 +2381,6 @@ else:
     try:
         _pm = get_portfolio_manager(_user_id)
         _portfolio_tickers = _pm.get_portfolio_tickers()
-        # Full history (open + closed trades) for smart badges
         try:
             _ticker_history = _pm.get_all_traded_tickers()
         except Exception:
@@ -2390,6 +2389,66 @@ else:
         _pm = None
         _portfolio_tickers = set()
         _ticker_history = {}
+
+    # Merge with LIVE trading history (trade_log.json from VPS)
+    try:
+        from pathlib import Path as _PathTL
+        import json as _jsonTL
+        from datetime import date as _dateTL
+        _tl_path = _PathTL("data/trades/trade_log.json")
+        if _tl_path.exists():
+            _log = _jsonTL.loads(_tl_path.read_text())
+            # Group by ticker
+            _live_hist: Dict[str, list] = {}
+            for _entry in _log:
+                _t = _entry.get("ticker", "")
+                if _t:
+                    _live_hist.setdefault(_t, []).append(_entry)
+
+            # Merge into _ticker_history
+            for _t, _entries in _live_hist.items():
+                _opens = [e for e in _entries if e.get("action") == "OPEN"]
+                _closes = [e for e in _entries if e.get("action") == "CLOSE"]
+                _pnls = [e.get("pnl", 0) or 0 for e in _closes]
+                _is_open_live = len(_opens) > len(_closes)
+
+                # Compute PnL %
+                _pnl_pcts = []
+                for _c in _closes:
+                    _ep = _c.get("entry_price") or 0
+                    _xp = _c.get("price") or 0
+                    if _ep > 0 and _xp > 0:
+                        _pnl_pcts.append((_xp - _ep) / _ep * 100)
+
+                _h = _ticker_history.setdefault(_t, {
+                    "times_held": 0, "is_open": False,
+                    "wins": 0, "losses": 0, "closed_pnls": []
+                })
+                _h["times_held"] = _h.get("times_held", 0) + len(_opens)
+                _h["is_open"] = _h.get("is_open", False) or _is_open_live
+                _h["wins"] = _h.get("wins", 0) + sum(1 for p in _pnls if p > 0)
+                _h["losses"] = _h.get("losses", 0) + sum(1 for p in _pnls if p < 0)
+                _h["live_trades"] = True
+                if _pnl_pcts:
+                    _avg = sum(_pnl_pcts) / len(_pnl_pcts)
+                    _h["avg_pnl_pct"] = _avg if "avg_pnl_pct" not in _h else (_h["avg_pnl_pct"] + _avg) / 2
+                if _closes:
+                    _most_recent = sorted(_closes, key=lambda x: x.get("timestamp", ""), reverse=True)[0]
+                    try:
+                        _ts = _most_recent.get("timestamp", "")
+                        if _ts:
+                            _exit_d = _dateTL.fromisoformat(_ts[:10])
+                            _days_ago = (_dateTL.today() - _exit_d).days
+                            if _h.get("days_since_last_exit") is None or _days_ago < _h["days_since_last_exit"]:
+                                _h["days_since_last_exit"] = _days_ago
+                                _h["last_exit_reason"] = _most_recent.get("reason", "")
+                                if _most_recent.get("pnl") is not None:
+                                    _h["last_exit_pnl_pct"] = (_most_recent.get("pnl", 0) /
+                                                                max(_most_recent.get("entry_price", 1) or 1, 1)) * 100
+                    except Exception:
+                        pass
+    except Exception:
+        pass
 
     # Live trading tickers (from VPS snapshot) — for "LIVE" badge
     try:
