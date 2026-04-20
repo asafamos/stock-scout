@@ -114,6 +114,13 @@ def run_check():
         if CONFIG.ratchet_enabled:
             _ratchet_stops(tracker, client, ibkr_orders, notify)
 
+        # 2c. Push portfolio snapshot to Supabase (for Streamlit UI)
+        try:
+            from core.trading.portfolio_snapshot import write_snapshot
+            write_snapshot(client, tracker)
+        except Exception as e:
+            logger.debug("Snapshot push failed: %s", e)
+
         # 3. Check target date exits — sell at market if date passed
         expired = tracker.check_target_date_exits()
         for ticker in expired:
