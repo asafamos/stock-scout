@@ -1,0 +1,92 @@
+{
+  "updated_at": "2026-04-20T20:58:08.701574+00:00",
+  "positions": [
+    {
+      "ticker": "CF",
+      "quantity": 2,
+      "avg_cost": 111.33,
+      "market_price": 116.0,
+      "market_value": 232.0,
+      "unrealized_pnl": 9.34,
+      "pnl_pct": 4.19,
+      "entry_price": 110.83,
+      "target_price": 145.46400604248046,
+      "stop_loss": 115.99505173790637,
+      "target_date": "2026-05-04 00:00:00",
+      "peak_price": 116.0,
+      "stop_floor": null,
+      "trailing_stop_pct": 5.3,
+      "score": 79.80178134205534
+    },
+    {
+      "ticker": "UTHR",
+      "quantity": 1,
+      "avg_cost": 575.31,
+      "market_price": 573.54,
+      "market_value": 573.54,
+      "unrealized_pnl": -1.77,
+      "pnl_pct": -0.31,
+      "entry_price": 574.31,
+      "target_price": 636.7,
+      "stop_loss": 551.3,
+      "target_date": "2026-05-07 00:00:00",
+      "peak_price": 574.31,
+      "stop_floor": null,
+      "trailing_stop_pct": 4.0,
+      "score": 77.24
+    }
+  ],
+  "orders": [
+    {
+      "order_id": 16,
+      "ticker": "UTHR",
+      "action": "SELL",
+      "type": "LMT",
+      "qty": 1,
+      "tif": "GTC",
+      "oca_group": "SS_UTHR_1776153126",
+      "status": "PreSubmitted",
+      "limit_price": 636.7
+    },
+    {
+      "order_id": 36,
+      "ticker": "CF",
+      "action": "SELL",
+      "type": "TRAIL",
+      "qty": 2,
+      "tif": "GTC",
+      "oca_group": "SS_CF_1776432930",
+      "status": "PreSubmitted",
+      "trail_pct": 5.3,
+      "stop_price": 110.75
+    },
+    {
+      "order_id": 7,
+      "ticker": "UTHR",
+      "action": "SELL",
+      "type": "TRAIL",
+      "qty": 1,
+      "tif": "GTC",
+      "oca_group": "SS_UTHR_1776153126",
+      "status": "PreSubmitted",
+      "trail_pct": 4.0,
+      "stop_price": 569.9
+    },
+    {
+      "order_id": 37,
+      "ticker": "CF",
+      "action": "SELL",
+      "type": "LMT",
+      "qty": 2,
+      "tif": "GTC",
+      "oca_group": "SS_CF_1776432930",
+      "status": "PreSubmitted",
+      "limit_price": 145.46
+    }
+  ],
+  "cash": 165.32,
+  "net_liquidation": 970.86,
+  "total_unrealized_pnl": 7.57,
+  "position_count": 2,
+  "vps_status": "connected"
+}
