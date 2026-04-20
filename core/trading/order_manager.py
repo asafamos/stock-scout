@@ -447,11 +447,13 @@ class OrderManager:
             logger.info("SKIP %s: %s", ticker, reason)
             return {"ticker": ticker, "status": "skipped", "reason": reason}
 
-        # Calculate quantity
-        qty = self.risk.calculate_qty(price)
+        # Calculate quantity — cash-aware dynamic sizing
+        cash = self.client.get_cash_balance()
+        available_cash = max(0, cash - self.cfg.cash_reserve)
+        qty = self.risk.calculate_qty(price, cash_available=available_cash)
         if qty <= 0:
             return {"ticker": ticker, "status": "skipped",
-                    "reason": f"Price too high (${price:.2f})"}
+                    "reason": f"Can't afford {ticker} @ ${price:.2f} (cash=${cash:.0f})"}
 
         # Reduce position size in cautious regimes (DISTRIBUTION)
         regime = str(row.get("Market_Regime", "")).upper()

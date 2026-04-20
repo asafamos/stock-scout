@@ -49,10 +49,20 @@ class RiskManager:
                 f"Daily buy limit reached ({daily}/{self.cfg.max_daily_buys})"
             )
 
-        # 4. Portfolio exposure (use actual price, not max_position_size)
-        estimated_cost = min(price, self.cfg.max_position_size * 2)  # Account for expensive single-share buys
-        qty_est = self.calculate_qty(price)
-        actual_cost = qty_est * price if qty_est > 0 else price
+        # 4. Calculate qty using DYNAMIC cash-aware sizing
+        cash = self.client.get_cash_balance()
+        available_cash = max(0, cash - self.cfg.cash_reserve)
+        qty_est = self.calculate_qty(price, cash_available=available_cash)
+
+        if qty_est == 0:
+            return False, (
+                f"Can't afford any shares "
+                f"(cash=${cash:,.0f}, price=${price:.2f}, reserve=${self.cfg.cash_reserve:.0f})"
+            )
+
+        actual_cost = qty_est * price
+
+        # 5. Portfolio exposure
         new_exposure = self.tracker.total_exposure + actual_cost
         if new_exposure > self.cfg.max_portfolio_exposure:
             return False, (
@@ -60,12 +70,10 @@ class RiskManager:
                 f"(${new_exposure:,.0f} > ${self.cfg.max_portfolio_exposure:,.0f})"
             )
 
-        # 5. Cash balance (use actual cost, not max_position_size)
-        cash = self.client.get_cash_balance()
+        # 6. Cash sanity check
         if cash < actual_cost:
             return False, (
-                f"Insufficient cash (${cash:,.0f} < "
-                f"${self.cfg.max_position_size:,.0f})"
+                f"Insufficient cash (${cash:,.0f} < ${actual_cost:,.0f})"
             )
 
         # 6. Score filter
@@ -84,18 +92,39 @@ class RiskManager:
 
         return True, ""
 
-    def calculate_qty(self, price: float) -> int:
-        """Calculate number of shares to buy within position size limit.
+    def calculate_qty(self, price: float, cash_available: float = None) -> int:
+        """Calculate number of shares to buy — DYNAMIC cash-aware sizing.
 
-        Allows buying 1 share of expensive stocks (up to 2x max_position_size)
-        so high-scoring stocks like UTHR ($564) aren't skipped entirely.
+        Logic:
+        - target_spend = min(max_position_size, cash_available)
+        - qty = floor(target_spend / price)
+        - Fallback: if qty=0, allow 1 share if we can afford it
+          (respects cash if passed, else up to 2x max_position_size)
+
+        Examples:
+        - cash=$500, max=$300, price=$50 → 6 shares ($300)
+        - cash=$165, max=$300, price=$120 → 1 share ($120) ✓ (was 0 before)
+        - cash=$165, max=$300, price=$85 → 1 share ($85) ✓ (was 3 before = exceeded cash!)
+        - cash=$500, max=$300, price=$575 → 0 or 1? (expensive)
         """
         if price <= 0:
             return 0
-        qty = math.floor(self.cfg.max_position_size / price)
-        # Allow 1 share if price is within 2x max position size
-        if qty == 0 and price <= self.cfg.max_position_size * 2:
-            qty = 1
+
+        target_spend = self.cfg.max_position_size
+        if cash_available is not None:
+            target_spend = min(target_spend, cash_available)
+
+        qty = math.floor(target_spend / price)
+
+        # Fallback: allow 1 share of expensive stock if we can afford it
+        if qty == 0:
+            max_affordable = (
+                cash_available if cash_available is not None
+                else self.cfg.max_position_size * 2
+            )
+            if price <= max_affordable:
+                qty = 1
+
         return max(qty, 0)
 
     def get_portfolio_summary(self) -> dict:

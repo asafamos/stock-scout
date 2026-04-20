@@ -63,6 +63,9 @@ class TradingConfig:
     max_portfolio_exposure: float = field(
         default_factory=lambda: _env_float("MAX_PORTFOLIO_EXPOSURE", 900.0)
     )
+    cash_reserve: float = field(
+        default_factory=lambda: _env_float("CASH_RESERVE", 20.0)
+    )  # Keep this much cash aside (buffer for fees, slippage)
 
     # ── Trade Filters ──────────────────────────────────────────
     min_score_to_trade: float = field(
