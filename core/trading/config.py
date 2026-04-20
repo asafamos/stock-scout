@@ -106,6 +106,33 @@ class TradingConfig:
         default_factory=lambda: _env_bool("USE_PIPELINE_STOP", False)
     )  # If True, use StopLoss from scan instead of trailing %
 
+    # ── Dynamic Stop Ratcheting (lock in profits as stock runs up) ─
+    # When peak gain crosses thresholds, replace trailing stop with
+    # hard STP at profit-locking floor. Only goes UP (never loosens).
+    ratchet_enabled: bool = field(
+        default_factory=lambda: _env_bool("RATCHET_ENABLED", True)
+    )
+    # Threshold (peak gain %) → floor (profit to lock as % of entry)
+    # Example: peak_gain 10% → lock 5% profit floor
+    ratchet_tier1_gain: float = field(
+        default_factory=lambda: _env_float("RATCHET_T1_GAIN", 5.0)
+    )   # Peak +5% → lock breakeven (0%)
+    ratchet_tier1_lock: float = field(
+        default_factory=lambda: _env_float("RATCHET_T1_LOCK", 0.0)
+    )
+    ratchet_tier2_gain: float = field(
+        default_factory=lambda: _env_float("RATCHET_T2_GAIN", 10.0)
+    )   # Peak +10% → lock 5% profit
+    ratchet_tier2_lock: float = field(
+        default_factory=lambda: _env_float("RATCHET_T2_LOCK", 5.0)
+    )
+    ratchet_tier3_gain: float = field(
+        default_factory=lambda: _env_float("RATCHET_T3_GAIN", 15.0)
+    )   # Peak +15% → lock 10% profit
+    ratchet_tier3_lock: float = field(
+        default_factory=lambda: _env_float("RATCHET_T3_LOCK", 10.0)
+    )
+
     # ── Paths ──────────────────────────────────────────────────
     scan_results_path: str = "data/scans/latest_scan_live.json"
     open_positions_path: str = "data/trades/open_positions.json"

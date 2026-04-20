@@ -460,6 +460,52 @@ class IBKRClient:
                                           filled_price=0.0, status="Error"),
             }
 
+    def place_hard_stop(self, ticker: str, qty: int, stop_price: float,
+                        oca_group: str = "") -> TradeResult:
+        """Place a hard STOP sell order at a specific price (for profit locking).
+
+        Used by the ratcheting logic to replace trailing stops with fixed stops
+        when a position has run up enough to lock in profit.
+        """
+        if self.cfg.dry_run:
+            logger.info("[DRY RUN] HARD STOP SELL %d x %s @ $%.2f", qty, ticker, stop_price)
+            return TradeResult(
+                ticker=ticker, action="SELL", order_type="STP",
+                quantity=qty, filled_price=0.0, status="DRY_RUN",
+            )
+        try:
+            from ib_insync import Stock, Order
+            contract = Stock(ticker, "SMART", "USD")
+            self._ib.qualifyContracts(contract)
+
+            order = Order()
+            order.action = "SELL"
+            order.totalQuantity = qty
+            order.orderType = "STP"
+            order.auxPrice = round(stop_price, 2)
+            order.tif = "GTC"
+            if oca_group:
+                order.ocaGroup = oca_group
+                order.ocaType = 1
+            order.transmit = True
+
+            trade = self._ib.placeOrder(contract, order)
+            self._ib.sleep(2)
+
+            return TradeResult(
+                ticker=ticker, action="SELL", order_type="STP",
+                quantity=qty, filled_price=0.0,
+                status=trade.orderStatus.status,
+                order_id=trade.order.orderId,
+            )
+        except Exception as e:
+            logger.error("HARD STOP failed for %s: %s", ticker, e)
+            return TradeResult(
+                ticker=ticker, action="SELL", order_type="STP",
+                quantity=qty, filled_price=0.0, status="Error",
+                error=str(e),
+            )
+
     def _sell_market(self, ticker: str, qty: int) -> TradeResult:
         """Place a market sell order (used for target-date exits)."""
         if self.cfg.dry_run:

@@ -110,6 +110,10 @@ def run_check():
         # 2. Verify protective orders — every position MUST have live orders
         _verify_protections(tracker, client, ibkr_orders, notify)
 
+        # 2b. Ratchet stops up as positions run up (lock in profits)
+        if CONFIG.ratchet_enabled:
+            _ratchet_stops(tracker, client, ibkr_orders, notify)
+
         # 3. Check target date exits — sell at market if date passed
         expired = tracker.check_target_date_exits()
         for ticker in expired:
@@ -276,6 +280,147 @@ def _verify_protections(tracker, client, ibkr_orders, notify):
                 f"Trail: {result['trailing_stop'].status}, "
                 f"Limit: {result['limit_sell'].status}"
             )
+
+
+def _ratchet_stops(tracker, client, ibkr_orders, notify):
+    """Dynamic stop-loss ratcheting — lock in profits as positions run up.
+
+    Tracks peak price per position. When peak_gain % crosses thresholds,
+    replaces the TRAIL order with a hard STP at the profit floor.
+    Stops only move UP (never loosen).
+
+    Tiers (default):
+      Peak +5%  → breakeven stop (lock 0% profit, guarantee no loss)
+      Peak +10% → lock 5% profit
+      Peak +15% → lock 10% profit
+    """
+    from core.trading.config import CONFIG
+
+    positions = tracker.get_open_positions()
+    if not positions:
+        return
+
+    # Get live portfolio (current prices)
+    try:
+        portfolio = {p.contract.symbol: p for p in client._ib.portfolio()
+                     if p.position != 0}
+    except Exception:
+        logger.warning("Ratchet: couldn't get portfolio")
+        return
+
+    # Build active ticker orders map
+    orders_by_ticker = {}
+    for o in ibkr_orders:
+        t = o.get("ticker", "")
+        if t and o.get("status") in ("Submitted", "PreSubmitted"):
+            orders_by_ticker.setdefault(t, []).append(o)
+
+    tiers = [
+        (CONFIG.ratchet_tier3_gain, CONFIG.ratchet_tier3_lock),
+        (CONFIG.ratchet_tier2_gain, CONFIG.ratchet_tier2_lock),
+        (CONFIG.ratchet_tier1_gain, CONFIG.ratchet_tier1_lock),
+    ]
+
+    changed = False
+    for pos in positions:
+        ticker = pos["ticker"]
+        entry = pos["entry_price"]
+        qty = int(pos["quantity"])
+        oca = pos.get("order_ids", {}).get("oca_group", "")
+
+        port_item = portfolio.get(ticker)
+        if not port_item:
+            continue
+
+        current_price = float(port_item.marketPrice)
+        if current_price <= 0:
+            continue
+
+        # Update peak tracking
+        peak_price = max(pos.get("peak_price", entry), current_price)
+        if peak_price != pos.get("peak_price"):
+            pos["peak_price"] = peak_price
+            changed = True
+
+        # Calculate peak gain %
+        peak_gain_pct = (peak_price - entry) / entry * 100
+
+        # Find applicable tier (highest first)
+        target_lock_pct = None
+        for threshold, lock in tiers:
+            if peak_gain_pct >= threshold:
+                target_lock_pct = lock
+                break
+
+        if target_lock_pct is None:
+            continue  # Not profitable enough yet
+
+        # Calculate target floor price
+        target_floor = entry * (1 + target_lock_pct / 100)
+
+        # Only ratchet UP — never lower the stop
+        current_floor = pos.get("stop_floor", 0)
+        if target_floor <= current_floor:
+            continue
+
+        # Safety: don't place stop above current price (would trigger immediately)
+        if target_floor >= current_price * 0.995:
+            logger.debug(
+                "Ratchet skip %s: target $%.2f too close to current $%.2f",
+                ticker, target_floor, current_price
+            )
+            continue
+
+        # Cancel existing TRAIL order for this OCA
+        cancelled_trail = False
+        for o in orders_by_ticker.get(ticker, []):
+            if o.get("order_type") == "TRAIL" and o.get("oca_group") == oca:
+                try:
+                    for t in client._ib.openTrades():
+                        if t.order.orderId == o["order_id"]:
+                            client._ib.cancelOrder(t.order)
+                            cancelled_trail = True
+                            logger.info("Ratchet: cancelled TRAIL #%d for %s", o["order_id"], ticker)
+                            break
+                except Exception as e:
+                    logger.error("Ratchet cancel failed for %s: %s", ticker, e)
+
+        if cancelled_trail:
+            client._ib.sleep(2)
+
+        # Place new hard STP at target floor (same OCA as limit_sell)
+        result = client.place_hard_stop(ticker, qty, target_floor, oca_group=oca)
+
+        if result.status in ("Submitted", "PreSubmitted", "PendingSubmit"):
+            logger.info(
+                "✓ RATCHET %s: peak +%.1f%% → locked %.0f%% profit "
+                "(stop $%.2f, was $%.2f)",
+                ticker, peak_gain_pct, target_lock_pct, target_floor, current_floor
+            )
+
+            # Update tracker
+            pos["stop_floor"] = target_floor
+            pos["order_ids"]["trailing_stop"] = result.order_id  # now STP, not TRAIL
+            pos["order_ids"]["stop_type"] = "STP"
+            changed = True
+
+            # Telegram notification
+            profit_amt = (target_floor - entry) * qty
+            notify._send(
+                f"🔒 <b>RATCHET {ticker}</b>\n"
+                f"  Peak gain: +{peak_gain_pct:.1f}% (${peak_price:.2f})\n"
+                f"  Stop raised to <b>${target_floor:.2f}</b>\n"
+                f"  Locks +{target_lock_pct:.0f}% profit (${profit_amt:+.2f})"
+            )
+        else:
+            logger.error("Ratchet FAILED for %s: status=%s", ticker, result.status)
+            notify.notify_error(
+                "Ratchet",
+                f"{ticker}: failed to raise stop to ${target_floor:.2f}: {result.status}"
+            )
+
+    if changed:
+        tracker._save_positions(positions)
 
 
 def daemon_loop():
