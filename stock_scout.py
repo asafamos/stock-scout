@@ -440,8 +440,7 @@ with st.sidebar:
     except Exception as _pf_e:
         logger.debug("Portfolio sidebar error: %s", _pf_e)
 
-    # ── Live Trading (IB/VPS) — native Streamlit components ─────
-    st.divider()
+    # ── Live Trading (IB/VPS) — minimal badge, details in top banner ─
     try:
         from pathlib import Path as _Path
         import json as _json
@@ -451,85 +450,68 @@ with st.sidebar:
             _snap = _json.loads(_snap_file.read_text())
             _positions = _snap.get("positions", [])
             _orders = _snap.get("orders", [])
-            _cash = _snap.get("cash", 0)
-            _net = _snap.get("net_liquidation", 0)
             _pnl = _snap.get("total_unrealized_pnl", 0)
             _updated = _snap.get("updated_at", "")
 
-            # Age indicator
-            _age_str = ""
+            # Age
+            _age_str = "—"
             _age_emoji = "🟢"
             try:
                 _dt_obj = _dt.fromisoformat(_updated.replace("Z", "+00:00"))
                 _age_min = (_dt_obj.now(_tz.utc) - _dt_obj).total_seconds() / 60
                 if _age_min < 20:
-                    _age_str = f"{int(_age_min)}m"
-                    _age_emoji = "🟢"
+                    _age_str, _age_emoji = f"{int(_age_min)}m", "🟢"
                 elif _age_min < 60:
-                    _age_str = f"{int(_age_min)}m"
-                    _age_emoji = "🟡"
+                    _age_str, _age_emoji = f"{int(_age_min)}m", "🟡"
                 else:
-                    _age_str = f"{int(_age_min/60)}h"
-                    _age_emoji = "🔴"
+                    _age_str, _age_emoji = f"{int(_age_min/60)}h", "🔴"
             except Exception:
                 pass
 
-            # Header
-            st.markdown(f"##### 🔴 Live Trading  `{_age_emoji} {_age_str}`")
+            _pnl_color = "#10b981" if _pnl >= 0 else "#ef4444"
+            _pnl_sign = "+" if _pnl >= 0 else ""
 
-            # Metrics in 2x2 grid
-            _c1, _c2 = st.columns(2)
-            with _c1:
-                st.metric("Net", f"${_net:,.0f}")
-                st.metric(
-                    "P&L",
-                    f"${_pnl:+,.2f}",
-                    delta=f"{(_pnl/max(_net-_pnl,1))*100:+.2f}%",
-                    delta_color="normal",
-                )
-            with _c2:
-                st.metric("Cash", f"${_cash:,.0f}")
-                st.metric("Positions", len(_positions))
+            # Single compact card — no duplicate info
+            st.markdown(f"""
+            <div style="background:var(--ss-bg-card); backdrop-filter:blur(10px); border:1px solid var(--ss-border); border-left:3px solid #10b981; border-radius:10px; padding:10px 12px; margin:12px 0;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">
+                <span style="font-size:0.74rem; font-weight:700; color:var(--ss-text-muted); text-transform:uppercase; letter-spacing:0.06em;">🔴 Live Trading</span>
+                <span style="font-size:0.68rem; color:var(--ss-text-muted);">{_age_emoji} {_age_str}</span>
+              </div>
+              <div style="font-size:0.95rem; font-weight:700; color:{_pnl_color};">{_pnl_sign}${_pnl:,.2f}</div>
+              <div style="font-size:0.7rem; color:var(--ss-text-muted);">{len(_positions)} positions · {len(_orders)} orders</div>
+            </div>
+            """, unsafe_allow_html=True)
 
-            # Position list using native Streamlit
-            if _positions:
-                for _p in _positions:
-                    _t = _p.get("ticker", "?")
-                    _qty = _p.get("quantity", 0)
-                    _mkt = _p.get("market_price", 0)
-                    _upnl = _p.get("unrealized_pnl", 0)
-                    _ppct = _p.get("pnl_pct", 0)
-                    _emoji = "🟢" if _upnl >= 0 else "🔴"
-                    _sign = "+" if _upnl >= 0 else ""
-                    st.markdown(
-                        f"{_emoji} **{_t}** · {_qty}×${_mkt:.2f} · "
-                        f"`{_sign}${_upnl:.2f} ({_ppct:+.1f}%)`"
-                    )
-            else:
-                st.caption("No open positions")
-
-            # Expander with orders
-            with st.expander("🛡 Protective Orders", expanded=False):
+            # Details collapsed by default
+            with st.expander("View positions & orders", expanded=False):
+                if _positions:
+                    for _p in _positions:
+                        _t = _p.get("ticker", "?")
+                        _qty = _p.get("quantity", 0)
+                        _mkt = _p.get("market_price", 0)
+                        _upnl = _p.get("unrealized_pnl", 0)
+                        _ppct = _p.get("pnl_pct", 0)
+                        _emoji = "🟢" if _upnl >= 0 else "🔴"
+                        _sign = "+" if _upnl >= 0 else ""
+                        st.markdown(
+                            f"{_emoji} **{_t}** · {_qty}×${_mkt:.2f} · "
+                            f"`{_sign}${_upnl:.2f} ({_ppct:+.1f}%)`"
+                        )
                 if _orders:
+                    st.markdown("**Protective orders:**")
                     for _o in _orders:
                         _t = _o.get("ticker", "?")
                         _otype = _o.get("type", "")
-                        _qty = _o.get("qty", 0)
                         if _otype == "TRAIL":
                             _det = f"Trail {_o.get('trail_pct')}% → ${_o.get('stop_price', 0):.2f}"
                         elif _otype == "LMT":
-                            _det = f"Limit ${_o.get('limit_price', 0):.2f}"
+                            _det = f"Target ${_o.get('limit_price', 0):.2f}"
                         elif _otype == "STP":
                             _det = f"Stop ${_o.get('stop_price', 0):.2f}"
                         else:
                             _det = _otype
-                        st.markdown(f"**{_t}** · {_det}")
-                else:
-                    st.warning("No protective orders!")
-                st.caption("📱 Send `status` to Telegram bot for real-time data")
-        else:
-            st.markdown("##### 🔴 Live Trading")
-            st.caption("No snapshot yet. VPS pushes every 15 min.")
+                        st.caption(f"{_t} · {_det}")
     except Exception as _live_e:
         logger.debug("Live trading sidebar error: %s", _live_e)
 
@@ -923,7 +905,7 @@ else:
 # Reset the one-shot flag (always)
 st.session_state["force_live_scan_once"] = False
 
-# ==================== LIVE TRADING BANNER (native, clean) ====================
+# ==================== LIVE TRADING BANNER (restored polish) ====================
 try:
     from pathlib import Path as _PathLB
     import json as _jsonLB
@@ -943,36 +925,42 @@ try:
         except Exception:
             pass
 
-        _age_emoji_live = "🟢" if _age_min_live < 20 else "🟡" if _age_min_live < 60 else "🔴"
-        _age_label_live = f"{int(_age_min_live)}m" if _age_min_live < 60 else f"{int(_age_min_live/60)}h"
+        _age_dot_b = "#10b981" if _age_min_live < 20 else "#f59e0b" if _age_min_live < 60 else "#ef4444"
+        _age_label_b = f"{int(_age_min_live)}m ago" if _age_min_live < 60 else f"{int(_age_min_live/60)}h ago"
+        _pnl_bg_b = "linear-gradient(135deg, rgba(16,185,129,0.10), rgba(16,185,129,0.02))" if _pnl_live >= 0 else "linear-gradient(135deg, rgba(239,68,68,0.10), rgba(239,68,68,0.02))"
+        _pnl_border_b = "rgba(16,185,129,0.25)" if _pnl_live >= 0 else "rgba(239,68,68,0.25)"
+        _pnl_color_b = "#10b981" if _pnl_live >= 0 else "#ef4444"
+        _pnl_sign_b = "+" if _pnl_live >= 0 else ""
 
-        # Clean banner using st.container with columns
-        with st.container(border=True):
-            _c1, _c2, _c3, _c4, _c5 = st.columns([1.4, 1, 1, 1.2, 2.5])
-            with _c1:
-                st.markdown(f"**🔴 Live Trading**  \n`{_age_emoji_live} {_age_label_live} ago`")
-            with _c2:
-                st.metric("Net", f"${_net_live:,.0f}", label_visibility="visible")
-            with _c3:
-                st.metric("Cash", f"${_cash_live:,.0f}", label_visibility="visible")
-            with _c4:
-                _delta_col = "normal" if _pnl_live >= 0 else "inverse"
-                st.metric("Unrealized P&L", f"${_pnl_live:+,.2f}",
-                          delta=f"{(_pnl_live/max(_net_live-_pnl_live,1))*100:+.2f}%",
-                          delta_color=_delta_col)
-            with _c5:
-                st.caption("Positions")
-                _ticker_lines = []
-                for _pp in _positions_live:
-                    _tk = _pp.get("ticker", "")
-                    _ppnl = _pp.get("pnl_pct", 0)
-                    _em = "🟢" if _ppnl >= 0 else "🔴"
-                    _sg = "+" if _ppnl >= 0 else ""
-                    _ticker_lines.append(f"{_em} **{_tk}** `{_sg}{_ppnl:.1f}%`")
-                if _ticker_lines:
-                    st.markdown(" · ".join(_ticker_lines))
-                else:
-                    st.caption("_No open positions_")
+        # Build position chips
+        _chips_b = ""
+        for _pp in _positions_live:
+            _tk = _pp.get("ticker", "")
+            _ppnl_pct = _pp.get("pnl_pct", 0)
+            _cc_b = "#10b981" if _ppnl_pct >= 0 else "#ef4444"
+            _ss_b = "+" if _ppnl_pct >= 0 else ""
+            _chips_b += f'<span style="display:inline-flex; align-items:center; gap:6px; background:rgba(255,255,255,0.04); border:1px solid var(--ss-border-subtle); padding:4px 12px; border-radius:999px; font-size:0.8rem; margin-right:6px; backdrop-filter:blur(10px);"><strong style="color:var(--ss-text-primary);">{_tk}</strong> <span style="color:{_cc_b}; font-weight:600;">{_ss_b}{_ppnl_pct:.1f}%</span></span>'
+
+        st.markdown(f"""
+        <div style="background:{_pnl_bg_b}; border:1px solid {_pnl_border_b}; border-radius:14px; padding:14px 18px; margin:8px 0 16px 0; backdrop-filter:blur(14px); box-shadow:var(--ss-shadow-md);">
+          <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:16px;">
+            <div style="display:flex; align-items:center; gap:18px; flex-wrap:wrap;">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span style="width:8px; height:8px; border-radius:50%; background:{_age_dot_b}; display:inline-block; animation:ssPulse 2s infinite;"></span>
+                <strong style="font-size:0.88rem; color:var(--ss-text-primary); letter-spacing:-0.01em;">Live Trading</strong>
+                <span style="font-size:0.72rem; color:var(--ss-text-muted);">{_age_label_b}</span>
+              </div>
+              <div style="display:flex; gap:22px; font-size:0.88rem;">
+                <span><span style="color:var(--ss-text-muted); font-size:0.7rem; text-transform:uppercase; letter-spacing:0.05em; margin-right:6px;">Net</span><strong style="font-feature-settings:'tnum';">${_net_live:,.0f}</strong></span>
+                <span><span style="color:var(--ss-text-muted); font-size:0.7rem; text-transform:uppercase; letter-spacing:0.05em; margin-right:6px;">Cash</span><strong style="font-feature-settings:'tnum';">${_cash_live:,.0f}</strong></span>
+                <span><span style="color:var(--ss-text-muted); font-size:0.7rem; text-transform:uppercase; letter-spacing:0.05em; margin-right:6px;">P&L</span><strong style="color:{_pnl_color_b}; font-feature-settings:'tnum';">{_pnl_sign_b}${_pnl_live:,.2f}</strong></span>
+              </div>
+            </div>
+            <div style="display:flex; gap:6px; flex-wrap:wrap;">{_chips_b}</div>
+          </div>
+        </div>
+        <style>@keyframes ssPulse {{ 0%,100% {{opacity:1; transform:scale(1);}} 50% {{opacity:0.6; transform:scale(0.85);}} }}</style>
+        """, unsafe_allow_html=True)
 except Exception:
     pass
 
