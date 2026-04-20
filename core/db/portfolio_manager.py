@@ -486,6 +486,142 @@ class PortfolioManager:
         finally:
             con.close()
 
+    def get_ticker_history(self, ticker: str) -> Dict[str, Any]:
+        """Get full trading lifecycle for a ticker — open + closed positions.
+
+        Returns dict with:
+          - times_held: int (# of times this stock was bought)
+          - is_open: bool (currently holding)
+          - total_realized_pnl_pct: float (sum across all closed trades)
+          - avg_pnl_pct: float (avg across closed trades)
+          - last_exit_date: date or None
+          - last_exit_reason: str or None
+          - last_exit_pnl_pct: float or None
+          - days_since_last_exit: int or None
+          - wins: int, losses: int
+          - current_pnl_pct: float (if open)
+        """
+        con = self._store._connect()
+        try:
+            rows = con.execute(
+                """
+                SELECT status, entry_date, exit_date, entry_price, exit_price,
+                       current_return_pct, exit_reason
+                FROM portfolio_positions
+                WHERE user_id = ? AND ticker = ?
+                ORDER BY entry_date DESC
+                """,
+                [self._user_id, ticker],
+            ).fetchall()
+        finally:
+            con.close()
+
+        if not rows:
+            return {"times_held": 0, "is_open": False}
+
+        opens = [r for r in rows if r[0] == "open"]
+        closeds = [r for r in rows if r[0] == "closed"]
+
+        result: Dict[str, Any] = {
+            "times_held": len(rows),
+            "is_open": len(opens) > 0,
+            "wins": sum(1 for r in closeds if (r[5] or 0) > 0),
+            "losses": sum(1 for r in closeds if (r[5] or 0) < 0),
+        }
+
+        if opens:
+            result["current_pnl_pct"] = opens[0][5] or 0.0
+
+        if closeds:
+            pnls = [r[5] or 0 for r in closeds]
+            result["total_realized_pnl_pct"] = sum(pnls)
+            result["avg_pnl_pct"] = sum(pnls) / len(pnls)
+
+            # Most recent closed
+            most_recent = closeds[0]
+            result["last_exit_date"] = most_recent[2]
+            result["last_exit_reason"] = most_recent[6]
+            result["last_exit_pnl_pct"] = most_recent[5] or 0.0
+            if most_recent[2]:
+                try:
+                    if hasattr(most_recent[2], "date"):
+                        exit_d = most_recent[2].date()
+                    else:
+                        exit_d = most_recent[2]
+                    result["days_since_last_exit"] = (date.today() - exit_d).days
+                except Exception:
+                    pass
+
+        return result
+
+    def get_all_traded_tickers(self) -> Dict[str, Dict[str, Any]]:
+        """Return history for ALL tickers ever traded (open + closed).
+
+        Returns dict: {ticker: history_dict}
+        Useful for batch lookup in UI — cheaper than calling get_ticker_history
+        for each recommendation.
+        """
+        con = self._store._connect()
+        try:
+            rows = con.execute(
+                """
+                SELECT ticker, status, entry_date, exit_date, current_return_pct, exit_reason
+                FROM portfolio_positions
+                WHERE user_id = ?
+                ORDER BY ticker, entry_date DESC
+                """,
+                [self._user_id],
+            ).fetchall()
+        finally:
+            con.close()
+
+        history: Dict[str, Dict[str, Any]] = {}
+        for r in rows:
+            tkr, status, entry_d, exit_d, pnl, reason = r
+            if tkr not in history:
+                history[tkr] = {
+                    "times_held": 0,
+                    "is_open": False,
+                    "wins": 0,
+                    "losses": 0,
+                    "closed_pnls": [],
+                    "last_exit_date": None,
+                    "last_exit_pnl_pct": None,
+                    "last_exit_reason": None,
+                }
+            h = history[tkr]
+            h["times_held"] += 1
+            if status == "open":
+                h["is_open"] = True
+                h["current_pnl_pct"] = pnl or 0
+            elif status == "closed":
+                h["closed_pnls"].append(pnl or 0)
+                if (pnl or 0) > 0:
+                    h["wins"] += 1
+                elif (pnl or 0) < 0:
+                    h["losses"] += 1
+                # Track most recent close
+                if h["last_exit_date"] is None:
+                    h["last_exit_date"] = exit_d
+                    h["last_exit_pnl_pct"] = pnl
+                    h["last_exit_reason"] = reason
+
+        # Derive aggregates
+        for tkr, h in history.items():
+            pnls = h["closed_pnls"]
+            if pnls:
+                h["total_realized_pnl_pct"] = sum(pnls)
+                h["avg_pnl_pct"] = sum(pnls) / len(pnls)
+            if h["last_exit_date"]:
+                try:
+                    d = h["last_exit_date"]
+                    if hasattr(d, "date"):
+                        d = d.date()
+                    h["days_since_last_exit"] = (date.today() - d).days
+                except Exception:
+                    pass
+        return history
+
     # ------------------------------------------------------------------
     # Price fetching (reuses OutcomeTracker pattern)
     # ------------------------------------------------------------------
@@ -936,6 +1072,101 @@ class SupabasePortfolioManager:
             .execute()
         )
         return {r["ticker"] for r in (resp.data or [])}
+
+    def get_ticker_history(self, ticker: str) -> Dict[str, Any]:
+        """Get full lifecycle for a ticker (open + closed) — Supabase version."""
+        resp = (
+            self._table
+            .select("status, entry_date, exit_date, current_return_pct, exit_reason")
+            .eq("user_id", self._user_id)
+            .eq("ticker", ticker)
+            .order("entry_date", desc=True)
+            .execute()
+        )
+        rows = resp.data or []
+        if not rows:
+            return {"times_held": 0, "is_open": False}
+
+        opens = [r for r in rows if r.get("status") == "open"]
+        closeds = [r for r in rows if r.get("status") == "closed"]
+
+        result: Dict[str, Any] = {
+            "times_held": len(rows),
+            "is_open": len(opens) > 0,
+            "wins": sum(1 for r in closeds if (r.get("current_return_pct") or 0) > 0),
+            "losses": sum(1 for r in closeds if (r.get("current_return_pct") or 0) < 0),
+        }
+        if opens:
+            result["current_pnl_pct"] = opens[0].get("current_return_pct") or 0.0
+        if closeds:
+            pnls = [r.get("current_return_pct") or 0 for r in closeds]
+            result["total_realized_pnl_pct"] = sum(pnls)
+            result["avg_pnl_pct"] = sum(pnls) / len(pnls)
+            mr = closeds[0]
+            result["last_exit_date"] = mr.get("exit_date")
+            result["last_exit_reason"] = mr.get("exit_reason")
+            result["last_exit_pnl_pct"] = mr.get("current_return_pct") or 0.0
+            try:
+                exit_d_raw = mr.get("exit_date")
+                if exit_d_raw:
+                    exit_d = date.fromisoformat(exit_d_raw[:10]) if isinstance(exit_d_raw, str) else exit_d_raw
+                    result["days_since_last_exit"] = (date.today() - exit_d).days
+            except Exception:
+                pass
+        return result
+
+    def get_all_traded_tickers(self) -> Dict[str, Dict[str, Any]]:
+        """Return history for ALL tickers — Supabase version."""
+        resp = (
+            self._table
+            .select("ticker, status, entry_date, exit_date, current_return_pct, exit_reason")
+            .eq("user_id", self._user_id)
+            .order("entry_date", desc=True)
+            .execute()
+        )
+        rows = resp.data or []
+        history: Dict[str, Dict[str, Any]] = {}
+        for r in rows:
+            tkr = r.get("ticker")
+            if not tkr:
+                continue
+            if tkr not in history:
+                history[tkr] = {
+                    "times_held": 0, "is_open": False,
+                    "wins": 0, "losses": 0, "closed_pnls": [],
+                    "last_exit_date": None, "last_exit_pnl_pct": None, "last_exit_reason": None,
+                }
+            h = history[tkr]
+            h["times_held"] += 1
+            pnl = r.get("current_return_pct") or 0
+            status = r.get("status")
+            if status == "open":
+                h["is_open"] = True
+                h["current_pnl_pct"] = pnl
+            elif status == "closed":
+                h["closed_pnls"].append(pnl)
+                if pnl > 0:
+                    h["wins"] += 1
+                elif pnl < 0:
+                    h["losses"] += 1
+                if h["last_exit_date"] is None:
+                    h["last_exit_date"] = r.get("exit_date")
+                    h["last_exit_pnl_pct"] = pnl
+                    h["last_exit_reason"] = r.get("exit_reason")
+
+        for tkr, h in history.items():
+            if h["closed_pnls"]:
+                h["total_realized_pnl_pct"] = sum(h["closed_pnls"])
+                h["avg_pnl_pct"] = sum(h["closed_pnls"]) / len(h["closed_pnls"])
+            if h["last_exit_date"]:
+                try:
+                    ed = h["last_exit_date"]
+                    if isinstance(ed, str):
+                        ed = date.fromisoformat(ed[:10])
+                    h["days_since_last_exit"] = (date.today() - ed).days
+                except Exception:
+                    pass
+        return history
 
     # ------------------------------------------------------------------
     # Price fetching (shared with DuckDB backend)

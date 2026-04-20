@@ -2377,13 +2377,19 @@ else:
         render_section_header(f"Top Recommendations", len(sorted_df), "core"),
         unsafe_allow_html=True,
     )
-    # Portfolio manager — pre-fetch portfolio tickers (single DB query)
+    # Portfolio manager — pre-fetch ticker history (open + closed) in one query
     try:
         _pm = get_portfolio_manager(_user_id)
         _portfolio_tickers = _pm.get_portfolio_tickers()
+        # Full history (open + closed trades) for smart badges
+        try:
+            _ticker_history = _pm.get_all_traded_tickers()
+        except Exception:
+            _ticker_history = {}
     except Exception:
         _pm = None
         _portfolio_tickers = set()
+        _ticker_history = {}
 
     # Live trading tickers (from VPS snapshot) — for "LIVE" badge
     try:
@@ -2477,40 +2483,56 @@ else:
         card_html = render_stock_card(r, rank=rank, score_label=score_label)
         st.markdown(card_html, unsafe_allow_html=True)
 
-        # Portfolio button below each card — compact layout with live indicator
+        # Smart portfolio badges — live + virtual + historical context
         if _pm is not None:
             _tkr = str(r.get("Ticker", r.get("ticker", "")))
             if _tkr:
                 _is_live = _tkr in _live_tickers
-                _is_virt = _tkr in _portfolio_tickers
+                _hist = _ticker_history.get(_tkr, {})
+                _is_open = _hist.get("is_open", False) or (_tkr in _portfolio_tickers)
+                _times_held = _hist.get("times_held", 0)
+                _prev_held = _times_held > 0 and not _is_open  # Sold in past
 
-                _btn_cols = st.columns([1, 1, 6]) if (_is_live or _is_virt) else [None, None, None]
+                # Build badges
+                _badges = []
+                if _is_live:
+                    _badges.append(
+                        '<span dir="ltr" style="display:inline-block; padding:4px 10px; background:rgba(16,185,129,0.12); color:#10b981; border:1px solid rgba(16,185,129,0.3); border-radius:8px; font-size:0.72rem; font-weight:600;">🔴 LIVE</span>'
+                    )
+                if _is_open:
+                    _cur_pnl = _hist.get("current_pnl_pct", 0)
+                    _c = "#10b981" if _cur_pnl >= 0 else "#ef4444"
+                    _s = "+" if _cur_pnl >= 0 else ""
+                    _badges.append(
+                        f'<span dir="ltr" style="display:inline-block; padding:4px 10px; background:rgba(99,102,241,0.12); color:#818cf8; border:1px solid rgba(99,102,241,0.3); border-radius:8px; font-size:0.72rem; font-weight:600;">📋 Virtual <span style="color:{_c};">{_s}{_cur_pnl:.1f}%</span></span>'
+                    )
+                if _prev_held:
+                    _last_pnl = _hist.get("last_exit_pnl_pct", 0) or 0
+                    _days_ago = _hist.get("days_since_last_exit")
+                    _avg_pnl = _hist.get("avg_pnl_pct", 0)
+                    _wins = _hist.get("wins", 0)
+                    _losses = _hist.get("losses", 0)
+                    _c = "#10b981" if _avg_pnl >= 0 else "#ef4444"
+                    _s = "+" if _avg_pnl >= 0 else ""
+                    _ago_txt = f"{_days_ago}d ago" if _days_ago is not None else "previously"
+                    _wr_txt = f" · {_wins}W/{_losses}L" if (_wins + _losses) > 0 else ""
+                    _badges.append(
+                        f'<span dir="ltr" style="display:inline-block; padding:4px 10px; background:rgba(148,163,184,0.10); color:var(--ss-text-secondary); border:1px solid var(--ss-border); border-radius:8px; font-size:0.72rem; font-weight:600;">📜 Traded {_times_held}× <span style="color:{_c};">{_s}{_avg_pnl:.1f}% avg</span> · {_ago_txt}{_wr_txt}</span>'
+                    )
 
-                if _is_live and _is_virt:
-                    # Compact badges
-                    with _btn_cols[0]:
-                        st.markdown(
-                            '<div style="padding:4px 10px; background:rgba(16,185,129,0.12); color:#10b981; border-radius:8px; font-size:0.72rem; font-weight:600; text-align:center;">🔴 LIVE</div>',
-                            unsafe_allow_html=True,
+                    # Recency warning (churn prevention)
+                    if _days_ago is not None and _days_ago < 5:
+                        _badges.append(
+                            f'<span dir="ltr" style="display:inline-block; padding:4px 10px; background:rgba(245,158,11,0.12); color:#f59e0b; border:1px solid rgba(245,158,11,0.3); border-radius:8px; font-size:0.72rem; font-weight:600;">⚠️ Just sold {_days_ago}d ago</span>'
                         )
-                    with _btn_cols[1]:
-                        st.markdown(
-                            '<div style="padding:4px 10px; background:rgba(99,102,241,0.12); color:#818cf8; border-radius:8px; font-size:0.72rem; font-weight:600; text-align:center;">📋 Virtual</div>',
-                            unsafe_allow_html=True,
-                        )
-                elif _is_live:
-                    with _btn_cols[0]:
-                        st.markdown(
-                            '<div style="padding:4px 10px; background:rgba(16,185,129,0.12); color:#10b981; border-radius:8px; font-size:0.72rem; font-weight:600; text-align:center;">🔴 LIVE</div>',
-                            unsafe_allow_html=True,
-                        )
-                elif _is_virt:
-                    with _btn_cols[0]:
-                        st.markdown(
-                            '<div style="padding:4px 10px; background:rgba(99,102,241,0.12); color:#818cf8; border-radius:8px; font-size:0.72rem; font-weight:600; text-align:center;">📋 Virtual</div>',
-                            unsafe_allow_html=True,
-                        )
-                else:
+
+                if _badges:
+                    st.markdown(
+                        f'<div dir="ltr" style="display:flex; flex-wrap:wrap; gap:6px; margin:8px 0 14px 0; direction:ltr;">{"".join(_badges)}</div>',
+                        unsafe_allow_html=True,
+                    )
+                elif not _is_open:
+                    # Never held — offer Add button
                     if st.button(f"＋ Add {_tkr} to Portfolio", key=f"pf_{_tkr}_{rank}", use_container_width=True):
                         _add_to_portfolio(r, _pm)
                         st.rerun()
