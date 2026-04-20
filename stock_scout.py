@@ -471,15 +471,15 @@ with st.sidebar:
             _pnl_color = "#10b981" if _pnl >= 0 else "#ef4444"
             _pnl_sign = "+" if _pnl >= 0 else ""
 
-            # Single compact card — no duplicate info
+            # Single compact card — LTR forced to avoid RTL reversal
             st.markdown(f"""
-            <div style="background:var(--ss-bg-card); backdrop-filter:blur(10px); border:1px solid var(--ss-border); border-left:3px solid #10b981; border-radius:10px; padding:10px 12px; margin:12px 0;">
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">
-                <span style="font-size:0.74rem; font-weight:700; color:var(--ss-text-muted); text-transform:uppercase; letter-spacing:0.06em;">🔴 Live Trading</span>
-                <span style="font-size:0.68rem; color:var(--ss-text-muted);">{_age_emoji} {_age_str}</span>
+            <div dir="ltr" style="direction:ltr; text-align:left; background:var(--ss-bg-card); backdrop-filter:blur(10px); border:1px solid var(--ss-border); border-left:3px solid {_pnl_color}; border-radius:10px; padding:10px 12px; margin:12px 0;">
+              <div dir="ltr" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; direction:ltr;">
+                <span style="font-size:0.72rem; font-weight:700; color:var(--ss-text-muted); text-transform:uppercase; letter-spacing:0.06em;">🔴 Live</span>
+                <span style="font-size:0.66rem; color:var(--ss-text-muted);">{_age_emoji} {_age_str}</span>
               </div>
-              <div style="font-size:0.95rem; font-weight:700; color:{_pnl_color};">{_pnl_sign}${_pnl:,.2f}</div>
-              <div style="font-size:0.7rem; color:var(--ss-text-muted);">{len(_positions)} positions · {len(_orders)} orders</div>
+              <div dir="ltr" style="font-size:1.05rem; font-weight:700; color:{_pnl_color}; font-feature-settings:'tnum'; direction:ltr; text-align:left;">{_pnl_sign}${_pnl:,.2f}</div>
+              <div dir="ltr" style="font-size:0.68rem; color:var(--ss-text-muted); direction:ltr; text-align:left;">{len(_positions)} positions · {len(_orders)} orders</div>
             </div>
             """, unsafe_allow_html=True)
 

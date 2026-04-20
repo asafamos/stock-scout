@@ -98,6 +98,23 @@ h3 { font-size: 1.25rem !important; line-height: 1.4 !important; }
     background: var(--ss-grad-bg) !important;
 }
 
+/* Force LTR direction for data panels (prevents Hebrew RTL from flipping numbers) */
+.ss-portfolio-summary,
+[data-testid="stMetric"],
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] div[style*="tnum"],
+[data-testid="stSidebar"] div[dir="ltr"] {
+    direction: ltr !important;
+    text-align: left !important;
+}
+
+/* Numbers should always be LTR */
+.ss-portfolio-summary strong,
+[data-testid="stMetricValue"],
+[data-testid="stMetricDelta"] {
+    direction: ltr !important;
+    unicode-bidi: embed !important;
+}
+
 /* ---------- Main Content Area ---------- */
 .main .block-container {
     padding-top: 1.5rem !important;
