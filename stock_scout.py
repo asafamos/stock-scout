@@ -192,7 +192,9 @@ st.set_page_config(
 
 # === Design System CSS (supports light + dark mode, RTL, responsive) ===
 from ui.design_system import get_design_css
+from ui.design_2026 import get_design_2026_css
 st.markdown(get_design_css(), unsafe_allow_html=True)
+st.markdown(get_design_2026_css(), unsafe_allow_html=True)
 
 # === User Identity (Google SSO on Streamlit Cloud, local fallback) ===
 _current_user = get_current_user()
@@ -437,6 +439,130 @@ with st.sidebar:
             """, unsafe_allow_html=True)
     except Exception as _pf_e:
         logger.debug("Portfolio sidebar error: %s", _pf_e)
+
+    # ── Live Trading (IB/VPS) ──────────────────────────────────────
+    st.markdown('<div style="height:1px; background:var(--ss-border); margin:14px 0;"></div>', unsafe_allow_html=True)
+    try:
+        from pathlib import Path as _Path
+        import json as _json
+        from datetime import datetime as _dt, timezone as _tz
+        _snap_file = _Path("data/trades/portfolio_snapshot.json")
+        if _snap_file.exists():
+            _snap = _json.loads(_snap_file.read_text())
+            _positions = _snap.get("positions", [])
+            _orders = _snap.get("orders", [])
+            _cash = _snap.get("cash", 0)
+            _net = _snap.get("net_liquidation", 0)
+            _pnl = _snap.get("total_unrealized_pnl", 0)
+            _updated = _snap.get("updated_at", "")
+
+            # Age indicator
+            _age_str = ""
+            _age_color = "var(--ss-text-muted)"
+            try:
+                _dt_obj = _dt.fromisoformat(_updated.replace("Z", "+00:00"))
+                _age_min = (_dt_obj.now(_tz.utc) - _dt_obj).total_seconds() / 60
+                if _age_min < 20:
+                    _age_str = f"{int(_age_min)}m ago"
+                    _age_color = "#10b981"  # green
+                elif _age_min < 60:
+                    _age_str = f"{int(_age_min)}m ago"
+                    _age_color = "#f59e0b"  # amber
+                else:
+                    _age_str = f"{int(_age_min/60)}h ago"
+                    _age_color = "#ef4444"  # red
+            except Exception:
+                pass
+
+            _pnl_color = "#10b981" if _pnl >= 0 else "#ef4444"
+            _pnl_sign = "+" if _pnl >= 0 else ""
+
+            # Build position cards
+            _pos_html = ""
+            if _positions:
+                for _p in _positions:
+                    _t = _p.get("ticker", "?")
+                    _qty = _p.get("quantity", 0)
+                    _mkt = _p.get("market_price", 0)
+                    _upnl = _p.get("unrealized_pnl", 0)
+                    _ppct = _p.get("pnl_pct", 0)
+                    _c = "#10b981" if _upnl >= 0 else "#ef4444"
+                    _sign = "+" if _upnl >= 0 else ""
+                    _pos_html += f"""
+                    <div style="display:flex; justify-content:space-between; padding:4px 0; border-top:1px solid var(--ss-border-subtle);">
+                      <div style="font-weight:600; font-size:0.78rem; color:var(--ss-text-primary);">{_t}</div>
+                      <div style="font-size:0.72rem; color:var(--ss-text-muted);">{_qty}×${_mkt:.2f}</div>
+                      <div style="font-weight:600; font-size:0.75rem; color:{_c};">{_sign}${_upnl:.2f} ({_ppct:+.1f}%)</div>
+                    </div>
+                    """
+            else:
+                _pos_html = '<div style="padding:8px 0; font-size:0.72rem; color:var(--ss-text-muted); text-align:center;">No open positions</div>'
+
+            st.markdown(f"""
+            <div class="ss-portfolio-summary" style="border-left:3px solid #10b981;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <div style="font-size:0.78rem; font-weight:700; color:var(--ss-text-muted); text-transform:uppercase; letter-spacing:0.06em;">
+                  🔴 Live Trading
+                </div>
+                <div style="font-size:0.68rem; color:{_age_color};">● {_age_str}</div>
+              </div>
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:8px;">
+                <div>
+                  <div style="font-size:0.65rem; color:var(--ss-text-muted); text-transform:uppercase;">Net</div>
+                  <div style="font-size:0.95rem; font-weight:700; color:var(--ss-text-primary);">${_net:,.2f}</div>
+                </div>
+                <div>
+                  <div style="font-size:0.65rem; color:var(--ss-text-muted); text-transform:uppercase;">Cash</div>
+                  <div style="font-size:0.95rem; font-weight:700; color:var(--ss-text-primary);">${_cash:,.2f}</div>
+                </div>
+                <div>
+                  <div style="font-size:0.65rem; color:var(--ss-text-muted); text-transform:uppercase;">Unrealized P&L</div>
+                  <div style="font-size:0.9rem; font-weight:700; color:{_pnl_color};">{_pnl_sign}${_pnl:,.2f}</div>
+                </div>
+                <div>
+                  <div style="font-size:0.65rem; color:var(--ss-text-muted); text-transform:uppercase;">Positions</div>
+                  <div style="font-size:0.9rem; font-weight:700; color:var(--ss-text-primary);">{len(_positions)}</div>
+                </div>
+              </div>
+              {_pos_html}
+            </div>
+            """, unsafe_allow_html=True)
+
+            # Expander with full details
+            with st.expander("🛡 Protective Orders & Details", expanded=False):
+                if _orders:
+                    for _o in _orders:
+                        _t = _o.get("ticker", "?")
+                        _otype = _o.get("type", "")
+                        _qty = _o.get("qty", 0)
+                        if _otype == "TRAIL":
+                            _det = f"Trail {_o.get('trail_pct')}% → ${_o.get('stop_price', 0):.2f}"
+                        elif _otype == "LMT":
+                            _det = f"Limit ${_o.get('limit_price', 0):.2f}"
+                        elif _otype == "STP":
+                            _det = f"Stop ${_o.get('stop_price', 0):.2f}"
+                        else:
+                            _det = _otype
+                        st.markdown(f"**{_t}**: {_otype} ({_qty}) — {_det}")
+                else:
+                    st.warning("⚠️ No protective orders!")
+
+                st.markdown("---")
+                st.caption("📱 Live status via Telegram: send **status** to @stockscout_asaf_bot")
+                st.caption(f"🔗 VPS auto-trade runs 4x daily (9:35, 11:55, 14:30, 15:55 ET)")
+        else:
+            st.markdown("""
+            <div class="ss-portfolio-summary" style="border-left:3px solid #6b7280;">
+              <div style="font-size:0.78rem; font-weight:700; color:var(--ss-text-muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:4px;">
+                🔴 Live Trading
+              </div>
+              <div style="font-size:0.72rem; color:var(--ss-text-muted);">
+                No snapshot available. VPS monitor pushes data every 15 min.
+              </div>
+            </div>
+            """, unsafe_allow_html=True)
+    except Exception as _live_e:
+        logger.debug("Live trading sidebar error: %s", _live_e)
 
 
 # Status table via unified preflight
@@ -827,6 +953,62 @@ else:
     
 # Reset the one-shot flag (always)
 st.session_state["force_live_scan_once"] = False
+
+# ==================== LIVE TRADING BANNER ====================
+try:
+    from pathlib import Path as _PathLB
+    import json as _jsonLB
+    from datetime import datetime as _dtLB, timezone as _tzLB
+    _snap_path = _PathLB("data/trades/portfolio_snapshot.json")
+    if _snap_path.exists():
+        _sdata = _jsonLB.loads(_snap_path.read_text())
+        _positions_live = _sdata.get("positions", [])
+        _cash_live = _sdata.get("cash", 0)
+        _net_live = _sdata.get("net_liquidation", 0)
+        _pnl_live = _sdata.get("total_unrealized_pnl", 0)
+        _updated_live = _sdata.get("updated_at", "")
+        _age_min_live = 999
+        try:
+            _dt_live = _dtLB.fromisoformat(_updated_live.replace("Z", "+00:00"))
+            _age_min_live = (_dtLB.now(_tzLB.utc) - _dt_live).total_seconds() / 60
+        except Exception:
+            pass
+
+        _age_dot = "#10b981" if _age_min_live < 20 else "#f59e0b" if _age_min_live < 60 else "#ef4444"
+        _age_label = f"{int(_age_min_live)}m ago" if _age_min_live < 60 else f"{int(_age_min_live/60)}h ago"
+        _pnl_bg = "linear-gradient(135deg, rgba(16,185,129,0.15), rgba(16,185,129,0.05))" if _pnl_live >= 0 else "linear-gradient(135deg, rgba(239,68,68,0.15), rgba(239,68,68,0.05))"
+        _pnl_color_b = "#10b981" if _pnl_live >= 0 else "#ef4444"
+        _pnl_sign_b = "+" if _pnl_live >= 0 else ""
+
+        # Mini position chips
+        _chips = ""
+        for _pp in _positions_live:
+            _tk = _pp.get("ticker", "")
+            _ppnl = _pp.get("pnl_pct", 0)
+            _cc = "#10b981" if _ppnl >= 0 else "#ef4444"
+            _ss = "+" if _ppnl >= 0 else ""
+            _chips += f'<span style="display:inline-flex; align-items:center; gap:4px; background:rgba(0,0,0,0.15); padding:3px 10px; border-radius:999px; font-size:0.78rem; margin-right:6px;"><strong>{_tk}</strong> <span style="color:{_cc};">{_ss}{_ppnl:.1f}%</span></span>'
+
+        st.markdown(f"""
+        <div style="background:{_pnl_bg}; border:1px solid rgba(16,185,129,0.2); border-radius:12px; padding:14px 18px; margin-bottom:14px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;">
+          <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap;">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="width:10px; height:10px; border-radius:50%; background:{_age_dot}; display:inline-block; animation:pulse 2s infinite;"></span>
+              <strong style="font-size:0.92rem;">Live Trading</strong>
+              <span style="font-size:0.72rem; color:var(--ss-text-muted);">{_age_label}</span>
+            </div>
+            <div style="display:flex; gap:18px; font-size:0.88rem;">
+              <span><span style="color:var(--ss-text-muted); font-size:0.72rem;">Net </span><strong>${_net_live:,.0f}</strong></span>
+              <span><span style="color:var(--ss-text-muted); font-size:0.72rem;">Cash </span><strong>${_cash_live:,.0f}</strong></span>
+              <span><span style="color:var(--ss-text-muted); font-size:0.72rem;">P&L </span><strong style="color:{_pnl_color_b};">{_pnl_sign_b}${_pnl_live:,.2f}</strong></span>
+            </div>
+          </div>
+          <div>{_chips}</div>
+        </div>
+        <style>@keyframes pulse {{ 0%,100% {{opacity:1;}} 50% {{opacity:0.5;}} }}</style>
+        """, unsafe_allow_html=True)
+except Exception:
+    pass
 
 # ==================== MAIN PIPELINE ====================
 st.markdown("""
@@ -2256,6 +2438,19 @@ else:
     except Exception:
         _pm = None
         _portfolio_tickers = set()
+
+    # Live trading tickers (from VPS snapshot) — for "LIVE" badge
+    try:
+        from pathlib import Path as _Path2
+        import json as _json2
+        _live_snap_file = _Path2("data/trades/portfolio_snapshot.json")
+        if _live_snap_file.exists():
+            _live_data = _json2.loads(_live_snap_file.read_text())
+            _live_tickers = {p["ticker"] for p in _live_data.get("positions", [])}
+        else:
+            _live_tickers = set()
+    except Exception:
+        _live_tickers = set()
 
     def _add_to_portfolio(row, pm: PortfolioManager) -> None:
         """Helper to add a recommendation to the virtual portfolio."""
