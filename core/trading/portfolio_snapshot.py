@@ -107,39 +107,25 @@ def build_snapshot(client, tracker) -> Dict[str, Any]:
 
 
 def write_snapshot(client, tracker) -> bool:
-    """Write portfolio snapshot to Supabase. Returns True on success."""
+    """Write portfolio snapshot to local JSON file.
+
+    File is pushed to GitHub via systemd timer (stockscout-snapshot-sync)
+    every 15 min, and Streamlit Cloud auto-reads on redeploy.
+    """
     snapshot = build_snapshot(client, tracker)
 
-    # Try Supabase
     try:
-        from supabase import create_client
-        url = os.getenv("SUPABASE_URL", "")
-        key = os.getenv("SUPABASE_KEY", "")
-        if not url or not key:
-            logger.debug("Supabase not configured — skipping snapshot push")
-            return False
-
-        sb = create_client(url, key)
-        # Upsert single row with id=1
-        result = sb.table("trading_snapshot").upsert({
-            "id": 1,
-            "updated_at": snapshot["updated_at"],
-            "data": snapshot,
-        }).execute()
-        logger.info("Portfolio snapshot pushed to Supabase (%d positions, %d orders)",
-                    snapshot.get("position_count", 0),
-                    len(snapshot.get("orders", [])))
+        from pathlib import Path
+        snapshot_file = Path("data/trades/portfolio_snapshot.json")
+        snapshot_file.parent.mkdir(parents=True, exist_ok=True)
+        snapshot_file.write_text(json.dumps(snapshot, indent=2, default=str))
+        logger.info(
+            "Portfolio snapshot written (%d positions, %d orders, PnL $%+.2f)",
+            snapshot.get("position_count", 0),
+            len(snapshot.get("orders", [])),
+            snapshot.get("total_unrealized_pnl", 0),
+        )
         return True
     except Exception as e:
-        logger.warning("Supabase snapshot write failed: %s", e)
-        # Fallback: write to local file
-        try:
-            from pathlib import Path
-            snapshot_file = Path("data/trades/portfolio_snapshot.json")
-            snapshot_file.parent.mkdir(parents=True, exist_ok=True)
-            snapshot_file.write_text(json.dumps(snapshot, indent=2))
-            logger.info("Portfolio snapshot written locally to %s", snapshot_file)
-            return True
-        except Exception as e2:
-            logger.error("Local snapshot write also failed: %s", e2)
-            return False
+        logger.error("Snapshot write failed: %s", e)
+        return False

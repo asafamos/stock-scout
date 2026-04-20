@@ -20,27 +20,14 @@ st.caption("Real-time state from VPS auto-trade system")
 
 @st.cache_data(ttl=30)
 def load_snapshot():
-    """Load snapshot from Supabase (preferred) or local file fallback."""
-    # Try Supabase
-    try:
-        from core.db.supabase_client import get_supabase_client
-        sb = get_supabase_client()
-        if sb:
-            res = sb.table("trading_snapshot").select("*").eq("id", 1).execute()
-            if res.data:
-                return res.data[0].get("data"), "supabase", res.data[0].get("updated_at")
-    except Exception as e:
-        st.warning(f"Supabase read failed: {e}")
-
-    # Fallback: local file
+    """Load snapshot from local file (synced from VPS via git every 15 min)."""
     try:
         snapshot_file = Path("data/trades/portfolio_snapshot.json")
         if snapshot_file.exists():
             data = json.loads(snapshot_file.read_text())
-            return data, "local file", data.get("updated_at")
-    except Exception:
-        pass
-
+            return data, "git sync (15 min)", data.get("updated_at")
+    except Exception as e:
+        st.warning(f"Local read failed: {e}")
     return None, "none", None
 
 
