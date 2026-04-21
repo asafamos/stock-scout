@@ -245,11 +245,12 @@ def _verify_protections(tracker, client, ibkr_orders, notify):
                         pass
             client._ib.sleep(1)
 
-        result = client.resubmit_protective_orders(
+        result = client.resubmit_protective_orders_retry(
             ticker=ticker,
             qty=int(qty),
             trail_pct=trail_pct,
             target_price=target_price,
+            max_attempts=3,
         )
 
         trail_ok = result["trailing_stop"].status not in ("Error", "Cancelled", "Inactive")

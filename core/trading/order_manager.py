@@ -441,16 +441,33 @@ class OrderManager:
         # Use current price as entry estimate if Entry_Price not available
         price = entry if entry > 0 else float(row.get("Close", row.get("close", 0)))
 
+        # Extract extra context for risk checks
+        sector = str(row.get("Sector", row.get("sector", "")))
+        atr_pct = float(row.get("ATR_Pct", row.get("atr_pct", 0)) or 0)
+
+        # Gap protection — skip if stock gapped unfavorably vs scan entry
+        scan_close = float(row.get("Close", row.get("close", 0)) or 0)
+        if scan_close > 0 and price > 0:
+            gap_pct = (price - scan_close) / scan_close * 100
+            if gap_pct > 3.0:
+                return {"ticker": ticker, "status": "skipped",
+                        "reason": f"Gap up {gap_pct:+.1f}% vs scan (entry risk too high)"}
+            if gap_pct < -3.0:
+                return {"ticker": ticker, "status": "skipped",
+                        "reason": f"Gap down {gap_pct:+.1f}% vs scan (possible news event)"}
+
         # Risk check
-        allowed, reason = self.risk.can_open_position(ticker, price, score, rr)
+        allowed, reason = self.risk.can_open_position(
+            ticker, price, score, rr, sector=sector, atr_pct=atr_pct
+        )
         if not allowed:
             logger.info("SKIP %s: %s", ticker, reason)
             return {"ticker": ticker, "status": "skipped", "reason": reason}
 
-        # Calculate quantity — cash-aware dynamic sizing
+        # Calculate quantity — cash + volatility aware sizing
         cash = self.client.get_cash_balance()
         available_cash = max(0, cash - self.cfg.cash_reserve)
-        qty = self.risk.calculate_qty(price, cash_available=available_cash)
+        qty = self.risk.calculate_qty(price, cash_available=available_cash, atr_pct=atr_pct)
         if qty <= 0:
             return {"ticker": ticker, "status": "skipped",
                     "reason": f"Can't afford {ticker} @ ${price:.2f} (cash=${cash:.0f})"}

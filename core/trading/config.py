@@ -67,6 +67,19 @@ class TradingConfig:
         default_factory=lambda: _env_float("CASH_RESERVE", 20.0)
     )  # Keep this much cash aside (buffer for fees, slippage)
 
+    # ── Circuit Breakers (stop new buys when losses pile up) ──
+    max_daily_loss_pct: float = field(
+        default_factory=lambda: _env_float("MAX_DAILY_LOSS_PCT", 2.0)
+    )  # Stop new buys if today's realized+unrealized P&L < -X% of portfolio
+    max_drawdown_pct: float = field(
+        default_factory=lambda: _env_float("MAX_DRAWDOWN_PCT", 10.0)
+    )  # Pause trading if portfolio is down >X% from peak
+
+    # ── Sector Concentration ─────────────────────────────────────
+    max_sector_positions: int = field(
+        default_factory=lambda: _env_int("MAX_SECTOR_POSITIONS", 2)
+    )  # Max # of positions in same sector (avoid concentration)
+
     # ── Trade Filters ──────────────────────────────────────────
     min_score_to_trade: float = field(
         default_factory=lambda: _env_float("MIN_SCORE", 73.0)

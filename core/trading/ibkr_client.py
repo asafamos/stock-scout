@@ -42,10 +42,50 @@ class TradeResult:
     order_id: int = 0
     timestamp: str = ""
     error: str = ""
+    attempts: int = 1
 
     def __post_init__(self):
         if not self.timestamp:
             self.timestamp = datetime.utcnow().isoformat()
+
+
+def _retry_order(fn, *, max_attempts: int = 3, backoff: float = 2.0,
+                 description: str = "order"):
+    """Retry helper for order placement with exponential backoff.
+
+    Retries on: Error status, Cancelled, network blip.
+    Does NOT retry on: margin rejection (useless), invalid ticker.
+    """
+    import time as _time
+    last_result = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            result = fn()
+            # Success — return immediately
+            if result and hasattr(result, "status"):
+                if result.status in ("Filled", "Submitted", "PreSubmitted", "PendingSubmit"):
+                    result.attempts = attempt
+                    return result
+                # Don't retry on permanent errors
+                err = (result.error or "").lower()
+                if any(x in err for x in ["margin", "not accepted", "insufficient", "invalid", "permission"]):
+                    logger.warning("%s: permanent error, no retry: %s", description, err[:100])
+                    result.attempts = attempt
+                    return result
+            last_result = result
+            if attempt < max_attempts:
+                wait = backoff ** attempt
+                logger.info("%s attempt %d failed, retrying in %.1fs", description, attempt, wait)
+                _time.sleep(wait)
+        except Exception as e:
+            logger.error("%s attempt %d threw: %s", description, attempt, e)
+            if attempt < max_attempts:
+                _time.sleep(backoff ** attempt)
+            last_result = None
+    # All attempts failed
+    if last_result and hasattr(last_result, "attempts"):
+        last_result.attempts = max_attempts
+    return last_result
 
 
 # ---------------------------------------------------------------------------
@@ -255,6 +295,15 @@ class IBKRClient:
                 error=str(e),
             )
 
+    def buy_market_retry(self, ticker: str, qty: int,
+                         max_attempts: int = 3) -> TradeResult:
+        """Market buy with retry logic (for transient failures)."""
+        return _retry_order(
+            lambda: self.buy_market(ticker, qty),
+            max_attempts=max_attempts,
+            description=f"BUY {qty} {ticker}",
+        )
+
     def buy_with_bracket(
         self,
         ticker: str,
@@ -459,6 +508,36 @@ class IBKRClient:
                                           order_type="LMT", quantity=qty,
                                           filled_price=0.0, status="Error"),
             }
+
+    def resubmit_protective_orders_retry(
+        self, ticker: str, qty: int, trail_pct: float,
+        target_price: float, max_attempts: int = 3,
+    ) -> dict:
+        """Resubmit protective orders with retry on transient failures."""
+        import time as _time
+        last_result = None
+        for attempt in range(1, max_attempts + 1):
+            result = self.resubmit_protective_orders(ticker, qty, trail_pct, target_price)
+            trail_ok = result["trailing_stop"].status not in ("Error", "Cancelled", "Inactive")
+            limit_ok = result["limit_sell"].status not in ("Error", "Cancelled", "Inactive")
+            if trail_ok and limit_ok:
+                result["attempts"] = attempt
+                return result
+            # Check if it's a margin rejection (don't retry)
+            err = (result["trailing_stop"].error or "").lower()
+            if "margin" in err or "insufficient" in err:
+                logger.warning("Margin rejection for %s — no retry", ticker)
+                result["attempts"] = attempt
+                return result
+            last_result = result
+            if attempt < max_attempts:
+                wait = 2 ** attempt
+                logger.info("Protective orders for %s failed, retry %d in %ds", ticker, attempt, wait)
+                _time.sleep(wait)
+        if last_result:
+            last_result["attempts"] = max_attempts
+        return last_result or {"trailing_stop": TradeResult(ticker, "SELL", "TRAIL", qty, 0, "Error"),
+                               "limit_sell": TradeResult(ticker, "SELL", "LMT", qty, 0, "Error")}
 
     def place_hard_stop(self, ticker: str, qty: int, stop_price: float,
                         oca_group: str = "") -> TradeResult:

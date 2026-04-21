@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Tuple
+from datetime import date
+from typing import Optional, Tuple
 
 from core.trading.config import CONFIG
 from core.trading.ibkr_client import IBKRClient
@@ -22,14 +23,75 @@ class RiskManager:
         self.tracker = tracker
         self.cfg = config or CONFIG
 
+    def check_daily_loss_breaker(self) -> Tuple[bool, str]:
+        """Return (allowed, reason). Blocks new buys if today's P&L < -max_daily_loss_pct."""
+        try:
+            net = self.client.get_net_liquidation()
+            if net <= 0:
+                return True, ""
+            # Today's realized P&L from trade log
+            today = date.today().isoformat()
+            realized = 0.0
+            for t in self.tracker.get_trade_log():
+                if t.get("action") == "CLOSE" and str(t.get("timestamp", "")).startswith(today):
+                    realized += float(t.get("pnl", 0) or 0)
+            # Unrealized P&L from live IB positions
+            unrealized = 0.0
+            try:
+                for p in self.client._ib.portfolio():
+                    if p.position != 0:
+                        unrealized += float(p.unrealizedPNL or 0)
+            except Exception:
+                pass
+            total_today = realized + unrealized
+            pct = (total_today / net) * 100
+            if pct <= -self.cfg.max_daily_loss_pct:
+                return False, (
+                    f"Daily loss breaker: P&L {pct:+.2f}% <= -{self.cfg.max_daily_loss_pct}% "
+                    f"(realized ${realized:.0f} + unrealized ${unrealized:.0f})"
+                )
+            return True, ""
+        except Exception as e:
+            logger.warning("Daily loss breaker check failed: %s", e)
+            return True, ""  # Fail open (don't block trades on error)
+
+    def check_sector_concentration(self, new_sector: str) -> Tuple[bool, str]:
+        """Block if we'd exceed max_sector_positions in same sector."""
+        if not new_sector:
+            return True, ""
+        # Count existing positions in same sector
+        same_sector = 0
+        for p in self.tracker.get_open_positions():
+            if str(p.get("sector", "")).strip().lower() == new_sector.strip().lower():
+                same_sector += 1
+        if same_sector >= self.cfg.max_sector_positions:
+            return False, (
+                f"Sector concentration: already {same_sector} positions in {new_sector} "
+                f"(max {self.cfg.max_sector_positions})"
+            )
+        return True, ""
+
     def can_open_position(
         self,
         ticker: str,
         price: float,
         score: float = 0.0,
         rr: float = 0.0,
+        sector: str = "",
+        atr_pct: float = 0.0,
     ) -> Tuple[bool, str]:
         """Return (allowed, reason). Reason is empty string if allowed."""
+
+        # 0. Daily loss circuit breaker
+        allowed, reason = self.check_daily_loss_breaker()
+        if not allowed:
+            return False, reason
+
+        # 0b. Sector concentration check
+        if sector:
+            allowed, reason = self.check_sector_concentration(sector)
+            if not allowed:
+                return False, reason
 
         # 1. Already holding
         if self.tracker.is_holding(ticker):
@@ -92,20 +154,25 @@ class RiskManager:
 
         return True, ""
 
-    def calculate_qty(self, price: float, cash_available: float = None) -> int:
-        """Calculate number of shares to buy — DYNAMIC cash-aware sizing.
+    def calculate_qty(self, price: float, cash_available: float = None,
+                      atr_pct: float = 0.0) -> int:
+        """Calculate number of shares to buy — cash-aware + volatility-aware sizing.
 
-        Logic:
-        - target_spend = min(max_position_size, cash_available)
-        - qty = floor(target_spend / price)
-        - Fallback: if qty=0, allow 1 share if we can afford it
-          (respects cash if passed, else up to 2x max_position_size)
+        Sizing logic:
+        1. Base target = min(max_position_size, cash_available)
+        2. Volatility scaling (if atr_pct given):
+           - 2% ATR is "normal" baseline → 1.0x size
+           - High volatility (>4% ATR) → reduce size (downweight)
+           - Low volatility (<2% ATR) → keep full size (can't exceed 1.0x)
+           - Formula: vol_factor = clamp(2.0 / max(atr_pct, 1.0), 0.5, 1.0)
+        3. qty = floor(target_spend * vol_factor / price)
+        4. Fallback: 1 share if we can afford it
 
         Examples:
-        - cash=$500, max=$300, price=$50 → 6 shares ($300)
-        - cash=$165, max=$300, price=$120 → 1 share ($120) ✓ (was 0 before)
-        - cash=$165, max=$300, price=$85 → 1 share ($85) ✓ (was 3 before = exceeded cash!)
-        - cash=$500, max=$300, price=$575 → 0 or 1? (expensive)
+        - price=$50, ATR 2% → 1.0x sizing (normal)
+        - price=$50, ATR 4% → 0.5x sizing (high vol, reduce risk)
+        - price=$100, ATR 3% → 0.67x sizing
+        - price=$100, ATR 1% → 1.0x sizing (capped)
         """
         if price <= 0:
             return 0
@@ -114,9 +181,15 @@ class RiskManager:
         if cash_available is not None:
             target_spend = min(target_spend, cash_available)
 
-        qty = math.floor(target_spend / price)
+        # Volatility factor: high-vol stocks get smaller positions
+        vol_factor = 1.0
+        if atr_pct and atr_pct > 0:
+            vol_factor = max(0.5, min(2.0 / max(atr_pct, 1.0), 1.0))
 
-        # Fallback: allow 1 share of expensive stock if we can afford it
+        adjusted_spend = target_spend * vol_factor
+        qty = math.floor(adjusted_spend / price)
+
+        # Fallback: allow 1 share if we can afford it
         if qty == 0:
             max_affordable = (
                 cash_available if cash_available is not None
