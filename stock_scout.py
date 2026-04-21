@@ -941,22 +941,32 @@ try:
             _ss_b = "+" if _ppnl_pct >= 0 else ""
             _chips_b += f'<span style="display:inline-flex; align-items:center; gap:6px; background:rgba(255,255,255,0.04); border:1px solid var(--ss-border-subtle); padding:4px 12px; border-radius:999px; font-size:0.8rem; margin-right:6px; backdrop-filter:blur(10px);"><strong style="color:var(--ss-text-primary);">{_tk}</strong> <span style="color:{_cc_b}; font-weight:600;">{_ss_b}{_ppnl_pct:.1f}%</span></span>'
 
+        # Redesigned for readability: clear hierarchy, larger numbers, separated sections
         st.markdown(f"""
-        <div style="background:{_pnl_bg_b}; border:1px solid {_pnl_border_b}; border-radius:14px; padding:14px 18px; margin:8px 0 16px 0; backdrop-filter:blur(14px); box-shadow:var(--ss-shadow-md);">
-          <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:16px;">
-            <div style="display:flex; align-items:center; gap:18px; flex-wrap:wrap;">
-              <div style="display:flex; align-items:center; gap:8px;">
-                <span style="width:8px; height:8px; border-radius:50%; background:{_age_dot_b}; display:inline-block; animation:ssPulse 2s infinite;"></span>
-                <strong style="font-size:0.88rem; color:var(--ss-text-primary); letter-spacing:-0.01em;">Live Trading</strong>
-                <span style="font-size:0.72rem; color:var(--ss-text-muted);">{_age_label_b}</span>
-              </div>
-              <div style="display:flex; gap:22px; font-size:0.88rem;">
-                <span><span style="color:var(--ss-text-muted); font-size:0.7rem; text-transform:uppercase; letter-spacing:0.05em; margin-right:6px;">Net</span><strong style="font-feature-settings:'tnum';">${_net_live:,.0f}</strong></span>
-                <span><span style="color:var(--ss-text-muted); font-size:0.7rem; text-transform:uppercase; letter-spacing:0.05em; margin-right:6px;">Cash</span><strong style="font-feature-settings:'tnum';">${_cash_live:,.0f}</strong></span>
-                <span><span style="color:var(--ss-text-muted); font-size:0.7rem; text-transform:uppercase; letter-spacing:0.05em; margin-right:6px;">P&L</span><strong style="color:{_pnl_color_b}; font-feature-settings:'tnum';">{_pnl_sign_b}${_pnl_live:,.2f}</strong></span>
-              </div>
+        <div dir="ltr" style="background:{_pnl_bg_b}; border:1px solid {_pnl_border_b}; border-radius:16px; padding:18px 22px; margin:10px 0 20px 0; backdrop-filter:blur(14px); box-shadow:var(--ss-shadow-md); direction:ltr;">
+          <!-- Top row: Title + Age -->
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; padding-bottom:12px; border-bottom:1px solid {_pnl_border_b};">
+            <div style="display:flex; align-items:center; gap:10px;">
+              <span style="width:10px; height:10px; border-radius:50%; background:{_age_dot_b}; display:inline-block; animation:ssPulse 2s infinite; box-shadow:0 0 8px {_age_dot_b};"></span>
+              <strong style="font-size:0.95rem; color:var(--ss-text-primary); letter-spacing:-0.01em; text-transform:uppercase;">Live Trading</strong>
+              <span style="font-size:0.7rem; color:var(--ss-text-muted); background:rgba(0,0,0,0.08); padding:2px 8px; border-radius:999px;">{_age_label_b}</span>
             </div>
             <div style="display:flex; gap:6px; flex-wrap:wrap;">{_chips_b}</div>
+          </div>
+          <!-- Bottom row: Big stat cards -->
+          <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:16px; direction:ltr;">
+            <div>
+              <div style="font-size:0.68rem; color:var(--ss-text-muted); text-transform:uppercase; letter-spacing:0.08em; margin-bottom:4px; font-weight:600;">Net Liquidation</div>
+              <div style="font-size:1.35rem; font-weight:700; color:var(--ss-text-primary); font-feature-settings:'tnum'; letter-spacing:-0.02em;">${_net_live:,.0f}</div>
+            </div>
+            <div>
+              <div style="font-size:0.68rem; color:var(--ss-text-muted); text-transform:uppercase; letter-spacing:0.08em; margin-bottom:4px; font-weight:600;">Cash Available</div>
+              <div style="font-size:1.35rem; font-weight:700; color:var(--ss-text-primary); font-feature-settings:'tnum'; letter-spacing:-0.02em;">${_cash_live:,.0f}</div>
+            </div>
+            <div>
+              <div style="font-size:0.68rem; color:var(--ss-text-muted); text-transform:uppercase; letter-spacing:0.08em; margin-bottom:4px; font-weight:600;">Unrealized P&L</div>
+              <div style="font-size:1.35rem; font-weight:700; color:{_pnl_color_b}; font-feature-settings:'tnum'; letter-spacing:-0.02em;">{_pnl_sign_b}${_pnl_live:,.2f}</div>
+            </div>
           </div>
         </div>
         <style>@keyframes ssPulse {{ 0%,100% {{opacity:1; transform:scale(1);}} 50% {{opacity:0.6; transform:scale(0.85);}} }}</style>
@@ -1776,10 +1786,19 @@ try:
     _perf = get_full_performance()
     _metrics = _perf.get("metrics", {})
     if _metrics.get("total_trades", 0) > 0:
-        with st.expander(f"📈 Live Trading Performance — {_metrics.get('total_trades')} trades · "
-                         f"{_metrics.get('win_rate', 0):.0f}% win rate · "
-                         f"${_metrics.get('total_pnl_abs', 0):+.2f} total P&L",
-                         expanded=False):
+        # Prominent header with color-coded P&L
+        _perf_pnl = _metrics.get('total_pnl_abs', 0)
+        _perf_pnl_color = "#10b981" if _perf_pnl >= 0 else "#ef4444"
+        _perf_pnl_sign = "+" if _perf_pnl >= 0 else ""
+        _perf_wr = _metrics.get('win_rate', 0)
+        _perf_n = _metrics.get('total_trades')
+        _expander_label = (
+            f"📊 Trading Performance  ·  "
+            f"{_perf_n} trades  ·  "
+            f"{_perf_wr:.0f}% win rate  ·  "
+            f"{_perf_pnl_sign}${_perf_pnl:.2f} P&L"
+        )
+        with st.expander(_expander_label, expanded=False):
             # KPI row
             _k1, _k2, _k3, _k4 = st.columns(4)
             with _k1:
