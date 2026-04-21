@@ -2461,10 +2461,21 @@ else:
         pass
 
     # All recommendations sorted by score (each card has Core/Spec badge)
-    st.markdown(
-        render_section_header(f"Top Recommendations", len(sorted_df), "core"),
-        unsafe_allow_html=True,
-    )
+    _rec_header_cols = st.columns([6, 2])
+    with _rec_header_cols[0]:
+        st.markdown(
+            render_section_header(f"Top Recommendations", len(sorted_df), "core"),
+            unsafe_allow_html=True,
+        )
+    with _rec_header_cols[1]:
+        _view_mode = st.radio(
+            "View",
+            options=["Detailed", "Compact"],
+            horizontal=True,
+            label_visibility="collapsed",
+            key="rec_view_mode",
+        )
+
     # Portfolio manager — pre-fetch ticker history (open + closed) in one query
     try:
         _pm = get_portfolio_manager(_user_id)
@@ -2627,6 +2638,33 @@ else:
                 st.rerun()
 
     for rank, (idx, r) in enumerate(sorted_df.iterrows(), 1):
+        if _view_mode == "Compact":
+            # Single-line compact display
+            _tkr_c = str(r.get("Ticker", r.get("ticker", "")))
+            _score_c = float(r.get("FinalScore_20d", r.get("Score", 0)) or 0)
+            _rr_c = float(r.get("RewardRisk", 0) or 0)
+            _entry_c = float(r.get("Entry_Price", r.get("Close", 0)) or 0)
+            _target_c = float(r.get("Target_Price", 0) or 0)
+            _sector_c = str(r.get("Sector", ""))
+            _upside_c = ((_target_c / _entry_c - 1) * 100) if _entry_c > 0 and _target_c > 0 else 0
+            _risk_cls = str(r.get("RiskClass", r.get("Risk_Class", "")))
+            _badge_bg = "rgba(16,185,129,0.12)" if _risk_cls.upper() == "CORE" else "rgba(245,158,11,0.12)"
+            _badge_color = "#10b981" if _risk_cls.upper() == "CORE" else "#f59e0b"
+            st.markdown(
+                f'<div dir="ltr" style="display:flex; align-items:center; gap:12px; padding:8px 14px; background:var(--ss-bg-card); border:1px solid var(--ss-border); border-radius:10px; margin-bottom:6px; font-size:0.88rem;">'
+                f'<span style="font-weight:700; min-width:28px; color:var(--ss-text-muted);">#{rank}</span>'
+                f'<strong style="min-width:70px; font-size:0.98rem;">{_tkr_c}</strong>'
+                f'<span style="padding:2px 8px; background:{_badge_bg}; color:{_badge_color}; border-radius:6px; font-size:0.68rem; font-weight:700;">{_risk_cls}</span>'
+                f'<span style="color:var(--ss-text-muted); font-size:0.78rem; min-width:110px;">{_sector_c[:16]}</span>'
+                f'<span><span style="color:var(--ss-text-muted); font-size:0.72rem;">Score </span><strong>{_score_c:.0f}</strong></span>'
+                f'<span><span style="color:var(--ss-text-muted); font-size:0.72rem;">R:R </span><strong>{_rr_c:.1f}x</strong></span>'
+                f'<span><span style="color:var(--ss-text-muted); font-size:0.72rem;">Entry </span><strong>${_entry_c:.2f}</strong></span>'
+                f'<span style="color:#10b981;"><strong>+{_upside_c:.1f}%</strong></span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+            continue  # skip full card render
+
         card_html = render_stock_card(r, rank=rank, score_label=score_label)
         st.markdown(card_html, unsafe_allow_html=True)
 
