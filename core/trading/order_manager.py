@@ -542,7 +542,8 @@ class OrderManager:
         notify.notify_buy(ticker, qty, filled_price, stop, target, score,
                           trail_pct=trail_pct, rr=rr, target_date=target_date)
 
-        # Step 5: Track position
+        # Step 5: Track position (include ML prob for exit signal tracking)
+        ml_prob = float(row.get("ML_20d_Prob", row.get("ml_prob", 0)) or 0)
         self.tracker.add_position(
             ticker=ticker,
             quantity=qty,
@@ -554,6 +555,18 @@ class OrderManager:
             score=score,
             order_ids=order_ids,
         )
+        # Store extra data (sector, ml_prob) for monitor's exit logic
+        try:
+            _all = self.tracker.get_open_positions()
+            for _p in _all:
+                if _p["ticker"] == ticker:
+                    _p["sector"] = sector
+                    _p["entry_ml_prob"] = ml_prob
+                    _p["entry_atr_pct"] = atr_pct
+                    break
+            self.tracker._save_positions(_all)
+        except Exception:
+            pass
 
         return {
             "ticker": ticker,
