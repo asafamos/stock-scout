@@ -114,6 +114,10 @@ def run_check():
         if CONFIG.ratchet_enabled:
             _ratchet_stops(tracker, client, ibkr_orders, notify)
 
+        # 2b2. Partial profit-taking (sell half when intermediate target hit)
+        if CONFIG.partial_profit_enabled:
+            _take_partial_profit(tracker, client, notify)
+
         # 2c. Push portfolio snapshot to Supabase (for Streamlit UI)
         try:
             from core.trading.portfolio_snapshot import write_snapshot
@@ -288,6 +292,86 @@ def _verify_protections(tracker, client, ibkr_orders, notify):
                 f"Trail: {result['trailing_stop'].status}, "
                 f"Limit: {result['limit_sell'].status}"
             )
+
+
+def _take_partial_profit(tracker, client, notify):
+    """Sell half of a position when it crosses partial_profit_trigger_pct.
+
+    Prevents giving back gains on stocks that spike then pull back.
+    Flag stored in position.partial_taken to avoid double-execution.
+    """
+    from core.trading.config import CONFIG
+
+    positions = tracker.get_open_positions()
+    if not positions:
+        return
+
+    try:
+        portfolio = {p.contract.symbol: p for p in client._ib.portfolio()
+                     if p.position != 0}
+    except Exception:
+        return
+
+    changed = False
+    for pos in positions:
+        if pos.get("partial_taken"):
+            continue  # Already sold partial
+        ticker = pos["ticker"]
+        port_item = portfolio.get(ticker)
+        if not port_item:
+            continue
+
+        current_price = float(port_item.marketPrice)
+        entry = pos["entry_price"]
+        if entry <= 0 or current_price <= 0:
+            continue
+
+        pnl_pct = (current_price - entry) / entry * 100
+        if pnl_pct < CONFIG.partial_profit_trigger_pct:
+            continue
+
+        # Calculate shares to sell
+        qty = int(pos["quantity"])
+        sell_qty = max(1, int(qty * CONFIG.partial_profit_fraction))
+        if sell_qty >= qty:
+            continue  # Don't sell whole position — that's the limit_sell's job
+
+        logger.info("PARTIAL PROFIT: %s +%.1f%% — selling %d of %d",
+                     ticker, pnl_pct, sell_qty, qty)
+
+        # Execute market sell
+        result = client._sell_market(ticker, sell_qty)
+        if result.status in ("Filled", "Submitted", "PreSubmitted"):
+            pnl_abs = (current_price - entry) * sell_qty
+            # Update tracker: reduce qty, mark partial_taken
+            pos["quantity"] = qty - sell_qty
+            pos["partial_taken"] = True
+            pos["partial_sold_qty"] = sell_qty
+            pos["partial_sold_price"] = current_price
+            changed = True
+
+            # Log to trade log
+            try:
+                tracker._log_trade("PARTIAL", ticker, sell_qty, current_price, {
+                    "entry_price": entry,
+                    "pnl": round(pnl_abs, 2),
+                    "reason": f"partial_profit_{CONFIG.partial_profit_trigger_pct}%_trigger",
+                    "remaining_qty": qty - sell_qty,
+                })
+            except Exception:
+                pass
+
+            notify._send(
+                f"💰 <b>PARTIAL PROFIT {ticker}</b>\n"
+                f"  Sold {sell_qty}/{qty} @ ${current_price:.2f} (+{pnl_pct:.1f}%)\n"
+                f"  Locked ${pnl_abs:+.2f}\n"
+                f"  Remaining: {qty - sell_qty} shares riding target"
+            )
+        else:
+            logger.warning("Partial profit sell failed for %s: %s", ticker, result.status)
+
+    if changed:
+        tracker._save_positions(positions)
 
 
 def _ratchet_stops(tracker, client, ibkr_orders, notify):

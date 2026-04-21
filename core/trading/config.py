@@ -122,6 +122,17 @@ class TradingConfig:
         default_factory=lambda: _env_bool("USE_PIPELINE_STOP", False)
     )  # If True, use StopLoss from scan instead of trailing %
 
+    # ── Partial Profit-Taking (sell half at intermediate target) ─
+    partial_profit_enabled: bool = field(
+        default_factory=lambda: _env_bool("PARTIAL_PROFIT_ENABLED", True)
+    )
+    partial_profit_trigger_pct: float = field(
+        default_factory=lambda: _env_float("PARTIAL_PROFIT_TRIGGER_PCT", 6.0)
+    )  # When unrealized PnL crosses this %, sell half
+    partial_profit_fraction: float = field(
+        default_factory=lambda: _env_float("PARTIAL_PROFIT_FRACTION", 0.5)
+    )  # Fraction of position to sell (0.5 = half)
+
     # ── Dynamic Stop Ratcheting (lock in profits as stock runs up) ─
     # When peak gain crosses thresholds, replace trailing stop with
     # hard STP at profit-locking floor. Only goes UP (never loosens).

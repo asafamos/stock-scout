@@ -481,16 +481,25 @@ class OrderManager:
         logger.info("EXECUTING: BUY %d x %s @ ~$%.2f (score=%.1f, RR=%.2f)",
                      qty, ticker, price, score, rr)
 
-        # Calculate trailing stop % from scan's stop loss (adaptive per stock)
-        # instead of using a fixed 5% for everything
+        # Calculate trailing stop % — 3 sources, use tightest reasonable:
+        # 1. Scan's stop loss → (price - stop) / price
+        # 2. ATR-based (1.5 × ATR%) → dynamic volatility match
+        # 3. Fallback: config default
+        _trail_candidates = []
         if stop > 0 and price > 0:
-            scan_stop_pct = round((price - stop) / price * 100, 1)
-            # Use scan's stop % but floor at 3% (avoid too tight) and cap at 8%
-            trail_pct = max(3.0, min(scan_stop_pct, 8.0))
+            _trail_candidates.append(round((price - stop) / price * 100, 1))
+        if atr_pct > 0:
+            # 1.5x ATR gives stop that's wide enough to avoid noise, tight enough to protect
+            _trail_candidates.append(round(atr_pct * 1.5, 1))
+        if _trail_candidates:
+            # Use average to blend signals; floor/cap for safety
+            trail_pct = sum(_trail_candidates) / len(_trail_candidates)
+            trail_pct = max(3.0, min(trail_pct, 8.0))
         else:
             trail_pct = self.cfg.trailing_stop_pct
-        logger.info("  Trail stop: %.1f%% (scan recommends %.1f%%)",
-                     trail_pct, scan_stop_pct if stop > 0 else 0)
+        logger.info("  Trail %.1f%% (ATR: %.1f%%, scan stop: %.1f%%)",
+                     trail_pct, atr_pct if atr_pct > 0 else 0,
+                     (price - stop) / price * 100 if stop > 0 else 0)
 
         # Execute as OCA bracket: buy + trailing stop + limit sell (linked)
         bracket = self.client.buy_with_bracket(

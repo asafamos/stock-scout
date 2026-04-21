@@ -362,13 +362,95 @@ div[style*="border"][style*="radius"]:not([class*="ss-portfolio"]):not(.ss-secti
 }
 
 /* ---------- Responsive Improvements ---------- */
+/* Tablets */
+@media (max-width: 1024px) {
+    .main .block-container {
+        padding-left: 1.5rem !important;
+        padding-right: 1.5rem !important;
+        max-width: 100%;
+    }
+    .ss-card, .ss-recommendation-card {
+        padding: 12px !important;
+    }
+}
+
+/* Mobile phones */
 @media (max-width: 768px) {
     .main .block-container {
-        padding-left: 1rem !important;
-        padding-right: 1rem !important;
+        padding-left: 0.75rem !important;
+        padding-right: 0.75rem !important;
+        padding-top: 0.75rem !important;
     }
-    h1 { font-size: 1.5rem; }
-    h2 { font-size: 1.25rem; }
+    h1 { font-size: 1.375rem !important; }
+    h2 { font-size: 1.1rem !important; }
+    h3 { font-size: 1rem !important; }
+
+    /* Buttons: bigger touch targets */
+    .stButton > button {
+        min-height: 44px !important;
+        font-size: 0.9rem !important;
+    }
+
+    /* Metrics: stack instead of row */
+    [data-testid="stMetric"] {
+        padding: 10px !important;
+        margin-bottom: 8px;
+    }
+    [data-testid="stMetricValue"] {
+        font-size: 1.25rem !important;
+    }
+
+    /* Columns: stack on mobile */
+    [data-testid="column"] {
+        min-width: 100% !important;
+        flex: 1 1 100% !important;
+    }
+
+    /* Section headers: more compact */
+    .ss-section-header {
+        padding: 10px 0;
+        margin: 12px 0 10px 0;
+    }
+    .ss-section-header .ss-icon {
+        width: 28px;
+        height: 28px;
+        font-size: 14px;
+    }
+
+    /* Cards: more compact */
+    .ss-card, .ss-recommendation-card,
+    [data-testid="stVerticalBlockBorderWrapper"] {
+        padding: 10px !important;
+        border-radius: 12px !important;
+    }
+
+    /* Tabs: more touch-friendly */
+    .stTabs [data-baseweb="tab"] {
+        padding: 10px 12px !important;
+        font-size: 0.85rem !important;
+    }
+
+    /* Sidebar: toggle wider for readability on mobile */
+    [data-testid="stSidebar"] > div {
+        padding: 1rem 0.75rem !important;
+    }
+
+    /* Banner: smaller gaps */
+    div[style*="grid-template-columns"] {
+        grid-template-columns: repeat(2, 1fr) !important;
+    }
+}
+
+/* Small phones */
+@media (max-width: 480px) {
+    h1 { font-size: 1.2rem !important; }
+    [data-testid="stMetricValue"] {
+        font-size: 1.05rem !important;
+    }
+    /* Single-column grid for everything */
+    div[style*="grid-template-columns"] {
+        grid-template-columns: 1fr !important;
+    }
 }
 
 /* ---------- Top decoration: subtle ambient glow ---------- */
