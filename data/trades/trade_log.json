@@ -32,6 +32,17 @@
   },
   {
     "action": "OPEN",
+    "ticker": "VAL",
+    "quantity": 3,
+    "price": 98.45767489842007,
+    "timestamp": "2026-04-14T19:00:29.847748",
+    "stop_loss": 93.55699920654297,
+    "target_price": 112.17340545654298,
+    "target_date": "2026-04-29 00:00:00",
+    "score": 78.52919218321763
+  },
+  {
+    "action": "OPEN",
     "ticker": "TDW",
     "quantity": 3,
     "price": 83.19033649989537,
@@ -45,20 +56,44 @@
     "action": "CLOSE",
     "ticker": "TDW",
     "quantity": 3,
-    "price": 81.55,
-    "timestamp": "2026-04-17T13:30:00",
-    "reason": "trailing_stop_hit (oil crash at open)",
-    "pnl": -9.18
+    "price": 0.0,
+    "timestamp": "2026-04-15T09:47:29.292335",
+    "entry_price": 83.19,
+    "pnl": 0,
+    "reason": "closed_externally",
+    "held_since": "2026-04-14T21:51:03.864870"
+  },
+  {
+    "action": "CLOSE",
+    "ticker": "UTHR",
+    "quantity": 1,
+    "price": 0.0,
+    "timestamp": "2026-04-15T18:08:14.168395",
+    "entry_price": 574.31,
+    "pnl": 0,
+    "reason": "closed_externally",
+    "held_since": "2026-04-13T18:48:16.668363"
+  },
+  {
+    "action": "CLOSE",
+    "ticker": "TDW",
+    "quantity": 3,
+    "price": 0.0,
+    "timestamp": "2026-04-15T18:08:14.539350",
+    "entry_price": 83.19,
+    "pnl": 0,
+    "reason": "closed_externally",
+    "held_since": "2026-04-14T21:51:03.864870"
   },
   {
     "action": "OPEN",
     "ticker": "CF",
     "quantity": 2,
-    "price": 111.33,
-    "timestamp": "2026-04-17T13:35:00",
-    "stop_loss": 115.99,
-    "target_price": 145.46,
-    "target_date": "2026-05-04",
-    "score": 79.8
+    "price": 110.83,
+    "timestamp": "2026-04-17T13:35:34.268155",
+    "stop_loss": 115.99505173790637,
+    "target_price": 145.46400604248046,
+    "target_date": "2026-05-04 00:00:00",
+    "score": 79.80178134205534
   }
 ]
