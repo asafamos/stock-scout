@@ -1770,6 +1770,94 @@ except Exception as e:
 
 
 
+# ==================== LIVE TRADING PERFORMANCE DASHBOARD ====================
+try:
+    from core.trading.analytics import get_full_performance
+    _perf = get_full_performance()
+    _metrics = _perf.get("metrics", {})
+    if _metrics.get("total_trades", 0) > 0:
+        with st.expander(f"📈 Live Trading Performance — {_metrics.get('total_trades')} trades · "
+                         f"{_metrics.get('win_rate', 0):.0f}% win rate · "
+                         f"${_metrics.get('total_pnl_abs', 0):+.2f} total P&L",
+                         expanded=False):
+            # KPI row
+            _k1, _k2, _k3, _k4 = st.columns(4)
+            with _k1:
+                st.metric("Win Rate", f"{_metrics.get('win_rate', 0):.1f}%",
+                          f"{_metrics.get('wins', 0)}W / {_metrics.get('losses', 0)}L")
+            with _k2:
+                _exp = _metrics.get('expectancy_pct', 0)
+                st.metric("Expectancy", f"{_exp:+.2f}%",
+                          "per trade" if _exp != 0 else None)
+            with _k3:
+                _pf = _metrics.get('profit_factor')
+                st.metric("Profit Factor",
+                          f"{_pf:.2f}" if _pf else "∞",
+                          help="Gross wins ÷ gross losses")
+            with _k4:
+                _dd = _perf.get("drawdown", {}).get("max_dd_pct", 0)
+                st.metric("Max Drawdown", f"-{_dd:.1f}%",
+                          delta_color="inverse" if _dd > 0 else "off")
+
+            # Row 2: Benchmarks
+            _b1, _b2, _b3, _b4 = st.columns(4)
+            with _b1:
+                st.metric("Total P&L", f"${_metrics.get('total_pnl_abs', 0):+.2f}",
+                          f"{_metrics.get('total_pnl_pct', 0):+.2f}%")
+            with _b2:
+                _spy = _perf.get("spy_return_pct")
+                if _spy is not None:
+                    st.metric("SPY Benchmark", f"{_spy:+.2f}%",
+                              help="Return if you just held SPY over same period")
+                else:
+                    st.metric("SPY Benchmark", "—")
+            with _b3:
+                _alpha = _perf.get("alpha_pct")
+                if _alpha is not None:
+                    st.metric("Alpha", f"{_alpha:+.2f}%",
+                              delta_color="normal" if _alpha >= 0 else "inverse",
+                              help="Your return vs SPY")
+                else:
+                    st.metric("Alpha", "—")
+            with _b4:
+                _hold = _metrics.get('avg_hold_days', 0)
+                st.metric("Avg Hold", f"{_hold:.1f} days")
+
+            # Equity curve
+            _curve = _perf.get("equity_curve", [])
+            if len(_curve) >= 2:
+                import pandas as _pd
+                _df = _pd.DataFrame(_curve)
+                _df["date"] = _pd.to_datetime(_df["date"])
+                st.line_chart(_df.set_index("date")["equity"],
+                              height=220, use_container_width=True)
+
+            # Trades table
+            _pairs = _perf.get("pairs", [])
+            if _pairs:
+                import pandas as _pd2
+                _tdf = _pd2.DataFrame(_pairs).sort_values("exit_date", ascending=False)
+                _show_cols = ["ticker", "entry_date", "exit_date", "entry_price",
+                              "exit_price", "pnl_abs", "pnl_pct", "hold_days", "reason"]
+                _tdf = _tdf[[c for c in _show_cols if c in _tdf.columns]]
+                st.dataframe(_tdf, use_container_width=True, hide_index=True,
+                             height=min(35 + len(_tdf) * 35, 300))
+
+            # Best/worst callout
+            _best = _metrics.get("best_trade")
+            _worst = _metrics.get("worst_trade")
+            _bc1, _bc2 = st.columns(2)
+            if _best:
+                with _bc1:
+                    st.success(f"🏆 **Best:** {_best['ticker']} {_best['pnl_pct']:+.1f}% "
+                               f"(${_best['pnl_abs']:+.2f}) in {_best['hold_days']}d")
+            if _worst:
+                with _bc2:
+                    st.error(f"📉 **Worst:** {_worst['ticker']} {_worst['pnl_pct']:+.1f}% "
+                             f"(${_worst['pnl_abs']:+.2f}) in {_worst['hold_days']}d")
+except Exception as _perf_err:
+    logger.debug("Performance dashboard error: %s", _perf_err)
+
 st.markdown("""
 <div class="ss-section-header">
   <div class="ss-icon" style="background: var(--ss-bg-badge);">📊</div>

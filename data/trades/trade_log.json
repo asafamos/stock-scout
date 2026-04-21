@@ -32,17 +32,6 @@
   },
   {
     "action": "OPEN",
-    "ticker": "VAL",
-    "quantity": 3,
-    "price": 98.45767489842007,
-    "timestamp": "2026-04-14T19:00:29.847748",
-    "stop_loss": 93.55699920654297,
-    "target_price": 112.17340545654298,
-    "target_date": "2026-04-29 00:00:00",
-    "score": 78.52919218321763
-  },
-  {
-    "action": "OPEN",
     "ticker": "TDW",
     "quantity": 3,
     "price": 83.19033649989537,
@@ -51,5 +40,25 @@
     "target_price": 94.45018005371094,
     "target_date": "2026-04-30 00:00:00",
     "score": 78.09732785687585
+  },
+  {
+    "action": "CLOSE",
+    "ticker": "TDW",
+    "quantity": 3,
+    "price": 81.55,
+    "timestamp": "2026-04-17T13:30:00",
+    "reason": "trailing_stop_hit (oil crash at open)",
+    "pnl": -9.18
+  },
+  {
+    "action": "OPEN",
+    "ticker": "CF",
+    "quantity": 2,
+    "price": 111.33,
+    "timestamp": "2026-04-17T13:35:00",
+    "stop_loss": 115.99,
+    "target_price": 145.46,
+    "target_date": "2026-05-04",
+    "score": 79.8
   }
 ]
