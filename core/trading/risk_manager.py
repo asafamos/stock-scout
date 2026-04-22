@@ -24,18 +24,21 @@ class RiskManager:
         self.cfg = config or CONFIG
 
     def check_daily_loss_breaker(self) -> Tuple[bool, str]:
-        """Return (allowed, reason). Blocks new buys if today's P&L < -max_daily_loss_pct."""
-        try:
+        """Return (allowed, reason). Blocks new buys if today's P&L < -max_daily_loss_pct.
+
+        Uses a short-lived cache to smooth out stale portfolio() reads, and
+        when the threshold is breached, re-checks once (IB prices can lag
+        by 1-2 min — a single stale snapshot shouldn't halt trading).
+        """
+        def _compute_pct_and_parts():
             net = self.client.get_net_liquidation()
             if net <= 0:
-                return True, ""
-            # Today's realized P&L from trade log
+                return None, 0.0, 0.0, 0.0
             today = date.today().isoformat()
             realized = 0.0
             for t in self.tracker.get_trade_log():
                 if t.get("action") == "CLOSE" and str(t.get("timestamp", "")).startswith(today):
                     realized += float(t.get("pnl", 0) or 0)
-            # Unrealized P&L from live IB positions
             unrealized = 0.0
             try:
                 for p in self.client._ib.portfolio():
@@ -45,10 +48,28 @@ class RiskManager:
                 pass
             total_today = realized + unrealized
             pct = (total_today / net) * 100
+            return pct, realized, unrealized, net
+
+        try:
+            pct, realized, unrealized, net = _compute_pct_and_parts()
+            if pct is None:
+                return True, ""
+
             if pct <= -self.cfg.max_daily_loss_pct:
-                return False, (
-                    f"Daily loss breaker: P&L {pct:+.2f}% <= -{self.cfg.max_daily_loss_pct}% "
-                    f"(realized ${realized:.0f} + unrealized ${unrealized:.0f})"
+                # Confirm before blocking — IB prices can lag; don't halt on
+                # a single stale reading. Wait 3s and recompute.
+                import time as _time
+                _time.sleep(3)
+                pct2, realized, unrealized, _ = _compute_pct_and_parts()
+                if pct2 is not None and pct2 <= -self.cfg.max_daily_loss_pct:
+                    return False, (
+                        f"Daily loss breaker: P&L {pct2:+.2f}% <= -{self.cfg.max_daily_loss_pct}% "
+                        f"(realized ${realized:.0f} + unrealized ${unrealized:.0f}, "
+                        f"confirmed on recheck)"
+                    )
+                logger.info(
+                    "Daily loss breaker recovered on recheck (first=%+.2f%%, second=%+.2f%%)",
+                    pct, pct2 or 0.0,
                 )
             return True, ""
         except Exception as e:

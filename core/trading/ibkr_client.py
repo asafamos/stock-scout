@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import time
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from typing import List, Optional
@@ -16,6 +17,18 @@ from typing import List, Optional
 from core.trading.config import CONFIG
 
 logger = logging.getLogger(__name__)
+
+
+def _make_oca_group(ticker: str) -> str:
+    """Generate a guaranteed-unique OCA group name.
+
+    Previously used int(time.time()) which collides when two orders are
+    submitted within the same second (e.g. manual resubmit racing with
+    the monitor's auto-resubmit). Collision links UNRELATED positions'
+    protective orders: filling one would cancel the other.
+    uuid4 hex is globally unique even under concurrent callers.
+    """
+    return f"SS_{ticker}_{uuid.uuid4().hex[:10]}"
 
 
 # ---------------------------------------------------------------------------
@@ -360,7 +373,7 @@ class IBKRClient:
             self._ib.qualifyContracts(contract)
 
             # Generate OCA group name (unique per trade)
-            oca_group = f"SS_{ticker}_{int(_time.time())}"
+            oca_group = _make_oca_group(ticker)
 
             # Leg 1: Market buy (parent)
             buy_order = Order()
@@ -481,7 +494,7 @@ class IBKRClient:
             contract = Stock(ticker, "SMART", "USD")
             self._ib.qualifyContracts(contract)
 
-            oca_group = f"SS_{ticker}_{int(_time.time())}"
+            oca_group = _make_oca_group(ticker)
 
             # Day-trade guard: set goodAfterTime if position opened today
             _gat = self._next_trading_day_open_utc() if same_day_guard else ""
@@ -724,11 +737,37 @@ class IBKRClient:
             logger.error("Failed to cancel all orders: %s", e)
             return False
 
+    # US stock market holidays (static list — add new years as needed).
+    # Keeps the monitor from running on NYSE holidays where portfolio()
+    # returns stale data and no orders will fill.
+    _US_MARKET_HOLIDAYS_2026 = {
+        "2026-01-01",  # New Year's Day
+        "2026-01-19",  # MLK Day
+        "2026-02-16",  # Presidents' Day
+        "2026-04-03",  # Good Friday
+        "2026-05-25",  # Memorial Day
+        "2026-06-19",  # Juneteenth
+        "2026-07-03",  # Independence Day (observed)
+        "2026-09-07",  # Labor Day
+        "2026-11-26",  # Thanksgiving
+        "2026-12-25",  # Christmas
+    }
+
     def is_market_open(self) -> bool:
-        """Check if US stock market is currently open (approximate)."""
+        """Check if US regular trading hours are active.
+
+        Regular session only: Mon-Fri, 9:30-16:00 ET, excluding NYSE holidays.
+        Does NOT include pre-market (4:00-9:30 ET) or after-hours (16:00-20:00 ET)
+        because our OCA trailing stops don't fill reliably outside RTH, and
+        price data during extended hours is misleading for ratchet logic.
+        """
         now = datetime.utcnow()
-        # US market: Mon-Fri 13:30-20:00 UTC (9:30-16:00 ET)
         if now.weekday() >= 5:
             return False
+        if now.strftime("%Y-%m-%d") in self._US_MARKET_HOLIDAYS_2026:
+            return False
+        # 13:30-20:00 UTC = 9:30-16:00 ET during US Eastern Daylight Time.
+        # Note: during standard time (Nov-Mar), this is 14:30-21:00 UTC; the
+        # daemon's 5-min cadence tolerates this 1-hour approximation.
         hour_min = now.hour * 100 + now.minute
         return 1330 <= hour_min <= 2000

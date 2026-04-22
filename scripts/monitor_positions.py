@@ -145,22 +145,34 @@ def run_check():
                 # Position was closed (stop or target hit)
                 logger.info("Position %s no longer in IBKR — marking closed", ticker)
 
-                # Try to determine exit price and reason from filled orders
+                # Try to determine exit price and reason from filled orders.
+                # IB's fills can be sparse right after a close — try twice with
+                # a short gap to give the API time to propagate the execution.
                 exit_price = 0.0
                 reason = "closed_externally"
 
-                # Primary: check fills directly (most reliable)
-                try:
-                    for f in client._ib.fills():
-                        if (f.contract.symbol == ticker
-                                and f.execution.side in ("SLD", "SELL")):
-                            fill_price = float(f.execution.price or 0)
-                            if fill_price > 0:
-                                exit_price = fill_price
-                                reason = "stop_or_target_filled"
-                                break
-                except Exception as _e:
-                    logger.debug("Fills check failed: %s", _e)
+                def _try_fills():
+                    try:
+                        for f in client._ib.fills():
+                            if (f.contract.symbol == ticker
+                                    and f.execution.side in ("SLD", "SELL")):
+                                fp = float(f.execution.price or 0)
+                                if fp > 0:
+                                    return fp
+                    except Exception as _e:
+                        logger.debug("Fills check failed: %s", _e)
+                    return 0.0
+
+                exit_price = _try_fills()
+                if exit_price == 0.0:
+                    # Wait briefly and try once more — fills may still be landing
+                    try:
+                        client._ib.sleep(2)
+                    except Exception:
+                        pass
+                    exit_price = _try_fills()
+                if exit_price > 0:
+                    reason = "stop_or_target_filled"
 
                 # Secondary: check completed trades for fill info
                 if exit_price == 0.0:
@@ -194,15 +206,30 @@ def run_check():
                     except Exception:
                         pass
 
-                # FINAL fallback: estimate from stop_loss or peak_price
+                # FINAL fallback: estimate from stop_loss or peak_price.
+                # Flag this clearly so the user knows to verify in IB directly.
+                estimated = False
                 if exit_price == 0.0:
                     exit_price = (pos.get("stop_loss") or pos.get("peak_price")
                                   or pos["entry_price"])
                     reason = f"{reason}_estimated"
+                    estimated = True
 
                 tracker.remove_position(ticker, exit_price, reason)
                 pnl = (exit_price - pos["entry_price"]) * pos["quantity"] if exit_price else 0
                 notify.notify_sell(ticker, pos["quantity"], exit_price, reason, pnl)
+                if estimated:
+                    # Emphasized follow-up so the user checks IB for true fill price
+                    try:
+                        notify.notify_error(
+                            "Exit price estimated",
+                            f"⚠️ {ticker} exit price could not be retrieved from IB — "
+                            f"using estimate ${exit_price:.2f}. "
+                            f"Please verify the actual fill in IB and correct "
+                            f"the trade_log if needed."
+                        )
+                    except Exception:
+                        pass
 
         # 2. Verify protective orders — every position MUST have live orders
         _verify_protections(tracker, client, ibkr_orders, notify)
@@ -495,15 +522,21 @@ def _take_partial_profit(tracker, client, notify):
             continue  # Already sold partial
         ticker = pos["ticker"]
 
-        # DAY-TRADE GUARD: skip if position opened today (cash account)
-        try:
-            from datetime import date as _d
-            _opened = str(pos.get("opened_at", ""))[:10]
-            if _opened == _d.today().isoformat():
-                logger.debug("Partial profit skip %s: opened today (day-trade prevention)", ticker)
-                continue
-        except Exception:
-            pass
+        # DAY-TRADE GUARD (hardened): if we can't prove the position was
+        # opened BEFORE today, refuse to sell. Failing closed means:
+        #  - corrupt/missing opened_at → skip (conservative)
+        #  - position opened today     → skip
+        #  - only when we're SURE it's a prior-day position do we proceed
+        # This prevents accidental day-trade violations from exception paths.
+        today_iso = date.today().isoformat()
+        opened_at = str(pos.get("opened_at", "") or "")[:10]
+        is_prior_day = bool(opened_at) and opened_at != today_iso and opened_at < today_iso
+        if not is_prior_day:
+            logger.debug(
+                "Partial profit skip %s: opened_at=%r, today=%s (need prior-day)",
+                ticker, opened_at, today_iso,
+            )
+            continue
 
         port_item = portfolio.get(ticker)
         if not port_item:
@@ -615,16 +648,19 @@ def _ratchet_stops(tracker, client, ibkr_orders, notify):
         qty = int(pos["quantity"])
         oca = pos.get("order_ids", {}).get("oca_group", "")
 
-        # DAY-TRADE GUARD: skip ratchet if position opened today
-        # (ratchet may move stop above current price → trigger sell → day trade)
-        try:
-            from datetime import date as _d_r
-            _opened_r = str(pos.get("opened_at", ""))[:10]
-            if _opened_r == _d_r.today().isoformat():
-                logger.debug("Ratchet skip %s: opened today (day-trade prevention)", ticker)
-                continue
-        except Exception:
-            pass
+        # DAY-TRADE GUARD (hardened): ratchet can move stop above current
+        # price → immediate sell → day trade violation if opened today.
+        # Fail closed: only ratchet when we can prove the position is
+        # from a prior day.
+        today_iso = date.today().isoformat()
+        opened_at = str(pos.get("opened_at", "") or "")[:10]
+        is_prior_day = bool(opened_at) and opened_at < today_iso
+        if not is_prior_day:
+            logger.debug(
+                "Ratchet skip %s: opened_at=%r, today=%s (need prior-day)",
+                ticker, opened_at, today_iso,
+            )
+            continue
 
         port_item = portfolio.get(ticker)
         if not port_item:
