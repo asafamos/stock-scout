@@ -76,6 +76,38 @@ def test_blocks_trade_with_invalid_stop(rm):
     assert "stop" in reason.lower()
 
 
+def test_blocks_nan_in_trade_levels(rm):
+    """NaN in any of price / stop / target must be rejected.
+
+    Without explicit isnan() checks, NaN would bypass every numerical
+    comparison (NaN > 0 is False, NaN <= 0 is also False) and reach
+    IBKR with an invalid auxPrice — AFTER the buy had filled.
+    """
+    import math as _m
+    # NaN target
+    allowed, reason = rm.can_open_position(
+        "TEST", price=100, score=80, rr=2.5,
+        stop_loss=95, target_price=float("nan"),
+    )
+    assert not allowed, f"NaN target should be rejected: {reason}"
+    assert "nan" in reason.lower()
+
+    # NaN stop
+    allowed, reason = rm.can_open_position(
+        "TEST", price=100, score=80, rr=2.5,
+        stop_loss=float("nan"), target_price=120,
+    )
+    assert not allowed
+    assert "nan" in reason.lower()
+
+    # NaN price
+    allowed, reason = rm.can_open_position(
+        "TEST", price=float("nan"), score=80, rr=2.5,
+        stop_loss=95, target_price=120,
+    )
+    assert not allowed
+
+
 # ── Sector momentum ───────────────────────────────────────
 
 def test_sector_momentum_unknown_sector_fails_open(rm):

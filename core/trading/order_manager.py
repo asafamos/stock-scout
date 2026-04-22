@@ -666,19 +666,44 @@ class OrderManager:
         notify.notify_buy(ticker, qty, filled_price, stop, target, score,
                           trail_pct=trail_pct, rr=rr, target_date=target_date)
 
-        # Step 5: Track position (include ML prob for exit signal tracking)
+        # Step 5: Track position (include ML prob for exit signal tracking).
+        # CRITICAL: if add_position fails (disk full, permission denied),
+        # the buy has already filled and protective orders are placed —
+        # but the monitor will never see this position. It becomes a
+        # ghost in IBKR. We MUST alert the user so they can correct
+        # the tracker manually before the monitor's next cycle.
         ml_prob = float(row.get("ML_20d_Prob", row.get("ml_prob", 0)) or 0)
-        self.tracker.add_position(
-            ticker=ticker,
-            quantity=qty,
-            entry_price=filled_price,
-            stop_loss=stop,
-            target_price=target,
-            target_date=target_date if target_date else None,
-            trailing_stop_pct=trail_pct,
-            score=score,
-            order_ids=order_ids,
-        )
+        try:
+            self.tracker.add_position(
+                ticker=ticker,
+                quantity=qty,
+                entry_price=filled_price,
+                stop_loss=stop,
+                target_price=target,
+                target_date=target_date if target_date else None,
+                trailing_stop_pct=trail_pct,
+                score=score,
+                order_ids=order_ids,
+            )
+        except Exception as _tracker_err:
+            logger.error(
+                "CRITICAL: position tracker add failed for %s after buy filled: %s",
+                ticker, _tracker_err,
+            )
+            try:
+                notify.notify_error(
+                    "TRACKER WRITE FAILED",
+                    f"🚨 {ticker} BOUGHT {qty}@${filled_price:.2f} "
+                    f"(OCA {order_ids.get('oca_group','?')}) but position "
+                    f"could NOT be written to tracker: {_tracker_err}\n\n"
+                    f"Monitor is BLIND to this position. "
+                    f"Manually add to data/trades/open_positions.json ASAP."
+                )
+            except Exception:
+                pass
+            # Don't re-raise — the position is protected in IBKR by OCA,
+            # and the user has been alerted. Continue returning success
+            # so the caller sees the buy went through.
         # Store extra data (sector, ml_prob) for monitor's exit logic
         try:
             _all = self.tracker.get_open_positions()

@@ -494,6 +494,33 @@ class IBKRClient:
             contract = Stock(ticker, "SMART", "USD")
             self._ib.qualifyContracts(contract)
 
+            # Cancel any existing live protective orders for this ticker
+            # BEFORE placing new ones. Prevents duplicate OCA groups that
+            # could double-sell when stops trigger. Especially important
+            # during reconnect scenarios where the monitor's stored OCA
+            # may not match IB's active OCA.
+            try:
+                self._ib.reqAllOpenOrders()
+                self._ib.sleep(1)
+                cancelled = 0
+                for tr in list(self._ib.openTrades()):
+                    if (tr.contract.symbol == ticker
+                            and tr.order.action == "SELL"
+                            and tr.orderStatus.status in ("Submitted", "PreSubmitted")):
+                        try:
+                            self._ib.cancelOrder(tr.order)
+                            cancelled += 1
+                        except Exception as _ce:
+                            logger.debug("Cancel skipped for %s order %d: %s",
+                                         ticker, tr.order.orderId, _ce)
+                if cancelled:
+                    logger.info("Cancelled %d live %s protective orders before resubmit",
+                                cancelled, ticker)
+                    self._ib.sleep(2)  # let cancellations propagate
+            except Exception as _pre_e:
+                logger.warning("Pre-resubmit cancel pass failed for %s: %s",
+                               ticker, _pre_e)
+
             oca_group = _make_oca_group(ticker)
 
             # Day-trade guard: set goodAfterTime if position opened today

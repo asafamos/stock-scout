@@ -248,8 +248,21 @@ class RiskManager:
 
         # 0. Trade levels sanity — refuse buys with missing/absurd stops or targets.
         # Protects against scan rows where stop_loss/target_price are missing,
-        # zero, or on the wrong side of entry (would leave the position
+        # zero, NaN, or on the wrong side of entry (would leave the position
         # unbounded on upside or with a stop that can never trigger).
+        # NaN guards are essential: pandas `to_numeric(..., errors="coerce")`
+        # can silently produce NaN values. `NaN > 0` is False and `NaN <= 0`
+        # is also False, so without explicit isnan() checks, a NaN would
+        # slip through every comparison and IBKR would reject the order
+        # with a cryptic "invalid auxPrice" error after the buy already filled.
+        try:
+            if math.isnan(price) or math.isnan(stop_loss) or math.isnan(target_price):
+                return False, (
+                    f"NaN in trade levels "
+                    f"(price={price}, stop={stop_loss}, target={target_price})"
+                )
+        except (TypeError, ValueError):
+            return False, "Non-numeric trade levels"
         if price <= 0:
             return False, f"Invalid price (${price:.2f})"
         MIN_TARGET_MULT = 1.02   # target ≥ entry × 1.02 (at least +2%)
