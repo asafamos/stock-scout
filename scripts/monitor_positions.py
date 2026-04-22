@@ -18,8 +18,43 @@ from __future__ import annotations
 
 import argparse
 import logging
+import signal
 import time
+from contextlib import contextmanager
 from datetime import datetime, date
+
+
+# ── Cycle timeout ────────────────────────────────────────────────────
+# IB can hang indefinitely on portfolio()/fills()/openTrades() if the
+# network blips or the gateway stalls. A per-cycle alarm ensures we
+# abort and retry next cycle instead of freezing the daemon.
+CYCLE_TIMEOUT_SECONDS = 120  # 2 min — generous but bounded
+
+
+class MonitorTimeout(Exception):
+    pass
+
+
+@contextmanager
+def _cycle_timeout(seconds: int):
+    """SIGALRM-based hard timeout. Unix only; safe because the monitor
+    daemon runs as main thread of its own process.
+    """
+    def _handler(signum, frame):
+        raise MonitorTimeout(f"run_check exceeded {seconds}s budget")
+    # Only install alarm if we're in the main thread (signals don't work otherwise)
+    try:
+        old = signal.signal(signal.SIGALRM, _handler)
+    except ValueError:
+        # Not main thread — skip timeout protection
+        yield
+        return
+    signal.alarm(seconds)
+    try:
+        yield
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -708,7 +743,18 @@ def daemon_loop():
     while True:
         if client.is_market_open():
             try:
-                run_check()
+                with _cycle_timeout(CYCLE_TIMEOUT_SECONDS):
+                    run_check()
+            except MonitorTimeout as e:
+                logger.error(
+                    "Monitor cycle TIMED OUT (%s) — skipping to next cycle",
+                    e,
+                )
+                # Best-effort cleanup: ib_insync connections may be stuck
+                try:
+                    client.disconnect()
+                except Exception:
+                    pass
             except Exception as e:
                 logger.error("Monitor cycle failed: %s", e)
         else:

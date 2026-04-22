@@ -6,9 +6,12 @@ so we can reconcile and monitor even when not connected.
 
 from __future__ import annotations
 
+import fcntl
 import json
 import logging
 import os
+import tempfile
+from contextlib import contextmanager
 from datetime import datetime, date
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -16,6 +19,55 @@ from typing import Dict, List, Optional
 from core.trading.config import CONFIG
 
 logger = logging.getLogger(__name__)
+
+
+@contextmanager
+def _file_lock(path: Path, mode: str = "r+"):
+    """Exclusive advisory lock on `path` for concurrent-safe read-modify-write.
+
+    Used to prevent race conditions between run_auto_trade (places buys and
+    writes new positions) and monitor_positions (records partials/closes).
+    fcntl.flock is advisory — both writers must use this to be protected.
+    """
+    # Ensure file exists so we can open for locking
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        path.write_text("[]")
+    fd = open(path, mode)
+    try:
+        fcntl.flock(fd.fileno(), fcntl.LOCK_EX)
+        yield fd
+    finally:
+        try:
+            fcntl.flock(fd.fileno(), fcntl.LOCK_UN)
+        except Exception:
+            pass
+        fd.close()
+
+
+def _atomic_write_json(path: Path, data) -> None:
+    """Write JSON via tempfile + rename so readers never see a half-written file.
+
+    Combined with _file_lock on the target path, this prevents both torn
+    reads and lost writes from concurrent producers.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # tempfile in same directory so rename is atomic on the same filesystem
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent)
+    )
+    try:
+        with os.fdopen(fd, "w") as tmp:
+            json.dump(data, tmp, indent=2, default=str)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 class PositionTracker:
@@ -81,27 +133,27 @@ class PositionTracker:
         score: float = 0.0,
         order_ids: Optional[Dict[str, int]] = None,
     ):
-        positions = self.get_open_positions()
+        # Read-modify-write under exclusive lock to prevent race with monitor
+        with _file_lock(self._positions_path):
+            positions = self._read_positions_unlocked()
+            # Prevent duplicates
+            if any(p["ticker"] == ticker for p in positions):
+                logger.warning("Already holding %s — skipping add", ticker)
+                return
+            positions.append({
+                "ticker": ticker,
+                "quantity": quantity,
+                "entry_price": entry_price,
+                "stop_loss": stop_loss,
+                "target_price": target_price,
+                "target_date": target_date,
+                "trailing_stop_pct": trailing_stop_pct,
+                "score": score,
+                "opened_at": datetime.utcnow().isoformat(),
+                "order_ids": order_ids or {},
+            })
+            _atomic_write_json(self._positions_path, positions)
 
-        # Prevent duplicates
-        if any(p["ticker"] == ticker for p in positions):
-            logger.warning("Already holding %s — skipping add", ticker)
-            return
-
-        positions.append({
-            "ticker": ticker,
-            "quantity": quantity,
-            "entry_price": entry_price,
-            "stop_loss": stop_loss,
-            "target_price": target_price,
-            "target_date": target_date,
-            "trailing_stop_pct": trailing_stop_pct,
-            "score": score,
-            "opened_at": datetime.utcnow().isoformat(),
-            "order_ids": order_ids or {},
-        })
-
-        self._save_positions(positions)
         self._log_trade("OPEN", ticker, quantity, entry_price, {
             "stop_loss": stop_loss,
             "target_price": target_price,
@@ -112,15 +164,16 @@ class PositionTracker:
 
     def remove_position(self, ticker: str, exit_price: float = 0.0,
                         reason: str = "closed"):
-        positions = self.get_open_positions()
-        removed = [p for p in positions if p["ticker"] == ticker]
-        remaining = [p for p in positions if p["ticker"] != ticker]
+        # Read-modify-write under exclusive lock
+        with _file_lock(self._positions_path):
+            positions = self._read_positions_unlocked()
+            removed = [p for p in positions if p["ticker"] == ticker]
+            remaining = [p for p in positions if p["ticker"] != ticker]
+            if not removed:
+                logger.warning("No position found for %s", ticker)
+                return
+            _atomic_write_json(self._positions_path, remaining)
 
-        if not removed:
-            logger.warning("No position found for %s", ticker)
-            return
-
-        self._save_positions(remaining)
         pos = removed[0]
         pnl = (exit_price - pos["entry_price"]) * pos["quantity"] if exit_price else 0
         self._log_trade("CLOSE", ticker, pos["quantity"], exit_price, {
@@ -156,25 +209,35 @@ class PositionTracker:
 
     # ── Internals ─────────────────────────────────────────────
 
+    def _read_positions_unlocked(self) -> List[dict]:
+        """Read positions without taking the lock (caller is holding it)."""
+        try:
+            return json.loads(self._positions_path.read_text() or "[]")
+        except Exception:
+            return []
+
     def _save_positions(self, positions: List[dict]):
-        self._positions_path.write_text(
-            json.dumps(positions, indent=2, default=str)
-        )
+        """Locked atomic save — safe when called concurrently with other writers."""
+        with _file_lock(self._positions_path):
+            _atomic_write_json(self._positions_path, positions)
 
     def _log_trade(self, action: str, ticker: str, qty: int,
                    price: float, extra: dict):
-        log = self.get_trade_log()
-        log.append({
-            "action": action,
-            "ticker": ticker,
-            "quantity": qty,
-            "price": price,
-            "timestamp": datetime.utcnow().isoformat(),
-            **extra,
-        })
-        self._log_path.write_text(
-            json.dumps(log, indent=2, default=str)
-        )
+        """Locked atomic append to trade log."""
+        with _file_lock(self._log_path):
+            try:
+                log = json.loads(self._log_path.read_text() or "[]")
+            except Exception:
+                log = []
+            log.append({
+                "action": action,
+                "ticker": ticker,
+                "quantity": qty,
+                "price": price,
+                "timestamp": datetime.utcnow().isoformat(),
+                **extra,
+            })
+            _atomic_write_json(self._log_path, log)
 
     def summary(self) -> str:
         positions = self.get_open_positions()

@@ -255,9 +255,24 @@ class OrderManager:
             logger.error("No scan results found in %s", scans_dir)
             return None
 
-        logger.info("Loading scan from: %s (modified %s)",
+        # Staleness check — refuse to trade on scan data older than 4 hours.
+        # Entry/stop/target from an old scan may be hundreds of bps off and
+        # protective orders sized to stale volatility are unsafe.
+        import time as _time
+        age_sec = _time.time() - best_mtime
+        MAX_SCAN_AGE_HOURS = 4
+        if age_sec > MAX_SCAN_AGE_HOURS * 3600:
+            hours = age_sec / 3600
+            logger.error(
+                "Scan file %s is %.1fh old (max %dh) — refusing to trade on stale data",
+                best_path.name, hours, MAX_SCAN_AGE_HOURS,
+            )
+            return None
+
+        logger.info("Loading scan from: %s (modified %s, age %.1fm)",
                      best_path.name,
-                     pd.Timestamp.fromtimestamp(best_mtime).strftime("%Y-%m-%d %H:%M"))
+                     pd.Timestamp.fromtimestamp(best_mtime).strftime("%Y-%m-%d %H:%M"),
+                     age_sec / 60)
         try:
             if best_path.suffix == ".parquet":
                 return pd.read_parquet(best_path)
@@ -456,9 +471,10 @@ class OrderManager:
                 return {"ticker": ticker, "status": "skipped",
                         "reason": f"Gap down {gap_pct:+.1f}% vs scan (possible news event)"}
 
-        # Risk check
+        # Risk check — now validates target/stop sanity too
         allowed, reason = self.risk.can_open_position(
-            ticker, price, score, rr, sector=sector, atr_pct=atr_pct
+            ticker, price, score, rr, sector=sector, atr_pct=atr_pct,
+            stop_loss=stop, target_price=target,
         )
         if not allowed:
             logger.info("SKIP %s: %s", ticker, reason)

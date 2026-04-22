@@ -79,10 +79,31 @@ class RiskManager:
         rr: float = 0.0,
         sector: str = "",
         atr_pct: float = 0.0,
+        stop_loss: float = 0.0,
+        target_price: float = 0.0,
     ) -> Tuple[bool, str]:
         """Return (allowed, reason). Reason is empty string if allowed."""
 
-        # 0. Daily loss circuit breaker
+        # 0. Trade levels sanity — refuse buys with missing/absurd stops or targets.
+        # Protects against scan rows where stop_loss/target_price are missing,
+        # zero, or on the wrong side of entry (would leave the position
+        # unbounded on upside or with a stop that can never trigger).
+        if price <= 0:
+            return False, f"Invalid price (${price:.2f})"
+        MIN_TARGET_MULT = 1.02   # target ≥ entry × 1.02 (at least +2%)
+        MAX_STOP_MULT   = 0.995  # stop  ≤ entry × 0.995 (at least -0.5%)
+        if target_price <= 0 or target_price < price * MIN_TARGET_MULT:
+            return False, (
+                f"Invalid target (${target_price:.2f}) — must be "
+                f">= ${price * MIN_TARGET_MULT:.2f} (entry+2%)"
+            )
+        if stop_loss <= 0 or stop_loss >= price * MAX_STOP_MULT:
+            return False, (
+                f"Invalid stop (${stop_loss:.2f}) — must be "
+                f"<= ${price * MAX_STOP_MULT:.2f} (entry-0.5%)"
+            )
+
+        # 1. Daily loss circuit breaker
         allowed, reason = self.check_daily_loss_breaker()
         if not allowed:
             return False, reason
