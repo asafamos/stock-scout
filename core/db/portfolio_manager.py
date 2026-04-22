@@ -417,6 +417,53 @@ class PortfolioManager:
             closed_invested = float(closed_row[4])
             realized_pnl = float(closed_row[5])
 
+            # Size-weighted avg return — more meaningful than simple avg because
+            # it reflects actual dollar impact. A 10% gain on $500 matters more
+            # than a 10% gain on $100; simple AVG treats them identically.
+            weighted_avg_return = (
+                realized_pnl / closed_invested * 100.0
+                if closed_invested > 0 else 0.0
+            )
+
+            # Profit factor = gross wins / |gross losses|. >1 means profitable;
+            # 1.5+ is good, 2.0+ is excellent.
+            pf_row = con.execute(
+                "SELECT "
+                "COALESCE(SUM(CASE WHEN realized_return_pct > 0 "
+                "  THEN (realized_return_pct/100.0) * entry_price * shares ELSE 0 END), 0), "
+                "COALESCE(SUM(CASE WHEN realized_return_pct < 0 "
+                "  THEN ABS((realized_return_pct/100.0) * entry_price * shares) ELSE 0 END), 0), "
+                "COALESCE(AVG(CASE WHEN realized_return_pct > 0 "
+                "  THEN realized_return_pct END), 0), "
+                "COALESCE(AVG(CASE WHEN realized_return_pct < 0 "
+                "  THEN realized_return_pct END), 0), "
+                # For Sharpe-lite: sample stdev of returns
+                "COALESCE(STDDEV(realized_return_pct), 0), "
+                "COALESCE(AVG(realized_return_pct), 0) "
+                "FROM portfolio_positions WHERE user_id = ? AND status = 'closed' "
+                "AND COALESCE(exit_reason, '') != 'manual'"
+                + (" AND exit_date >= ?" if since_date is not None else ""),
+                closed_params,
+            ).fetchone()
+            gross_wins = float(pf_row[0])
+            gross_losses = float(pf_row[1])
+            avg_win_pct = float(pf_row[2])
+            avg_loss_pct = float(pf_row[3])
+            stdev_returns = float(pf_row[4])
+            mean_returns = float(pf_row[5])
+            profit_factor = gross_wins / gross_losses if gross_losses > 0 else 0.0
+
+            # Sharpe-lite: mean return / stdev (annualized assuming 20d holds →
+            # ~12 non-overlapping trades/yr per name × √12 scale factor).
+            # Not a true Sharpe but a useful consistency indicator.
+            sharpe_lite = (
+                mean_returns / stdev_returns * (12 ** 0.5)
+                if stdev_returns > 0 else 0.0
+            )
+
+            # Expectancy per trade in dollars ($ P&L per closed trade)
+            expectancy = realized_pnl / closed_count if closed_count > 0 else 0.0
+
             # Combined P&L: unrealized (open) + realized (closed) over total cost basis
             unrealized_pnl = current_value - open_invested
             total_cost_basis = open_invested + closed_invested
@@ -436,6 +483,15 @@ class PortfolioManager:
                 "total_return_pct": combined_pnl_pct,
                 "win_rate": win_rate,
                 "avg_return": avg_return,
+                # New fields:
+                "weighted_avg_return": weighted_avg_return,
+                "profit_factor": profit_factor,
+                "sharpe_lite": sharpe_lite,
+                "expectancy": expectancy,
+                "avg_win_pct": avg_win_pct,
+                "avg_loss_pct": avg_loss_pct,
+                "realized_pnl": realized_pnl,
+                "unrealized_pnl": unrealized_pnl,
                 "prediction_accuracy": prediction_accuracy,
             }
         finally:
@@ -1019,6 +1075,34 @@ class SupabasePortfolioManager:
         win_rate = win_count / closed_count if closed_count > 0 else 0.0
         prediction_accuracy = correct_count / closed_count if closed_count > 0 else 0.0
 
+        # Professional metrics (mirror DuckDB version)
+        weighted_avg_return = (
+            realized_pnl / closed_invested * 100.0 if closed_invested > 0 else 0.0
+        )
+        returns = [float(r.get("realized_return_pct") or 0) for r in closed_rows]
+        gross_wins = sum(
+            (r / 100.0) * float(row.get("entry_price") or 0) * int(row.get("shares") or 100)
+            for row, r in zip(closed_rows, returns) if r > 0
+        )
+        gross_losses = sum(
+            abs((r / 100.0) * float(row.get("entry_price") or 0) * int(row.get("shares") or 100))
+            for row, r in zip(closed_rows, returns) if r < 0
+        )
+        profit_factor = gross_wins / gross_losses if gross_losses > 0 else 0.0
+        wins = [r for r in returns if r > 0]
+        losses = [r for r in returns if r < 0]
+        avg_win_pct = sum(wins) / len(wins) if wins else 0.0
+        avg_loss_pct = sum(losses) / len(losses) if losses else 0.0
+        # Sharpe-lite: mean/stdev × √12 (annualized for ~monthly turnover)
+        if len(returns) >= 2:
+            mean = sum(returns) / len(returns)
+            var = sum((x - mean) ** 2 for x in returns) / (len(returns) - 1)
+            stdev = var ** 0.5
+            sharpe_lite = (mean / stdev * (12 ** 0.5)) if stdev > 0 else 0.0
+        else:
+            sharpe_lite = 0.0
+        expectancy = realized_pnl / closed_count if closed_count > 0 else 0.0
+
         return {
             "open_count": open_count,
             "closed_count": closed_count,
@@ -1027,6 +1111,14 @@ class SupabasePortfolioManager:
             "total_return_pct": combined_pnl_pct,
             "win_rate": win_rate,
             "avg_return": avg_return,
+            "weighted_avg_return": weighted_avg_return,
+            "profit_factor": profit_factor,
+            "sharpe_lite": sharpe_lite,
+            "expectancy": expectancy,
+            "avg_win_pct": avg_win_pct,
+            "avg_loss_pct": avg_loss_pct,
+            "realized_pnl": realized_pnl,
+            "unrealized_pnl": unrealized_pnl,
             "prediction_accuracy": prediction_accuracy,
         }
 

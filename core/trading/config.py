@@ -127,11 +127,14 @@ class TradingConfig:
         default_factory=lambda: _env_bool("PARTIAL_PROFIT_ENABLED", True)
     )
     partial_profit_trigger_pct: float = field(
-        default_factory=lambda: _env_float("PARTIAL_PROFIT_TRIGGER_PCT", 6.0)
-    )  # When unrealized PnL crosses this %, sell half
+        default_factory=lambda: _env_float("PARTIAL_PROFIT_TRIGGER_PCT", 12.0)
+    )  # When unrealized PnL crosses this %, sell a portion.
+    # Raised from 6% → 12% so it fires AFTER ratchet tier 1 (at +10%),
+    # not before. Lets winners run through normal ATR noise.
     partial_profit_fraction: float = field(
-        default_factory=lambda: _env_float("PARTIAL_PROFIT_FRACTION", 0.5)
-    )  # Fraction of position to sell (0.5 = half)
+        default_factory=lambda: _env_float("PARTIAL_PROFIT_FRACTION", 0.33)
+    )  # Fraction of position to sell (0.33 = one-third).
+    # Reduced from 0.5 so two-thirds ride the target after partial.
 
     # ── Dynamic Stop Ratcheting (lock in profits as stock runs up) ─
     # When peak gain crosses thresholds, replace trailing stop with
@@ -139,25 +142,28 @@ class TradingConfig:
     ratchet_enabled: bool = field(
         default_factory=lambda: _env_bool("RATCHET_ENABLED", True)
     )
-    # Threshold (peak gain %) → floor (profit to lock as % of entry)
-    # Example: peak_gain 10% → lock 5% profit floor
+    # Threshold (peak gain %) → floor (profit to lock as % of entry).
+    # Relaxed 2026-04-22: previous settings (+5% → breakeven) were cutting
+    # winners during normal ATR-size noise. New tiers give ≥3% profit
+    # protection while allowing positions to swing freely until they've
+    # earned meaningful gain.
     ratchet_tier1_gain: float = field(
-        default_factory=lambda: _env_float("RATCHET_T1_GAIN", 5.0)
-    )   # Peak +5% → lock breakeven (0%)
+        default_factory=lambda: _env_float("RATCHET_T1_GAIN", 10.0)
+    )   # Peak +10% → lock +3% profit (was +5% → breakeven)
     ratchet_tier1_lock: float = field(
-        default_factory=lambda: _env_float("RATCHET_T1_LOCK", 0.0)
+        default_factory=lambda: _env_float("RATCHET_T1_LOCK", 3.0)
     )
     ratchet_tier2_gain: float = field(
-        default_factory=lambda: _env_float("RATCHET_T2_GAIN", 10.0)
-    )   # Peak +10% → lock 5% profit
+        default_factory=lambda: _env_float("RATCHET_T2_GAIN", 18.0)
+    )   # Peak +18% → lock +8% profit (was +10% → +5%)
     ratchet_tier2_lock: float = field(
-        default_factory=lambda: _env_float("RATCHET_T2_LOCK", 5.0)
+        default_factory=lambda: _env_float("RATCHET_T2_LOCK", 8.0)
     )
     ratchet_tier3_gain: float = field(
-        default_factory=lambda: _env_float("RATCHET_T3_GAIN", 15.0)
-    )   # Peak +15% → lock 10% profit
+        default_factory=lambda: _env_float("RATCHET_T3_GAIN", 28.0)
+    )   # Peak +28% → lock +15% profit (was +15% → +10%)
     ratchet_tier3_lock: float = field(
-        default_factory=lambda: _env_float("RATCHET_T3_LOCK", 10.0)
+        default_factory=lambda: _env_float("RATCHET_T3_LOCK", 15.0)
     )
 
     # ── Paths ──────────────────────────────────────────────────

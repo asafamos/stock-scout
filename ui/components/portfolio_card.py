@@ -197,6 +197,13 @@ def render_portfolio_sidebar_summary(stats: Dict[str, Any]) -> str:
     total_return = stats.get("total_return_pct", 0)
     win_rate = stats.get("win_rate", 0)
     avg_return = stats.get("avg_return", 0)
+    # New professional metrics
+    weighted_avg = stats.get("weighted_avg_return", avg_return)
+    profit_factor = stats.get("profit_factor", 0)
+    sharpe_lite = stats.get("sharpe_lite", 0)
+    expectancy = stats.get("expectancy", 0)
+    avg_win_pct = stats.get("avg_win_pct", 0)
+    avg_loss_pct = stats.get("avg_loss_pct", 0)
 
     ret_cls = _return_class(total_return)
 
@@ -214,14 +221,46 @@ def render_portfolio_sidebar_summary(stats: Dict[str, Any]) -> str:
     )
 
     if closed_count > 0:
+        # Color profit factor: green ≥1.5, yellow 1.0-1.5, red <1.0
+        pf_color = (
+            "var(--ss-green)" if profit_factor >= 1.5
+            else "var(--ss-warn, #e0a800)" if profit_factor >= 1.0
+            else "var(--ss-red, #d33)"
+        )
+        # Sharpe color: green ≥1.0, yellow 0.5-1.0, red <0.5
+        sh_color = (
+            "var(--ss-green)" if sharpe_lite >= 1.0
+            else "var(--ss-warn, #e0a800)" if sharpe_lite >= 0.5
+            else "var(--ss-red, #d33)"
+        )
         rows += (
             f'<div class="pf-stat-row">'
             f'<span class="pf-stat-label">Target Hit Rate</span>'
             f'<span class="pf-stat-value" style="color:var(--ss-green);">{win_rate:.0%}</span>'
             f'</div>'
-            f'<div class="pf-stat-row">'
-            f'<span class="pf-stat-label">Avg Return</span>'
-            f'<span class="pf-stat-value">{_fmt_pct(avg_return)}</span>'
+            # Weighted avg replaces simple avg — more accurate reflection of $ impact
+            f'<div class="pf-stat-row" title="Size-weighted avg return (reflects dollar impact)">'
+            f'<span class="pf-stat-label">Avg Return (wtd)</span>'
+            f'<span class="pf-stat-value">{_fmt_pct(weighted_avg)}</span>'
+            f'</div>'
+            f'<div class="pf-stat-row" title="Gross wins / gross losses. &gt;1.5 is strong edge.">'
+            f'<span class="pf-stat-label">Profit Factor</span>'
+            f'<span class="pf-stat-value" style="color:{pf_color};">'
+            f'{profit_factor:.2f}×</span>'
+            f'</div>'
+            f'<div class="pf-stat-row" title="Risk-adjusted return proxy. ≥1.0 is good.">'
+            f'<span class="pf-stat-label">Sharpe (lite)</span>'
+            f'<span class="pf-stat-value" style="color:{sh_color};">'
+            f'{sharpe_lite:.2f}</span>'
+            f'</div>'
+            f'<div class="pf-stat-row" title="Expected $ P&amp;L per closed trade">'
+            f'<span class="pf-stat-label">Expectancy</span>'
+            f'<span class="pf-stat-value">${expectancy:+.0f}/trade</span>'
+            f'</div>'
+            f'<div class="pf-stat-row" title="Typical win size vs typical loss size" '
+            f'style="font-size:0.78rem; color:var(--ss-text-muted);">'
+            f'<span class="pf-stat-label">Avg W / L</span>'
+            f'<span class="pf-stat-value">{_fmt_pct(avg_win_pct)} / {_fmt_pct(avg_loss_pct)}</span>'
             f'</div>'
         )
 

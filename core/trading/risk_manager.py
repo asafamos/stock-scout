@@ -210,40 +210,82 @@ class RiskManager:
 
         return True, ""
 
+    # Conviction tiers for dynamic sizing — see calculate_qty docstring.
+    # Key insight: fixed $300 for everything is wasteful. High-conviction
+    # setups (high score + clean R:R) deserve more capital; marginal
+    # setups get less or get skipped entirely.
+    _CONVICTION_TIERS = (
+        # (min_score, min_rr, size_multiplier)
+        (82.0, 2.5, 1.35),  # HIGH:   +35% of base  (~$405 on $300 base)
+        (78.0, 2.2, 1.15),  # HIGH-2: +15%          (~$345)
+        (75.0, 2.0, 1.00),  # MED:    base size    (~$300)
+        (73.0, 1.8, 0.70),  # LOW:    -30%         (~$210)
+        # below this range, trade is skipped by existing filters anyway
+    )
+
+    def _conviction_multiplier(self, score: float, rr: float) -> float:
+        """Return size multiplier ∈ {0.70, 1.00, 1.15, 1.35} based on tier."""
+        for min_score, min_rr, mult in self._CONVICTION_TIERS:
+            if score >= min_score and rr >= min_rr:
+                return mult
+        # Below lowest tier → smallest size (filter handles rejection, but
+        # if it slips through we use the most conservative sizing)
+        return 0.70
+
     def calculate_qty(self, price: float, cash_available: float = None,
-                      atr_pct: float = 0.0) -> int:
-        """Calculate number of shares to buy — cash-aware + volatility-aware sizing.
+                      atr_pct: float = 0.0, score: float = 0.0,
+                      rr: float = 0.0) -> int:
+        """Calculate number of shares to buy — conviction × volatility × cash sizing.
 
-        Sizing logic:
-        1. Base target = min(max_position_size, cash_available)
-        2. Volatility scaling (if atr_pct given):
-           - 2% ATR is "normal" baseline → 1.0x size
-           - High volatility (>4% ATR) → reduce size (downweight)
-           - Low volatility (<2% ATR) → keep full size (can't exceed 1.0x)
+        Sizing logic (applied in order):
+        1. **Conviction tier**: score + R:R determine size multiplier
+           - Score ≥82, RR ≥2.5 → 1.35× base (high conviction)
+           - Score ≥78, RR ≥2.2 → 1.15×
+           - Score ≥75, RR ≥2.0 → 1.00× (base)
+           - Score ≥73, RR ≥1.8 → 0.70× (marginal)
+        2. **Volatility scaling** (if atr_pct given):
+           - 2% ATR baseline → 1.0×; scales inversely with ATR
            - Formula: vol_factor = clamp(2.0 / max(atr_pct, 1.0), 0.5, 1.0)
-        3. qty = floor(target_spend * vol_factor / price)
-        4. Fallback: 1 share if we can afford it
+        3. target_spend = base × conviction_mult × vol_factor
+        4. qty = floor(target_spend / price), clamped to cash_available
+        5. Fallback: 1 share if we can afford it
 
-        Examples:
-        - price=$50, ATR 2% → 1.0x sizing (normal)
-        - price=$50, ATR 4% → 0.5x sizing (high vol, reduce risk)
-        - price=$100, ATR 3% → 0.67x sizing
-        - price=$100, ATR 1% → 1.0x sizing (capped)
+        Examples (base $300):
+        - score=85, rr=2.8, ATR 2% → 1.35 × 1.0 × $300 = $405
+        - score=76, rr=2.1, ATR 3% → 1.0 × 0.67 × $300 = $201
+        - score=74, rr=1.9, ATR 2% → 0.7 × 1.0 × $300 = $210
         """
         if price <= 0:
             return 0
 
-        target_spend = self.cfg.max_position_size
+        base_spend = self.cfg.max_position_size
         if cash_available is not None:
-            target_spend = min(target_spend, cash_available)
+            base_spend = min(base_spend, cash_available)
+
+        # Conviction multiplier — HIGH signal gets more capital
+        conviction_mult = self._conviction_multiplier(score, rr) if (score or rr) else 1.0
 
         # Volatility factor: high-vol stocks get smaller positions
         vol_factor = 1.0
         if atr_pct and atr_pct > 0:
             vol_factor = max(0.5, min(2.0 / max(atr_pct, 1.0), 1.0))
 
-        adjusted_spend = target_spend * vol_factor
-        qty = math.floor(adjusted_spend / price)
+        target_spend = base_spend * conviction_mult * vol_factor
+        # Never allow a single position to exceed 1.5× base (cap on upside)
+        target_spend = min(target_spend, self.cfg.max_position_size * 1.5)
+        # And never exceed available cash
+        if cash_available is not None:
+            target_spend = min(target_spend, cash_available)
+
+        logger.info(
+            "Sizing: score=%.1f rr=%.2f atr=%.1f%% → "
+            "conviction=%.2fx vol=%.2fx spend=$%.0f (base=$%.0f)",
+            score, rr, atr_pct, conviction_mult, vol_factor,
+            target_spend, base_spend,
+        )
+
+        # target_spend already has vol_factor + conviction applied above
+        qty = math.floor(target_spend / price)
 
         # Fallback: allow 1 share if we can afford it
         if qty == 0:
