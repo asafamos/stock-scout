@@ -29,6 +29,35 @@ logger = logging.getLogger(__name__)
 
 CHECK_INTERVAL = 300  # 5 minutes
 
+# Cooldown state — prevents Telegram spam and repeated resubmit attempts
+# when IB rejects orders with the $2000-minimum cash-account rule.
+# Keyed by (ticker, event_type). Value: epoch seconds of last alert.
+_ALERT_COOLDOWN: dict[tuple, float] = {}
+_ALERT_COOLDOWN_SECONDS = 3600  # 1 hour between the same alert
+_RESUBMIT_COOLDOWN: dict[str, float] = {}  # per-ticker
+_RESUBMIT_COOLDOWN_SECONDS = 1800  # 30 min between resubmit attempts
+# IBKR error fragments that mean "no point retrying — the account rule blocks it"
+_ACCOUNT_RESTRICTION_ERRORS = (
+    "minimum of 2000",
+    "purchase on margin",
+    "sell short",
+)
+
+
+def _cooldown_ok(key, state, seconds):
+    """Return True if enough time passed since last event for this key."""
+    now = time.time()
+    last = state.get(key, 0)
+    if now - last < seconds:
+        return False
+    state[key] = now
+    return True
+
+
+def _is_account_restriction_error(msg: str) -> bool:
+    low = (msg or "").lower()
+    return any(frag in low for frag in _ACCOUNT_RESTRICTION_ERRORS)
+
 
 def run_check():
     """Single monitoring cycle."""
@@ -259,6 +288,15 @@ def _verify_protections(tracker, client, ibkr_orders, notify):
         else:
             logger.warning("⚠ %s has NO protective orders — resubmitting", ticker)
 
+        # Resubmit cooldown: avoid hammering IB with retries that will fail
+        # for the same reason (account restriction). Prevents Telegram spam.
+        if not _cooldown_ok(ticker, _RESUBMIT_COOLDOWN, _RESUBMIT_COOLDOWN_SECONDS):
+            logger.info(
+                "Resubmit cooldown active for %s — skipping this cycle",
+                ticker,
+            )
+            continue
+
         # Resubmit protective orders
         qty = pos["quantity"]
         trail_pct = pos.get("trailing_stop_pct", 5.0)
@@ -330,13 +368,33 @@ def _verify_protections(tracker, client, ibkr_orders, notify):
                 prefix="🔄 AUTO-RESUBMIT",
             )
         else:
-            logger.error("✗ Failed to resubmit protections for %s: trail=%s, limit=%s",
-                         ticker, result["trailing_stop"].status, result["limit_sell"].status)
-            notify.notify_error("Protection",
-                f"CRITICAL: {ticker} has NO protective orders! "
-                f"Trail: {result['trailing_stop'].status}, "
-                f"Limit: {result['limit_sell'].status}"
+            err_trail = getattr(result["trailing_stop"], "error", "") or ""
+            err_limit = getattr(result["limit_sell"], "error", "") or ""
+            account_block = _is_account_restriction_error(err_trail + " " + err_limit)
+
+            logger.error(
+                "✗ Failed to resubmit protections for %s: trail=%s, limit=%s (account_rule=%s)",
+                ticker,
+                result["trailing_stop"].status,
+                result["limit_sell"].status,
+                account_block,
             )
+
+            # Only alert once per hour for the same ticker — prevents spam
+            # when IB's cash-account rule is the persistent cause.
+            if _cooldown_ok(("protection", ticker), _ALERT_COOLDOWN, _ALERT_COOLDOWN_SECONDS):
+                extra = ""
+                if account_block:
+                    extra = (
+                        "\n\n⚠️ IBKR rejected the order: cash account < $2000 "
+                        "blocks new protective orders. Existing orders (if any) "
+                        "may still be active — check the Portfolio Status."
+                    )
+                notify.notify_error("Protection",
+                    f"CRITICAL: {ticker} has NO protective orders! "
+                    f"Trail: {result['trailing_stop'].status}, "
+                    f"Limit: {result['limit_sell'].status}{extra}"
+                )
 
 
 def _take_partial_profit(tracker, client, notify):
@@ -424,7 +482,14 @@ def _take_partial_profit(tracker, client, notify):
                 f"  Remaining: {qty - sell_qty} shares riding target"
             )
         else:
-            logger.warning("Partial profit sell failed for %s: %s", ticker, result.status)
+            err_msg = getattr(result, "error", "") or ""
+            account_block = _is_account_restriction_error(err_msg)
+            logger.warning(
+                "Partial profit sell failed for %s: %s (account_rule=%s)",
+                ticker, result.status, account_block,
+            )
+            # Silent skip for cash-account rule — position stays intact,
+            # limit-sell at target still handles the full profit case.
 
     if changed:
         tracker._save_positions(positions)
@@ -572,11 +637,23 @@ def _ratchet_stops(tracker, client, ibkr_orders, notify):
                 f"  Locks +{target_lock_pct:.0f}% profit (${profit_amt:+.2f})"
             )
         else:
-            logger.error("Ratchet FAILED for %s: status=%s", ticker, result.status)
-            notify.notify_error(
-                "Ratchet",
-                f"{ticker}: failed to raise stop to ${target_floor:.2f}: {result.status}"
+            err_msg = getattr(result, "error", "") or ""
+            account_block = _is_account_restriction_error(err_msg)
+            logger.error(
+                "Ratchet FAILED for %s: status=%s (account_rule=%s)",
+                ticker, result.status, account_block,
             )
+            # Only alert once per hour — avoid spam when cash-account rule blocks.
+            # Existing TRAIL order is still live; we just can't tighten it.
+            if _cooldown_ok(("ratchet", ticker), _ALERT_COOLDOWN, _ALERT_COOLDOWN_SECONDS):
+                extra = ""
+                if account_block:
+                    extra = " (IBKR blocked: cash account < $2000 — existing trailing stop still active)"
+                notify.notify_error(
+                    "Ratchet",
+                    f"{ticker}: failed to raise stop to ${target_floor:.2f}: "
+                    f"{result.status}{extra}"
+                )
 
     if changed:
         tracker._save_positions(positions)

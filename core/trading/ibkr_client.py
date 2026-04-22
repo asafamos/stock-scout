@@ -660,10 +660,25 @@ class IBKRClient:
             )
 
     def get_open_orders(self) -> List[dict]:
-        """Get all open/pending orders."""
+        """Get all open/pending orders across ALL clients.
+
+        IMPORTANT: openTrades() alone only returns orders from the current
+        clientId. After a reconnect / monitor restart, protective orders
+        submitted by a prior clientId would be invisible — causing the monitor
+        to falsely detect "no protection" and trigger redundant resubmits
+        (which then get rejected on cash accounts < $2000 by IB's risk check).
+
+        reqAllOpenOrders() fetches orders from every client, and openTrades()
+        then includes them.
+        """
         if self.cfg.dry_run:
             return []
         try:
+            try:
+                self._ib.reqAllOpenOrders()
+                self._ib.sleep(1)
+            except Exception as e:
+                logger.warning("reqAllOpenOrders failed (using current-client view only): %s", e)
             trades = self._ib.openTrades()
             return [
                 {
