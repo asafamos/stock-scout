@@ -93,29 +93,39 @@ if ! systemctl is-active --quiet stockscout-statusbot; then
     fi
 fi
 
-# 5. Detect monitor stuck in restart loop (>3 restarts in last 5 min)
+# 5. Detect monitor stuck in restart loop (>3 restarts in last 5 min).
+# Trim whitespace so the integer comparison doesn't choke on journalctl output.
 MONITOR_RESTARTS=$(journalctl -u stockscout-monitor --since '5 min ago' --no-pager 2>/dev/null \
-    | grep -c 'Started StockScout Position Monitor' || echo 0)
+    | grep -c 'Started StockScout Position Monitor')
+MONITOR_RESTARTS=${MONITOR_RESTARTS//[^0-9]/}
+MONITOR_RESTARTS=${MONITOR_RESTARTS:-0}
 if [ "$MONITOR_RESTARTS" -gt 3 ]; then
     send_alert "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') Monitor restarted ${MONITOR_RESTARTS}x in 5 min — check logs"
     ISSUES=$((ISSUES + 1))
 fi
 
-# 6. Orphan IB position drift — any position in IB not in tracker is a red flag
+# 6. Orphan IB position drift — only report if we can prove the state.
+# Runs as stockscout (no sudo needed since healthcheck runs as root, we use
+# runuser to drop privileges). If the IB query fails or returns no answer,
+# we SKIP the drift check entirely instead of false-alarming on every
+# tracker ticker (which happened when `sudo -u` failed for not-in-sudoers).
 TRACKER="/home/stockscout/stock-scout-2/data/trades/open_positions.json"
 if [ -f "${TRACKER}" ]; then
-    IB_TICKERS=$(sudo -u stockscout /home/stockscout/stock-scout-2/.venv/bin/python -c "
+    IB_QUERY=$(runuser -u stockscout -- bash -c 'cd /home/stockscout/stock-scout-2 && set -a && source .env.trading 2>/dev/null && set +a && /home/stockscout/stock-scout-2/.venv/bin/python -c "
 from ib_insync import IB
 try:
-    ib = IB(); ib.connect('127.0.0.1', 7496, clientId=94, timeout=10)
+    ib = IB(); ib.connect(\"127.0.0.1\", 7496, clientId=94, timeout=10)
     syms = sorted({p.contract.symbol for p in ib.positions() if p.position != 0})
     ib.disconnect()
-    print(' '.join(syms))
-except Exception:
-    print('')
-" 2>/dev/null)
-    TRACKER_TICKERS=$(python3 -c "
-import json,sys
+    print(\"OK\", \" \".join(syms))
+except Exception as e:
+    print(\"ERR\", e)
+"' 2>/dev/null)
+    STATUS=$(echo "${IB_QUERY}" | awk '{print $1}')
+    if [ "$STATUS" = "OK" ]; then
+        IB_TICKERS=$(echo "${IB_QUERY}" | cut -d' ' -f2-)
+        TRACKER_TICKERS=$(python3 -c "
+import json
 try:
     with open('${TRACKER}') as f:
         syms = sorted({p['ticker'] for p in json.load(f)})
@@ -123,18 +133,23 @@ try:
 except Exception:
     print('')
 " 2>/dev/null)
-    for sym in ${IB_TICKERS}; do
-        if ! echo " ${TRACKER_TICKERS} " | grep -q " ${sym} "; then
-            send_alert "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') DRIFT: IB holds <b>${sym}</b> but tracker doesn't know"
-            ISSUES=$((ISSUES + 1))
-        fi
-    done
-    for sym in ${TRACKER_TICKERS}; do
-        if ! echo " ${IB_TICKERS} " | grep -q " ${sym} "; then
-            send_alert "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') DRIFT: tracker holds <b>${sym}</b> but IB doesn't"
-            ISSUES=$((ISSUES + 1))
-        fi
-    done
+        for sym in ${IB_TICKERS}; do
+            if [ -n "${sym}" ] && ! echo " ${TRACKER_TICKERS} " | grep -q " ${sym} "; then
+                send_alert "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') DRIFT: IB holds <b>${sym}</b> but tracker doesn't know"
+                ISSUES=$((ISSUES + 1))
+            fi
+        done
+        for sym in ${TRACKER_TICKERS}; do
+            if [ -n "${sym}" ] && ! echo " ${IB_TICKERS} " | grep -q " ${sym} "; then
+                send_alert "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') DRIFT: tracker holds <b>${sym}</b> but IB doesn't"
+                ISSUES=$((ISSUES + 1))
+            fi
+        done
+    else
+        # Could not query IB (connection refused, no env vars, etc.)
+        # Silent skip — this is NOT a drift, just an unreachable gateway.
+        echo "Drift check skipped: IB query failed (${IB_QUERY})"
+    fi
 fi
 
 if [ "$ISSUES" -eq 0 ]; then
