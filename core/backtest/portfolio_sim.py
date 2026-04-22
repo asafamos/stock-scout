@@ -137,9 +137,30 @@ class PortfolioSimulator:
             if not ticker or ticker in held_tickers:
                 continue
 
-            price = prices.get(ticker) or row.get("Close", row.get("entry_price"))
+            # `prices` can be a float (close) or a tuple/dict of OHLC.
+            _raw = prices.get(ticker)
+            if isinstance(_raw, dict):
+                price_open = float(_raw.get("open") or _raw.get("close") or 0)
+                price_close = float(_raw.get("close") or price_open or 0)
+            elif isinstance(_raw, (tuple, list)) and len(_raw) >= 4:
+                # assume (open, high, low, close)
+                price_open = float(_raw[0] or 0)
+                price_close = float(_raw[3] or price_open)
+            else:
+                price_open = float(_raw or row.get("Close", row.get("entry_price")) or 0)
+                price_close = price_open
+            price = price_open
             if price is None or price <= 0:
                 continue
+
+            # Gap-entry guard (mirrors live order_manager ±2% check).
+            # When scan-close and next-day open diverge by >2%, skip the
+            # entry — the signal has been invalidated by overnight news.
+            scan_close = float(row.get("Close", 0) or 0)
+            if scan_close > 0:
+                gap_pct = (price - scan_close) / scan_close * 100
+                if gap_pct > 2.0 or gap_pct < -2.0:
+                    continue  # silent skip — matches live behavior
 
             # Apply slippage (buy slightly higher)
             entry_price = price * (1 + self.slippage_pct)
@@ -225,13 +246,28 @@ class PortfolioSimulator:
 
         for i, pos in enumerate(self.positions):
             ticker = pos.trade.ticker
-            price = prices.get(ticker)
-            if price is None:
+            _raw = prices.get(ticker)
+            if _raw is None:
+                continue
+            # Accept scalar close or {open, high, low, close} / (o,h,l,c).
+            if isinstance(_raw, dict):
+                price = float(_raw.get("close") or 0)
+                day_high = float(_raw.get("high") or price)
+                day_low = float(_raw.get("low") or price)
+            elif isinstance(_raw, (tuple, list)) and len(_raw) >= 4:
+                day_high = float(_raw[1] or 0)
+                day_low = float(_raw[2] or 0)
+                price = float(_raw[3] or 0)
+            else:
+                price = float(_raw or 0)
+                day_high = price
+                day_low = price
+            if price <= 0:
                 continue
 
-            # Track extremes
-            pos.max_price = max(pos.max_price, price)
-            pos.min_price = min(pos.min_price, price)
+            # Track extremes (use intraday H/L when available — closer to reality)
+            pos.max_price = max(pos.max_price, day_high)
+            pos.min_price = min(pos.min_price, day_low)
 
             # Break-even / trailing stop: ratchet stop up as position advances
             try:
@@ -261,9 +297,13 @@ class PortfolioSimulator:
             cal_days = (dt - pos.trade.entry_date).days
             trading_days = int(cal_days * 5 / 7)
 
-            if pos.trade.stop_price and price <= pos.trade.stop_price:
+            # Intraday-aware stop/target detection: use day's H/L, not only
+            # close. This matches live order fills — a stop hit midday fills
+            # regardless of where the stock closes. Previously: stop only
+            # triggered if the CLOSE was below stop, understating drawdowns.
+            if pos.trade.stop_price and day_low <= pos.trade.stop_price:
                 to_close.append((i, "stop"))
-            elif pos.trade.target_price and price >= pos.trade.target_price:
+            elif pos.trade.target_price and day_high >= pos.trade.target_price:
                 to_close.append((i, "target"))
             elif trading_days >= pos.trade.max_holding_days:
                 to_close.append((i, "expiry"))

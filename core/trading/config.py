@@ -80,6 +80,19 @@ class TradingConfig:
         default_factory=lambda: _env_int("MAX_SECTOR_POSITIONS", 2)
     )  # Max # of positions in same sector (avoid concentration)
 
+    # ── Portfolio Correlation ─────────────────────────────────────
+    # Block a new entry if adding it would push the portfolio's mean
+    # pairwise correlation above the threshold. Keeps the book diversified
+    # even when sector labels hide related exposures (e.g. TDW + SLB are
+    # both labeled "Energy" but CVX + SLB are not — MAX_PORTFOLIO_CORR
+    # catches the deeper relationship).
+    max_portfolio_correlation: float = field(
+        default_factory=lambda: _env_float("MAX_PORTFOLIO_CORR", 0.65)
+    )  # Mean pairwise 60-day correlation — above this, skip new buys.
+    correlation_check_enabled: bool = field(
+        default_factory=lambda: _env_bool("CORRELATION_CHECK_ENABLED", True)
+    )
+
     # ── Trade Filters ──────────────────────────────────────────
     min_score_to_trade: float = field(
         default_factory=lambda: _env_float("MIN_SCORE", 73.0)

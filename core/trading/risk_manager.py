@@ -92,6 +92,85 @@ class RiskManager:
             )
         return True, ""
 
+    def check_portfolio_correlation(self, new_ticker: str) -> Tuple[bool, str, float]:
+        """Block if adding new_ticker would push mean pairwise correlation
+        above the configured threshold.
+
+        Uses 60-day daily returns. If we hold <2 positions, always allows
+        (single pair not meaningful). If data can't be fetched, allows
+        (fail-open — don't block on infrastructure failures).
+
+        Returns (allowed, reason, projected_mean_corr).
+        """
+        if not getattr(self.cfg, "correlation_check_enabled", True):
+            return True, "", 0.0
+
+        open_positions = self.tracker.get_open_positions()
+        if len(open_positions) < 1:
+            return True, "", 0.0  # portfolio empty → no correlation issue
+
+        # Build ticker universe: existing + proposed
+        existing_tickers = [p["ticker"] for p in open_positions]
+        if new_ticker in existing_tickers:
+            return True, "", 0.0  # already held — filtered elsewhere
+        universe = existing_tickers + [new_ticker]
+        if len(universe) < 2:
+            return True, "", 0.0
+
+        try:
+            import yfinance as yf
+            import numpy as np
+            data = yf.download(
+                universe, period="90d", interval="1d",
+                progress=False, auto_adjust=True, group_by="ticker",
+            )
+            # Build returns dataframe
+            closes = {}
+            for t in universe:
+                try:
+                    col = data[t]["Close"] if t in data.columns.get_level_values(0) else data["Close"]
+                    closes[t] = col.dropna()
+                except Exception:
+                    continue
+            if len(closes) < 2:
+                return True, "", 0.0  # not enough data — fail open
+            # Align on dates
+            import pandas as pd
+            df = pd.DataFrame(closes).dropna()
+            if len(df) < 30:
+                return True, "", 0.0  # need ≥30 days for meaningful corr
+            returns = df.pct_change().dropna()
+            corr_matrix = returns.corr()
+            # Mean of upper triangle (excluding diagonal)
+            mask = np.triu(np.ones(corr_matrix.shape, dtype=bool), k=1)
+            pairs = corr_matrix.where(mask).stack()
+            if pairs.empty:
+                return True, "", 0.0
+            mean_corr = float(pairs.mean())
+
+            thresh = float(self.cfg.max_portfolio_correlation)
+            if mean_corr > thresh:
+                # Identify the most-correlated existing peer for a helpful message
+                try:
+                    new_corrs = corr_matrix[new_ticker].drop(new_ticker).sort_values(ascending=False)
+                    top_peer = new_corrs.index[0]
+                    top_val = float(new_corrs.iloc[0])
+                    detail = f" (highest: {top_peer} ρ={top_val:+.2f})"
+                except Exception:
+                    detail = ""
+                return False, (
+                    f"Portfolio correlation too high: "
+                    f"mean ρ={mean_corr:+.2f} > {thresh:.2f}{detail}"
+                ), mean_corr
+            logger.info(
+                "Correlation check OK: adding %s → mean ρ=%+.2f (max %.2f)",
+                new_ticker, mean_corr, thresh,
+            )
+            return True, "", mean_corr
+        except Exception as e:
+            logger.warning("Correlation check failed for %s: %s", new_ticker, e)
+            return True, "", 0.0  # fail-open
+
     def check_sector_momentum(self, sector: str) -> Tuple[bool, str, float]:
         """Check sector ETF momentum — block new buys into weak sectors.
 
@@ -217,6 +296,13 @@ class RiskManager:
             allowed, reason, _sector_mom = self.check_sector_momentum(sector)
             if not allowed:
                 return False, reason
+
+        # 0d. Portfolio correlation check — don't over-concentrate risk.
+        # Complements sector limits: catches correlation that crosses sector
+        # boundaries (e.g. tech+semi, energy+materials, finance+REIT pairs).
+        allowed, reason, _corr = self.check_portfolio_correlation(ticker)
+        if not allowed:
+            return False, reason
 
         # 1. Already holding
         if self.tracker.is_holding(ticker):
