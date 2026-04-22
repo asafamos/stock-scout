@@ -286,6 +286,45 @@ def _verify_protections(tracker, client, ibkr_orders, notify):
             else:
                 logger.warning("⚠ %s has only %d protective order(s) — resubmitting", ticker, live_count)
         else:
+            # FALLBACK: tracker's stored OCA may be stale (e.g. after a manual
+            # resubmit or reconnect). Look for ANY live OCA group on this
+            # ticker that has both a TRAIL and a LMT SELL order — adopt it.
+            live_for_ticker = [
+                o for o in ibkr_orders
+                if o.get("ticker") == ticker
+                and o.get("action") == "SELL"
+                and o.get("status") in ("Submitted", "PreSubmitted")
+            ]
+            # Group by OCA
+            by_oca: dict = {}
+            for o in live_for_ticker:
+                g = o.get("oca_group", "")
+                if g:
+                    by_oca.setdefault(g, []).append(o)
+            # Find a complete group (TRAIL + LMT or STP + LMT)
+            adopted_oca = None
+            for g, orders in by_oca.items():
+                types = {o.get("order_type") for o in orders}
+                has_stop = bool(types & {"TRAIL", "STP"})
+                has_limit = "LMT" in types
+                if has_stop and has_limit:
+                    adopted_oca = g
+                    break
+            if adopted_oca:
+                # Adopt the live OCA into tracker and skip resubmit
+                logger.info(
+                    "✓ %s protected — adopting live OCA %s (tracker had stale %r)",
+                    ticker, adopted_oca, oca,
+                )
+                all_pos = tracker.get_open_positions()
+                for p in all_pos:
+                    if p["ticker"] == ticker:
+                        oids = p.get("order_ids", {}) or {}
+                        oids["oca_group"] = adopted_oca
+                        p["order_ids"] = oids
+                        break
+                tracker._save_positions(all_pos)
+                continue
             logger.warning("⚠ %s has NO protective orders — resubmitting", ticker)
 
         # Resubmit cooldown: avoid hammering IB with retries that will fail
