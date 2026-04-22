@@ -73,6 +73,65 @@ def _append_jsonl(path: Path, records: List[Dict]):
             f.write(json.dumps(r, default=str) + "\n")
 
 
+def _capture_market_context() -> Dict:
+    """Snapshot market state at scan time — CRITICAL for regime-aware learning.
+
+    Without this, we can't later segment outcomes by regime (which is the
+    whole point of phase 3c multi-regime model). Capture once per scan and
+    attach to every candidate from that scan.
+    """
+    ctx = {
+        "spy_close": None,
+        "spy_sma50_pct": None,   # SPY / SMA50 - 1, positive = above
+        "spy_sma200_pct": None,
+        "spy_ret_5d": None,
+        "spy_ret_20d": None,
+        "vix_proxy": None,       # SPY 20-day realized vol × √252
+        "market_regime": None,
+    }
+    try:
+        import yfinance as yf
+        import numpy as np
+        hist = yf.Ticker("SPY").history(period="250d", interval="1d")
+        if hist is None or len(hist) < 200:
+            return ctx
+        closes = hist["Close"].dropna()
+        if len(closes) < 200:
+            return ctx
+        spy = float(closes.iloc[-1])
+        sma50 = float(closes.iloc[-50:].mean())
+        sma200 = float(closes.iloc[-200:].mean())
+        ret_5d = float(closes.iloc[-1] / closes.iloc[-6] - 1) if len(closes) >= 6 else 0
+        ret_20d = float(closes.iloc[-1] / closes.iloc[-21] - 1) if len(closes) >= 21 else 0
+        # 20-day realized vol annualized — VIX proxy
+        returns = closes.pct_change().dropna()
+        vix_proxy = float(returns.iloc[-20:].std() * (252 ** 0.5) * 100) if len(returns) >= 20 else None
+
+        ctx["spy_close"] = round(spy, 2)
+        ctx["spy_sma50_pct"] = round((spy / sma50 - 1) * 100, 2)
+        ctx["spy_sma200_pct"] = round((spy / sma200 - 1) * 100, 2)
+        ctx["spy_ret_5d"] = round(ret_5d * 100, 2)
+        ctx["spy_ret_20d"] = round(ret_20d * 100, 2)
+        ctx["vix_proxy"] = round(vix_proxy, 2) if vix_proxy else None
+
+        # Regime classification (same logic used in scan pipeline)
+        if spy > sma50 > sma200 and ret_20d > 0.02:
+            ctx["market_regime"] = "STRONG_UPTREND"
+        elif spy > sma200 and ret_20d > 0:
+            ctx["market_regime"] = "UPTREND"
+        elif abs(ret_20d) < 0.02 and abs(spy / sma50 - 1) < 0.03:
+            ctx["market_regime"] = "RANGING"
+        elif spy < sma200 and ret_20d < -0.03:
+            ctx["market_regime"] = "DOWNTREND"
+        elif ret_5d < -0.05:
+            ctx["market_regime"] = "PANIC"
+        else:
+            ctx["market_regime"] = "NEUTRAL"
+    except Exception as e:
+        logger.warning("Market context capture failed: %s", e)
+    return ctx
+
+
 def _load_scan() -> List[Dict]:
     import pandas as pd
     if SCAN_PARQUET.exists() and SCAN_PARQUET.stat().st_mtime > (
@@ -96,13 +155,27 @@ def _load_scan() -> List[Dict]:
 
 
 def record_today():
-    """Append today's top-50 scan candidates to the pending queue."""
+    """Append today's top-50 scan candidates to the pending queue.
+
+    Each record includes a snapshot of MARKET CONTEXT at scan time
+    (SPY levels, regime, VIX proxy) — this is what makes the dataset
+    useful for regime-aware learning later.
+    """
     _ensure_dirs()
     rows = _load_scan()
     if not rows:
         logger.warning("No scan rows loaded — nothing to record")
         return 0
     today = date.today().isoformat()
+
+    # Capture market context ONCE per record-run (cheap for the 50 tickers to share)
+    ctx = _capture_market_context()
+    logger.info(
+        "Market context: regime=%s spy=%s sma50_gap=%s%% sma200_gap=%s%% vix=%s",
+        ctx.get("market_regime"), ctx.get("spy_close"),
+        ctx.get("spy_sma50_pct"), ctx.get("spy_sma200_pct"),
+        ctx.get("vix_proxy"),
+    )
 
     # Dedupe: don't record the same (date, ticker) twice
     existing = _read_jsonl(PENDING_PATH)
@@ -116,7 +189,7 @@ def record_today():
         ticker = row.get("Ticker") or row.get("ticker") or ""
         if not ticker or (today, ticker) in existing_keys:
             continue
-        new_records.append({
+        rec = {
             "scan_date": today,
             "ticker": ticker,
             "entry_price": float(row.get("Entry_Price", row.get("Close", 0)) or 0),
@@ -128,12 +201,22 @@ def record_today():
             "sector": row.get("Sector") or row.get("sector") or "",
             "atr_pct": float(row.get("ATR_Pct", row.get("atr_pct", 0)) or 0),
             "holding_days": int(row.get("HoldingDays", row.get("holding_days", 20)) or 20),
+            # Additional scan-time features (when present) — enables richer learning
+            "technical_score": float(row.get("TechScore_20d", row.get("TechScore", 0)) or 0),
+            "fundamental_score": float(row.get("Fundamental_Score", 0) or 0),
+            "reliability": float(row.get("Reliability_Score", 0) or 0),
+            "volume_surge": float(row.get("VolumeSurge", row.get("Volume_Surge", 0)) or 0),
+            "rsi": float(row.get("RSI", 0) or 0),
             "recorded_at": datetime.utcnow().isoformat(),
             "resolved": False,
-        })
+        }
+        # Attach market context
+        rec.update({f"mkt_{k}": v for k, v in ctx.items()})
+        new_records.append(rec)
 
     _append_jsonl(PENDING_PATH, new_records)
-    logger.info("Recorded %d new scan candidates for %s", len(new_records), today)
+    logger.info("Recorded %d new scan candidates for %s (regime: %s)",
+                len(new_records), today, ctx.get("market_regime"))
     return len(new_records)
 
 
@@ -283,28 +366,84 @@ def resolve_matured(min_age_days: int = 20, max_per_run: int = 200) -> int:
 def summarize():
     """Print a quick summary of the resolved outcomes file."""
     _ensure_dirs()
+    pending = _read_jsonl(PENDING_PATH)
     outcomes = _read_jsonl(RESOLVED_PATH)
+
+    print("═" * 60)
+    print("SCAN OUTCOMES TRACKER")
+    print("═" * 60)
+    pending_unresolved = [r for r in pending if not r.get("resolved")]
+    distinct_dates = len({r.get("scan_date") for r in pending_unresolved})
+    print(f"Pending (awaiting 20d maturity): {len(pending_unresolved)} "
+          f"across {distinct_dates} scan dates")
+    if pending_unresolved:
+        earliest = min((r.get("scan_date") for r in pending_unresolved), default="")
+        latest   = max((r.get("scan_date") for r in pending_unresolved), default="")
+        print(f"  Date range: {earliest} → {latest}")
+        # Regime distribution of pending
+        regime_counts: Dict[str, int] = {}
+        for r in pending_unresolved:
+            rg = r.get("mkt_market_regime") or "UNKNOWN"
+            regime_counts[rg] = regime_counts.get(rg, 0) + 1
+        print("  Regime dist:")
+        for rg, n in sorted(regime_counts.items(), key=lambda x: -x[1]):
+            print(f"    {rg:16s} n={n}")
+
+    print(f"\nResolved outcomes: {len(outcomes)}")
     if not outcomes:
-        print("No resolved outcomes yet.")
+        print("  <need ≥20 trading days from scan → outcome>")
         return
+
     n = len(outcomes)
     hits_t = sum(1 for r in outcomes if r.get("hit_target"))
     hits_s = sum(1 for r in outcomes if r.get("hit_stop"))
     avg_realized = sum(r.get("realized_return_pct", 0) for r in outcomes) / n
-    print(f"Resolved outcomes: {n}")
+    wins = [r for r in outcomes if r.get("realized_return_pct", 0) > 0]
+    losses = [r for r in outcomes if r.get("realized_return_pct", 0) < 0]
+    win_rate = len(wins) / n * 100 if n else 0
+    avg_win = sum(r["realized_return_pct"] for r in wins) / len(wins) if wins else 0
+    avg_loss = sum(r["realized_return_pct"] for r in losses) / len(losses) if losses else 0
+    pf = (sum(r["realized_return_pct"] for r in wins)
+          / abs(sum(r["realized_return_pct"] for r in losses))) if losses else float("inf")
+
+    print(f"  Win rate:        {win_rate:.1f}%")
     print(f"  Target hit rate: {hits_t/n*100:.1f}%")
     print(f"  Stop hit rate:   {hits_s/n*100:.1f}%")
-    print(f"  Avg realized return: {avg_realized:+.2f}%")
+    print(f"  Avg realized:    {avg_realized:+.2f}%")
+    print(f"  Avg win / loss:  {avg_win:+.2f}% / {avg_loss:+.2f}%")
+    print(f"  Profit factor:   {pf:.2f}×")
 
     # By score tier
-    tiers = [("≥82", 82), ("75-82", 75), ("<75", 0)]
-    for label, lo in tiers:
-        hi = 200 if lo == 82 else (82 if lo == 75 else 75)
+    print("\nBy score tier:")
+    tiers = [("≥82", 82, 200), ("78-82", 78, 82), ("75-78", 75, 78), ("<75", 0, 75)]
+    for label, lo, hi in tiers:
         subset = [r for r in outcomes if lo <= r.get("score", 0) < hi]
         if subset:
-            w = sum(1 for r in subset if r.get("hit_target")) / len(subset) * 100
+            w = sum(1 for r in subset if r.get("realized_return_pct", 0) > 0) / len(subset) * 100
             a = sum(r.get("realized_return_pct", 0) for r in subset) / len(subset)
-            print(f"  Score {label:6s}: n={len(subset):3d}  target_hit={w:.1f}%  avg={a:+.2f}%")
+            print(f"  Score {label:7s}: n={len(subset):3d}  win={w:5.1f}%  avg={a:+6.2f}%")
+
+    # By ML probability tier
+    print("\nBy ML probability tier:")
+    ml_tiers = [("≥0.40", 0.40, 1.01), ("0.33-0.40", 0.33, 0.40),
+                ("0.30-0.33", 0.30, 0.33), ("<0.30", 0, 0.30)]
+    for label, lo, hi in ml_tiers:
+        subset = [r for r in outcomes if lo <= r.get("ml_prob", 0) < hi]
+        if subset:
+            w = sum(1 for r in subset if r.get("realized_return_pct", 0) > 0) / len(subset) * 100
+            a = sum(r.get("realized_return_pct", 0) for r in subset) / len(subset)
+            print(f"  ML {label:11s}: n={len(subset):3d}  win={w:5.1f}%  avg={a:+6.2f}%")
+
+    # By regime (the whole point of regime tagging!)
+    print("\nBy market regime at scan time:")
+    regimes: Dict[str, List] = {}
+    for r in outcomes:
+        rg = r.get("mkt_market_regime") or "UNKNOWN"
+        regimes.setdefault(rg, []).append(r)
+    for rg, subset in sorted(regimes.items(), key=lambda x: -len(x[1])):
+        w = sum(1 for r in subset if r.get("realized_return_pct", 0) > 0) / len(subset) * 100
+        a = sum(r.get("realized_return_pct", 0) for r in subset) / len(subset)
+        print(f"  {rg:16s}: n={len(subset):3d}  win={w:5.1f}%  avg={a:+6.2f}%")
 
 
 def main():

@@ -152,6 +152,23 @@ except Exception:
     fi
 fi
 
+# 7. Scan outcomes tracker health — alert if recording has stalled.
+# The pending_scans.jsonl file should grow by ~50 rows per trading day.
+# If no new entries in 2+ weekdays, something is wrong with the record cron.
+PENDING="/home/stockscout/stock-scout-2/data/outcomes/pending_scans.jsonl"
+if [ -f "${PENDING}" ]; then
+    # Most-recent scan_date in the file
+    LAST_SCAN=$(tail -100 "${PENDING}" 2>/dev/null | grep -oE '"scan_date": "[0-9-]+"' | tail -1 \
+        | sed 's/.*"\([0-9-]*\)".*/\1/')
+    if [ -n "${LAST_SCAN}" ]; then
+        AGE_DAYS=$(( ($(date +%s) - $(date -d "${LAST_SCAN}" +%s 2>/dev/null || echo 0)) / 86400 ))
+        if [ "${AGE_DAYS}" -gt 3 ]; then
+            send_alert "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') Scan outcomes tracker STALE — last record ${LAST_SCAN} (${AGE_DAYS} days ago). ML feedback loop broken."
+            ISSUES=$((ISSUES + 1))
+        fi
+    fi
+fi
+
 if [ "$ISSUES" -eq 0 ]; then
     echo "Healthcheck OK — all services running"
 fi
