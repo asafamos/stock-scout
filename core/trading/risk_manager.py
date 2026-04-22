@@ -87,6 +87,20 @@ class RiskManager:
         if not allowed:
             return False, reason
 
+        # 0a. Day-trade prevention (cash account cannot re-buy same-day sell)
+        try:
+            today = date.today().isoformat()
+            for t in self.tracker.get_trade_log():
+                if (t.get("ticker") == ticker
+                        and t.get("action") in ("CLOSE", "PARTIAL")
+                        and str(t.get("timestamp", "")).startswith(today)):
+                    return False, (
+                        f"Day-trade block: {ticker} was sold today "
+                        f"(cash account can't re-buy same day)"
+                    )
+        except Exception:
+            pass
+
         # 0b. Sector concentration check
         if sector:
             allowed, reason = self.check_sector_concentration(sector)

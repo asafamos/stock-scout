@@ -1,38 +1,41 @@
 [
   {
-    "ticker": "UTHR",
-    "quantity": 1,
-    "entry_price": 574.31,
-    "stop_loss": 551.3,
-    "target_price": 636.7,
-    "target_date": "2026-05-07 00:00:00",
-    "trailing_stop_pct": 4.0,
-    "score": 77.24,
-    "opened_at": "2026-04-13T18:48:16",
-    "order_ids": {
-      "buy": 9,
-      "trailing_stop": 7,
-      "limit_sell": 16,
-      "oca_group": "SS_UTHR_1776153126"
-    },
-    "peak_price": 574.31
-  },
-  {
     "ticker": "CF",
     "quantity": 2,
-    "entry_price": 110.83,
-    "stop_loss": 115.99505173790637,
-    "target_price": 145.46400604248046,
+    "entry_price": 111.33,
+    "stop_loss": 110.75,
+    "target_price": 145.46,
     "target_date": "2026-05-04 00:00:00",
     "trailing_stop_pct": 5.3,
-    "score": 79.80178134205534,
-    "opened_at": "2026-04-17T13:35:34.267847",
+    "score": 79.8,
+    "opened_at": "2026-04-17T13:35:00",
     "order_ids": {
       "buy": 35,
       "trailing_stop": 36,
       "limit_sell": 37,
       "oca_group": "SS_CF_1776432930"
     },
-    "peak_price": 116.0
+    "peak_price": 120.40,
+    "stop_floor": 110.83,
+    "sector": "Basic Materials"
+  },
+  {
+    "ticker": "MUSA",
+    "quantity": 1,
+    "entry_price": 498.50,
+    "stop_loss": 478.72,
+    "target_price": 547.98,
+    "target_date": "2026-05-12 00:00:00",
+    "trailing_stop_pct": 4.0,
+    "score": 78.8,
+    "opened_at": "2026-04-21T13:35:04",
+    "order_ids": {
+      "buy": 0,
+      "trailing_stop": 0,
+      "limit_sell": 0,
+      "oca_group": ""
+    },
+    "peak_price": 512.57,
+    "sector": "Consumer Cyclical"
   }
 ]

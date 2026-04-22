@@ -4,22 +4,22 @@
     "ticker": "VAL",
     "quantity": 3,
     "price": 99.36,
-    "timestamp": "2026-04-13T18:48:13.473331",
-    "stop_loss": 93.55699920654297,
-    "target_price": 112.17340545654298,
-    "target_date": "2026-04-29 00:00:00",
-    "score": 78.52919218321763
+    "timestamp": "2026-04-13T18:48:13",
+    "stop_loss": 93.56,
+    "target_price": 112.17,
+    "target_date": "2026-04-29",
+    "score": 78.5
   },
   {
     "action": "OPEN",
     "ticker": "UTHR",
     "quantity": 1,
     "price": 574.31,
-    "timestamp": "2026-04-13T18:48:16.668747",
-    "stop_loss": 551.2999877929688,
-    "target_price": 636.7040405273438,
-    "target_date": "2026-05-07 00:00:00",
-    "score": 77.2354391114361
+    "timestamp": "2026-04-13T18:48:16",
+    "stop_loss": 551.30,
+    "target_price": 636.70,
+    "target_date": "2026-05-07",
+    "score": 77.24
   },
   {
     "action": "CLOSE",
@@ -27,73 +27,82 @@
     "quantity": 3,
     "price": 98.69,
     "timestamp": "2026-04-14T13:30:01",
-    "reason": "Market sell (below stop loss)",
-    "pnl": -2.01
-  },
-  {
-    "action": "OPEN",
-    "ticker": "VAL",
-    "quantity": 3,
-    "price": 98.45767489842007,
-    "timestamp": "2026-04-14T19:00:29.847748",
-    "stop_loss": 93.55699920654297,
-    "target_price": 112.17340545654298,
-    "target_date": "2026-04-29 00:00:00",
-    "score": 78.52919218321763
+    "entry_price": 99.36,
+    "pnl": -2.01,
+    "reason": "Market sell (below stop)"
   },
   {
     "action": "OPEN",
     "ticker": "TDW",
     "quantity": 3,
-    "price": 83.19033649989537,
-    "timestamp": "2026-04-14T21:51:03.865825",
-    "stop_loss": 80.73999786376953,
-    "target_price": 94.45018005371094,
-    "target_date": "2026-04-30 00:00:00",
-    "score": 78.09732785687585
+    "price": 84.28,
+    "timestamp": "2026-04-14T21:51:03",
+    "stop_loss": 80.74,
+    "target_price": 94.45,
+    "target_date": "2026-04-29",
+    "score": 78.1
   },
   {
     "action": "CLOSE",
     "ticker": "TDW",
     "quantity": 3,
-    "price": 0.0,
-    "timestamp": "2026-04-15T09:47:29.292335",
-    "entry_price": 83.19,
-    "pnl": 0,
-    "reason": "closed_externally",
-    "held_since": "2026-04-14T21:51:03.864870"
-  },
-  {
-    "action": "CLOSE",
-    "ticker": "UTHR",
-    "quantity": 1,
-    "price": 0.0,
-    "timestamp": "2026-04-15T18:08:14.168395",
-    "entry_price": 574.31,
-    "pnl": 0,
-    "reason": "closed_externally",
-    "held_since": "2026-04-13T18:48:16.668363"
-  },
-  {
-    "action": "CLOSE",
-    "ticker": "TDW",
-    "quantity": 3,
-    "price": 0.0,
-    "timestamp": "2026-04-15T18:08:14.539350",
-    "entry_price": 83.19,
-    "pnl": 0,
-    "reason": "closed_externally",
-    "held_since": "2026-04-14T21:51:03.864870"
+    "price": 81.55,
+    "timestamp": "2026-04-17T13:30:00",
+    "entry_price": 84.28,
+    "pnl": -9.18,
+    "reason": "trail_stop_oil_crash"
   },
   {
     "action": "OPEN",
     "ticker": "CF",
     "quantity": 2,
-    "price": 110.83,
-    "timestamp": "2026-04-17T13:35:34.268155",
-    "stop_loss": 115.99505173790637,
-    "target_price": 145.46400604248046,
-    "target_date": "2026-05-04 00:00:00",
-    "score": 79.80178134205534
+    "price": 111.33,
+    "timestamp": "2026-04-17T13:35:00",
+    "stop_loss": 115.99,
+    "target_price": 145.46,
+    "target_date": "2026-05-04",
+    "score": 79.8
+  },
+  {
+    "action": "CLOSE",
+    "ticker": "UTHR",
+    "quantity": 1,
+    "price": 569.16,
+    "timestamp": "2026-04-21T13:30:12",
+    "entry_price": 574.31,
+    "pnl": -5.15,
+    "reason": "trail_stop_filled_at_open"
+  },
+  {
+    "action": "OPEN",
+    "ticker": "MUSA",
+    "quantity": 1,
+    "price": 498.50,
+    "timestamp": "2026-04-21T13:35:04",
+    "stop_loss": 478.72,
+    "target_price": 547.98,
+    "target_date": "2026-05-12",
+    "score": 78.8
+  },
+  {
+    "action": "OPEN",
+    "ticker": "SII",
+    "quantity": 1,
+    "price": 145.97,
+    "timestamp": "2026-04-21T13:35:08",
+    "stop_loss": 138.03,
+    "target_price": 169.63,
+    "target_date": "2026-05-12",
+    "score": 76.5
+  },
+  {
+    "action": "CLOSE",
+    "ticker": "SII",
+    "quantity": 1,
+    "price": 141.55,
+    "timestamp": "2026-04-21T17:00:00",
+    "entry_price": 145.97,
+    "pnl": -4.42,
+    "reason": "trail_stop_DAY_TRADE_violation"
   }
 ]

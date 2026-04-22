@@ -304,6 +304,27 @@ class IBKRClient:
             description=f"BUY {qty} {ticker}",
         )
 
+    @staticmethod
+    def _next_trading_day_open_utc(from_dt=None) -> str:
+        """Return next US market open in IBKR's goodAfterTime format.
+
+        Used to prevent day-trade violations on cash accounts:
+        protective orders placed today get goodAfterTime = next market open,
+        so they can't fire same day as the buy.
+
+        Returns: "YYYYMMDD HH:MM:SS US/Eastern" — skips weekends.
+        Market open: 9:30 AM ET (13:30 UTC EDT / 14:30 UTC EST)
+        """
+        from datetime import datetime, timedelta, timezone
+        now = from_dt or datetime.now(timezone.utc)
+        # Move to next day
+        d = now + timedelta(days=1)
+        # Skip weekends (5=Sat, 6=Sun)
+        while d.weekday() >= 5:
+            d += timedelta(days=1)
+        # 9:30 AM ET = 13:30 UTC (EDT) — use 9:31 to be safe
+        return d.strftime("%Y%m%d 09:31:00 US/Eastern")
+
     def buy_with_bracket(
         self,
         ticker: str,
@@ -359,11 +380,16 @@ class IBKRClient:
 
             # Leg 2: Trailing stop (OCA)
             trail_order = Order()
+            # Prevent day-trade violation: protective orders can't fire same day
+            _next_open = self._next_trading_day_open_utc()
+            logger.info("Setting goodAfterTime=%s on protective orders (prevent day-trade)", _next_open)
+
             trail_order.action = "SELL"
             trail_order.totalQuantity = qty
             trail_order.orderType = "TRAIL"
             trail_order.trailingPercent = trail_pct
             trail_order.tif = "GTC"
+            trail_order.goodAfterTime = _next_open  # Prevent same-day fill
             trail_order.ocaGroup = oca_group
             trail_order.ocaType = 1  # Cancel remaining on fill
             trail_order.transmit = True
@@ -377,6 +403,7 @@ class IBKRClient:
                 limit_order.orderType = "LMT"
                 limit_order.lmtPrice = round(target_price, 2)
                 limit_order.tif = "GTC"
+                limit_order.goodAfterTime = _next_open  # Prevent same-day fill
                 limit_order.ocaGroup = oca_group
                 limit_order.ocaType = 1
                 limit_order.transmit = True
@@ -427,10 +454,12 @@ class IBKRClient:
         qty: int,
         trail_pct: float,
         target_price: float,
+        same_day_guard: bool = False,
     ) -> dict:
         """Re-submit trailing stop + limit sell as OCA for an existing position.
 
-        Use when protective orders expired (e.g. were placed as DAY instead of GTC).
+        If same_day_guard=True, adds goodAfterTime=next market open to prevent
+        day-trade violations (for positions opened today).
         """
         if self.cfg.dry_run:
             logger.info(
@@ -454,6 +483,9 @@ class IBKRClient:
 
             oca_group = f"SS_{ticker}_{int(_time.time())}"
 
+            # Day-trade guard: set goodAfterTime if position opened today
+            _gat = self._next_trading_day_open_utc() if same_day_guard else ""
+
             # Trailing stop (GTC + OCA)
             trail_order = Order()
             trail_order.action = "SELL"
@@ -461,6 +493,8 @@ class IBKRClient:
             trail_order.orderType = "TRAIL"
             trail_order.trailingPercent = trail_pct
             trail_order.tif = "GTC"
+            if _gat:
+                trail_order.goodAfterTime = _gat
             trail_order.ocaGroup = oca_group
             trail_order.ocaType = 1
             trail_order.transmit = True
@@ -475,6 +509,8 @@ class IBKRClient:
                 limit_order.orderType = "LMT"
                 limit_order.lmtPrice = round(target_price, 2)
                 limit_order.tif = "GTC"
+                if _gat:
+                    limit_order.goodAfterTime = _gat
                 limit_order.ocaGroup = oca_group
                 limit_order.ocaType = 1
                 limit_order.transmit = True
@@ -512,12 +548,15 @@ class IBKRClient:
     def resubmit_protective_orders_retry(
         self, ticker: str, qty: int, trail_pct: float,
         target_price: float, max_attempts: int = 3,
+        same_day_guard: bool = False,
     ) -> dict:
         """Resubmit protective orders with retry on transient failures."""
         import time as _time
         last_result = None
         for attempt in range(1, max_attempts + 1):
-            result = self.resubmit_protective_orders(ticker, qty, trail_pct, target_price)
+            result = self.resubmit_protective_orders(
+                ticker, qty, trail_pct, target_price, same_day_guard=same_day_guard
+            )
             trail_ok = result["trailing_stop"].status not in ("Error", "Cancelled", "Inactive")
             limit_ok = result["limit_sell"].status not in ("Error", "Cancelled", "Inactive")
             if trail_ok and limit_ok:

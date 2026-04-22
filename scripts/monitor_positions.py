@@ -85,14 +85,28 @@ def run_check():
                 exit_price = 0.0
                 reason = "closed_externally"
 
-                # Check completed trades for fill info
-                for trade in client._ib.trades():
-                    if (trade.contract.symbol == ticker
-                            and trade.order.action == "SELL"
-                            and trade.orderStatus.status == "Filled"):
-                        exit_price = trade.orderStatus.avgFillPrice or 0.0
-                        reason = f"{trade.order.orderType}_filled"
-                        break
+                # Primary: check fills directly (most reliable)
+                try:
+                    for f in client._ib.fills():
+                        if (f.contract.symbol == ticker
+                                and f.execution.side in ("SLD", "SELL")):
+                            fill_price = float(f.execution.price or 0)
+                            if fill_price > 0:
+                                exit_price = fill_price
+                                reason = "stop_or_target_filled"
+                                break
+                except Exception as _e:
+                    logger.debug("Fills check failed: %s", _e)
+
+                # Secondary: check completed trades for fill info
+                if exit_price == 0.0:
+                    for trade in client._ib.trades():
+                        if (trade.contract.symbol == ticker
+                                and trade.order.action == "SELL"
+                                and trade.orderStatus.status == "Filled"):
+                            exit_price = trade.orderStatus.avgFillPrice or 0.0
+                            reason = f"{trade.order.orderType}_filled"
+                            break
 
                 # Fallback: check OCA orders
                 if exit_price == 0.0:
@@ -102,6 +116,25 @@ def run_check():
                             if order.get("oca_group") == oca and order.get("filled", 0) > 0:
                                 reason = f"{order.get('order_type', 'unknown')}_filled"
                                 break
+
+                # Last resort: use executions() which has recent fills
+                if exit_price == 0.0:
+                    try:
+                        for e in client._ib.executions():
+                            if (e.contract.symbol == ticker
+                                    and e.execution.side in ("SLD", "SELL")):
+                                exit_price = float(e.execution.price or 0)
+                                if exit_price > 0:
+                                    reason = "fill_detected"
+                                    break
+                    except Exception:
+                        pass
+
+                # FINAL fallback: estimate from stop_loss or peak_price
+                if exit_price == 0.0:
+                    exit_price = (pos.get("stop_loss") or pos.get("peak_price")
+                                  or pos["entry_price"])
+                    reason = f"{reason}_estimated"
 
                 tracker.remove_position(ticker, exit_price, reason)
                 pnl = (exit_price - pos["entry_price"]) * pos["quantity"] if exit_price else 0
@@ -249,12 +282,24 @@ def _verify_protections(tracker, client, ibkr_orders, notify):
                         pass
             client._ib.sleep(1)
 
+        # Day-trade guard: skip same-day sell if position opened today
+        _same_day = False
+        try:
+            from datetime import date as _d_sd
+            _opened_sd = str(pos.get("opened_at", ""))[:10]
+            if _opened_sd == _d_sd.today().isoformat():
+                _same_day = True
+                logger.info("Resubmit %s with same_day_guard (opened today)", ticker)
+        except Exception:
+            pass
+
         result = client.resubmit_protective_orders_retry(
             ticker=ticker,
             qty=int(qty),
             trail_pct=trail_pct,
             target_price=target_price,
             max_attempts=3,
+            same_day_guard=_same_day,
         )
 
         trail_ok = result["trailing_stop"].status not in ("Error", "Cancelled", "Inactive")
@@ -317,6 +362,17 @@ def _take_partial_profit(tracker, client, notify):
         if pos.get("partial_taken"):
             continue  # Already sold partial
         ticker = pos["ticker"]
+
+        # DAY-TRADE GUARD: skip if position opened today (cash account)
+        try:
+            from datetime import date as _d
+            _opened = str(pos.get("opened_at", ""))[:10]
+            if _opened == _d.today().isoformat():
+                logger.debug("Partial profit skip %s: opened today (day-trade prevention)", ticker)
+                continue
+        except Exception:
+            pass
+
         port_item = portfolio.get(ticker)
         if not port_item:
             continue
@@ -419,6 +475,17 @@ def _ratchet_stops(tracker, client, ibkr_orders, notify):
         entry = pos["entry_price"]
         qty = int(pos["quantity"])
         oca = pos.get("order_ids", {}).get("oca_group", "")
+
+        # DAY-TRADE GUARD: skip ratchet if position opened today
+        # (ratchet may move stop above current price → trigger sell → day trade)
+        try:
+            from datetime import date as _d_r
+            _opened_r = str(pos.get("opened_at", ""))[:10]
+            if _opened_r == _d_r.today().isoformat():
+                logger.debug("Ratchet skip %s: opened today (day-trade prevention)", ticker)
+                continue
+        except Exception:
+            pass
 
         port_item = portfolio.get(ticker)
         if not port_item:
