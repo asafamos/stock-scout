@@ -562,10 +562,20 @@ class IBKRClient:
             if trail_ok and limit_ok:
                 result["attempts"] = attempt
                 return result
-            # Check if it's a margin rejection (don't retry)
+            # Check for permanent rejections — don't retry if IB will reject again
             err = (result["trailing_stop"].error or "").lower()
             if "margin" in err or "insufficient" in err:
                 logger.warning("Margin rejection for %s — no retry", ticker)
+                result["attempts"] = attempt
+                return result
+            # Cash-account rule: "minimum of 2000" / "sell short" / "purchase on margin"
+            # Retrying hammers IB and can cause earlier successful OCA groups
+            # to be collateralized-cancelled. Fail fast.
+            if any(s in err for s in ("minimum of 2000", "sell short", "purchase on margin")):
+                logger.warning(
+                    "Cash-account rule rejected %s — no retry (existing OCA may remain live)",
+                    ticker,
+                )
                 result["attempts"] = attempt
                 return result
             last_result = result
