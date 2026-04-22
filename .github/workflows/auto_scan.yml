@@ -6,17 +6,26 @@ permissions:
 
 on:
   schedule:
-    # Pre-market scan (1 hour before NYSE open at 9:30 AM ET)
-    - cron: '30 13 * * 1-5'  # 13:30 UTC = 8:30 AM ET ✓
+    # OPTIMIZED SCAN SCHEDULE (2026-04-22)
+    # Designed so each scan completes BEFORE its paired trade fires,
+    # giving the auto-trader fresh data (<60 min old).
+    # Scan duration: ~55 min (1000 tickers, Polygon free tier).
 
-    # Early session scan (30 min after open)
-    - cron: '0 15 * * 1-5'   # 15:00 UTC = 10:00 AM ET ✓
+    # Morning scan — uses yesterday's close + overnight news.
+    # Completes ~14:25 UTC; feeds the 14:30 UTC trade (10:30 ET).
+    - cron: '30 13 * * 1-5'  # 13:30 UTC = 8:30 AM ET
 
-    # Late session scan (1 hour before close at 4:00 PM ET)
-    - cron: '0 20 * * 1-5'   # 20:00 UTC = 3:00 PM ET ✓
+    # Afternoon scan — uses morning intraday price action.
+    # Completes ~18:25 UTC; feeds the 18:30 UTC trade (14:30 ET).
+    - cron: '30 17 * * 1-5'  # 17:30 UTC = 13:30 ET (NEW — replaced 15:00 UTC redundant scan)
 
-    # End of day scan (30 min after close)
-    - cron: '30 21 * * 1-5'  # 21:30 UTC = 4:30 PM ET ✓
+    # End-of-day scan — uses today's close for TOMORROW's planning.
+    # No trade fires off this; it's purely for next-day candidate prep.
+    - cron: '0 20 * * 1-5'   # 20:00 UTC = 16:00 ET
+
+    # REMOVED:
+    # - 15:00 UTC (10:00 ET) — redundant with 13:30 UTC scan (same data)
+    # - 21:30 UTC (17:30 ET) — redundant with 20:00 UTC scan (both post-close)
 
   workflow_dispatch:  # Allow manual trigger
 
@@ -97,12 +106,11 @@ jobs:
         if: steps.market_check.outputs.market_closed != 'true'
         id: scan
         run: |
-          # Enable auto-trade simulation (DRY RUN) to send Telegram alerts
-          # showing what the system WOULD buy. Only on the 10:00 AM scan.
-          HOUR=$(date -u +%H)
-          if [ "$HOUR" = "15" ]; then
-            export AUTO_TRADE_ENABLED=1
-          fi
+          # NOTE: The GH Actions auto-trade dry-run (AUTO_TRADE_ENABLED=1)
+          # was previously triggered on the 15:00 UTC scan. Since the VPS
+          # now runs REAL auto-trading at 14:30 UTC (and 18:30 UTC) with
+          # live Telegram notifications, the dry-run is redundant. The VPS
+          # pulls this scan file via `git merge origin/main` before trading.
           python scripts/run_full_scan.py
         continue-on-error: true
 
