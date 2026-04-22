@@ -95,16 +95,48 @@ def get_portfolio_status() -> str:
 
         if orders:
             lines.append("\n<b>🛡 Protective Orders</b>")
+            # Build per-ticker coverage map (stop-side + limit-sell)
+            coverage: dict = {}  # ticker -> {"stop": bool, "limit": bool}
+            for t in orders:
+                o = t.order
+                sym = t.contract.symbol
+                c = coverage.setdefault(sym, {"stop": False, "limit": False})
+                if o.orderType in ("TRAIL", "STP", "STP LMT", "STOP_LIMIT"):
+                    c["stop"] = True
+                elif o.orderType == "LMT":
+                    c["limit"] = True
+
             for t in orders:
                 o = t.order
                 if o.orderType == "TRAIL":
                     lines.append(
                         f"  {t.contract.symbol}: TRAIL {o.trailingPercent}% GTC ✅"
                     )
+                elif o.orderType == "STP":
+                    # Hard stop (from ratcheting — locks profit at fixed price)
+                    lines.append(
+                        f"  {t.contract.symbol}: STOP ${o.auxPrice:.2f} GTC ✅"
+                    )
                 elif o.orderType == "LMT":
                     lines.append(
                         f"  {t.contract.symbol}: LIMIT ${o.lmtPrice:.2f} GTC ✅"
                     )
+                elif o.orderType in ("STP LMT", "STOP_LIMIT"):
+                    lines.append(
+                        f"  {t.contract.symbol}: STP-LMT ${o.auxPrice:.2f}/${o.lmtPrice:.2f} GTC ✅"
+                    )
+
+            # Coverage check: every held ticker should have BOTH stop and limit
+            held_tickers = {p.contract.symbol for p in ib.positions() if p.position > 0}
+            for tk in sorted(held_tickers):
+                c = coverage.get(tk, {"stop": False, "limit": False})
+                if not c["stop"] or not c["limit"]:
+                    missing = []
+                    if not c["stop"]:
+                        missing.append("STOP")
+                    if not c["limit"]:
+                        missing.append("LIMIT")
+                    lines.append(f"  ⚠️ {tk}: MISSING {'+'.join(missing)}")
         else:
             lines.append("\n⚠️ No protective orders!")
 
