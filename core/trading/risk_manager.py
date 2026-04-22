@@ -92,6 +92,68 @@ class RiskManager:
             )
         return True, ""
 
+    def check_sector_momentum(self, sector: str) -> Tuple[bool, str, float]:
+        """Check sector ETF momentum — block new buys into weak sectors.
+
+        Uses the SPDR sector ETFs (XLE, XLF, XLK, etc.) as proxies. If a
+        sector is down >5% over the past 30 trading days OR down >2% today,
+        we refuse new entries in that sector. This directly addresses the
+        TDW oil-crash scenario: XLE would have been down heavily and the
+        entry would have been blocked.
+
+        Returns (allowed, reason, sector_mom_pct).
+        """
+        if not sector:
+            return True, "", 0.0
+
+        # Sector name → SPDR ETF mapping (Yahoo tickers). Covers Yahoo
+        # Finance's standard sector names (what our scan uses).
+        etf_map = {
+            "technology":            "XLK",
+            "healthcare":            "XLV",
+            "financial services":    "XLF",
+            "communication services": "XLC",
+            "consumer cyclical":     "XLY",
+            "consumer defensive":    "XLP",
+            "industrials":           "XLI",
+            "energy":                "XLE",
+            "utilities":             "XLU",
+            "real estate":           "XLRE",
+            "basic materials":       "XLB",
+        }
+        etf = etf_map.get(sector.strip().lower())
+        if not etf:
+            return True, "", 0.0  # unknown sector → no gate
+
+        try:
+            import yfinance as yf
+            hist = yf.Ticker(etf).history(period="45d", interval="1d")
+            if hist is None or len(hist) < 25:
+                return True, "", 0.0  # not enough data to judge
+            closes = hist["Close"].dropna()
+            if len(closes) < 25:
+                return True, "", 0.0
+            ret_30d = (closes.iloc[-1] / closes.iloc[-25] - 1) * 100
+            ret_1d = (closes.iloc[-1] / closes.iloc[-2] - 1) * 100 if len(closes) >= 2 else 0
+            if ret_30d < -5.0:
+                return False, (
+                    f"Sector momentum weak: {sector} ({etf}) "
+                    f"down {ret_30d:+.1f}% over 30d (< -5%)"
+                ), ret_30d
+            if ret_1d < -2.0:
+                return False, (
+                    f"Sector momentum weak: {sector} ({etf}) "
+                    f"down {ret_1d:+.1f}% today (< -2%)"
+                ), ret_30d
+            logger.info(
+                "Sector %s momentum OK: 30d=%+.1f%%, 1d=%+.1f%%",
+                sector, ret_30d, ret_1d,
+            )
+            return True, "", ret_30d
+        except Exception as e:
+            logger.warning("Sector momentum check failed for %s: %s", sector, e)
+            return True, "", 0.0  # fail-open on data failure
+
     def can_open_position(
         self,
         ticker: str,
@@ -146,6 +208,13 @@ class RiskManager:
         # 0b. Sector concentration check
         if sector:
             allowed, reason = self.check_sector_concentration(sector)
+            if not allowed:
+                return False, reason
+
+        # 0c. Sector momentum gate — skip weak sectors (would have blocked TDW
+        # during the oil crash; XLE was down >5% that week).
+        if sector:
+            allowed, reason, _sector_mom = self.check_sector_momentum(sector)
             if not allowed:
                 return False, reason
 

@@ -299,15 +299,21 @@ ML_20D_AVAILABLE = _success
 # ============================================================================
 
 def get_ml_weight_multiplier() -> float:
-    """Return a weight multiplier (0.0–1.0) based on model quality.
+    """Return a weight multiplier based on model quality (AUC-tiered).
 
-    AUC ≤ 0.52  → 0.0  (disabled — indistinguishable from random)
-    AUC ≤ 0.55  → 0.5  (reduced but still meaningful for negative signals)
-    AUC ≤ 0.58  → 0.75 (most of the signal preserved)
-    AUC > 0.58  → 1.0  (full weight — meaningful signal)
+    Lower tiers (<1.0) suppress weak models; the upper tiers (>1.0) BOOST
+    ML contribution when the model is demonstrably strong. Boost caps at
+    1.30 so score inflation is bounded.
 
-    Previous thresholds (0.25/0.5) were too aggressive and suppressed
-    genuinely negative ML signals — e.g. VIST ML=37% was reduced to ~0.5pts.
+    AUC ≤ 0.52  → 0.0   (disabled — indistinguishable from random)
+    AUC ≤ 0.55  → 0.5   (reduced but still meaningful for negative signals)
+    AUC ≤ 0.58  → 0.75  (most of the signal preserved)
+    AUC < 0.62  → 1.0   (baseline weight — meaningful signal)
+    AUC < 0.68  → 1.15  (slight boost — trust ML a bit more)
+    AUC ≥ 0.68  → 1.30  (strong boost — model is carrying real alpha)
+
+    Previous version capped at 1.0 which under-rewarded strong retrained
+    models. AUC 0.628 currently → now gets 1.15× (was 1.0×).
     """
     if BUNDLE_AUC is None:
         return 0.6  # unknown AUC — lean toward preserving signal
@@ -317,7 +323,11 @@ def get_ml_weight_multiplier() -> float:
         return 0.5
     if BUNDLE_AUC <= 0.58:
         return 0.75
-    return 1.0
+    if BUNDLE_AUC < 0.62:
+        return 1.0
+    if BUNDLE_AUC < 0.68:
+        return 1.15
+    return 1.30
 
 
 # ============================================================================

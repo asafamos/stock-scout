@@ -23,6 +23,63 @@ from core.trading import notifications as notify
 logger = logging.getLogger(__name__)
 
 
+# Small process-local cache so we don't hit yfinance per _execute_single.
+# Keyed by ticker; value is (analyst_mean, analyst_high, n_analysts, fetched_at_ts).
+_ANALYST_CACHE: dict = {}
+_ANALYST_CACHE_TTL = 6 * 3600  # 6 hours — analyst PTs change slowly
+
+
+def _fetch_analyst_target(ticker: str) -> tuple:
+    """Fetch (mean_pt, high_pt, n_analysts) from yfinance. Returns (0,0,0) on any failure."""
+    import time as _time
+    cached = _ANALYST_CACHE.get(ticker)
+    if cached and (_time.time() - cached[3] < _ANALYST_CACHE_TTL):
+        return cached[:3]
+    try:
+        import yfinance as yf
+        info = yf.Ticker(ticker).info or {}
+        mean_pt = float(info.get("targetMeanPrice", 0) or 0)
+        high_pt = float(info.get("targetHighPrice", 0) or 0)
+        n = int(info.get("numberOfAnalystOpinions", 0) or 0)
+        _ANALYST_CACHE[ticker] = (mean_pt, high_pt, n, _time.time())
+        return mean_pt, high_pt, n
+    except Exception as e:
+        logger.debug("Analyst fetch failed for %s: %s", ticker, e)
+        return 0.0, 0.0, 0
+
+
+def _cap_target_with_analysts(ticker: str, current_price: float,
+                               scan_target: float) -> float:
+    """Cap scan target by Wall Street consensus.
+
+    Returns:
+        - None if the stock is rated overvalued (analyst_mean < current_price)
+          and there are enough analysts (≥3) covering it to trust that signal.
+        - Otherwise, midpoint of (scan_target, analyst_mean), floored at scan_target
+          × 0.95 so we don't over-reduce. If no analyst data, returns scan_target.
+    """
+    if scan_target <= 0 or current_price <= 0:
+        return scan_target
+    mean_pt, high_pt, n = _fetch_analyst_target(ticker)
+    # No coverage or thin coverage → trust scan-target
+    if mean_pt <= 0 or n < 3:
+        return scan_target
+    # Overvalued per consensus (with meaningful coverage) → skip entirely
+    if mean_pt < current_price:
+        logger.info(
+            "Analyst veto for %s: mean PT $%.2f < current $%.2f (n=%d)",
+            ticker, mean_pt, current_price, n,
+        )
+        return None
+    # Cap target at midpoint between scan's target and analyst mean.
+    # Lean slightly toward scan (0.55) so we don't over-trim — scan has
+    # technical momentum data analysts lack.
+    blended = scan_target * 0.55 + mean_pt * 0.45
+    # Floor: never reduce below 95% of original scan target
+    capped = max(blended, scan_target * 0.95)
+    return round(capped, 2)
+
+
 class OrderManager:
     """Orchestrates scan → risk check → order execution → tracking."""
 
@@ -455,6 +512,22 @@ class OrderManager:
 
         # Use current price as entry estimate if Entry_Price not available
         price = entry if entry > 0 else float(row.get("Close", row.get("close", 0)))
+
+        # Analyst target cap — compare scan's target to Wall Street consensus.
+        # If analyst mean < current price, the stock is rated overvalued —
+        # refuse to trade.  Otherwise, cap our target at midpoint between
+        # scan-target and analyst-mean so we don't target beyond consensus.
+        adjusted_target = _cap_target_with_analysts(ticker, price, target)
+        if adjusted_target is None:
+            return {"ticker": ticker, "status": "skipped",
+                    "reason": f"Analyst mean PT below current price (overvalued)"}
+        if adjusted_target < target:
+            logger.info(
+                "Target capped by analyst consensus for %s: "
+                "scan=$%.2f → adjusted=$%.2f",
+                ticker, target, adjusted_target,
+            )
+            target = adjusted_target
 
         # Extract extra context for risk checks
         sector = str(row.get("Sector", row.get("sector", "")))

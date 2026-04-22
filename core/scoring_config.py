@@ -39,15 +39,73 @@ TECH_WEIGHTS: Dict[str, float] = {
     "relative_strength": 0.20,  # Increased from 0.17
 }
 
-# Final score combination weights (3-component: tech + fund + ML)
-# NOTE (2026-02-28): Swing-trade aligned. Fundamentals reduced from 0.30 to 0.15
-# because they don't move price in 20 days. ML weight increased to 0.25 because
-# the ML circuit breaker in scoring/final.py scales it down for weak models.
+# Final score combination weights (3-component: tech + fund + ML).
+# These are the DEFAULT (medium-ML) weights. At runtime, adaptive_weights()
+# chooses a weight profile based on the model's recent AUC — stronger models
+# earn more ML influence, weak models fall back to technical.
 FINAL_SCORE_WEIGHTS: Dict[str, float] = {
     "technical": 0.60,
     "fundamental": 0.15,
     "ml": 0.25,
 }
+
+# AUC-adaptive profiles — chosen at scoring time via adaptive_weights(auc).
+# When the ML model is hot, we trust it more; when it's weak, we don't.
+# Cutoffs are based on practical observation that AUC≈0.55 is noise,
+# AUC>0.62 shows a real lift, AUC>0.68 is strong swing-trade signal.
+ADAPTIVE_FINAL_WEIGHTS: Dict[str, Dict[str, float]] = {
+    "strong":  {"technical": 0.40, "fundamental": 0.15, "ml": 0.45},  # AUC ≥ 0.68
+    "medium":  {"technical": 0.55, "fundamental": 0.15, "ml": 0.30},  # AUC ≥ 0.60
+    "current": {"technical": 0.60, "fundamental": 0.15, "ml": 0.25},  # AUC ≥ 0.56 (default)
+    "weak":    {"technical": 0.70, "fundamental": 0.20, "ml": 0.10},  # AUC < 0.56
+}
+
+
+def adaptive_weights(auc: float = None) -> Dict[str, float]:
+    """Pick scoring weights based on model's recent OOS AUC.
+
+    If auc is None or unreadable, returns the default ("current") profile.
+    """
+    if auc is None or auc <= 0:
+        return ADAPTIVE_FINAL_WEIGHTS["current"]
+    if auc >= 0.68:
+        return ADAPTIVE_FINAL_WEIGHTS["strong"]
+    if auc >= 0.60:
+        return ADAPTIVE_FINAL_WEIGHTS["medium"]
+    if auc >= 0.56:
+        return ADAPTIVE_FINAL_WEIGHTS["current"]
+    return ADAPTIVE_FINAL_WEIGHTS["weak"]
+
+
+def get_model_auc() -> float:
+    """Read the active ML model's OOS AUC from its metadata bundle.
+
+    Returns 0.0 if metadata is unreadable. Callers should treat 0 as 'unknown'
+    and use the default weight profile.
+    """
+    import json as _json
+    from pathlib import Path as _Path
+    # Latest bundle has metadata.json alongside the joblib model
+    candidates = [
+        _Path("ml/bundles/latest/metadata.json"),
+        _Path("models/model_20d_v3.metadata.json"),
+    ]
+    for p in candidates:
+        if p.exists():
+            try:
+                m = _json.loads(p.read_text())
+                # metadata may use different key names
+                for key in ("oos_auc", "auc_oos", "auc", "validation_auc"):
+                    if key in m:
+                        return float(m[key])
+                # nested under `performance`
+                perf = m.get("performance") or m.get("metrics") or {}
+                for key in ("oos_auc", "auc", "validation_auc"):
+                    if key in perf:
+                        return float(perf[key])
+            except Exception:
+                pass
+    return 0.0
 
 # Pattern-enhanced score weights (5-component, used by compute_final_score_with_patterns)
 # Swing-trade aligned: technical dominates, fundamentals are a minor quality check.
