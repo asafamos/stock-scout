@@ -80,6 +80,63 @@ if ! systemctl is-active --quiet stockscout-monitor; then
     fi
 fi
 
+# 4. Check status bot daemon (handles /panic, /pnl, /status, /history)
+if ! systemctl is-active --quiet stockscout-statusbot; then
+    send_alert "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') Status bot is DOWN — restarting"
+    sudo systemctl restart stockscout-statusbot
+    sleep 3
+    if systemctl is-active --quiet stockscout-statusbot; then
+        echo "Status bot restarted"
+    else
+        send_alert "$(echo -e '\xf0\x9f\x9a\xa8') Status bot restart FAILED — /panic unavailable"
+        ISSUES=$((ISSUES + 1))
+    fi
+fi
+
+# 5. Detect monitor stuck in restart loop (>3 restarts in last 5 min)
+MONITOR_RESTARTS=$(journalctl -u stockscout-monitor --since '5 min ago' --no-pager 2>/dev/null \
+    | grep -c 'Started StockScout Position Monitor' || echo 0)
+if [ "$MONITOR_RESTARTS" -gt 3 ]; then
+    send_alert "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') Monitor restarted ${MONITOR_RESTARTS}x in 5 min — check logs"
+    ISSUES=$((ISSUES + 1))
+fi
+
+# 6. Orphan IB position drift — any position in IB not in tracker is a red flag
+TRACKER="/home/stockscout/stock-scout-2/data/trades/open_positions.json"
+if [ -f "${TRACKER}" ]; then
+    IB_TICKERS=$(sudo -u stockscout /home/stockscout/stock-scout-2/.venv/bin/python -c "
+from ib_insync import IB
+try:
+    ib = IB(); ib.connect('127.0.0.1', 7496, clientId=94, timeout=10)
+    syms = sorted({p.contract.symbol for p in ib.positions() if p.position != 0})
+    ib.disconnect()
+    print(' '.join(syms))
+except Exception:
+    print('')
+" 2>/dev/null)
+    TRACKER_TICKERS=$(python3 -c "
+import json,sys
+try:
+    with open('${TRACKER}') as f:
+        syms = sorted({p['ticker'] for p in json.load(f)})
+    print(' '.join(syms))
+except Exception:
+    print('')
+" 2>/dev/null)
+    for sym in ${IB_TICKERS}; do
+        if ! echo " ${TRACKER_TICKERS} " | grep -q " ${sym} "; then
+            send_alert "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') DRIFT: IB holds <b>${sym}</b> but tracker doesn't know"
+            ISSUES=$((ISSUES + 1))
+        fi
+    done
+    for sym in ${TRACKER_TICKERS}; do
+        if ! echo " ${IB_TICKERS} " | grep -q " ${sym} "; then
+            send_alert "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') DRIFT: tracker holds <b>${sym}</b> but IB doesn't"
+            ISSUES=$((ISSUES + 1))
+        fi
+    done
+fi
+
 if [ "$ISSUES" -eq 0 ]; then
     echo "Healthcheck OK — all services running"
 fi

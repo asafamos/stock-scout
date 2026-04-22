@@ -532,6 +532,33 @@ class OrderManager:
 
         filled_price = buy_result.filled_price or price
 
+        # Slippage — actual vs scan-expected price. A consistent positive
+        # slippage across many trades means we're getting worse fills than
+        # the scan suggested; useful signal for tuning order type (MKT vs LMT)
+        # or pre-trade gap protection.
+        if filled_price > 0 and price > 0:
+            slip_abs = filled_price - price
+            slip_pct = slip_abs / price * 100
+            if abs(slip_pct) >= 0.10:  # log only meaningful slippage (≥10bps)
+                direction = "worse" if slip_abs > 0 else "better"
+                logger.info(
+                    "SLIPPAGE %s: expected $%.2f, filled $%.2f "
+                    "(${%+.3f}, %+.2f%%, %s than expected)",
+                    ticker, price, filled_price, slip_abs, slip_pct, direction,
+                )
+                # Notify on significant slippage (>50bps) — warns that market
+                # conditions aren't matching the scan.
+                if abs(slip_pct) >= 0.50:
+                    try:
+                        notify._send(
+                            f"📉 <b>SLIPPAGE ALERT {ticker}</b>\n"
+                            f"Expected: ${price:.2f}\n"
+                            f"Filled: ${filled_price:.2f} "
+                            f"({slip_pct:+.2f}%, {direction})"
+                        )
+                    except Exception:
+                        pass
+
         # Validate protective orders — if rejected (margin etc), retry after fill
         trail_ok = bracket["trailing_stop"].status not in ("Error", "Cancelled", "Inactive")
         limit_ok = bracket["limit_sell"].status not in ("Error", "Cancelled", "Inactive")

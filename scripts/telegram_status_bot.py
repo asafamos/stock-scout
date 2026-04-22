@@ -158,6 +158,159 @@ def get_portfolio_status() -> str:
         return f"⚠️ Cannot connect to IB Gateway: {e}\n\nTry: http://87.99.142.12:5800/vnc.html"
 
 
+def get_pnl_summary() -> str:
+    """Today's P&L + running totals from trade_log + live unrealized."""
+    from datetime import date
+    try:
+        from pathlib import Path
+        log_path = Path(__file__).resolve().parents[1] / "data" / "trades" / "trade_log.json"
+        log = json.loads(log_path.read_text()) if log_path.exists() else []
+    except Exception:
+        log = []
+
+    today = date.today().isoformat()
+    realized_today = sum(
+        float(t.get("pnl", 0) or 0)
+        for t in log
+        if t.get("action") == "CLOSE" and str(t.get("timestamp", "")).startswith(today)
+    )
+    realized_total = sum(
+        float(t.get("pnl", 0) or 0)
+        for t in log if t.get("action") == "CLOSE"
+    )
+    wins = sum(1 for t in log if t.get("action") == "CLOSE" and float(t.get("pnl", 0) or 0) > 0)
+    losses = sum(1 for t in log if t.get("action") == "CLOSE" and float(t.get("pnl", 0) or 0) < 0)
+    total_closes = wins + losses
+
+    # Unrealized from IB
+    unrealized = 0.0
+    try:
+        from ib_insync import IB
+        ib = IB()
+        ib.connect("127.0.0.1", 7496, clientId=97, timeout=10)
+        for p in ib.portfolio():
+            if p.position != 0:
+                unrealized += float(p.unrealizedPNL or 0)
+        ib.disconnect()
+    except Exception as e:
+        logger.warning("Could not fetch unrealized P&L: %s", e)
+
+    win_rate = (wins / total_closes * 100) if total_closes else 0.0
+    today_emoji = "🟢" if realized_today >= 0 else "🔴"
+    total_emoji = "🟢" if realized_total >= 0 else "🔴"
+    un_emoji = "🟢" if unrealized >= 0 else "🔴"
+
+    return (
+        f"<b>💰 P&L Summary</b>\n\n"
+        f"{today_emoji} <b>Today (realized):</b> ${realized_today:+.2f}\n"
+        f"{un_emoji} <b>Open (unrealized):</b> ${unrealized:+.2f}\n"
+        f"{total_emoji} <b>Lifetime (closed):</b> ${realized_total:+.2f}\n\n"
+        f"<b>Record:</b> {wins}W / {losses}L "
+        f"({win_rate:.0f}% win rate, {total_closes} trades)"
+    )
+
+
+def get_recent_trades(limit: int = 10) -> str:
+    """Show last N closed trades."""
+    try:
+        from pathlib import Path
+        log_path = Path(__file__).resolve().parents[1] / "data" / "trades" / "trade_log.json"
+        log = json.loads(log_path.read_text()) if log_path.exists() else []
+    except Exception:
+        return "⚠️ Could not read trade log"
+
+    closes = [t for t in log if t.get("action") == "CLOSE"]
+    recent = closes[-limit:][::-1]  # newest first
+    if not recent:
+        return "<b>📜 Trade History</b>\n\nNo closed trades yet."
+
+    lines = [f"<b>📜 Last {len(recent)} Closed Trades</b>\n"]
+    for t in recent:
+        pnl = float(t.get("pnl", 0) or 0)
+        emoji = "🟢" if pnl >= 0 else "🔴"
+        when = str(t.get("timestamp", ""))[:10]
+        reason = str(t.get("reason", ""))[:20]
+        lines.append(
+            f"{emoji} <b>{t.get('ticker', '?')}</b> "
+            f"${pnl:+.2f} <i>({when}, {reason})</i>"
+        )
+    return "\n".join(lines)
+
+
+def _panic_scan(execute: bool) -> tuple:
+    """Shared logic for preview + execute. Returns (summary_text, count, notional)."""
+    from ib_insync import IB, Stock, MarketOrder
+    ib = IB()
+    ib.connect("127.0.0.1", 7496, clientId=96, timeout=15)
+    try:
+        ib.reqAllOpenOrders()
+        ib.sleep(1)
+        open_orders = list(ib.openTrades())
+        positions = [p for p in ib.positions() if p.position != 0]
+
+        lines = []
+        lines.append(f"📋 <b>{len(open_orders)}</b> open orders to cancel")
+        lines.append(f"📦 <b>{len(positions)}</b> positions to close:")
+        total_notional = 0.0
+        for p in positions:
+            qty = p.position
+            sym = p.contract.symbol
+            cost = p.avgCost * qty
+            total_notional += cost
+            lines.append(f"  • {sym}: {qty:g} shares (cost ${cost:,.2f})")
+        lines.append(f"💵 Total notional: <b>${total_notional:,.2f}</b>")
+
+        if execute:
+            # Cancel all orders first
+            cancelled = 0
+            for tr in open_orders:
+                try:
+                    ib.cancelOrder(tr.order)
+                    cancelled += 1
+                except Exception as e:
+                    logger.error("Cancel failed for %s: %s", tr.contract.symbol, e)
+            ib.sleep(2)
+
+            # Market-sell each position
+            sold = 0
+            for p in positions:
+                try:
+                    contract = Stock(p.contract.symbol, "SMART", "USD")
+                    ib.qualifyContracts(contract)
+                    order = MarketOrder("SELL", abs(p.position))
+                    order.tif = "DAY"
+                    ib.placeOrder(contract, order)
+                    sold += 1
+                except Exception as e:
+                    logger.error("Sell failed for %s: %s", p.contract.symbol, e)
+                    lines.append(f"  ❌ {p.contract.symbol}: {e}")
+            ib.sleep(3)
+            lines.append(f"\n✅ Cancelled {cancelled} orders, submitted {sold} market sells")
+
+        return "\n".join(lines), len(positions), total_notional
+    finally:
+        ib.disconnect()
+
+
+def panic_preview() -> str:
+    try:
+        summary, _, _ = _panic_scan(execute=False)
+        return (
+            f"👀 <b>PANIC PREVIEW (no action taken)</b>\n\n{summary}\n\n"
+            f"To execute: reply <code>/panic confirm</code>"
+        )
+    except Exception as e:
+        return f"❌ Panic preview failed: {e}"
+
+
+def panic_execute() -> str:
+    try:
+        summary, _, _ = _panic_scan(execute=True)
+        return f"🚨 <b>PANIC EXECUTED</b>\n\n{summary}"
+    except Exception as e:
+        return f"❌ <b>PANIC FAILED — ACTION NEEDED</b>\n\n{e}\n\nCheck IB directly."
+
+
 def main():
     logger.info("Telegram Status Bot started")
     if not TOKEN:
@@ -188,10 +341,33 @@ def main():
                     logger.info("Status requested")
                     status = get_portfolio_status()
                     send_message(status)
+                elif text in ("/pnl", "pnl", "רווח"):
+                    logger.info("P&L requested")
+                    send_message(get_pnl_summary())
+                elif text in ("/history", "history", "היסטוריה"):
+                    logger.info("History requested")
+                    send_message(get_recent_trades(10))
+                elif text in ("/panic preview", "panic preview", "פאניקה תצוגה"):
+                    logger.info("Panic preview requested")
+                    send_message(panic_preview())
+                elif text in ("/panic confirm", "panic confirm", "פאניקה אישור"):
+                    logger.warning("🚨 PANIC CONFIRMED — closing all positions")
+                    send_message(panic_execute())
+                elif text in ("/panic", "panic", "פאניקה"):
+                    send_message(
+                        "🚨 <b>PANIC MODE</b>\n\n"
+                        "This will <b>cancel all orders</b> and "
+                        "<b>close all positions</b> at market.\n\n"
+                        "To proceed: reply <code>/panic confirm</code>\n"
+                        "To preview (no action): reply <code>/panic preview</code>"
+                    )
                 elif text in ("help", "עזרה", "/help"):
                     send_message(
                         "<b>Available commands:</b>\n"
                         "• <b>status</b> — portfolio + orders\n"
+                        "• <b>/pnl</b> — today + total P&L\n"
+                        "• <b>/history</b> — recent closed trades\n"
+                        "• <b>/panic</b> — emergency close-all (with confirm)\n"
                         "• <b>help</b> — this message"
                     )
 
