@@ -1,14 +1,14 @@
 {
-  "updated_at": "2026-04-23T19:28:01.408167+00:00",
+  "updated_at": "2026-04-23T19:44:38.913096+00:00",
   "positions": [
     {
       "ticker": "CF",
       "quantity": 2,
       "avg_cost": 111.33,
       "market_price": 125.22,
-      "market_value": 250.45,
-      "unrealized_pnl": 27.79,
-      "pnl_pct": 12.48,
+      "market_value": 250.43,
+      "unrealized_pnl": 27.77,
+      "pnl_pct": 12.47,
       "entry_price": 111.33,
       "target_price": 145.46,
       "stop_loss": 110.75,
@@ -22,10 +22,10 @@
       "ticker": "TDW",
       "quantity": 2,
       "avg_cost": 86.33,
-      "market_price": 85.44,
-      "market_value": 170.87,
-      "unrealized_pnl": -1.79,
-      "pnl_pct": -1.03,
+      "market_price": 85.56,
+      "market_value": 171.13,
+      "unrealized_pnl": -1.53,
+      "pnl_pct": -0.89,
       "entry_price": 85.83,
       "target_price": 93.95000610351562,
       "stop_loss": 80.29000091552734,
@@ -95,8 +95,8 @@
     }
   ],
   "cash": 575.16,
-  "net_liquidation": 996.48,
-  "total_unrealized_pnl": 26.0,
+  "net_liquidation": 996.72,
+  "total_unrealized_pnl": 26.24,
   "position_count": 2,
   "vps_status": "connected"
 }
