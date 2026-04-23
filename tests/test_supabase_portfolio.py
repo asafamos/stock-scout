@@ -51,6 +51,15 @@ class MockTableChain:
         ]
         return self
 
+    def neq(self, col, val):
+        # Added when get_portfolio_stats started filtering out manual closes
+        # via `.neq("exit_reason", "manual")` in the Supabase query chain.
+        self._rows = [
+            r for r in self._rows
+            if r.get(col) != val
+        ]
+        return self
+
     def gte(self, col, val):
         self._rows = [
             r for r in self._rows
