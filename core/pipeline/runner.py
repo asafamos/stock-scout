@@ -2034,7 +2034,14 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
                     fund = row.get("Fundamental_Score")
                 if pd.notna(fund) and float(fund) >= 70.0:
                     w += 0.25; reasons.append("Fundamental support")
-                q = "High" if w >= 3.0 else ("Medium" if w >= 1.5 else "Speculative")
+                # Thresholds calibrated against 5 days of historical scan output:
+                # base case (tech + pattern + RR + regime = 3.25) passed the
+                # previous 3.0 cutoff as "High" — meaning 85-97% of the filtered
+                # universe got the label, rendering it meaningless.
+                # At 3.5 "High" requires ≥ 1 bonus signal beyond the baseline
+                # (volume surge / fundamentals / strong ML), dropping to a
+                # genuinely selective 3-25 stocks per day (1-15% of the scan).
+                q = "High" if w >= 3.5 else ("Medium" if w >= 2.5 else "Speculative")
                 return pd.Series({
                     "SignalQuality": q,
                     "SignalReasons": "; ".join(reasons),

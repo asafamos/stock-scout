@@ -275,9 +275,15 @@ def _process_single_ticker(
                 swing_strength += 0.25
         except (TypeError, ValueError):
             pass
-        # Quality based on weighted swing strength, not just reason count
+        # Quality based on weighted swing strength, not just reason count.
+        # NOTE: runner.py runs a FINAL recompute of SignalQuality after all
+        # enrichment completes (with access to RR, VolSurge, Fundamental_S,
+        # Reliability_Score). This fallback is only the bridge-path default.
+        # Thresholds here match runner.py (High ≥ 3.5, Medium ≥ 2.5) so any
+        # stock that happens to get classified here (because enrichment was
+        # skipped) agrees with the final classification.
         cnt = len(reasons)
-        quality = "High" if swing_strength >= 3.0 else ("Medium" if swing_strength >= 1.5 else "Speculative")
+        quality = "High" if swing_strength >= 3.5 else ("Medium" if swing_strength >= 2.5 else "Speculative")
         if "SignalReasons" not in rec_series:
             rec_series["SignalReasons"] = "; ".join(reasons)
         if "SignalReasons_Count" not in rec_series:
