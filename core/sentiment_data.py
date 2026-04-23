@@ -418,7 +418,12 @@ def fetch_earnings_data_finnhub(ticker: str) -> Dict[str, Any]:
                     future_earnings.append((date, e))
                 else:
                     past_earnings.append((date, e))
-            except:
+            except (ValueError, TypeError, KeyError) as _ee:
+                # Specific exception types only — a bare `except: continue`
+                # here was silently swallowing real bugs (API schema changes,
+                # unexpected types) that could degrade the earnings feature
+                # system-wide without any log line to investigate.
+                logger.debug("Earnings date parse failed for entry %r: %s", e, _ee)
                 continue
         
         # Days to next earnings

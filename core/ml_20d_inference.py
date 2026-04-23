@@ -500,7 +500,12 @@ def calibrate_ml_20d_prob(
             if v < 0.25:
                 adj -= 0.01
             elif 0.50 <= v < 0.75:
-                boost = 0.035 if (isinstance(market_regime, str) and market_regime.upper() in {"BULLISH", "TREND_UP", "MODERATE_UP"}) else 0.015
+                # Normalize regime to uppercase string first. Upstream can pass
+                # a numeric Wyckoff code, lowercase string, or None — the old
+                # check silently defaulted to the low-boost path for anything
+                # non-string, losing 2× the boost on mid-vol setups.
+                _reg_up = str(market_regime or "").upper()
+                boost = 0.035 if _reg_up in {"BULLISH", "TREND_UP", "MODERATE_UP"} else 0.015
                 adj += boost
             elif v >= 0.75:
                 adj -= 0.005

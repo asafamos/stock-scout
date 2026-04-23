@@ -2026,8 +2026,10 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
                     vol = row.get("Volume_Surge_Ratio")
                 if pd.notna(vol) and float(vol) >= 1.3:
                     w += 0.75; reasons.append("Volume surge confirmation")
-                reg = row.get("Market_Regime", "")
-                if isinstance(reg, str) and reg.upper() in _SUPPORTIVE_REGIMES:
+                # Normalize regime — can arrive as numeric Wyckoff code, lower/upper
+                # string, None, or NaN. str() + upper() handles all cases safely.
+                reg = str(row.get("Market_Regime", "") or "").upper()
+                if reg in _SUPPORTIVE_REGIMES:
                     w += 0.25; reasons.append("Supportive market regime")
                 fund = row.get("Fundamental_S")
                 if pd.isna(fund):
