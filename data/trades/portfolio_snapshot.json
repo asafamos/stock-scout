@@ -1,14 +1,14 @@
 {
-  "updated_at": "2026-04-23T13:57:33.102980+00:00",
+  "updated_at": "2026-04-23T14:12:40.786816+00:00",
   "positions": [
     {
       "ticker": "CF",
       "quantity": 2,
       "avg_cost": 111.33,
-      "market_price": 122.5,
-      "market_value": 245.01,
-      "unrealized_pnl": 22.35,
-      "pnl_pct": 10.04,
+      "market_price": 122.25,
+      "market_value": 244.49,
+      "unrealized_pnl": 21.83,
+      "pnl_pct": 9.81,
       "entry_price": 111.33,
       "target_price": 145.46,
       "stop_loss": 110.75,
@@ -19,30 +19,13 @@
       "score": 79.8
     },
     {
-      "ticker": "MUSA",
-      "quantity": 1,
-      "avg_cost": 499.5,
-      "market_price": 527.83,
-      "market_value": 527.83,
-      "unrealized_pnl": 28.33,
-      "pnl_pct": 5.67,
-      "entry_price": 498.5,
-      "target_price": 547.98,
-      "stop_loss": 478.72,
-      "target_date": "2026-05-12 00:00:00",
-      "peak_price": 536.40997315,
-      "stop_floor": null,
-      "trailing_stop_pct": 4.0,
-      "score": 78.8
-    },
-    {
       "ticker": "TDW",
       "quantity": 2,
       "avg_cost": 86.33,
-      "market_price": 86.99,
-      "market_value": 173.98,
-      "unrealized_pnl": 1.32,
-      "pnl_pct": 0.76,
+      "market_price": 85.95,
+      "market_value": 171.91,
+      "unrealized_pnl": -0.75,
+      "pnl_pct": -0.43,
       "entry_price": 85.83,
       "target_price": 93.95000610351562,
       "stop_loss": 80.29000091552734,
@@ -89,29 +72,6 @@
       "stop_price": 114.67
     },
     {
-      "order_id": 47,
-      "ticker": "MUSA",
-      "action": "SELL",
-      "type": "TRAIL",
-      "qty": 1,
-      "tif": "GTC",
-      "oca_group": "SS_MUSA_1776778504",
-      "status": "PreSubmitted",
-      "trail_pct": 3.0,
-      "stop_price": 523.51
-    },
-    {
-      "order_id": 48,
-      "ticker": "MUSA",
-      "action": "SELL",
-      "type": "LMT",
-      "qty": 1,
-      "tif": "GTC",
-      "oca_group": "SS_MUSA_1776778504",
-      "status": "Submitted",
-      "limit_price": 549.15
-    },
-    {
       "order_id": 977,
       "ticker": "CF",
       "action": "SELL",
@@ -134,9 +94,9 @@
       "limit_price": 145.46
     }
   ],
-  "cash": 53.74,
-  "net_liquidation": 1000.55,
-  "total_unrealized_pnl": 52.0,
-  "position_count": 3,
+  "cash": 575.16,
+  "net_liquidation": 991.56,
+  "total_unrealized_pnl": 21.08,
+  "position_count": 2,
   "vps_status": "connected"
 }
