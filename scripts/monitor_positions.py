@@ -595,8 +595,25 @@ def _take_partial_profit(tracker, client, notify):
                 "Partial profit sell failed for %s: %s (account_rule=%s)",
                 ticker, result.status, account_block,
             )
-            # Silent skip for cash-account rule — position stays intact,
-            # limit-sell at target still handles the full profit case.
+            # Position stays intact (the limit-sell at target still handles
+            # full profit). But notify the user — they should know we
+            # WOULD have taken a partial profit if the account weren't
+            # restricted. One alert per ticker per hour (cooldown keeps
+            # this from spamming during the whole cash-account window).
+            if _cooldown_ok(("partial_blocked", ticker), _ALERT_COOLDOWN, _ALERT_COOLDOWN_SECONDS):
+                extra = (
+                    "\n\n⚠️ IBKR blocked: cash account < $2000 — partial sell rejected. "
+                    "Position is unchanged; full exit will happen on trail stop "
+                    "or limit-sell at target."
+                ) if account_block else ""
+                try:
+                    notify.notify_error(
+                        "Partial profit blocked",
+                        f"{ticker} at +{pnl_pct:.1f}%: could not take partial "
+                        f"profit ({result.status}).{extra}"
+                    )
+                except Exception:
+                    pass
 
     if changed:
         tracker._save_positions(positions)

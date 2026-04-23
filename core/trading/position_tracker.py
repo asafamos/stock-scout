@@ -86,17 +86,43 @@ class PositionTracker:
                 p.write_text("[]")
 
     # ── Read ──────────────────────────────────────────────────
+    # These return [] on ANY read error to avoid crashing callers — but
+    # log the actual error at WARNING so silent JSON corruption doesn't
+    # hide. "Returning []" has two wildly different meanings (no trades
+    # vs. file corrupted), and the previous bare-except hid the second.
 
     def get_open_positions(self) -> List[dict]:
         try:
-            return json.loads(self._positions_path.read_text())
-        except Exception:
+            text = self._positions_path.read_text() or "[]"
+            return json.loads(text)
+        except FileNotFoundError:
+            return []  # expected on first run
+        except json.JSONDecodeError as e:
+            logger.error(
+                "CORRUPTED open_positions.json (%s) — returning [] as fallback. "
+                "Check disk integrity + restore from state-backup branch if needed.",
+                e,
+            )
+            return []
+        except Exception as e:
+            logger.error("Failed to read open_positions.json: %s", e)
             return []
 
     def get_trade_log(self) -> List[dict]:
         try:
-            return json.loads(self._log_path.read_text())
-        except Exception:
+            text = self._log_path.read_text() or "[]"
+            return json.loads(text)
+        except FileNotFoundError:
+            return []
+        except json.JSONDecodeError as e:
+            logger.error(
+                "CORRUPTED trade_log.json (%s) — returning [] as fallback. "
+                "Historical P&L analytics will be wrong until restored.",
+                e,
+            )
+            return []
+        except Exception as e:
+            logger.error("Failed to read trade_log.json: %s", e)
             return []
 
     def get_position(self, ticker: str) -> Optional[dict]:

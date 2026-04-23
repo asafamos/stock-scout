@@ -175,6 +175,38 @@ def _finalize_model(
     global BUNDLE_AUC
     BUNDLE_AUC = meta_auc
 
+    # Model age warning — nightly training should keep this fresh
+    # (see weekly-training.yml). If >7 days old, something broke in
+    # the retraining pipeline; if >30 days old, the model's predictions
+    # are stale enough that they probably hurt rather than help.
+    try:
+        from datetime import datetime as _dt
+        trained_at = (meta.get("trained_at") or meta.get("training_date")
+                      or meta.get("timestamp") or meta.get("created"))
+        if trained_at:
+            if isinstance(trained_at, str):
+                _ts = _dt.fromisoformat(trained_at.replace("Z", "+00:00"))
+                _ts = _ts.replace(tzinfo=None) if _ts.tzinfo else _ts
+            else:
+                _ts = _dt.fromtimestamp(float(trained_at))
+            _age_days = (_dt.utcnow() - _ts).days
+            if _age_days > 30:
+                logger.error(
+                    "🚨 ML model is %d days old — stale training (>30d). "
+                    "Trading with outdated predictions. Check weekly-training.yml.",
+                    _age_days,
+                )
+            elif _age_days > 7:
+                logger.warning(
+                    "⚠️  ML model is %d days old (>7d). Nightly retraining "
+                    "may have failed — check GH Actions.",
+                    _age_days,
+                )
+            else:
+                logger.info("ML model age: %d days (fresh)", _age_days)
+    except Exception as _age_exc:
+        logger.debug("Could not determine model age from metadata: %s", _age_exc)
+
     logger.info(
         "✓ ML model loaded: %d features, AUC=%s",
         len(feature_names),
