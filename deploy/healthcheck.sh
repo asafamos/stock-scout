@@ -55,27 +55,34 @@ clear_alert_dedup() {
 
 # Actual ib_insync handshake. Returns "OK" or "ERR:<name>" / "NOCONN".
 # Use a RANDOM clientId per run (200-899): if a previous healthcheck left a
-# zombie session on a fixed clientId, a fresh fixed id would get rejected with
-# "client id already in use" → false handshake-failure alert. Randomizing
-# sidesteps the collision since IB allows many concurrent client IDs.
-# Range avoids known ids: 1 (order_manager), 10 (reapply), 93-99 (old
-# healthcheck + statusbot + daily_summary).
+# zombie session on a fixed clientId, a fresh fixed id would get rejected
+# with "client id already in use" → false handshake-failure alert.
+#
+# IMPORTANT: pass clientId as a positional arg to python, NOT via env + bash.
+# Earlier version used `runuser --preserve-environment -- bash -c '...'`
+# which carried HOME=/root into the stockscout shell; bash then tried to
+# read /root/.bashrc (Permission denied) and EXITED before running Python,
+# yielding empty output that looked like a handshake failure to the caller.
+# That false alarm kept triggering the auto-heal → docker restart ibgateway
+# → fresh 2FA push → which the user had JUST approved on their phone.
+# Net effect: the healthcheck was destroying the session it was meant to
+# protect. Passing clientId on argv bypasses the whole env-var path.
 run_handshake_check() {
     local cid=$(( (RANDOM % 700) + 200 ))
-    HC_CID="${cid}" runuser -u stockscout --preserve-environment -- bash -c '/home/stockscout/stock-scout-2/.venv/bin/python -c "
-import os
+    runuser -u stockscout -- /home/stockscout/stock-scout-2/.venv/bin/python -c "
+import sys
 from ib_insync import IB
 ib = IB()
 try:
-    ib.connect(\"127.0.0.1\", 7496, clientId=int(os.environ[\"HC_CID\"]), timeout=10)
+    ib.connect('127.0.0.1', 7496, clientId=int(sys.argv[1]), timeout=10)
     if ib.isConnected():
-        print(\"OK\")
+        print('OK')
     else:
-        print(\"NOCONN\")
+        print('NOCONN')
     ib.disconnect()
 except Exception as e:
-    print(f\"ERR: {type(e).__name__}\")
-"' 2>/dev/null
+    print(f'ERR: {type(e).__name__}')
+" "${cid}" 2>/dev/null
 }
 
 # Skip outside market hours (Mon-Fri 13:30-20:30 UTC / 9:30 AM - 4:30 PM ET)
