@@ -69,7 +69,14 @@ clear_alert_dedup() {
 # protect. Passing clientId on argv bypasses the whole env-var path.
 run_handshake_check() {
     local cid=$(( (RANDOM % 700) + 200 ))
-    runuser -u stockscout -- /home/stockscout/stock-scout-2/.venv/bin/python -c "
+    # NOTE: this service runs as User=stockscout (see systemd unit). Previous
+    # version wrapped the python call with `runuser -u stockscout -- ...`
+    # which FAILED silently because `runuser may not be used by non-root users`
+    # — stderr "...may not be used by non-root users" → empty stdout → caller
+    # saw empty result as "handshake failed" → auto-heal restarted the
+    # container → killed the session the user had just approved.
+    # Solution: drop the runuser wrapper entirely, we're already stockscout.
+    /home/stockscout/stock-scout-2/.venv/bin/python -c "
 import sys
 from ib_insync import IB
 ib = IB()
@@ -206,16 +213,15 @@ if [ "$MONITOR_RESTARTS" -gt 3 ]; then
 fi
 
 # 6. Orphan IB position drift — only report if we can prove the state.
-# Runs as stockscout (no sudo needed since healthcheck runs as root, we use
-# runuser to drop privileges). If the IB query fails or returns no answer,
-# we SKIP the drift check entirely instead of false-alarming on every
-# tracker ticker (which happened when `sudo -u` failed for not-in-sudoers).
+# This service already runs as User=stockscout, so no runuser needed.
+# If the IB query fails or returns no answer, SKIP the drift check entirely
+# instead of false-alarming on every tracker ticker.
 TRACKER="/home/stockscout/stock-scout-2/data/trades/open_positions.json"
 if [ -f "${TRACKER}" ]; then
     # Random clientId (see run_handshake_check for rationale).
     DRIFT_CID=$(( (RANDOM % 700) + 200 ))
     export DRIFT_CID
-    IB_QUERY=$(runuser -u stockscout --preserve-environment -- bash -c 'cd /home/stockscout/stock-scout-2 && set -a && source .env.trading 2>/dev/null && set +a && /home/stockscout/stock-scout-2/.venv/bin/python -c "
+    IB_QUERY=$(bash -c 'cd /home/stockscout/stock-scout-2 && set -a && source .env.trading 2>/dev/null && set +a && /home/stockscout/stock-scout-2/.venv/bin/python -c "
 import os
 from ib_insync import IB
 try:
