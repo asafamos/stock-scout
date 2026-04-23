@@ -11,6 +11,12 @@ TELEGRAM_TOKEN="${TRADE_TELEGRAM_TOKEN}"
 CHAT_ID="${TRADE_TELEGRAM_CHAT_ID}"
 IB_PORT=7496
 
+# State dir for alert de-duplication. Files here act as "we already warned you
+# about this recently" markers so we don't spam Telegram every 15 min while the
+# same issue persists.
+STATE_DIR="/var/tmp/stockscout-healthcheck"
+mkdir -p "${STATE_DIR}" 2>/dev/null
+
 send_alert() {
     local msg="$1"
     if [ -n "${TELEGRAM_TOKEN}" ] && [ -n "${CHAT_ID}" ]; then
@@ -21,6 +27,55 @@ send_alert() {
             > /dev/null 2>&1
     fi
     echo "[ALERT] ${msg}"
+}
+
+# Send an alert only if we haven't already sent one of this kind in the last
+# ${2:-7200} seconds (default 2h). Key must be a short filename-safe tag.
+send_alert_dedup() {
+    local key="$1"
+    local msg="$2"
+    local cooldown="${3:-7200}"
+    local marker="${STATE_DIR}/alert_${key}"
+    if [ -f "${marker}" ]; then
+        local age=$(( $(date +%s) - $(stat -c %Y "${marker}" 2>/dev/null || echo 0) ))
+        if [ "${age}" -lt "${cooldown}" ]; then
+            echo "[SKIP-DEDUP] ${key} (last sent ${age}s ago < ${cooldown}s)"
+            return 0
+        fi
+    fi
+    send_alert "${msg}"
+    touch "${marker}"
+}
+
+# Clear a dedup marker once the underlying issue recovers, so the next failure
+# triggers a fresh alert instead of being silently suppressed.
+clear_alert_dedup() {
+    rm -f "${STATE_DIR}/alert_$1" 2>/dev/null
+}
+
+# Actual ib_insync handshake. Returns "OK" or "ERR:<name>" / "NOCONN".
+# Use a RANDOM clientId per run (200-899): if a previous healthcheck left a
+# zombie session on a fixed clientId, a fresh fixed id would get rejected with
+# "client id already in use" → false handshake-failure alert. Randomizing
+# sidesteps the collision since IB allows many concurrent client IDs.
+# Range avoids known ids: 1 (order_manager), 10 (reapply), 93-99 (old
+# healthcheck + statusbot + daily_summary).
+run_handshake_check() {
+    local cid=$(( (RANDOM % 700) + 200 ))
+    HC_CID="${cid}" runuser -u stockscout --preserve-environment -- bash -c '/home/stockscout/stock-scout-2/.venv/bin/python -c "
+import os
+from ib_insync import IB
+ib = IB()
+try:
+    ib.connect(\"127.0.0.1\", 7496, clientId=int(os.environ[\"HC_CID\"]), timeout=10)
+    if ib.isConnected():
+        print(\"OK\")
+    else:
+        print(\"NOCONN\")
+    ib.disconnect()
+except Exception as e:
+    print(f\"ERR: {type(e).__name__}\")
+"' 2>/dev/null
 }
 
 # Skip outside market hours (Mon-Fri 13:30-20:30 UTC / 9:30 AM - 4:30 PM ET)
@@ -48,76 +103,88 @@ ISSUES=0
 
 # 1. Check Docker IB Gateway container
 if ! docker ps --format '{{.Names}}' | grep -q ibgateway; then
-    send_alert "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') IB Gateway Docker container is DOWN — attempting restart"
+    send_alert_dedup "container_down" "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') IB Gateway Docker container is DOWN — attempting restart"
     docker start ibgateway 2>/dev/null || docker restart ibgateway 2>/dev/null
     sleep 30
     if docker ps --format '{{.Names}}' | grep -q ibgateway; then
         send_alert "$(echo -e '\xe2\x9c\x85') IB Gateway container restarted"
+        clear_alert_dedup "container_down"
     else
-        send_alert "$(echo -e '\xf0\x9f\x9a\xa8') CRITICAL: IB Gateway restart FAILED"
+        send_alert_dedup "container_restart_failed" "$(echo -e '\xf0\x9f\x9a\xa8') CRITICAL: IB Gateway restart FAILED"
         ISSUES=$((ISSUES + 1))
     fi
 fi
 
 # 2. Check API port connectivity (TCP-level only)
 if ! nc -z 127.0.0.1 ${IB_PORT} 2>/dev/null; then
-    send_alert "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') IB Gateway port ${IB_PORT} not responding — may need 2FA approval
+    send_alert_dedup "port_down" "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') IB Gateway port ${IB_PORT} not responding — may need 2FA approval
 
 Open: http://87.99.142.12:5800/vnc.html"
     ISSUES=$((ISSUES + 1))
 else
+    clear_alert_dedup "port_down"
     # 2b. DEEP API CHECK — TCP open doesn't prove IB is authenticated.
     # The session can die while the container stays up (happens daily).
     # Try an actual ib_insync handshake; timeout fast (10s).
-    # This catches the "connected TCP but auth expired" case that bit us
-    # this morning (IB died at 20:00 UTC, we noticed at 09:43 next day).
-    API_CHECK=$(runuser -u stockscout -- bash -c 'cd /home/stockscout/stock-scout-2 && /home/stockscout/stock-scout-2/.venv/bin/python -c "
-from ib_insync import IB
-ib = IB()
-try:
-    ib.connect(\"127.0.0.1\", 7496, clientId=93, timeout=10)
-    if ib.isConnected():
-        print(\"OK\")
-    else:
-        print(\"NOCONN\")
-    ib.disconnect()
-except Exception as e:
-    print(f\"ERR: {type(e).__name__}\")
-"' 2>/dev/null)
+    API_CHECK=$(run_handshake_check)
     if [ "$API_CHECK" != "OK" ]; then
-        send_alert "$(echo -e '\xf0\x9f\x9a\xa8') IB API handshake FAILED (${API_CHECK}) — TCP port open but session not authenticated.
+        # SELF-HEAL: session died but container is up. Most of the time a
+        # `docker restart ibgateway` brings it back — the Gateway's autologin
+        # then triggers a fresh 2FA push to IBKR Mobile, which can be approved
+        # from the phone. Only alert if the restart fails to recover.
+        echo "[AUTO-HEAL] handshake failed (${API_CHECK}) — restarting ibgateway container"
+        docker restart ibgateway >/dev/null 2>&1
+        # IB Gateway is slow to boot + autologin; give it enough time.
+        sleep 45
+        API_CHECK2=$(run_handshake_check)
+        if [ "$API_CHECK2" = "OK" ]; then
+            send_alert "$(echo -e '\xe2\x9c\x85') IB Gateway auto-recovered after handshake failure (was: ${API_CHECK})"
+            clear_alert_dedup "handshake_failed"
+        else
+            send_alert_dedup "handshake_failed" "$(echo -e '\xf0\x9f\x9a\xa8') IB API handshake FAILED (${API_CHECK2}) — auto-restart did not recover.
 
-This usually means IB Gateway needs IB Key re-approval.
+Session needs IB Key re-approval. From phone: open IBKR Mobile and approve the pending push (container was just restarted, push should be waiting).
 
-Fix: open http://87.99.142.12:5800/vnc.html → if black, run: ssh root@87.99.142.12 'docker restart ibgateway'"
-        ISSUES=$((ISSUES + 1))
+If no push arrived: ssh root@87.99.142.12 'docker restart ibgateway' to re-trigger autologin."
+            ISSUES=$((ISSUES + 1))
+        fi
+    else
+        clear_alert_dedup "handshake_failed"
     fi
 fi
 
 # 3. Check monitor daemon
 if ! systemctl is-active --quiet stockscout-monitor; then
-    send_alert "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') Monitor daemon is DOWN — restarting"
+    send_alert_dedup "monitor_down" "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') Monitor daemon is DOWN — restarting"
     sudo systemctl restart stockscout-monitor
     sleep 5
     if systemctl is-active --quiet stockscout-monitor; then
         echo "Monitor daemon restarted"
+        clear_alert_dedup "monitor_down"
     else
-        send_alert "$(echo -e '\xf0\x9f\x9a\xa8') Monitor daemon restart FAILED"
+        send_alert_dedup "monitor_restart_failed" "$(echo -e '\xf0\x9f\x9a\xa8') Monitor daemon restart FAILED"
         ISSUES=$((ISSUES + 1))
     fi
+else
+    clear_alert_dedup "monitor_down"
+    clear_alert_dedup "monitor_restart_failed"
 fi
 
 # 4. Check status bot daemon (handles /panic, /pnl, /status, /history)
 if ! systemctl is-active --quiet stockscout-statusbot; then
-    send_alert "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') Status bot is DOWN — restarting"
+    send_alert_dedup "statusbot_down" "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') Status bot is DOWN — restarting"
     sudo systemctl restart stockscout-statusbot
     sleep 3
     if systemctl is-active --quiet stockscout-statusbot; then
         echo "Status bot restarted"
+        clear_alert_dedup "statusbot_down"
     else
-        send_alert "$(echo -e '\xf0\x9f\x9a\xa8') Status bot restart FAILED — /panic unavailable"
+        send_alert_dedup "statusbot_restart_failed" "$(echo -e '\xf0\x9f\x9a\xa8') Status bot restart FAILED — /panic unavailable"
         ISSUES=$((ISSUES + 1))
     fi
+else
+    clear_alert_dedup "statusbot_down"
+    clear_alert_dedup "statusbot_restart_failed"
 fi
 
 # 5. Detect monitor stuck in restart loop (>3 restarts in last 5 min).
@@ -127,7 +194,7 @@ MONITOR_RESTARTS=$(journalctl -u stockscout-monitor --since '5 min ago' --no-pag
 MONITOR_RESTARTS=${MONITOR_RESTARTS//[^0-9]/}
 MONITOR_RESTARTS=${MONITOR_RESTARTS:-0}
 if [ "$MONITOR_RESTARTS" -gt 3 ]; then
-    send_alert "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') Monitor restarted ${MONITOR_RESTARTS}x in 5 min — check logs"
+    send_alert_dedup "monitor_restart_loop" "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') Monitor restarted ${MONITOR_RESTARTS}x in 5 min — check logs"
     ISSUES=$((ISSUES + 1))
 fi
 
@@ -138,10 +205,14 @@ fi
 # tracker ticker (which happened when `sudo -u` failed for not-in-sudoers).
 TRACKER="/home/stockscout/stock-scout-2/data/trades/open_positions.json"
 if [ -f "${TRACKER}" ]; then
-    IB_QUERY=$(runuser -u stockscout -- bash -c 'cd /home/stockscout/stock-scout-2 && set -a && source .env.trading 2>/dev/null && set +a && /home/stockscout/stock-scout-2/.venv/bin/python -c "
+    # Random clientId (see run_handshake_check for rationale).
+    DRIFT_CID=$(( (RANDOM % 700) + 200 ))
+    export DRIFT_CID
+    IB_QUERY=$(runuser -u stockscout --preserve-environment -- bash -c 'cd /home/stockscout/stock-scout-2 && set -a && source .env.trading 2>/dev/null && set +a && /home/stockscout/stock-scout-2/.venv/bin/python -c "
+import os
 from ib_insync import IB
 try:
-    ib = IB(); ib.connect(\"127.0.0.1\", 7496, clientId=94, timeout=10)
+    ib = IB(); ib.connect(\"127.0.0.1\", 7496, clientId=int(os.environ[\"DRIFT_CID\"]), timeout=10)
     syms = sorted({p.contract.symbol for p in ib.positions() if p.position != 0})
     ib.disconnect()
     print(\"OK\", \" \".join(syms))

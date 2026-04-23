@@ -705,21 +705,31 @@ def _ratchet_stops(tracker, client, ibkr_orders, notify):
             )
             continue
 
-        # Cancel existing TRAIL order for this OCA
-        cancelled_trail = False
+        # Cancel existing protective stops (TRAIL or older STP) for this OCA
+        # before placing the new tighter STP. Without this, tier-to-tier
+        # transitions stack old STPs under the new one — OCA still protects
+        # you (highest stop fires first) but the portfolio view shows clutter
+        # like two CF STOPs (the newest at $114.67 plus the older $111.33).
+        cancelled_any = False
         for o in orders_by_ticker.get(ticker, []):
-            if o.get("order_type") == "TRAIL" and o.get("oca_group") == oca:
-                try:
-                    for t in client._ib.openTrades():
-                        if t.order.orderId == o["order_id"]:
-                            client._ib.cancelOrder(t.order)
-                            cancelled_trail = True
-                            logger.info("Ratchet: cancelled TRAIL #%d for %s", o["order_id"], ticker)
-                            break
-                except Exception as e:
-                    logger.error("Ratchet cancel failed for %s: %s", ticker, e)
+            if o.get("oca_group") != oca:
+                continue
+            if o.get("order_type") not in ("TRAIL", "STP"):
+                continue
+            try:
+                for t in client._ib.openTrades():
+                    if t.order.orderId == o["order_id"]:
+                        client._ib.cancelOrder(t.order)
+                        cancelled_any = True
+                        logger.info(
+                            "Ratchet: cancelled %s #%d for %s",
+                            o.get("order_type"), o["order_id"], ticker,
+                        )
+                        break
+            except Exception as e:
+                logger.error("Ratchet cancel failed for %s: %s", ticker, e)
 
-        if cancelled_trail:
+        if cancelled_any:
             client._ib.sleep(2)
 
         # Place new hard STP at target floor (same OCA as limit_sell)
