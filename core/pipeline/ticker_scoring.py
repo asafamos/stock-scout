@@ -256,9 +256,12 @@ def _process_single_ticker(
         except (TypeError, ValueError):
             pass
         # 6. Market regime — supporting context (weight=0.25)
+        # Include MODERATE_UP which was added to the regime classifier later
+        # (scoring_config.py ATR_POSITION_ADJUST_BY_REGIME has it at 1.05x —
+        # between SIDEWAYS and TREND_UP, so it's clearly supportive).
         try:
             reg_val = str(rec_series.get("Market_Regime") or "").upper()
-            if reg_val in ("TREND_UP", "BULLISH", "NEUTRAL", "SIDEWAYS"):
+            if reg_val in ("TREND_UP", "MODERATE_UP", "BULLISH", "NEUTRAL", "SIDEWAYS"):
                 reasons.append("Supportive market regime")
                 swing_strength += 0.25
         except (TypeError, ValueError, AttributeError):

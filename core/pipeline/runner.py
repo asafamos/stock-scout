@@ -1984,6 +1984,72 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
     except Exception as _sec_exc:
         logger.debug("[PIPELINE] Sector cap failed: %s", _sec_exc)
 
+    # ── FINAL PASS: recompute SignalQuality with full data ─────────────────
+    # ticker_scoring.py computes SignalQuality per-ticker BEFORE RR, Fundamental_S,
+    # Reliability_Score, and VolSurge are all populated on the row (those get
+    # added later by runner.py enrichment passes). That meant the per-ticker
+    # quality never saw those signals — sometimes landing at "Medium" or
+    # "Speculative" even when the fully-enriched row clearly warrants "High".
+    # Observed symptom (2026-04-22→): every scan came back with zero "High"
+    # stocks, blocking all auto-trade entries on the confidence filter.
+    # Fix: recompute using the final DataFrame where every column is set.
+    try:
+        _df = ctx.results
+        if len(_df) > 0 and "Ticker" in _df.columns:
+            from core.scoring_config import TECH_STRONG_THRESHOLD, ML_PROB_THRESHOLD
+            _SUPPORTIVE_REGIMES = {"TREND_UP", "MODERATE_UP", "BULLISH", "NEUTRAL", "SIDEWAYS"}
+            def _recompute_quality(row):
+                w = 0.0
+                reasons = []
+                ts = row.get("TechScore_20d")
+                if pd.notna(ts) and float(ts) >= float(TECH_STRONG_THRESHOLD):
+                    w += 1.0; reasons.append("Strong technical momentum")
+                elif pd.notna(ts) and float(ts) >= 45.0:
+                    w += 0.5; reasons.append("Positive technical setup")
+                mlp = row.get("ML_20d_Prob")
+                if pd.notna(mlp) and float(mlp) >= float(ML_PROB_THRESHOLD):
+                    w += 0.75; reasons.append("High ML breakout probability")
+                elif pd.notna(mlp) and float(mlp) >= 0.50:
+                    w += 0.25; reasons.append("Moderate ML breakout probability")
+                ps = row.get("Pattern_Score", 0)
+                if pd.notna(ps) and float(ps) > 0:
+                    w += 1.0; reasons.append("Bullish pattern detected")
+                rr = row.get("RewardRisk")
+                if pd.isna(rr):
+                    rr = row.get("RR_Ratio")
+                if pd.isna(rr):
+                    rr = row.get("RR")
+                if pd.notna(rr) and float(rr) >= 2.0:
+                    w += 1.0; reasons.append("Favorable risk/reward ratio")
+                vol = row.get("VolSurge")
+                if pd.isna(vol):
+                    vol = row.get("Volume_Surge_Ratio")
+                if pd.notna(vol) and float(vol) >= 1.3:
+                    w += 0.75; reasons.append("Volume surge confirmation")
+                reg = row.get("Market_Regime", "")
+                if isinstance(reg, str) and reg.upper() in _SUPPORTIVE_REGIMES:
+                    w += 0.25; reasons.append("Supportive market regime")
+                fund = row.get("Fundamental_S")
+                if pd.isna(fund):
+                    fund = row.get("Fundamental_Score")
+                if pd.notna(fund) and float(fund) >= 70.0:
+                    w += 0.25; reasons.append("Fundamental support")
+                q = "High" if w >= 3.0 else ("Medium" if w >= 1.5 else "Speculative")
+                return pd.Series({
+                    "SignalQuality": q,
+                    "SignalReasons": "; ".join(reasons),
+                    "SignalReasons_Count": len(reasons),
+                    "SignalStrength": round(w, 2),
+                })
+            _q_update = _df.apply(_recompute_quality, axis=1)
+            for _col in ("SignalQuality", "SignalReasons", "SignalReasons_Count", "SignalStrength"):
+                if _col in _q_update.columns:
+                    ctx.results[_col] = _q_update[_col]
+            _dist = ctx.results["SignalQuality"].value_counts().to_dict()
+            logger.info("[PIPELINE] SignalQuality recomputed on final rows: %s", _dist)
+    except Exception as _sq_exc:
+        logger.warning("[PIPELINE] SignalQuality final recompute failed: %s", _sq_exc)
+
     # Persist latest results
     try:
         to_save = ctx.results.copy()
