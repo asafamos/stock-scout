@@ -54,12 +54,20 @@ clear_alert_dedup() {
 }
 
 # Actual ib_insync handshake. Returns "OK" or "ERR:<name>" / "NOCONN".
+# Use a RANDOM clientId per run (200-899): if a previous healthcheck left a
+# zombie session on a fixed clientId, a fresh fixed id would get rejected with
+# "client id already in use" → false handshake-failure alert. Randomizing
+# sidesteps the collision since IB allows many concurrent client IDs.
+# Range avoids known ids: 1 (order_manager), 10 (reapply), 93-99 (old
+# healthcheck + statusbot + daily_summary).
 run_handshake_check() {
-    runuser -u stockscout -- bash -c 'cd /home/stockscout/stock-scout-2 && /home/stockscout/stock-scout-2/.venv/bin/python -c "
+    local cid=$(( (RANDOM % 700) + 200 ))
+    HC_CID="${cid}" runuser -u stockscout --preserve-environment -- bash -c '/home/stockscout/stock-scout-2/.venv/bin/python -c "
+import os
 from ib_insync import IB
 ib = IB()
 try:
-    ib.connect(\"127.0.0.1\", 7496, clientId=93, timeout=10)
+    ib.connect(\"127.0.0.1\", 7496, clientId=int(os.environ[\"HC_CID\"]), timeout=10)
     if ib.isConnected():
         print(\"OK\")
     else:
@@ -197,10 +205,14 @@ fi
 # tracker ticker (which happened when `sudo -u` failed for not-in-sudoers).
 TRACKER="/home/stockscout/stock-scout-2/data/trades/open_positions.json"
 if [ -f "${TRACKER}" ]; then
-    IB_QUERY=$(runuser -u stockscout -- bash -c 'cd /home/stockscout/stock-scout-2 && set -a && source .env.trading 2>/dev/null && set +a && /home/stockscout/stock-scout-2/.venv/bin/python -c "
+    # Random clientId (see run_handshake_check for rationale).
+    DRIFT_CID=$(( (RANDOM % 700) + 200 ))
+    export DRIFT_CID
+    IB_QUERY=$(runuser -u stockscout --preserve-environment -- bash -c 'cd /home/stockscout/stock-scout-2 && set -a && source .env.trading 2>/dev/null && set +a && /home/stockscout/stock-scout-2/.venv/bin/python -c "
+import os
 from ib_insync import IB
 try:
-    ib = IB(); ib.connect(\"127.0.0.1\", 7496, clientId=94, timeout=10)
+    ib = IB(); ib.connect(\"127.0.0.1\", 7496, clientId=int(os.environ[\"DRIFT_CID\"]), timeout=10)
     syms = sorted({p.contract.symbol for p in ib.positions() if p.position != 0})
     ib.disconnect()
     print(\"OK\", \" \".join(syms))
