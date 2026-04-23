@@ -59,12 +59,39 @@ if ! docker ps --format '{{.Names}}' | grep -q ibgateway; then
     fi
 fi
 
-# 2. Check API port connectivity
+# 2. Check API port connectivity (TCP-level only)
 if ! nc -z 127.0.0.1 ${IB_PORT} 2>/dev/null; then
     send_alert "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') IB Gateway port ${IB_PORT} not responding — may need 2FA approval
 
 Open: http://87.99.142.12:5800/vnc.html"
     ISSUES=$((ISSUES + 1))
+else
+    # 2b. DEEP API CHECK — TCP open doesn't prove IB is authenticated.
+    # The session can die while the container stays up (happens daily).
+    # Try an actual ib_insync handshake; timeout fast (10s).
+    # This catches the "connected TCP but auth expired" case that bit us
+    # this morning (IB died at 20:00 UTC, we noticed at 09:43 next day).
+    API_CHECK=$(runuser -u stockscout -- bash -c 'cd /home/stockscout/stock-scout-2 && /home/stockscout/stock-scout-2/.venv/bin/python -c "
+from ib_insync import IB
+ib = IB()
+try:
+    ib.connect(\"127.0.0.1\", 7496, clientId=93, timeout=10)
+    if ib.isConnected():
+        print(\"OK\")
+    else:
+        print(\"NOCONN\")
+    ib.disconnect()
+except Exception as e:
+    print(f\"ERR: {type(e).__name__}\")
+"' 2>/dev/null)
+    if [ "$API_CHECK" != "OK" ]; then
+        send_alert "$(echo -e '\xf0\x9f\x9a\xa8') IB API handshake FAILED (${API_CHECK}) — TCP port open but session not authenticated.
+
+This usually means IB Gateway needs IB Key re-approval.
+
+Fix: open http://87.99.142.12:5800/vnc.html → if black, run: ssh root@87.99.142.12 'docker restart ibgateway'"
+        ISSUES=$((ISSUES + 1))
+    fi
 fi
 
 # 3. Check monitor daemon
