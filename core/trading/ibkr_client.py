@@ -198,17 +198,16 @@ class IBKRClient:
             logger.error("Failed to get positions: %s", e)
             return []
 
-    def get_live_price(self, ticker: str, timeout: float = 3.0) -> Optional[float]:
-        """Fetch a near-real-time price for a ticker via IBKR snapshot quote.
+    def get_live_price(self, ticker: str, timeout: float = 6.0) -> Optional[float]:
+        """Fetch a near-real-time price via IBKR delayed market data (15-min lag).
 
-        Used by order_manager to refresh entry/stop/target with the latest
-        market price right before placing an order — closes the gap between
-        a 60-90 minute old scan and live market reality. Professional algo
-        platforms (AQR, Renaissance, etc.) all separate signal generation
-        from execution-time price discovery for exactly this reason.
+        Our IBKR account doesn't have a paid live market data subscription
+        (free tier only), so we use ``reqMarketDataType(3)`` for delayed.
+        15-min lag is still 4-6× fresher than the 60-90 min scan, which
+        is the gap this method exists to close.
 
-        Returns None on any failure (timeout, no quote, dry run) — callers
-        should fall back to the scan price.
+        Falls back to None on any failure (timeout, no data, dry run) so
+        callers can degrade to the scan price safely.
         """
         if self.cfg.dry_run:
             return None
@@ -216,25 +215,47 @@ class IBKRClient:
             from ib_insync import Stock
             contract = Stock(ticker, "SMART", "USD")
             self._ib.qualifyContracts(contract)
-            # snapshot=True gets a one-shot quote, no streaming subscription.
-            ticker_obj = self._ib.reqMktData(contract, "", snapshot=True, regulatorySnapshot=False)
-            # Wait briefly for the snapshot to populate.
+            # 3 = delayed (~15 min lag, free with all IB accounts).
+            # We set this once per call; it's idempotent and cheap.
+            try:
+                self._ib.reqMarketDataType(3)
+            except Exception:
+                pass
+            # Streaming (not snapshot) — snapshot mode requires live
+            # subscription per IB error 10089. Streaming + delayed works.
+            ticker_obj = self._ib.reqMktData(contract, "", snapshot=False, regulatorySnapshot=False)
+            # Delayed feed takes longer to populate than live snapshot.
             self._ib.sleep(timeout)
             try:
-                # Prefer last-traded price; fall back to mid-quote if last is NaN.
-                last = float(ticker_obj.last) if ticker_obj.last else float("nan")
-                if last and last > 0 and last == last:  # NaN check
-                    return last
-                bid = float(ticker_obj.bid) if ticker_obj.bid else float("nan")
-                ask = float(ticker_obj.ask) if ticker_obj.ask else float("nan")
-                if bid > 0 and ask > 0 and bid == bid and ask == ask:
-                    return (bid + ask) / 2.0
-                # Last resort: previous close
-                close = float(ticker_obj.close) if ticker_obj.close else float("nan")
-                if close > 0 and close == close:
-                    return close
+                # Try every field that might carry a price (live, delayed, close).
+                # ib_insync exposes delayed values on the same fields when
+                # marketDataType=3 is active.
+                candidates = [
+                    getattr(ticker_obj, "last", None),
+                    getattr(ticker_obj, "delayedLast", None),
+                    getattr(ticker_obj, "close", None),
+                    getattr(ticker_obj, "delayedClose", None),
+                ]
+                for v in candidates:
+                    if v is None:
+                        continue
+                    try:
+                        f = float(v)
+                        if f > 0 and f == f:  # not NaN
+                            return f
+                    except (TypeError, ValueError):
+                        continue
+                # Mid-quote fallback (live or delayed)
+                bid = getattr(ticker_obj, "bid", None) or getattr(ticker_obj, "delayedBid", None)
+                ask = getattr(ticker_obj, "ask", None) or getattr(ticker_obj, "delayedAsk", None)
+                try:
+                    bid_f = float(bid) if bid is not None else float("nan")
+                    ask_f = float(ask) if ask is not None else float("nan")
+                    if bid_f > 0 and ask_f > 0 and bid_f == bid_f and ask_f == ask_f:
+                        return (bid_f + ask_f) / 2.0
+                except (TypeError, ValueError):
+                    pass
             finally:
-                # Cancel the snapshot subscription to free the slot.
                 try:
                     self._ib.cancelMktData(contract)
                 except Exception:
