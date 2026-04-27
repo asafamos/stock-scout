@@ -1984,7 +1984,52 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
     except Exception as _sec_exc:
         logger.debug("[PIPELINE] Sector cap failed: %s", _sec_exc)
 
-    # ── FINAL PASS: recompute SignalQuality with full data ─────────────────
+    # ── FINAL PASS A: ensure Market_Regime is populated on every row ──────
+    # The per-ticker scoring path doesn't broadcast a market-wide regime, and
+    # different upstream branches sometimes leave it as None on every row
+    # (observed 2026-04-27: 123/123 rows = None). When that happens, our
+    # downstream gates that consume regime (R:R floor, regime_min_score,
+    # SignalQuality "Supportive market regime" bonus, monitor's caution check)
+    # silently default to neutral / fail-open. The cumulative effect is
+    # genuinely strong setups never reaching "High" classification.
+    # Fix: classify market regime from SPY here (cheap — uses build_market_context_table)
+    # and broadcast to every row. Idempotent if regime is already set on
+    # the rows.
+    try:
+        _df_regime = ctx.results
+        if len(_df_regime) > 0:
+            _need_regime = (
+                "Market_Regime" not in _df_regime.columns
+                or _df_regime["Market_Regime"].isna().all()
+            )
+            if _need_regime:
+                from core.unified_logic import build_market_context_table as _build_ctx
+                _today = pd.Timestamp.utcnow().strftime("%Y-%m-%d")
+                _start = (pd.Timestamp.utcnow() - pd.Timedelta(days=180)).strftime("%Y-%m-%d")
+                _end = (pd.Timestamp.utcnow() + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+                _mctx = _build_ctx(_start, _end)
+                if _mctx is not None and not _mctx.empty:
+                    _regime_str = str(_mctx["Market_Regime"].iloc[-1])
+                    _regime_conf = int(_mctx["Market_Regime_Confidence"].iloc[-1]) \
+                        if "Market_Regime_Confidence" in _mctx.columns else 50
+                    ctx.results["Market_Regime"] = _regime_str
+                    ctx.results["Market_Regime_Confidence"] = _regime_conf
+                    logger.info(
+                        "[PIPELINE] Broadcast Market_Regime=%s (conf=%d) to %d rows",
+                        _regime_str, _regime_conf, len(_df_regime),
+                    )
+                else:
+                    # Last resort: SIDEWAYS so downstream gates don't block
+                    # for "regime=None" but also don't spuriously favor.
+                    ctx.results["Market_Regime"] = "SIDEWAYS"
+                    logger.warning(
+                        "[PIPELINE] Market context build failed — defaulted "
+                        "%d rows to SIDEWAYS regime", len(_df_regime),
+                    )
+    except Exception as _reg_exc:
+        logger.warning("[PIPELINE] Regime broadcast failed: %s", _reg_exc)
+
+    # ── FINAL PASS B: recompute SignalQuality with full data ──────────────
     # ticker_scoring.py computes SignalQuality per-ticker BEFORE RR, Fundamental_S,
     # Reliability_Score, and VolSurge are all populated on the row (those get
     # added later by runner.py enrichment passes). That meant the per-ticker
