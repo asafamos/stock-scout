@@ -1,42 +1,29 @@
 {
-  "updated_at": "2026-04-27T14:14:45.492590+00:00",
-  "positions": [
+  "updated_at": "2026-04-27T14:25:22.533373+00:00",
+  "positions": [],
+  "orders": [
     {
+      "order_id": 977,
       "ticker": "CF",
-      "quantity": 2,
-      "avg_cost": 111.33,
-      "market_price": 121.39,
-      "market_value": 242.78,
-      "unrealized_pnl": 20.12,
-      "pnl_pct": 9.04,
-      "entry_price": 111.33,
-      "target_price": 145.46,
-      "stop_loss": 110.75,
-      "target_date": "2026-05-04 00:00:00",
-      "peak_price": 127.013649,
-      "stop_floor": 114.6699,
-      "trailing_stop_pct": 5.3,
-      "score": 79.8
+      "action": "SELL",
+      "type": "STP",
+      "qty": 2,
+      "tif": "GTC",
+      "oca_group": "SS_CF_1776792064",
+      "status": "PreSubmitted",
+      "stop_price": 111.33
     },
     {
-      "ticker": "TDW",
-      "quantity": 2,
-      "avg_cost": 86.33,
-      "market_price": 90.01,
-      "market_value": 180.03,
-      "unrealized_pnl": 7.37,
-      "pnl_pct": 4.27,
-      "entry_price": 85.83,
-      "target_price": 93.95000610351562,
-      "stop_loss": 80.29000091552734,
-      "target_date": "2026-05-07 00:00:00",
-      "peak_price": 90.72203825,
-      "stop_floor": null,
-      "trailing_stop_pct": 3.0,
-      "score": 77.4997532309146
-    }
-  ],
-  "orders": [
+      "order_id": 1031,
+      "ticker": "CF",
+      "action": "SELL",
+      "type": "STP",
+      "qty": 2,
+      "tif": "GTC",
+      "oca_group": "SS_CF_1776792064",
+      "status": "PreSubmitted",
+      "stop_price": 114.67
+    },
     {
       "order_id": 740,
       "ticker": "TDW",
@@ -61,28 +48,6 @@
       "limit_price": 93.95
     },
     {
-      "order_id": 1031,
-      "ticker": "CF",
-      "action": "SELL",
-      "type": "STP",
-      "qty": 2,
-      "tif": "GTC",
-      "oca_group": "SS_CF_1776792064",
-      "status": "PreSubmitted",
-      "stop_price": 114.67
-    },
-    {
-      "order_id": 977,
-      "ticker": "CF",
-      "action": "SELL",
-      "type": "STP",
-      "qty": 2,
-      "tif": "GTC",
-      "oca_group": "SS_CF_1776792064",
-      "status": "PreSubmitted",
-      "stop_price": 111.33
-    },
-    {
       "order_id": 979,
       "ticker": "CF",
       "action": "SELL",
@@ -95,8 +60,8 @@
     }
   ],
   "cash": 575.16,
-  "net_liquidation": 997.97,
-  "total_unrealized_pnl": 27.49,
-  "position_count": 2,
+  "net_liquidation": 996.56,
+  "total_unrealized_pnl": 0.0,
+  "position_count": 0,
   "vps_status": "connected"
 }
