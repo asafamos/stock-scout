@@ -1,24 +1,21 @@
 #!/bin/bash
-# StockScout — Atomic Scan + Trade Pipeline
+# StockScout — Event-Driven Scan→Trade Pipeline
 #
-# Runs the FULL scan locally on the VPS, then immediately invokes the
-# trade executor + outcomes recorder. Single systemd unit = no timer race
-# between scan completion and trade firing, no GH Actions cron unreliability,
-# no git push/pull window where VPS reads stale data.
+# Architecture: scan runs in GH Actions (where the data-provider API keys
+# live), VPS watches git for new scan parquet, fires trade IMMEDIATELY
+# when one lands. No fixed-time trade timer = no race against the cron
+# variability that has cost us a week of trading days.
 #
-# Why this exists: previous architecture had GH Actions firing the scan
-# (cron unreliable, often 30-46 min late), which then committed to git,
-# which the VPS pulled, while a SEPARATE systemd timer fired the trade
-# at a fixed time hoping the scan was done. When cron was late, trade
-# fired on stale data. When manual scan was triggered to recover,
-# `cancel-in-progress: true` killed it. Three points of failure in a
-# pipeline that should be atomic.
+# Flow per invocation:
+#   1. Note current scan parquet's git hash.
+#   2. Trigger GH Actions auto_scan via repository_dispatch (best-effort;
+#      if no GITHUB_TOKEN available, rely on the workflow's own cron).
+#   3. Poll origin every 30s for up to 90 min.
+#   4. When the parquet hash changes → pull → record outcomes → trade.
+#   5. Exit. Next invocation handled by stockscout-pipeline.timer.
 #
-# This script: scan → outcomes-record → trade, in sequence, in one process.
-#
-# Invoked by stockscout-pipeline.timer at 13:30 UTC (morning) and
-# 17:30 UTC (afternoon). Trade fires WHEN SCAN ACTUALLY COMPLETES,
-# not at a guessed-fixed time.
+# Manual: bash deploy/scan_and_trade.sh [label]
+# Systemd: stockscout-pipeline.service / .timer
 
 set -uo pipefail
 exec > >(while IFS= read -r line; do echo "[$(date -u +%H:%M:%S)] $line"; done)
@@ -27,6 +24,8 @@ exec 2>&1
 ROOT=/home/stockscout/stock-scout-2
 LABEL="${1:-pipeline}"
 PY=$ROOT/.venv/bin/python
+MAX_WAIT_SEC=$((90 * 60))   # 90 min hard cap
+POLL_SEC=30
 
 cd "$ROOT"
 set -a
@@ -34,54 +33,74 @@ source .env.trading 2>/dev/null || true
 set +a
 
 echo "═══════════════════════════════════════════════════════"
-echo "Starting $LABEL pipeline"
+echo "Starting $LABEL pipeline (event-driven scan→trade)"
 echo "═══════════════════════════════════════════════════════"
 
-# 1. Sync code from origin (non-blocking on conflicts).
-echo "Syncing code from origin..."
+# Snapshot the current scan parquet hash so we can detect a NEW one.
 git fetch origin main --quiet 2>/dev/null || true
-git merge --ff-only origin/main --quiet 2>/dev/null || \
-    echo "  (git merge non-ff — local data files diverge; using current state)"
+START_HASH=$(git log -1 --format=%H origin/main -- data/scans/latest_scan.parquet 2>/dev/null || echo "none")
+echo "Current scan parquet hash: ${START_HASH:0:12}"
 
-# 2. Run the full scan inline (~55 min on Polygon free tier).
-# DISABLE_AUTO_TRADE=1 — even if scan flow has its own auto-trade hook,
-# we want trade to fire AFTER outcomes are recorded so the JSONL feed
-# captures every candidate from this exact scan.
-echo "Running full scan (this takes ~55 min)..."
-SCAN_T0=$(date +%s)
-DISABLE_AUTO_TRADE=1 $PY -m scripts.run_full_scan 2>&1 | tail -50
-SCAN_EXIT=${PIPESTATUS[0]}
-SCAN_DUR=$(( $(date +%s) - SCAN_T0 ))
-echo "Scan finished (exit=$SCAN_EXIT, duration=${SCAN_DUR}s)"
-
-if [ "$SCAN_EXIT" -ne 0 ]; then
-    echo "Scan FAILED — skipping outcomes-record and trade for safety."
-    exit "$SCAN_EXIT"
+# Best-effort: trigger a fresh GH Actions scan via REST.
+# Requires GITHUB_TOKEN (PAT or fine-grained) with `actions:write` scope.
+# If unavailable, skip — relies on the workflow's own cron schedule.
+if [ -n "${GITHUB_TOKEN:-}" ]; then
+    echo "Triggering GH Actions auto_scan workflow..."
+    curl -fsS -X POST \
+        -H "Authorization: token ${GITHUB_TOKEN}" \
+        -H "Accept: application/vnd.github+json" \
+        https://api.github.com/repos/asafamos/stock-scout/actions/workflows/auto_scan.yml/dispatches \
+        -d '{"ref":"main"}' && echo "  ✓ Workflow dispatched" || echo "  ✗ Dispatch failed (continuing with poll-only)"
+else
+    echo "No GITHUB_TOKEN — relying on workflow's own cron schedule."
 fi
 
-# 3. Verify scan output is fresh.
+# Poll for new scan parquet on origin/main.
+echo "Polling for new scan (every ${POLL_SEC}s, max $((MAX_WAIT_SEC / 60))min)..."
+START_TIME=$(date +%s)
+NEW_HASH="$START_HASH"
+while [ "$NEW_HASH" = "$START_HASH" ]; do
+    if [ $(($(date +%s) - START_TIME)) -gt "$MAX_WAIT_SEC" ]; then
+        echo "TIMEOUT after $((MAX_WAIT_SEC / 60))min — no new scan committed. Aborting."
+        exit 3
+    fi
+    sleep "$POLL_SEC"
+    git fetch origin main --quiet 2>/dev/null || true
+    NEW_HASH=$(git log -1 --format=%H origin/main -- data/scans/latest_scan.parquet 2>/dev/null || echo "none")
+done
+
+WAIT_DUR=$(( $(date +%s) - START_TIME ))
+echo "✓ New scan detected after ${WAIT_DUR}s — hash ${NEW_HASH:0:12}"
+
+# Pull (with stash dance to survive local data-file modifications).
+echo "Pulling latest scan to VPS..."
+git stash push -u -m "pipeline-$(date +%s)" 2>&1 | tail -1 || true
+git reset --hard origin/main 2>&1 | tail -1
+git stash pop 2>&1 | tail -1 || true
+
+# Verify.
 SCAN_FILE="$ROOT/data/scans/latest_scan.parquet"
 if [ ! -f "$SCAN_FILE" ]; then
-    echo "Scan produced no parquet — aborting."
-    exit 2
+    echo "FATAL: scan parquet missing after pull. Aborting."
+    exit 4
 fi
 SCAN_AGE_MIN=$(( ($(date +%s) - $(stat -c %Y "$SCAN_FILE")) / 60 ))
-echo "Scan output age: ${SCAN_AGE_MIN}m"
+echo "Scan file age: ${SCAN_AGE_MIN}m"
 
-# 4. Record candidates to outcomes JSONL (regime-tagged for ML feedback loop).
+# Record outcomes (regime-tagged JSONL for ML feedback loop).
 echo "Recording outcomes..."
-$PY -m scripts.track_scan_outcomes --record 2>&1 | tail -5 || \
-    echo "  (outcomes-record returned non-zero — continuing anyway)"
+$PY -m scripts.track_scan_outcomes --record 2>&1 | tail -3 || \
+    echo "  (outcomes-record returned non-zero — continuing)"
 
-# 5. Fire the trade evaluator. It runs all risk gates + live price refresh.
+# Fire the trade evaluator. Live price refresh + 8 risk gates inside.
 echo "Triggering auto-trade..."
 TRADE_T0=$(date +%s)
-$PY -m scripts.run_auto_trade 2>&1 | tail -30
+$PY -m scripts.run_auto_trade 2>&1 | tail -25
 TRADE_EXIT=${PIPESTATUS[0]}
 TRADE_DUR=$(( $(date +%s) - TRADE_T0 ))
 echo "Trade finished (exit=$TRADE_EXIT, duration=${TRADE_DUR}s)"
 
 echo "═══════════════════════════════════════════════════════"
-echo "Pipeline complete: scan=${SCAN_DUR}s + trade=${TRADE_DUR}s"
+echo "Pipeline complete: wait=${WAIT_DUR}s + trade=${TRADE_DUR}s"
 echo "═══════════════════════════════════════════════════════"
 exit 0
