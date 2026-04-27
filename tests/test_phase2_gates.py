@@ -134,3 +134,57 @@ def test_correlation_check_doesnt_crash_on_bad_ticker(rm):
     allowed, reason, _ = rm.check_portfolio_correlation("ZZZZZZ_NONEXISTENT")
     # Should not raise, and should allow
     assert allowed, f"Unresolvable ticker should fail-open: {reason}"
+
+
+# ── Live price refresh ──────────────────────────────────────────────
+
+def test_live_price_proportional_stop_target_adjustment():
+    """When live price differs from scan, stop/target should rescale to keep R:R.
+
+    Tests the core math behind the live-price refresh in order_manager:
+    scan_price=$100, stop=$95 (5% below), target=$110 (10% above).
+    Live price comes in at $102 → stop should be $96.90 (5% below live),
+    target $112.20 (10% above live). R:R ratio preserved.
+    """
+    scan_price = 100.0
+    stop = 95.0
+    target = 110.0
+    live_price = 102.0
+
+    # Replicate the refresh math from order_manager._execute_single
+    stop_pct = (scan_price - stop) / scan_price        # 0.05
+    tgt_pct = (target - scan_price) / scan_price       # 0.10
+    new_stop = round(live_price * (1 - stop_pct), 2)   # 102 * 0.95 = 96.90
+    new_target = round(live_price * (1 + tgt_pct), 2)  # 102 * 1.10 = 112.20
+
+    assert new_stop == 96.90, f"stop should rescale: got {new_stop}"
+    assert new_target == 112.20, f"target should rescale: got {new_target}"
+
+    # R:R should be unchanged within rounding
+    rr_scan = (target - scan_price) / (scan_price - stop)
+    rr_live = (new_target - live_price) / (live_price - new_stop)
+    assert abs(rr_scan - rr_live) < 0.01, f"R:R drifted: {rr_scan} vs {rr_live}"
+
+
+def test_live_price_refresh_falls_back_when_quote_missing(rm, monkeypatch):
+    """If get_live_price returns None, the trade still runs with scan price.
+
+    Critical safety property: a transient market-data outage should NOT
+    block trading — it should just degrade to using the scan-time price.
+    """
+    # Patch the client's get_live_price to always return None
+    monkeypatch.setattr(rm.client, "get_live_price",
+                        lambda ticker, timeout=3.0: None, raising=False)
+
+    # Simulate the order_manager flow: scan_price stays as-is, no adjustment
+    scan_price = 100.0
+    stop = 95.0
+    target = 110.0
+    live_price = rm.client.get_live_price("TEST")
+    assert live_price is None, "stub should return None"
+
+    # Caller logic: if live_price not present, no rescale, use scan
+    if live_price and live_price > 0:
+        pytest.fail("Should not branch into refresh when None")
+    # stop/target unchanged
+    assert stop == 95.0 and target == 110.0

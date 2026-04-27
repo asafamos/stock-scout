@@ -512,6 +512,37 @@ class OrderManager:
 
         # Use current price as entry estimate if Entry_Price not available
         price = entry if entry > 0 else float(row.get("Close", row.get("close", 0)))
+        scan_price = price  # remember scan-time price for gap_guard/slippage compare
+
+        # ── LIVE PRICE REFRESH ────────────────────────────────────────────
+        # Scan completed 60-90 minutes ago; prices have moved. Professional
+        # algo systems (AQR, Renaissance, Quantopian's `data.current()`)
+        # separate signal generation (slow) from execution-time price
+        # discovery (fast). We do the same: fetch the latest quote from
+        # IB and use it as our entry price, then re-derive stop/target
+        # PROPORTIONALLY so R:R stays as the scan intended.
+        # Falls back to scan price on any quote failure.
+        try:
+            live_price = self.client.get_live_price(ticker)
+        except Exception as _live_err:
+            logger.debug("live price fetch raised for %s: %s", ticker, _live_err)
+            live_price = None
+        if live_price and live_price > 0 and scan_price > 0:
+            move_pct = (live_price - scan_price) / scan_price * 100
+            # Re-derive stop & target using the scan's intended R:R/stop ratios
+            # so the trade preserves its risk profile around the live price.
+            if stop > 0:
+                stop_pct = (scan_price - stop) / scan_price  # positive number
+                stop = round(live_price * (1 - stop_pct), 2)
+            if target > 0:
+                tgt_pct = (target - scan_price) / scan_price  # positive number
+                target = round(live_price * (1 + tgt_pct), 2)
+            logger.info(
+                "LIVE REFRESH %s: scan $%.2f → live $%.2f (%+.2f%%) — "
+                "stop adjusted to $%.2f, target to $%.2f",
+                ticker, scan_price, live_price, move_pct, stop, target,
+            )
+            price = live_price  # downstream sizing/gating uses the live price
 
         # Analyst target cap — compare scan's target to Wall Street consensus.
         # If analyst mean < current price, the stock is rated overvalued —

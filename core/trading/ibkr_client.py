@@ -198,6 +198,52 @@ class IBKRClient:
             logger.error("Failed to get positions: %s", e)
             return []
 
+    def get_live_price(self, ticker: str, timeout: float = 3.0) -> Optional[float]:
+        """Fetch a near-real-time price for a ticker via IBKR snapshot quote.
+
+        Used by order_manager to refresh entry/stop/target with the latest
+        market price right before placing an order — closes the gap between
+        a 60-90 minute old scan and live market reality. Professional algo
+        platforms (AQR, Renaissance, etc.) all separate signal generation
+        from execution-time price discovery for exactly this reason.
+
+        Returns None on any failure (timeout, no quote, dry run) — callers
+        should fall back to the scan price.
+        """
+        if self.cfg.dry_run:
+            return None
+        try:
+            from ib_insync import Stock
+            contract = Stock(ticker, "SMART", "USD")
+            self._ib.qualifyContracts(contract)
+            # snapshot=True gets a one-shot quote, no streaming subscription.
+            ticker_obj = self._ib.reqMktData(contract, "", snapshot=True, regulatorySnapshot=False)
+            # Wait briefly for the snapshot to populate.
+            self._ib.sleep(timeout)
+            try:
+                # Prefer last-traded price; fall back to mid-quote if last is NaN.
+                last = float(ticker_obj.last) if ticker_obj.last else float("nan")
+                if last and last > 0 and last == last:  # NaN check
+                    return last
+                bid = float(ticker_obj.bid) if ticker_obj.bid else float("nan")
+                ask = float(ticker_obj.ask) if ticker_obj.ask else float("nan")
+                if bid > 0 and ask > 0 and bid == bid and ask == ask:
+                    return (bid + ask) / 2.0
+                # Last resort: previous close
+                close = float(ticker_obj.close) if ticker_obj.close else float("nan")
+                if close > 0 and close == close:
+                    return close
+            finally:
+                # Cancel the snapshot subscription to free the slot.
+                try:
+                    self._ib.cancelMktData(contract)
+                except Exception:
+                    pass
+            return None
+        except Exception as e:
+            logger.warning("get_live_price failed for %s: %s", ticker, e)
+            return None
+
     # ── Orders ────────────────────────────────────────────────
 
     def buy_market(self, ticker: str, qty: int) -> TradeResult:
