@@ -426,13 +426,28 @@ class OrderManager:
                 logger.info("No stocks pass RR filter (>= %.1f)", self.cfg.min_rr_to_trade)
                 return result
 
-        # Confidence filter — only trade high-confidence setups
+        # Confidence filter — regime-aware. In TREND_UP / MODERATE_UP markets
+        # Medium-quality setups are tradable (the macro tailwind compensates
+        # for thinner per-stock confirmation). In SIDEWAYS we keep the High
+        # bar; DISTRIBUTION is even stricter (cfg default already "High",
+        # but we don't lower it). PANIC/CORRECTION are blocked entirely
+        # upstream by blocked_regimes.
         if confidence_col and confidence_col in result.columns:
             # Map confidence levels: High=3, Medium=2, Low/Speculative=1
             conf_map = {
                 "HIGH": 3, "MEDIUM": 2, "LOW": 1, "SPECULATIVE": 1, "NONE": 0
             }
-            min_conf_val = conf_map.get(self.cfg.min_confidence.upper(), 3)
+            base_min = conf_map.get(self.cfg.min_confidence.upper(), 3)
+            # Regime override: TREND_UP / MODERATE_UP / BULLISH → allow Medium
+            cur_regime = ""
+            if regime_col and regime_col in result.columns:
+                _r = result[regime_col].dropna().astype(str).str.upper()
+                if not _r.empty:
+                    cur_regime = _r.iloc[0]
+            if cur_regime in {"TREND_UP", "MODERATE_UP", "BULLISH"}:
+                min_conf_val = min(base_min, 2)  # allow Medium
+            else:
+                min_conf_val = base_min
             conf_vals = result[confidence_col].astype(str).str.upper().map(
                 lambda x: conf_map.get(x, 0)
             )
@@ -440,10 +455,16 @@ class OrderManager:
             result = result[conf_vals >= min_conf_val]
             dropped = before - len(result)
             if dropped:
-                logger.info("Confidence filter dropped %d stocks (< %s)",
-                            dropped, self.cfg.min_confidence)
+                _floor_label = {3: "High", 2: "Medium", 1: "Low"}.get(min_conf_val, "?")
+                logger.info(
+                    "Confidence filter dropped %d stocks (< %s, regime=%s)",
+                    dropped, _floor_label, cur_regime or "default",
+                )
             if result.empty:
-                logger.info("No stocks pass confidence filter (>= %s)", self.cfg.min_confidence)
+                logger.info(
+                    "No stocks pass confidence filter (regime=%s)",
+                    cur_regime or "default",
+                )
                 return result
 
         # Reliability filter — only trade stocks with reliable data
@@ -475,17 +496,33 @@ class OrderManager:
 
         logger.info("Smart filter: %d → %d candidates", initial_count, len(result))
 
-        # Sort by combined rank: 60% score + 40% R:R (normalized)
-        # This ensures high R:R stocks like CVE (3.9) aren't pushed out
-        # by marginally higher-scoring stocks with R:R of only 2.0
-        scores_norm = pd.to_numeric(result[score_col], errors="coerce")
-        scores_norm = (scores_norm - scores_norm.min()) / (scores_norm.max() - scores_norm.min() + 1e-9)
+        # Sort by combined rank: 50% score + 30% R:R + 20% ML probability.
+        # Including ML in the ranking lets high-conviction model picks
+        # surface above marginally-higher-scoring noise — backtests show
+        # ML adds independent signal especially in MODERATE_UP / SIDEWAYS
+        # regimes where pure score is noisy.
+        def _norm(series):
+            s = pd.to_numeric(series, errors="coerce")
+            rng = s.max() - s.min()
+            if pd.isna(rng) or rng < 1e-9:
+                return s * 0.0 + 0.5  # all-equal → neutral 0.5
+            return (s - s.min()) / rng
+
+        scores_norm = _norm(result[score_col])
+        rank = 1.0 * scores_norm  # default if no other signals
+        weight = 1.0
         if rr_col and rr_col in result.columns:
-            rr_norm = pd.to_numeric(result[rr_col], errors="coerce")
-            rr_norm = (rr_norm - rr_norm.min()) / (rr_norm.max() - rr_norm.min() + 1e-9)
-            result["_rank_score"] = 0.6 * scores_norm + 0.4 * rr_norm
-        else:
-            result["_rank_score"] = scores_norm
+            rr_norm = _norm(result[rr_col])
+            rank = 0.6 * scores_norm + 0.4 * rr_norm
+            weight = 1.0
+        if ml_col and ml_col in result.columns:
+            ml_norm = _norm(result[ml_col])
+            # Re-weight: 50% score + 30% RR + 20% ML
+            if rr_col and rr_col in result.columns:
+                rank = 0.5 * scores_norm + 0.3 * _norm(result[rr_col]) + 0.2 * ml_norm
+            else:
+                rank = 0.7 * scores_norm + 0.3 * ml_norm
+        result["_rank_score"] = rank
         result = result.sort_values("_rank_score", ascending=False)
         result = result.drop(columns=["_rank_score"])
 
