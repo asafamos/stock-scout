@@ -578,10 +578,14 @@ class OrderManager:
                 return {"ticker": ticker, "status": "skipped",
                         "reason": f"Gap down {gap_pct:+.1f}% vs scan (possible news event)"}
 
-        # Risk check — now validates target/stop sanity too
+        # Risk check — now validates target/stop sanity too.
+        # Pass market_regime so the score floor adjusts to the regime
+        # (matches scoring_config.REGIME_MIN_SCORE + 5 buffer) instead of
+        # using the static 73 that blocked all SIDEWAYS-day trades.
+        _row_regime = str(row.get("Market_Regime", "") or "").upper()
         allowed, reason = self.risk.can_open_position(
             ticker, price, score, rr, sector=sector, atr_pct=atr_pct,
-            stop_loss=stop, target_price=target,
+            stop_loss=stop, target_price=target, market_regime=_row_regime,
         )
         if not allowed:
             logger.info("SKIP %s: %s", ticker, reason)

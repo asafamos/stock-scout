@@ -72,11 +72,16 @@ done
 WAIT_DUR=$(( $(date +%s) - START_TIME ))
 echo "✓ New scan detected after ${WAIT_DUR}s — hash ${NEW_HASH:0:12}"
 
-# Pull (with stash dance to survive local data-file modifications).
-echo "Pulling latest scan to VPS..."
-git stash push -u -m "pipeline-$(date +%s)" 2>&1 | tail -1 || true
-git reset --hard origin/main 2>&1 | tail -1
-git stash pop 2>&1 | tail -1 || true
+# Pull origin's data/scans/* AUTHORITATIVELY (it's the source of truth for
+# scan results). Don't stash-then-pop — that creates conflict markers in
+# JSON files when the VPS has any local modification (it always does:
+# data/trades/*.json reflects live IB state). The trade/positions JSONs
+# are independent of git so we ONLY pull the scan files.
+echo "Pulling latest scan files to VPS..."
+git fetch origin main --quiet
+git checkout origin/main -- data/scans/latest_scan.parquet data/scans/latest_scan.json data/scans/latest_scan.meta.json 2>/dev/null || true
+# Also pull any code changes (excluding data/trades/* which we keep local)
+git checkout origin/main -- core/ scripts/ deploy/ ml/ models/ 2>/dev/null || true
 
 # Verify.
 SCAN_FILE="$ROOT/data/scans/latest_scan.parquet"
