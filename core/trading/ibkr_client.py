@@ -122,24 +122,70 @@ class IBKRClient:
             self._connected = True
             return True
 
-        try:
-            from ib_insync import IB
-            self._ib = IB()
-            self._ib.connect(
-                self.cfg.ibkr_host,
-                self.cfg.ibkr_port,
-                clientId=self.cfg.ibkr_client_id,
-                timeout=self.cfg.ibkr_timeout,
-            )
-            self._connected = True
-            mode = "PAPER" if self.cfg.paper_mode else "LIVE"
-            logger.info("Connected to IBKR [%s] at %s:%d",
-                        mode, self.cfg.ibkr_host, self.cfg.ibkr_port)
-            return True
-        except Exception as e:
-            logger.error("Failed to connect to IBKR: %s", e)
-            self._connected = False
-            return False
+        from ib_insync import IB
+        self._ib = IB()
+
+        # Try the configured clientId first, then fall back to random IDs on
+        # collision. IB's "Error 326: clientId already in use" surfaces as
+        # ib_insync's TimeoutError after the peer closes the connection;
+        # we detect either path and retry with a fresh ID. Solves the
+        # 2026-04-28 case: monitor + pipeline both used clientId=1, monitor
+        # alerted "Failed to connect to IBKR" twice while the pipeline's
+        # trade run was holding the ID.
+        import random
+        ids_to_try = [self.cfg.ibkr_client_id]
+        # Up to 4 random fallbacks in the 100..999 range — far enough from
+        # the canonical 1/2/3 clients to avoid colliding with anything else.
+        for _ in range(4):
+            ids_to_try.append(random.randint(100, 999))
+
+        last_err = None
+        mode = "PAPER" if self.cfg.paper_mode else "LIVE"
+        for cid in ids_to_try:
+            try:
+                self._ib.connect(
+                    self.cfg.ibkr_host,
+                    self.cfg.ibkr_port,
+                    clientId=cid,
+                    timeout=self.cfg.ibkr_timeout,
+                )
+                self._connected = True
+                if cid != self.cfg.ibkr_client_id:
+                    logger.warning(
+                        "Connected to IBKR [%s] at %s:%d with FALLBACK clientId %d "
+                        "(configured %d was in use)",
+                        mode, self.cfg.ibkr_host, self.cfg.ibkr_port,
+                        cid, self.cfg.ibkr_client_id,
+                    )
+                else:
+                    logger.info(
+                        "Connected to IBKR [%s] at %s:%d (clientId %d)",
+                        mode, self.cfg.ibkr_host, self.cfg.ibkr_port, cid,
+                    )
+                return True
+            except Exception as e:
+                last_err = e
+                msg = str(e).lower()
+                # Recognize the collision case (clientId in use) — only then retry.
+                # Other errors (network, auth) shouldn't burn through the pool.
+                if "client id" in msg or "326" in msg or isinstance(e, TimeoutError):
+                    logger.warning(
+                        "IBKR connect attempt with clientId %d failed: %s — retrying with new ID",
+                        cid, e,
+                    )
+                    try:
+                        self._ib.disconnect()
+                    except Exception:
+                        pass
+                    self._ib = IB()  # fresh IB instance for next attempt
+                    continue
+                # Non-collision error — give up immediately
+                break
+
+        logger.error("Failed to connect to IBKR after %d attempts: %s",
+                     len(ids_to_try), last_err)
+        self._connected = False
+        return False
 
     def disconnect(self):
         if self._ib and self._connected:

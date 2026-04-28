@@ -309,6 +309,8 @@ WantedBy=timers.target
 SVCEOF
 
 # --- Position monitor daemon ---
+# Uses clientId=2 to avoid colliding with the pipeline (clientId=1) and any
+# manual ssh runs (which fall back to random 100-999 via auto-retry).
 sudo tee /etc/systemd/system/stockscout-monitor.service > /dev/null << 'SVCEOF'
 [Unit]
 Description=StockScout Position Monitor
@@ -320,6 +322,7 @@ Type=simple
 User=stockscout
 WorkingDirectory=/home/stockscout/stock-scout-2
 EnvironmentFile=/home/stockscout/stock-scout-2/.env.trading
+Environment="TRADE_IBKR_CLIENT_ID=2"
 ExecStart=/home/stockscout/stock-scout-2/.venv/bin/python -m scripts.monitor_positions --daemon
 Restart=on-failure
 RestartSec=30
