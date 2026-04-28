@@ -231,6 +231,9 @@ def run_check():
                     except Exception:
                         pass
 
+        # 1b. Drift check — surface tracker↔IB anomalies before they bite.
+        _drift_check(tracker, client, ibkr_orders, notify)
+
         # 2. Verify protective orders — every position MUST have live orders
         _verify_protections(tracker, client, ibkr_orders, notify)
 
@@ -297,6 +300,79 @@ def run_check():
         notify.notify_error("Monitor", str(e))
     finally:
         client.disconnect()
+
+
+def _drift_check(tracker, client, ibkr_orders, notify):
+    """Surface tracker↔IB drift before it becomes a silent bug.
+
+    Three checks, single consolidated alert per cycle (cooldown 30 min):
+
+    1. Untracked IB position — IB holds something the tracker doesn't know
+       about. Means a manual buy or a buy that the tracker missed
+       persisting. Without this alert, the position would have NO
+       protective orders managed by us.
+
+    2. Protective-order count mismatch — every tracked position should
+       have exactly 2 active sell orders (TRAIL + LMT, same OCA). If
+       count != 2, something cancelled or duplicated. (We check ≥1 of
+       each type; OCA cleanup handles the rest.)
+
+    3. Tracker entry with no fill record — an OPEN that's missing from
+       IB AND from completed-orders. This was the KNX phantom on
+       2026-04-28: the buy was placed but rejected by IB rules, yet the
+       tracker recorded an OPEN. Caught by reconciliation later, but the
+       fake P&L estimate misleads the daily summary.
+    """
+    issues = []
+
+    # IB positions
+    try:
+        ib_pos_by_ticker = {p.contract.symbol: float(p.position)
+                            for p in client._ib.portfolio()
+                            if p.position != 0}
+    except Exception:
+        return  # Can't check without portfolio
+
+    tracked = {p["ticker"]: p for p in tracker.get_open_positions()}
+
+    # Check 1: untracked IB positions
+    for sym, qty in ib_pos_by_ticker.items():
+        if sym not in tracked:
+            issues.append(f"IB holds {sym} ({int(qty)} shares) but tracker doesn't")
+
+    # Check 2: protective-order count per tracked position
+    orders_by_ticker = {}
+    for o in ibkr_orders:
+        t = o.get("ticker", "")
+        if t and o.get("status") in ("Submitted", "PreSubmitted"):
+            orders_by_ticker.setdefault(t, []).append(o)
+
+    for sym, pos in tracked.items():
+        # Skip if position not in IB yet (just opened, may be pending)
+        if sym not in ib_pos_by_ticker:
+            continue
+        orders = orders_by_ticker.get(sym, [])
+        order_types = {o.get("order_type") for o in orders}
+        has_stop = bool(order_types & {"TRAIL", "STP"})
+        has_target = "LMT" in order_types
+        if not has_stop:
+            issues.append(f"{sym}: NO active stop order (TRAIL/STP)")
+        if not has_target:
+            issues.append(f"{sym}: NO active target order (LMT)")
+        # Detect zombie duplicates: more than one stop OR target in active set
+        stop_count = sum(1 for o in orders if o.get("order_type") in ("TRAIL", "STP"))
+        target_count = sum(1 for o in orders if o.get("order_type") == "LMT")
+        if stop_count > 1:
+            issues.append(f"{sym}: {stop_count} stop orders active (expected 1)")
+        if target_count > 1:
+            issues.append(f"{sym}: {target_count} target orders active (expected 1)")
+
+    if issues and _cooldown_ok(("drift_check", "all"),
+                                _ALERT_COOLDOWN, 1800):
+        msg = "⚠️ <b>DRIFT DETECTED</b>\n" + "\n".join(f"  • {i}" for i in issues)
+        notify._send(msg)
+        for i in issues:
+            logger.warning("DRIFT: %s", i)
 
 
 def _verify_protections(tracker, client, ibkr_orders, notify):

@@ -101,9 +101,12 @@ $PY -m scripts.track_scan_outcomes --record 2>&1 | tail -3 || \
     echo "  (outcomes-record returned non-zero — continuing)"
 
 # Fire the trade evaluator. Live price refresh + 8 risk gates inside.
+# TRADE_LIVE_CONFIRMED=1 is the systemd-pipeline authorization to run live;
+# manual ssh runs (without this env var and without --live flag) default to
+# DRY mode for safety. See run_auto_trade.py for the full policy.
 echo "Triggering auto-trade..."
 TRADE_T0=$(date +%s)
-$PY -m scripts.run_auto_trade 2>&1 | tail -25
+TRADE_LIVE_CONFIRMED=1 $PY -m scripts.run_auto_trade 2>&1 | tail -25
 TRADE_EXIT=${PIPESTATUS[0]}
 TRADE_DUR=$(( $(date +%s) - TRADE_T0 ))
 echo "Trade finished (exit=$TRADE_EXIT, duration=${TRADE_DUR}s)"

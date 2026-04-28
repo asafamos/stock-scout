@@ -127,6 +127,14 @@ jobs:
               "run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             }'
 
+      - name: Scan integrity check (BLOCKS commit if scan output is broken)
+        if: steps.market_check.outputs.market_closed != 'true' && steps.scan.outcome == 'success'
+        run: python -m scripts.scan_integrity_check
+        # NOT continue-on-error: if the scan output is broken, we WANT this
+        # workflow to fail rather than push a bad parquet to origin/main.
+        # On 2026-04-27 we pushed an empty parquet that broke the VPS pipeline
+        # for 4 days. This step prevents that.
+
       - name: Update outcome tracking
         if: steps.market_check.outputs.market_closed != 'true'
         run: python scripts/update_outcomes.py

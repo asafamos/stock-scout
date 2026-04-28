@@ -27,22 +27,42 @@ logger = logging.getLogger(__name__)
 
 
 def main():
-    # Honor --dry-run / --live FIRST, before importing CONFIG. CLI flags
-    # are the unambiguous "I really mean it" channel — they override the
-    # env file (TRADE_DRY_RUN), which is otherwise risky when the shell
-    # auto-loads .env.trading via login profile and clobbers a per-command
-    # `TRADE_DRY_RUN=1` prefix. (This bit us on 2026-04-28 — a "DRY RUN"
-    # invocation accidentally placed live orders. Fail-safe: --dry-run
-    # *forces* dry mode regardless of env.)
-    if "--dry-run" in sys.argv:
+    # Live-trading safety policy:
+    #   - --live flag explicitly authorizes real-money trades
+    #   - --dry-run flag forces simulation regardless of env file
+    #   - WITHOUT either flag → DRY by default, even if .env.trading has
+    #     TRADE_DRY_RUN=0 + TRADE_AUTO_CONFIRM=1
+    #
+    # Why default to dry: on 2026-04-28 an SSH command with `bash -lc`
+    # auto-sourced .env.trading (TRADE_DRY_RUN=0, TRADE_AUTO_CONFIRM=1)
+    # which silently turned an interactive "DRY RUN" into a live trade.
+    # The env file alone is no longer enough to trigger live; you must
+    # pass --live OR set TRADE_LIVE_CONFIRMED=1 (used by systemd).
+    has_live_flag = "--live" in sys.argv
+    has_dry_flag = "--dry-run" in sys.argv
+    has_systemd_authz = os.getenv("TRADE_LIVE_CONFIRMED") == "1"
+
+    if has_dry_flag:
         os.environ["TRADE_DRY_RUN"] = "1"
         sys.argv.remove("--dry-run")
         logger.warning("--dry-run flag: forcing TRADE_DRY_RUN=1 (overrides env)")
-    if "--live" in sys.argv:
+    elif has_live_flag:
         os.environ["TRADE_DRY_RUN"] = "0"
         os.environ["TRADE_PAPER_MODE"] = "0"
         sys.argv.remove("--live")
         logger.warning("--live flag: forcing TRADE_DRY_RUN=0 + TRADE_PAPER_MODE=0")
+    elif not has_systemd_authz:
+        # Neither flag, no systemd authz — fall back to DRY for safety.
+        env_says_live = (
+            os.getenv("TRADE_DRY_RUN") == "0"
+            and os.getenv("TRADE_PAPER_MODE", "0") == "0"
+        )
+        if env_says_live:
+            logger.warning(
+                "Env says LIVE but no --live/--dry-run/TRADE_LIVE_CONFIRMED — "
+                "defaulting to DRY. Pass --live to actually trade."
+            )
+            os.environ["TRADE_DRY_RUN"] = "1"
 
     from core.trading.config import CONFIG
     from core.trading.order_manager import OrderManager

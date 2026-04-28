@@ -353,6 +353,34 @@ Persistent=true
 WantedBy=timers.target
 SVCEOF
 
+# --- Daily morning health summary (07:00 UTC = 10:00 IL) ---
+# Surface bugs that took days to detect in the past:
+# outcomes-record stale, services down, positions without protective
+# orders. One Telegram message per weekday morning — quick to scan.
+sudo tee /etc/systemd/system/stockscout-daily-summary.service > /dev/null << 'SVCEOF'
+[Unit]
+Description=StockScout daily morning health summary
+
+[Service]
+Type=oneshot
+User=stockscout
+WorkingDirectory=/home/stockscout/stock-scout-2
+EnvironmentFile=/home/stockscout/stock-scout-2/.env.trading
+ExecStart=/home/stockscout/stock-scout-2/.venv/bin/python -m scripts.daily_morning_summary
+SVCEOF
+
+sudo tee /etc/systemd/system/stockscout-daily-summary.timer > /dev/null << 'SVCEOF'
+[Unit]
+Description=StockScout daily health summary timer
+
+[Timer]
+OnCalendar=Mon..Fri 07:00:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+SVCEOF
+
 sudo systemctl daemon-reload
 
 echo ""
