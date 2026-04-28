@@ -384,15 +384,33 @@ class OrderManager:
                 )
                 return pd.DataFrame()
 
-        # Score band filter (Q3-Q4 sweet spot)
+        # Score band filter — regime-aware. Mirror the regime-aware floor
+        # used downstream by risk_manager.can_open_position so candidates
+        # don't get filtered out HERE only to be re-checked LATER (or
+        # vice-versa: don't let through stocks risk will reject anyway).
+        cur_regime = ""
+        if regime_col and regime_col in result.columns:
+            _r = result[regime_col].dropna().astype(str).str.upper()
+            if not _r.empty:
+                cur_regime = _r.iloc[0]
+        _min_score = float(self.cfg.min_score_to_trade)
+        if cur_regime:
+            try:
+                from core.scoring_config import REGIME_MIN_SCORE
+                _scan_min = float(REGIME_MIN_SCORE.get(cur_regime, _min_score - 5.0))
+                _min_score = _scan_min + 5.0  # +5 buffer above scan inclusion
+            except Exception:
+                pass
         scores = pd.to_numeric(result[score_col], errors="coerce")
         result = result[
-            (scores >= self.cfg.min_score_to_trade) &
+            (scores >= _min_score) &
             (scores <= self.cfg.max_score_to_trade)
         ]
         if result.empty:
-            logger.info("No stocks pass score filter (%.0f-%.0f)",
-                        self.cfg.min_score_to_trade, self.cfg.max_score_to_trade)
+            logger.info(
+                "No stocks pass score filter (%.0f-%.0f, regime=%s)",
+                _min_score, self.cfg.max_score_to_trade, cur_regime or "default",
+            )
             return result
 
         # ML probability filter
