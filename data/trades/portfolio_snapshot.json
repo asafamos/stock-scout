@@ -1,14 +1,14 @@
 {
-  "updated_at": "2026-04-28T13:44:49.268483+00:00",
+  "updated_at": "2026-04-28T13:59:57.651580+00:00",
   "positions": [
     {
       "ticker": "CF",
       "quantity": 2,
       "avg_cost": 111.33,
-      "market_price": 124.36,
-      "market_value": 248.71,
-      "unrealized_pnl": 26.05,
-      "pnl_pct": 11.7,
+      "market_price": 123.91,
+      "market_value": 247.83,
+      "unrealized_pnl": 25.17,
+      "pnl_pct": 11.3,
       "entry_price": 111.33,
       "target_price": 145.46,
       "stop_loss": 110.75,
@@ -17,49 +17,9 @@
       "stop_floor": 114.6699,
       "trailing_stop_pct": 5.3,
       "score": 79.8
-    },
-    {
-      "ticker": "TDW",
-      "quantity": 2,
-      "avg_cost": 86.33,
-      "market_price": 91.1,
-      "market_value": 182.2,
-      "unrealized_pnl": 9.54,
-      "pnl_pct": 5.52,
-      "entry_price": 85.83,
-      "target_price": 93.95000610351562,
-      "stop_loss": 80.29000091552734,
-      "target_date": "2026-05-07 00:00:00",
-      "peak_price": 93.007576,
-      "stop_floor": null,
-      "trailing_stop_pct": 3.0,
-      "score": 77.4997532309146
     }
   ],
   "orders": [
-    {
-      "order_id": 740,
-      "ticker": "TDW",
-      "action": "SELL",
-      "type": "TRAIL",
-      "qty": 2,
-      "tif": "GTC",
-      "oca_group": "SS_TDW_1776864914",
-      "status": "PreSubmitted",
-      "trail_pct": 3.0,
-      "stop_price": 90.33
-    },
-    {
-      "order_id": 741,
-      "ticker": "TDW",
-      "action": "SELL",
-      "type": "LMT",
-      "qty": 2,
-      "tif": "GTC",
-      "oca_group": "SS_TDW_1776864914",
-      "status": "Submitted",
-      "limit_price": 93.95
-    },
     {
       "order_id": 1031,
       "ticker": "CF",
@@ -94,9 +54,9 @@
       "limit_price": 145.46
     }
   ],
-  "cash": 575.16,
-  "net_liquidation": 1006.07,
-  "total_unrealized_pnl": 35.59,
-  "position_count": 2,
+  "cash": 754.12,
+  "net_liquidation": 1001.94,
+  "total_unrealized_pnl": 25.17,
+  "position_count": 1,
   "vps_status": "connected"
 }
