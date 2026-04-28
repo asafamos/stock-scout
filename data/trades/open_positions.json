@@ -11,31 +11,34 @@
     "opened_at": "2026-04-17T13:35:00",
     "order_ids": {
       "buy": 35,
-      "trailing_stop": 36,
+      "trailing_stop": 1031,
       "limit_sell": 37,
-      "oca_group": "SS_CF_1776432930"
+      "oca_group": "SS_CF_1776792064",
+      "stop_type": "STP"
     },
-    "peak_price": 120.40,
-    "stop_floor": 110.83,
+    "peak_price": 127.013649,
+    "stop_floor": 114.6699,
     "sector": "Basic Materials"
   },
   {
-    "ticker": "MUSA",
-    "quantity": 1,
-    "entry_price": 498.50,
-    "stop_loss": 478.72,
-    "target_price": 547.98,
-    "target_date": "2026-05-12 00:00:00",
-    "trailing_stop_pct": 4.0,
-    "score": 78.8,
-    "opened_at": "2026-04-21T13:35:04",
+    "ticker": "TDW",
+    "quantity": 2,
+    "entry_price": 85.83,
+    "stop_loss": 80.29000091552734,
+    "target_price": 93.95000610351562,
+    "target_date": "2026-05-07 00:00:00",
+    "trailing_stop_pct": 3.0,
+    "score": 77.4997532309146,
+    "opened_at": "2026-04-22T13:35:18.049598",
     "order_ids": {
-      "buy": 0,
-      "trailing_stop": 0,
-      "limit_sell": 0,
-      "oca_group": ""
+      "buy": 739,
+      "trailing_stop": 740,
+      "limit_sell": 741,
+      "oca_group": "SS_TDW_1776864914"
     },
-    "peak_price": 512.57,
-    "sector": "Consumer Cyclical"
+    "sector": "Energy",
+    "entry_ml_prob": 0.38112579013380077,
+    "entry_atr_pct": 0.04292358508419825,
+    "peak_price": 93.007576
   }
 ]
