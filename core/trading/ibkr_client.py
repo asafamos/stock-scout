@@ -741,6 +741,80 @@ class IBKRClient:
                 error=str(e),
             )
 
+    def modify_trailing_pct(self, order_id: int,
+                            new_trail_pct: float) -> TradeResult:
+        """Modify an existing TRAIL order's trailingPercent in-place.
+
+        IB recognizes a re-submission with the same orderId as a
+        modification — the order keeps its identity (and its OCA
+        membership) and just gets a new trail %. The server continues
+        tracking the peak from there; we don't reset anything.
+
+        Used by the ratcheting logic to TIGHTEN protection as a position
+        runs up, without ever cancelling+replacing the order (which would
+        lose the OCA link, momentarily expose the position, and create
+        log clutter).
+        """
+        if self.cfg.dry_run:
+            logger.info("[DRY RUN] MODIFY TRAIL #%d → %.1f%%",
+                        order_id, new_trail_pct)
+            return TradeResult(
+                ticker="", action="SELL", order_type="TRAIL",
+                quantity=0, filled_price=0.0, status="DRY_RUN",
+                order_id=order_id,
+            )
+        try:
+            # Find the existing trade by orderId
+            target_trade = None
+            for t in self._ib.openTrades():
+                if t.order.orderId == order_id:
+                    target_trade = t
+                    break
+            if target_trade is None:
+                # Try reqAllOpenOrders for cross-client visibility
+                self._ib.reqAllOpenOrders()
+                self._ib.sleep(1)
+                for t in self._ib.openTrades():
+                    if t.order.orderId == order_id:
+                        target_trade = t
+                        break
+            if target_trade is None:
+                logger.warning(
+                    "modify_trailing_pct: order #%d not found in openTrades",
+                    order_id,
+                )
+                return TradeResult(
+                    ticker="", action="SELL", order_type="TRAIL",
+                    quantity=0, filled_price=0.0, status="Error",
+                    order_id=order_id, error="order not found",
+                )
+
+            old_pct = float(getattr(target_trade.order, "trailingPercent", 0) or 0)
+            target_trade.order.trailingPercent = float(new_trail_pct)
+            # Re-submit with same orderId — IB treats this as a modification.
+            self._ib.placeOrder(target_trade.contract, target_trade.order)
+            self._ib.sleep(2)
+
+            ticker = target_trade.contract.symbol
+            qty = int(target_trade.order.totalQuantity)
+            logger.info(
+                "✓ MODIFIED TRAIL %s #%d: %.1f%% → %.1f%%",
+                ticker, order_id, old_pct, new_trail_pct,
+            )
+            return TradeResult(
+                ticker=ticker, action="SELL", order_type="TRAIL",
+                quantity=qty, filled_price=0.0,
+                status=target_trade.orderStatus.status,
+                order_id=order_id,
+            )
+        except Exception as e:
+            logger.error("modify_trailing_pct failed for #%d: %s", order_id, e)
+            return TradeResult(
+                ticker="", action="SELL", order_type="TRAIL",
+                quantity=0, filled_price=0.0, status="Error",
+                order_id=order_id, error=str(e),
+            )
+
     def _sell_market(self, ticker: str, qty: int) -> TradeResult:
         """Place a market sell order (used for target-date exits)."""
         if self.cfg.dry_run:

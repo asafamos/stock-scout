@@ -620,16 +620,27 @@ def _take_partial_profit(tracker, client, notify):
 
 
 def _ratchet_stops(tracker, client, ibkr_orders, notify):
-    """Dynamic stop-loss ratcheting — lock in profits as positions run up.
+    """Dynamic trail-tightening — make protection more aggressive as the
+    position runs up, while keeping IB's native peak-tracking continuous.
 
-    Tracks peak price per position. When peak_gain % crosses thresholds,
-    replaces the TRAIL order with a hard STP at the profit floor.
-    Stops only move UP (never loosen).
+    Old behavior (pre 2026-04-28): replaced the TRAIL with a static STP
+    at a profit floor when peak_gain crossed a threshold. Problem: between
+    tiers the floor was frozen, so a stock peaking at +17.9% only locked
+    +3% (the tier-1 floor). The static STP couldn't track new peaks above
+    the threshold.
 
-    Tiers (default):
-      Peak +5%  → breakeven stop (lock 0% profit, guarantee no loss)
-      Peak +10% → lock 5% profit
-      Peak +15% → lock 10% profit
+    New behavior: MODIFY the existing TRAIL's trailingPercent in-place on
+    IB's server. IB continues tracking the peak — the only thing that
+    changes is HOW CLOSE the stop trails. Every cent the stock rises
+    above a tier raises the stop too.
+
+    Tiers:
+      Peak +10% → trail tightens to 4% (was 5–8% scan-derived)
+      Peak +18% → trail tightens to 3%
+      Peak +28% → trail tightens to 2%
+
+    Only TIGHTENS — never loosens. A position that started with TRAIL 3%
+    keeps TRAIL 3% even if the tier table says 4%.
     """
     from core.trading.config import CONFIG
 
@@ -653,22 +664,20 @@ def _ratchet_stops(tracker, client, ibkr_orders, notify):
             orders_by_ticker.setdefault(t, []).append(o)
 
     tiers = [
-        (CONFIG.ratchet_tier3_gain, CONFIG.ratchet_tier3_lock),
-        (CONFIG.ratchet_tier2_gain, CONFIG.ratchet_tier2_lock),
-        (CONFIG.ratchet_tier1_gain, CONFIG.ratchet_tier1_lock),
+        (CONFIG.ratchet_tier3_gain, CONFIG.ratchet_tier3_trail_pct),
+        (CONFIG.ratchet_tier2_gain, CONFIG.ratchet_tier2_trail_pct),
+        (CONFIG.ratchet_tier1_gain, CONFIG.ratchet_tier1_trail_pct),
     ]
 
     changed = False
     for pos in positions:
         ticker = pos["ticker"]
         entry = pos["entry_price"]
-        qty = int(pos["quantity"])
         oca = pos.get("order_ids", {}).get("oca_group", "")
 
-        # DAY-TRADE GUARD (hardened): ratchet can move stop above current
-        # price → immediate sell → day trade violation if opened today.
-        # Fail closed: only ratchet when we can prove the position is
-        # from a prior day.
+        # DAY-TRADE GUARD: tightening trail can immediately trigger if the
+        # new % is closer than the current pullback. Fail closed for
+        # same-day positions (cash account = T+1 day-trade violation).
         today_iso = date.today().isoformat()
         opened_at = str(pos.get("opened_at", "") or "")[:10]
         is_prior_day = bool(opened_at) and opened_at < today_iso
@@ -697,99 +706,121 @@ def _ratchet_stops(tracker, client, ibkr_orders, notify):
         peak_gain_pct = (peak_price - entry) / entry * 100
 
         # Find applicable tier (highest first)
-        target_lock_pct = None
-        for threshold, lock in tiers:
+        target_trail_pct = None
+        for threshold, trail_pct in tiers:
             if peak_gain_pct >= threshold:
-                target_lock_pct = lock
+                target_trail_pct = trail_pct
                 break
 
-        if target_lock_pct is None:
+        if target_trail_pct is None:
             continue  # Not profitable enough yet
 
-        # Calculate target floor price
-        target_floor = entry * (1 + target_lock_pct / 100)
-
-        # Only ratchet UP — never lower the stop
-        current_floor = pos.get("stop_floor", 0)
-        if target_floor <= current_floor:
-            continue
-
-        # Safety: don't place stop above current price (would trigger immediately)
-        if target_floor >= current_price * 0.995:
-            logger.debug(
-                "Ratchet skip %s: target $%.2f too close to current $%.2f",
-                ticker, target_floor, current_price
-            )
-            continue
-
-        # Cancel existing protective stops (TRAIL or older STP) for this OCA
-        # before placing the new tighter STP. Without this, tier-to-tier
-        # transitions stack old STPs under the new one — OCA still protects
-        # you (highest stop fires first) but the portfolio view shows clutter
-        # like two CF STOPs (the newest at $114.67 plus the older $111.33).
-        cancelled_any = False
+        # Find the active TRAIL or STP order for this position
+        # (after the old code's runs, some positions may still be on STP —
+        # we'll handle them by cancelling and replacing with TRAIL).
+        active_protective = None
         for o in orders_by_ticker.get(ticker, []):
-            if o.get("oca_group") != oca:
+            if o.get("oca_group") and o.get("oca_group") != oca:
                 continue
-            if o.get("order_type") not in ("TRAIL", "STP"):
-                continue
-            try:
-                for t in client._ib.openTrades():
-                    if t.order.orderId == o["order_id"]:
-                        client._ib.cancelOrder(t.order)
-                        cancelled_any = True
-                        logger.info(
-                            "Ratchet: cancelled %s #%d for %s",
-                            o.get("order_type"), o["order_id"], ticker,
-                        )
-                        break
-            except Exception as e:
-                logger.error("Ratchet cancel failed for %s: %s", ticker, e)
+            if o.get("order_type") in ("TRAIL", "STP"):
+                active_protective = o
+                break
 
-        if cancelled_any:
-            client._ib.sleep(2)
+        if not active_protective:
+            logger.debug("Ratchet %s: no active TRAIL/STP found, skipping", ticker)
+            continue
 
-        # Place new hard STP at target floor (same OCA as limit_sell)
-        result = client.place_hard_stop(ticker, qty, target_floor, oca_group=oca)
+        order_type = active_protective.get("order_type")
+        order_id = active_protective.get("order_id")
 
-        if result.status in ("Submitted", "PreSubmitted", "PendingSubmit"):
-            logger.info(
-                "✓ RATCHET %s: peak +%.1f%% → locked %.0f%% profit "
-                "(stop $%.2f, was $%.2f)",
-                ticker, peak_gain_pct, target_lock_pct, target_floor, current_floor
+        # Only TIGHTEN — never loosen
+        current_trail = float(pos.get("trailing_stop_pct", 0) or 0)
+        if order_type == "TRAIL" and current_trail > 0 and target_trail_pct >= current_trail:
+            continue  # Already tighter or equal
+
+        # Safety: with the new trail %, the projected stop should still
+        # be below current price by a reasonable margin (else immediate fill).
+        projected_stop = peak_price * (1 - target_trail_pct / 100)
+        if projected_stop >= current_price * 0.995:
+            logger.debug(
+                "Ratchet skip %s: projected stop $%.2f too close to current $%.2f",
+                ticker, projected_stop, current_price,
             )
+            continue
 
-            # Update tracker
-            pos["stop_floor"] = target_floor
-            pos["order_ids"]["trailing_stop"] = result.order_id  # now STP, not TRAIL
-            pos["order_ids"]["stop_type"] = "STP"
+        # ── Path A: Order is already a TRAIL → modify the % in place
+        if order_type == "TRAIL":
+            result = client.modify_trailing_pct(order_id, target_trail_pct)
+            if result.status in ("Submitted", "PreSubmitted", "PendingSubmit", "DRY_RUN"):
+                pos["trailing_stop_pct"] = target_trail_pct
+                pos["stop_floor"] = projected_stop
+                changed = True
+                # Telegram notification
+                lock_pct = (projected_stop - entry) / entry * 100
+                lock_amt = (projected_stop - entry) * int(pos["quantity"])
+                notify._send(
+                    f"🔒 <b>TIGHTEN {ticker}</b>\n"
+                    f"  Peak: +{peak_gain_pct:.1f}% (${peak_price:.2f})\n"
+                    f"  Trail: {current_trail:.1f}% → <b>{target_trail_pct:.1f}%</b>\n"
+                    f"  Projected stop: ${projected_stop:.2f} "
+                    f"(+{lock_pct:.1f}%, ${lock_amt:+.2f})"
+                )
+            else:
+                logger.error("Ratchet modify FAILED for %s: %s",
+                             ticker, getattr(result, "error", ""))
+            continue
+
+        # ── Path B: Order is a STATIC STP (legacy from old ratchet code).
+        # Cancel it and place a new TRAIL with the target %. This is the
+        # ONE-TIME migration path; once everyone is on TRAIL we never hit it.
+        qty = int(pos["quantity"])
+        try:
+            for t in client._ib.openTrades():
+                if t.order.orderId == order_id:
+                    client._ib.cancelOrder(t.order)
+                    logger.info(
+                        "Ratchet migrate: cancelled legacy STP #%d for %s",
+                        order_id, ticker,
+                    )
+                    break
+            client._ib.sleep(2)
+        except Exception as e:
+            logger.error("Ratchet legacy cancel failed for %s: %s", ticker, e)
+            continue
+
+        # Place new TRAIL — use the existing OCA so it cancels with limit_sell
+        result = client.set_trailing_stop(ticker, qty, target_trail_pct)
+        if result.status in ("Submitted", "PreSubmitted", "PendingSubmit", "DRY_RUN"):
+            pos["order_ids"]["trailing_stop"] = result.order_id
+            pos["order_ids"]["stop_type"] = "TRAIL"
+            pos["trailing_stop_pct"] = target_trail_pct
+            pos["stop_floor"] = projected_stop
             changed = True
-
-            # Telegram notification
-            profit_amt = (target_floor - entry) * qty
+            lock_pct = (projected_stop - entry) / entry * 100
+            lock_amt = (projected_stop - entry) * qty
             notify._send(
-                f"🔒 <b>RATCHET {ticker}</b>\n"
-                f"  Peak gain: +{peak_gain_pct:.1f}% (${peak_price:.2f})\n"
-                f"  Stop raised to <b>${target_floor:.2f}</b>\n"
-                f"  Locks +{target_lock_pct:.0f}% profit (${profit_amt:+.2f})"
+                f"🔄 <b>MIGRATE→TRAIL {ticker}</b>\n"
+                f"  Replaced legacy static STP with TRAIL {target_trail_pct:.1f}%\n"
+                f"  Peak: +{peak_gain_pct:.1f}% (${peak_price:.2f})\n"
+                f"  Projected stop: ${projected_stop:.2f} "
+                f"(+{lock_pct:.1f}%, ${lock_amt:+.2f})"
             )
         else:
             err_msg = getattr(result, "error", "") or ""
             account_block = _is_account_restriction_error(err_msg)
             logger.error(
-                "Ratchet FAILED for %s: status=%s (account_rule=%s)",
+                "Ratchet migrate FAILED for %s: status=%s (account_rule=%s)",
                 ticker, result.status, account_block,
             )
             # Only alert once per hour — avoid spam when cash-account rule blocks.
-            # Existing TRAIL order is still live; we just can't tighten it.
             if _cooldown_ok(("ratchet", ticker), _ALERT_COOLDOWN, _ALERT_COOLDOWN_SECONDS):
                 extra = ""
                 if account_block:
-                    extra = " (IBKR blocked: cash account < $2000 — existing trailing stop still active)"
+                    extra = " (IBKR blocked: cash account < $2000)"
                 notify.notify_error(
                     "Ratchet",
-                    f"{ticker}: failed to raise stop to ${target_floor:.2f}: "
-                    f"{result.status}{extra}"
+                    f"{ticker}: failed to migrate STP→TRAIL "
+                    f"@ {target_trail_pct:.1f}%: {result.status}{extra}"
                 )
 
     if changed:

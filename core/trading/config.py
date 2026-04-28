@@ -149,35 +149,42 @@ class TradingConfig:
     )  # Fraction of position to sell (0.33 = one-third).
     # Reduced from 0.5 so two-thirds ride the target after partial.
 
-    # ── Dynamic Stop Ratcheting (lock in profits as stock runs up) ─
-    # When peak gain crosses thresholds, replace trailing stop with
-    # hard STP at profit-locking floor. Only goes UP (never loosens).
+    # ── Dynamic Stop Ratcheting (tighten the trailing stop as it runs up) ─
+    # When peak gain crosses thresholds, MODIFY the existing TRAIL order's
+    # trailingPercent on IB's server (it auto-updates from there — no need
+    # for our monitor to push every tick).
+    #
+    # Why TRAIL-tighten instead of replacing with STP (old design until
+    # 2026-04-28): the static STP froze the floor at the threshold. A
+    # stock that peaked at +17.9% would only have +3% locked because we
+    # were waiting for tier 2 (+18%) to bump the floor. With dynamic
+    # trail, IB tracks the peak continuously, so every penny above the
+    # threshold raises the stop too.
     ratchet_enabled: bool = field(
         default_factory=lambda: _env_bool("RATCHET_ENABLED", True)
     )
-    # Threshold (peak gain %) → floor (profit to lock as % of entry).
-    # Relaxed 2026-04-22: previous settings (+5% → breakeven) were cutting
-    # winners during normal ATR-size noise. New tiers give ≥3% profit
-    # protection while allowing positions to swing freely until they've
-    # earned meaningful gain.
+    # Threshold (peak gain %) → trail % to set.
+    # Lower tier % = tighter stop (closer to current price).
+    # The starting trail is 3–8% (scan-derived). Ratchet only TIGHTENS,
+    # never loosens, so a stock that started with TRAIL 3% never widens.
     ratchet_tier1_gain: float = field(
         default_factory=lambda: _env_float("RATCHET_T1_GAIN", 10.0)
-    )   # Peak +10% → lock +3% profit (was +5% → breakeven)
-    ratchet_tier1_lock: float = field(
-        default_factory=lambda: _env_float("RATCHET_T1_LOCK", 3.0)
     )
+    ratchet_tier1_trail_pct: float = field(
+        default_factory=lambda: _env_float("RATCHET_T1_TRAIL_PCT", 4.0)
+    )   # Peak +10% → trail tightens to 4%
     ratchet_tier2_gain: float = field(
         default_factory=lambda: _env_float("RATCHET_T2_GAIN", 18.0)
-    )   # Peak +18% → lock +8% profit (was +10% → +5%)
-    ratchet_tier2_lock: float = field(
-        default_factory=lambda: _env_float("RATCHET_T2_LOCK", 8.0)
     )
+    ratchet_tier2_trail_pct: float = field(
+        default_factory=lambda: _env_float("RATCHET_T2_TRAIL_PCT", 3.0)
+    )   # Peak +18% → trail tightens to 3%
     ratchet_tier3_gain: float = field(
         default_factory=lambda: _env_float("RATCHET_T3_GAIN", 28.0)
-    )   # Peak +28% → lock +15% profit (was +15% → +10%)
-    ratchet_tier3_lock: float = field(
-        default_factory=lambda: _env_float("RATCHET_T3_LOCK", 15.0)
     )
+    ratchet_tier3_trail_pct: float = field(
+        default_factory=lambda: _env_float("RATCHET_T3_TRAIL_PCT", 2.0)
+    )   # Peak +28% → trail tightens to 2%
 
     # ── Paths ──────────────────────────────────────────────────
     scan_results_path: str = "data/scans/latest_scan_live.json"
