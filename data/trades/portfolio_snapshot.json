@@ -1,14 +1,14 @@
 {
-  "updated_at": "2026-04-28T18:40:13.265076+00:00",
+  "updated_at": "2026-04-28T18:50:18.316280+00:00",
   "positions": [
     {
       "ticker": "CF",
       "quantity": 2,
       "avg_cost": 111.33,
-      "market_price": 122.49,
-      "market_value": 244.99,
-      "unrealized_pnl": 22.33,
-      "pnl_pct": 10.03,
+      "market_price": 122.89,
+      "market_value": 245.78,
+      "unrealized_pnl": 23.12,
+      "pnl_pct": 10.38,
       "entry_price": 111.33,
       "target_price": 145.46,
       "stop_loss": 110.75,
@@ -45,8 +45,8 @@
     }
   ],
   "cash": 754.12,
-  "net_liquidation": 999.1,
-  "total_unrealized_pnl": 22.33,
+  "net_liquidation": 999.89,
+  "total_unrealized_pnl": 23.12,
   "position_count": 1,
   "vps_status": "connected"
 }
