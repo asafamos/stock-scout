@@ -24,7 +24,10 @@ exec 2>&1
 ROOT=/home/stockscout/stock-scout-2
 LABEL="${1:-pipeline}"
 PY=$ROOT/.venv/bin/python
-MAX_WAIT_SEC=$((90 * 60))   # 90 min hard cap
+MAX_WAIT_SEC=$((150 * 60))  # 150 min hard cap — generous to absorb GH Actions
+                            # cron delays (often 30–60 min late) PLUS the scan
+                            # duration (~55 min). 90 min hit the cap on
+                            # 2026-04-28 (cron 47 min late + 49 min scan).
 POLL_SEC=30
 
 cd "$ROOT"

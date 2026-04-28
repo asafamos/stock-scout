@@ -771,25 +771,36 @@ def _ratchet_stops(tracker, client, ibkr_orders, notify):
             continue
 
         # ── Path B: Order is a STATIC STP (legacy from old ratchet code).
-        # Cancel it and place a new TRAIL with the target %. This is the
-        # ONE-TIME migration path; once everyone is on TRAIL we never hit it.
+        # Cancel ALL TRAIL/STP orders in this OCA group (the old code stacked
+        # multiple STPs — e.g. CF had STP $114.67 AND breakeven STP $111.33;
+        # we want a single clean TRAIL replacing all of them). Then place a
+        # new TRAIL with the target %. This is the ONE-TIME migration path.
         qty = int(pos["quantity"])
+        cancelled_ids = []
         try:
-            for t in client._ib.openTrades():
-                if t.order.orderId == order_id:
-                    client._ib.cancelOrder(t.order)
-                    logger.info(
-                        "Ratchet migrate: cancelled legacy STP #%d for %s",
-                        order_id, ticker,
-                    )
-                    break
-            client._ib.sleep(2)
+            for o in orders_by_ticker.get(ticker, []):
+                if o.get("oca_group") != oca:
+                    continue
+                if o.get("order_type") not in ("TRAIL", "STP"):
+                    continue
+                oid = o.get("order_id")
+                for t in client._ib.openTrades():
+                    if t.order.orderId == oid:
+                        client._ib.cancelOrder(t.order)
+                        cancelled_ids.append(oid)
+                        logger.info(
+                            "Ratchet migrate: cancelled legacy %s #%d for %s",
+                            o.get("order_type"), oid, ticker,
+                        )
+                        break
+            if cancelled_ids:
+                client._ib.sleep(2)
         except Exception as e:
             logger.error("Ratchet legacy cancel failed for %s: %s", ticker, e)
             continue
 
         # Place new TRAIL — use the existing OCA so it cancels with limit_sell
-        result = client.set_trailing_stop(ticker, qty, target_trail_pct)
+        result = client.set_trailing_stop(ticker, qty, target_trail_pct, oca_group=oca)
         if result.status in ("Submitted", "PreSubmitted", "PendingSubmit", "DRY_RUN"):
             pos["order_ids"]["trailing_stop"] = result.order_id
             pos["order_ids"]["stop_type"] = "TRAIL"

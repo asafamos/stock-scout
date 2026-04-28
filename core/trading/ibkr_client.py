@@ -304,8 +304,15 @@ class IBKRClient:
             )
 
     def set_trailing_stop(self, ticker: str, qty: int,
-                          trail_pct: float) -> TradeResult:
-        """Place a trailing stop sell order."""
+                          trail_pct: float,
+                          oca_group: str = "") -> TradeResult:
+        """Place a trailing stop sell order.
+
+        If oca_group is provided, the order joins that OCA group so it
+        gets cancelled when a sibling order (e.g. limit_sell at target)
+        fills. Used by the ratchet migration path to keep the bracket
+        intact when replacing a legacy STP with a fresh TRAIL.
+        """
         if self.cfg.dry_run:
             logger.info("[DRY RUN] TRAIL STOP SELL %d x %s @ %.1f%%",
                         qty, ticker, trail_pct)
@@ -324,6 +331,9 @@ class IBKRClient:
             order.orderType = "TRAIL"
             order.trailingPercent = trail_pct
             order.tif = "GTC"
+            if oca_group:
+                order.ocaGroup = oca_group
+                order.ocaType = 1
 
             trade = self._ib.placeOrder(contract, order)
             self._ib.sleep(2)
