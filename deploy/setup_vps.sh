@@ -49,13 +49,13 @@
 #      python -m scripts.run_auto_trade
 #
 # 9. ENABLE AUTOMATION
-#    sudo systemctl enable --now stockscout-trade.timer
+#    sudo systemctl enable --now stockscout-pipeline.timer
 #    sudo systemctl enable --now stockscout-monitor
 #    sudo systemctl enable --now stockscout-healthcheck.timer
 #    systemctl list-timers
 #
 # 10. MONITORING
-#    journalctl -u stockscout-trade --since today
+#    journalctl -u stockscout-pipeline --since today
 #    journalctl -u stockscout-monitor -f
 #    journalctl -u ibgateway -f
 #    systemctl list-timers
@@ -262,10 +262,21 @@ StartLimitBurst=5
 WantedBy=multi-user.target
 SVCEOF
 
-# --- Auto-trade (oneshot, triggered by timer) ---
-sudo tee /etc/systemd/system/stockscout-trade.service > /dev/null << 'SVCEOF'
+# --- Event-driven scan→trade pipeline (replaces the old time-based ---
+#     stockscout-pipeline.timer that fired at fixed times. The fixed-time
+#     design lost ~1 trading day per week to GH Actions cron variability:
+#     scan finished too late → trade ran on stale data, or scan still in
+#     progress → trade ran with no fresh recommendations.
+#
+#     The pipeline (deploy/scan_and_trade.sh) is event-driven:
+#       1. Snapshot current scan parquet hash on origin/main
+#       2. Best-effort dispatch GH Actions (needs GITHUB_TOKEN in env)
+#       3. Poll origin every 30s up to 150 min for a NEW hash
+#       4. When new scan lands → pull → record outcomes → run_auto_trade
+#       5. Exit. Next invocation handled by the timer below.
+sudo tee /etc/systemd/system/stockscout-pipeline.service > /dev/null << 'SVCEOF'
 [Unit]
-Description=StockScout Auto-Trade
+Description=StockScout atomic scan+trade pipeline
 After=ibgateway.service
 Requires=ibgateway.service
 
@@ -274,25 +285,23 @@ Type=oneshot
 User=stockscout
 WorkingDirectory=/home/stockscout/stock-scout-2
 EnvironmentFile=/home/stockscout/stock-scout-2/.env.trading
-ExecStartPre=/usr/bin/git -C /home/stockscout/stock-scout-2 pull --ff-only origin main
-ExecStart=/home/stockscout/stock-scout-2/.venv/bin/python -m scripts.run_auto_trade
-TimeoutStartSec=300
+ExecStart=/bin/bash /home/stockscout/stock-scout-2/deploy/scan_and_trade.sh
+TimeoutStartSec=10800
 SVCEOF
 
-# Timer: 4 trade windows per day, after each GH Actions scan completes
-sudo tee /etc/systemd/system/stockscout-trade.timer > /dev/null << 'SVCEOF'
+# Timer: fire BEFORE each GH Actions scheduled scan window.
+# The pipeline then triggers/awaits the scan and trades immediately on
+# arrival — no race against cron variability.
+sudo tee /etc/systemd/system/stockscout-pipeline.timer > /dev/null << 'SVCEOF'
 [Unit]
-Description=StockScout daily trade timer
+Description=StockScout pipeline timer (event-driven scan→trade)
 
 [Timer]
-# 9:35 AM ET — on pre-market scan (8:30 AM)
-OnCalendar=Mon..Fri 13:35:00 UTC
-# 11:55 AM ET — on morning scan (10:00 AM)
-OnCalendar=Mon..Fri 15:55:00 UTC
-# 2:30 PM ET — afternoon window on 10:00 AM scan
-OnCalendar=Mon..Fri 18:30:00 UTC
-# 3:55 PM ET — end-of-day on 3:00 PM scan
-OnCalendar=Mon..Fri 20:55:00 UTC
+# Pre-market scan (cron 13:30 UTC) — pipeline fires at 13:30 to dispatch
+# the workflow and poll for results.
+OnCalendar=Mon..Fri 13:30:00 UTC
+# Afternoon scan (cron 17:30 UTC)
+OnCalendar=Mon..Fri 17:30:00 UTC
 Persistent=true
 
 [Install]
@@ -359,12 +368,12 @@ echo "     → Set IbLoginId and IbPassword"
 echo "  4. Start services:      sudo systemctl enable --now xvfb ibgateway"
 echo "  5. Test dry run:        cd ~/stock-scout-2 && source .venv/bin/activate"
 echo "                          TRADE_DRY_RUN=1 python -m scripts.run_auto_trade"
-echo "  6. Enable automation:   sudo systemctl enable --now stockscout-trade.timer"
+echo "  6. Enable automation:   sudo systemctl enable --now stockscout-pipeline.timer"
 echo "                          sudo systemctl enable --now stockscout-monitor"
 echo "                          sudo systemctl enable --now stockscout-healthcheck.timer"
 echo ""
 echo "Monitoring:"
-echo "  journalctl -u stockscout-trade -f"
+echo "  journalctl -u stockscout-pipeline -f"
 echo "  journalctl -u stockscout-monitor -f"
 echo "  journalctl -u ibgateway -f"
 echo "  systemctl list-timers"

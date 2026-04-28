@@ -460,13 +460,19 @@ def _verify_protections(tracker, client, ibkr_orders, notify):
             tracker._save_positions(all_pos)
 
             logger.info("✓ %s protections resubmitted successfully", ticker)
-            notify.notify_buy(
-                ticker, int(qty), pos["entry_price"],
-                pos.get("stop_loss", 0), target_price,
-                pos.get("score", 0),
-                trail_pct=trail_pct, rr=0,
+            # Use the dedicated resubmit notification — it shows the ACTUAL
+            # projected TRAIL stop based on peak_price, not the stale
+            # scan-derived stop_loss (which was misleading for positions
+            # that have already run up).
+            notify.notify_resubmit(
+                ticker=ticker,
+                qty=int(qty),
+                entry=pos["entry_price"],
+                trail_pct=trail_pct,
+                target=target_price,
+                peak_price=pos.get("peak_price", 0),
+                score=pos.get("score", 0),
                 target_date=pos.get("target_date", ""),
-                prefix="🔄 AUTO-RESUBMIT",
             )
         else:
             err_trail = getattr(result["trailing_stop"], "error", "") or ""

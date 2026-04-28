@@ -27,6 +27,23 @@ logger = logging.getLogger(__name__)
 
 
 def main():
+    # Honor --dry-run / --live FIRST, before importing CONFIG. CLI flags
+    # are the unambiguous "I really mean it" channel — they override the
+    # env file (TRADE_DRY_RUN), which is otherwise risky when the shell
+    # auto-loads .env.trading via login profile and clobbers a per-command
+    # `TRADE_DRY_RUN=1` prefix. (This bit us on 2026-04-28 — a "DRY RUN"
+    # invocation accidentally placed live orders. Fail-safe: --dry-run
+    # *forces* dry mode regardless of env.)
+    if "--dry-run" in sys.argv:
+        os.environ["TRADE_DRY_RUN"] = "1"
+        sys.argv.remove("--dry-run")
+        logger.warning("--dry-run flag: forcing TRADE_DRY_RUN=1 (overrides env)")
+    if "--live" in sys.argv:
+        os.environ["TRADE_DRY_RUN"] = "0"
+        os.environ["TRADE_PAPER_MODE"] = "0"
+        sys.argv.remove("--live")
+        logger.warning("--live flag: forcing TRADE_DRY_RUN=0 + TRADE_PAPER_MODE=0")
+
     from core.trading.config import CONFIG
     from core.trading.order_manager import OrderManager
 

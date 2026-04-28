@@ -90,6 +90,44 @@ def notify_buy(ticker: str, qty: int, price: float,
     )
 
 
+def notify_resubmit(ticker: str, qty: int, entry: float,
+                    trail_pct: float, target: float,
+                    peak_price: float = 0.0,
+                    score: float = 0.0,
+                    target_date: str = ""):
+    """Notification for AUTO-RESUBMIT (re-bracketing existing position).
+
+    Unlike notify_buy (which shows the SCAN-DERIVED stop_loss as a
+    static reference), this shows the ACTUAL projected TRAIL stop based
+    on the current peak price — which is what the user cares about for
+    a position that's already running. If peak_price isn't provided,
+    falls back to entry × (1 - trail_pct/100) as a conservative floor.
+    """
+    if peak_price and peak_price > entry:
+        proj_stop = peak_price * (1 - trail_pct / 100)
+        lock_pct = (proj_stop - entry) / entry * 100
+        stop_line = (
+            f"  Trail: {trail_pct:.1f}% (peak ${peak_price:.2f} → "
+            f"stop ~${proj_stop:.2f}, +{lock_pct:.1f}% locked)\n"
+        )
+    else:
+        # Position hasn't moved up yet (or peak unknown) — show initial floor
+        floor = entry * (1 - trail_pct / 100)
+        stop_line = f"  Trail: {trail_pct:.1f}% (initial floor ~${floor:.2f})\n"
+
+    date_line = f"  Exit by: {target_date}\n" if target_date else ""
+    score_line = f"  Score: {score:.1f}\n" if score > 0 else ""
+    _send(
+        f"<b>🔄 AUTO-RESUBMIT {ticker}</b>\n"
+        f"  Qty: {qty} shares @ ${entry:.2f}\n"
+        f"{stop_line}"
+        f"  Target: ${target:.2f} (+{(target/entry-1)*100:.1f}%)\n"
+        f"{score_line}"
+        f"{date_line}"
+        f"  Total cost basis: ${qty * entry:,.0f}"
+    )
+
+
 def notify_sell(ticker: str, qty: int, price: float,
                 reason: str, pnl: float = 0.0):
     emoji = "\U0001f7e2" if pnl >= 0 else "\U0001f534"  # green/red circle
