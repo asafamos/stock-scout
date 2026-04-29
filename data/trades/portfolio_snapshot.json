@@ -1,14 +1,14 @@
 {
-  "updated_at": "2026-04-29T14:40:37.960741+00:00",
+  "updated_at": "2026-04-29T14:55:45.603337+00:00",
   "positions": [
     {
       "ticker": "CF",
       "quantity": 2,
       "avg_cost": 111.33,
-      "market_price": 124.25,
-      "market_value": 248.5,
-      "unrealized_pnl": 25.84,
-      "pnl_pct": 11.61,
+      "market_price": 124.27,
+      "market_value": 248.54,
+      "unrealized_pnl": 25.88,
+      "pnl_pct": 11.62,
       "entry_price": 111.33,
       "target_price": 145.46,
       "stop_loss": 110.75,
@@ -22,10 +22,10 @@
       "ticker": "ORCL",
       "quantity": 2,
       "avg_cost": 167.32,
-      "market_price": 163.74,
-      "market_value": 327.48,
-      "unrealized_pnl": -7.17,
-      "pnl_pct": -2.14,
+      "market_price": 164.56,
+      "market_value": 329.12,
+      "unrealized_pnl": -5.53,
+      "pnl_pct": -1.65,
       "entry_price": 166.825,
       "target_price": 216.72,
       "stop_loss": 151.6,
@@ -81,12 +81,12 @@
       "oca_group": "SS_ORCL_6315c0dd1a",
       "status": "PreSubmitted",
       "trail_pct": 4.6,
-      "stop_price": 156.55
+      "stop_price": 157.17
     }
   ],
   "cash": 405.12,
-  "net_liquidation": 981.11,
-  "total_unrealized_pnl": 18.67,
+  "net_liquidation": 982.78,
+  "total_unrealized_pnl": 20.35,
   "position_count": 2,
   "vps_status": "connected"
 }
