@@ -1,14 +1,14 @@
 {
-  "updated_at": "2026-04-28T19:56:26.393830+00:00",
+  "updated_at": "2026-04-29T13:42:04.814057+00:00",
   "positions": [
     {
       "ticker": "CF",
       "quantity": 2,
       "avg_cost": 111.33,
-      "market_price": 122.02,
-      "market_value": 244.05,
-      "unrealized_pnl": 21.39,
-      "pnl_pct": 9.6,
+      "market_price": 123.44,
+      "market_value": 246.88,
+      "unrealized_pnl": 24.22,
+      "pnl_pct": 10.88,
       "entry_price": 111.33,
       "target_price": 145.46,
       "stop_loss": 110.75,
@@ -22,35 +22,18 @@
       "ticker": "ORCL",
       "quantity": 2,
       "avg_cost": 167.32,
-      "market_price": 165.8,
-      "market_value": 331.6,
-      "unrealized_pnl": -3.05,
-      "pnl_pct": -0.91,
+      "market_price": 161.31,
+      "market_value": 322.61,
+      "unrealized_pnl": -12.04,
+      "pnl_pct": -3.6,
       "entry_price": 166.825,
       "target_price": 216.72,
       "stop_loss": 151.6,
       "target_date": "2026-05-14 00:00:00",
-      "peak_price": null,
+      "peak_price": 166.825,
       "stop_floor": null,
       "trailing_stop_pct": 4.6,
       "score": 82.1557522728301
-    },
-    {
-      "ticker": "PL",
-      "quantity": 6,
-      "avg_cost": 35.25,
-      "market_price": 34.89,
-      "market_value": 209.32,
-      "unrealized_pnl": -2.19,
-      "pnl_pct": -1.04,
-      "entry_price": 35.085,
-      "target_price": 42.57,
-      "stop_loss": 33.54,
-      "target_date": "2026-05-14 00:00:00",
-      "peak_price": null,
-      "stop_floor": null,
-      "trailing_stop_pct": 3.0,
-      "score": 74.6815146131289
     }
   ],
   "orders": [
@@ -75,7 +58,7 @@
       "oca_group": "SS_CF_8105b98d4d",
       "status": "PreSubmitted",
       "trail_pct": 4.0,
-      "stop_price": 119.04
+      "stop_price": 119.63
     },
     {
       "order_id": 1173,
@@ -98,35 +81,12 @@
       "oca_group": "SS_ORCL_6315c0dd1a",
       "status": "PreSubmitted",
       "trail_pct": 4.6,
-      "stop_price": 1.7976931348623157e+308
-    },
-    {
-      "order_id": 1167,
-      "ticker": "PL",
-      "action": "SELL",
-      "type": "LMT",
-      "qty": 6,
-      "tif": "GTC",
-      "oca_group": "SS_PL_acb1eb8f11",
-      "status": "PreSubmitted",
-      "limit_price": 42.57
-    },
-    {
-      "order_id": 1166,
-      "ticker": "PL",
-      "action": "SELL",
-      "type": "TRAIL",
-      "qty": 6,
-      "tif": "GTC",
-      "oca_group": "SS_PL_acb1eb8f11",
-      "status": "PreSubmitted",
-      "trail_pct": 3.0,
-      "stop_price": 1.7976931348623157e+308
+      "stop_price": 155.27
     }
   ],
-  "cash": 207.96,
-  "net_liquidation": 992.91,
-  "total_unrealized_pnl": 16.15,
-  "position_count": 3,
+  "cash": 405.12,
+  "net_liquidation": 974.62,
+  "total_unrealized_pnl": 12.18,
+  "position_count": 2,
   "vps_status": "connected"
 }
