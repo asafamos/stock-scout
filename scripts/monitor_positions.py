@@ -247,6 +247,16 @@ def run_check():
         if CONFIG.partial_profit_enabled:
             _take_partial_profit(tracker, client, notify)
 
+        # 2b3. Earnings exit — close positions BEFORE earnings to avoid the
+        # binary-risk gap. The entry gate (risk_manager.check_earnings_window)
+        # blocks NEW buys near earnings, but doesn't help positions opened
+        # 2 weeks ago that are now within the danger zone. This pass
+        # tightens the trail to 2% on positions with earnings <2 trading
+        # days away — letting profitable ones lock current gains and
+        # forcing losing ones to exit before the binary event.
+        if CONFIG.earnings_gate_enabled:
+            _earnings_exit_pass(tracker, client, ibkr_orders, notify)
+
         # 2c. Push portfolio snapshot to Supabase (for Streamlit UI)
         try:
             from core.trading.portfolio_snapshot import write_snapshot
@@ -302,6 +312,91 @@ def run_check():
         notify.notify_error("Monitor", str(e))
     finally:
         client.disconnect()
+
+
+def _earnings_exit_pass(tracker, client, ibkr_orders, notify):
+    """Defensive trail tightening for positions approaching earnings.
+
+    The entry gate refuses new buys near earnings, but doesn't help
+    positions already held when their earnings date approaches. This
+    function tightens the active TRAIL to 2% on any position whose
+    earnings date is within 2 trading days, then alerts the user.
+
+    Why not auto-close: a sudden close could trigger day-trade rules
+    on a same-day-opened position, and forcing market-sell on a
+    profitable position throws away expected value when the user might
+    legitimately want to hold through earnings. Tightening the trail
+    is a less-invasive intermediate step — the user gets a warning AND
+    the protective order locks current gains/limits future losses.
+    """
+    from core.trading.risk_manager import RiskManager
+    from datetime import date as _date
+
+    positions = tracker.get_open_positions()
+    if not positions:
+        return
+
+    # Reuse RiskManager's earnings cache (cheap)
+    rm = RiskManager(client, tracker)
+    today = _date.today()
+
+    orders_by_ticker = {}
+    for o in ibkr_orders:
+        t = o.get("ticker", "")
+        if t and o.get("status") in ("Submitted", "PreSubmitted"):
+            orders_by_ticker.setdefault(t, []).append(o)
+
+    for pos in positions:
+        ticker = pos["ticker"]
+        try:
+            cached = RiskManager._EARNINGS_CACHE.get(ticker)
+            if cached is None:
+                cached = rm._fetch_earnings_date(ticker)
+                RiskManager._EARNINGS_CACHE[ticker] = cached
+            if cached == "none":
+                continue
+            ed = _date.fromisoformat(cached)
+            days_until = (ed - today).days
+        except Exception:
+            continue
+
+        # Only act when earnings is 0–2 calendar days away (not past)
+        if days_until < 0 or days_until > 2:
+            continue
+
+        # Find the active TRAIL order for this position
+        trail_order = None
+        for o in orders_by_ticker.get(ticker, []):
+            if o.get("order_type") == "TRAIL":
+                trail_order = o
+                break
+        if not trail_order:
+            continue
+
+        current_pct = pos.get("trailing_stop_pct", 0) or 0
+        target_pct = 2.0  # tighten to 2% pre-earnings
+        if current_pct > 0 and current_pct <= target_pct + 0.05:
+            continue  # already at or below target
+
+        result = client.modify_trailing_pct(trail_order["order_id"], target_pct)
+        if result.status in ("Submitted", "PreSubmitted", "PendingSubmit", "DRY_RUN"):
+            pos["trailing_stop_pct"] = target_pct
+            pos["earnings_tightened"] = True
+            try:
+                notify._send(
+                    f"⚠️ <b>EARNINGS TIGHTEN {ticker}</b>\n"
+                    f"  Earnings in {days_until}d ({ed.isoformat()})\n"
+                    f"  Trail: {current_pct:.1f}% → <b>{target_pct:.1f}%</b>\n"
+                    f"  Consider closing manually if you don't want to hold "
+                    f"through the announcement."
+                )
+            except Exception:
+                pass
+        else:
+            logger.warning(
+                "Earnings tighten %s FAILED: %s",
+                ticker, getattr(result, "error", "")
+            )
 
 
 def _drift_check(tracker, client, ibkr_orders, notify):
