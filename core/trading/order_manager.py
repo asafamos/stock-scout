@@ -109,18 +109,23 @@ class OrderManager:
             logger.warning("No scan results available — aborting")
             return []
 
-        # 2. Filter candidates
+        # 2. Connect to IBKR FIRST so the candidate filter can use real IB
+        # position data for dedup. Previously connect() ran AFTER filter,
+        # which meant `client.get_positions()` inside _filter_candidates
+        # raised + was swallowed → ibkr_held was always empty. The tracker
+        # was the only de-dup source — and a stale tracker (e.g. KNX
+        # phantom) would let us over-buy. (Audit finding #6.)
+        if not self.client.connect():
+            logger.error("Failed to connect to IBKR — aborting")
+            return []
+
+        # 3. Filter candidates (now with live IB data available)
         candidates = self._filter_candidates(scan_df)
         if candidates.empty:
             logger.info("No candidates passed filters")
             return []
 
         logger.info("Candidates after filtering: %d", len(candidates))
-
-        # 3. Connect to IBKR
-        if not self.client.connect():
-            logger.error("Failed to connect to IBKR — aborting")
-            return []
 
         results = []
         try:

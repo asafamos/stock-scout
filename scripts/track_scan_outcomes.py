@@ -133,10 +133,14 @@ def _capture_market_context() -> Dict:
 
 
 def _load_scan() -> List[Dict]:
+    """Load the latest scan. ALWAYS prefer parquet when it exists — the
+    JSON file is metadata-only after the GH Actions save_scan rewrite,
+    and after `git checkout` both files share identical mtimes so the
+    old `>` mtime comparison was an arbitrary tiebreak that frequently
+    picked the wrong (metadata-only) file. (Audit finding #4.)
+    """
     import pandas as pd
-    if SCAN_PARQUET.exists() and SCAN_PARQUET.stat().st_mtime > (
-        SCAN_JSON.stat().st_mtime if SCAN_JSON.exists() else 0
-    ):
+    if SCAN_PARQUET.exists():
         df = pd.read_parquet(SCAN_PARQUET)
     elif SCAN_JSON.exists():
         df = pd.read_json(SCAN_JSON)

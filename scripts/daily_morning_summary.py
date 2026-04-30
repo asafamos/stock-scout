@@ -88,9 +88,23 @@ def _todays_pl(positions, today_iso: str) -> tuple[float, int]:
     return pnl, len(closes)
 
 
+def _last_trading_day(d: date) -> date:
+    """Walk back to the most recent weekday (Mon..Fri).
+    Skips Saturdays and Sundays. US holidays not handled — would need a
+    calendar; rare enough to accept the small false-stale on holiday Mondays.
+    """
+    cur = d - timedelta(days=1)
+    while cur.weekday() >= 5:  # 5=Sat, 6=Sun
+        cur -= timedelta(days=1)
+    return cur
+
+
 def build_summary() -> str:
     today = date.today().isoformat()
-    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    # On Monday, "yesterday" is Sunday (no trading) — show last trading day
+    # instead. Avoids the misleading "yesterday: 0 closes" line that the
+    # user gets on weekend mornings + Monday. (Audit finding #9.)
+    yesterday = _last_trading_day(date.today()).isoformat()
 
     lines = []
 
@@ -141,6 +155,19 @@ def build_summary() -> str:
     cash = snapshot.get("cash", 0) or 0
     net_liq = snapshot.get("net_liquidation", 0) or 0
 
+    # Snapshot freshness — without this, weekend-stale numbers show as
+    # current and the user makes Monday sizing decisions on Friday-EOD
+    # values. (Audit finding #10.)
+    snapshot_stale = False
+    if PORTFOLIO_SNAPSHOT.exists():
+        snap_age_h = (datetime.now().timestamp() - PORTFOLIO_SNAPSHOT.stat().st_mtime) / 3600
+        if snap_age_h > 6:
+            snapshot_stale = True
+            lines.append(
+                f"🟡 Portfolio snapshot stale ({snap_age_h:.0f}h old) — "
+                f"cash/net values may not reflect current state"
+            )
+
     if positions:
         lines.append(f"\n<b>📊 Positions ({len(positions)}):</b>")
         for p in positions:
@@ -165,9 +192,18 @@ def build_summary() -> str:
             f"P&L ${pnl_y:+.2f}"
         )
 
-    # ── Account ─────────────────────────────────────────────────
+    # ── Account + tier ──────────────────────────────────────────
     if net_liq > 0 or cash > 0:
+        # Account tier drives day-trade rules + protective-order timing.
+        # Surface it in the summary so the user knows what regime is active.
+        if net_liq >= 25000:
+            tier = "🟢 margin/PDT (T+0, no day-trade rules)"
+        elif net_liq >= 2000:
+            tier = "🟡 cash $2k+ (T+1 settlement, day-trade rules apply)"
+        else:
+            tier = "🟠 cash <$2k (IB strict — no shorts, goodAfterTime on LMT)"
         lines.append(f"\n💰 Net: ${net_liq:,.2f}  |  Cash: ${cash:,.2f}")
+        lines.append(f"   Tier: {tier}")
 
     return "\n".join(lines)
 

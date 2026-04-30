@@ -32,9 +32,18 @@ on:
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # Raised from 90 — scan routinely takes 50–60 min; the 90-min cap
+    # meant a slow scan got killed while the VPS pipeline still waited
+    # 150 min for nothing. Aligns better with the pipeline's deadline.
+    timeout-minutes: 120
     concurrency:
-      group: auto-scan
+      # Namespace by event so a scheduled run doesn't cancel a manual
+      # dispatch (and vice-versa). The pipeline timer dispatches at
+      # 13:30/17:30 UTC and the cron also fires at those times — under
+      # the previous global `auto-scan` group, the second one cancelled
+      # the first, sometimes leaving the VPS pipeline polling 150 min
+      # for a workflow that was killed seconds in. (Audit finding #6.)
+      group: auto-scan-${{ github.event_name }}
       cancel-in-progress: true
     env:
       PYTHONPATH: ${{ github.workspace }}
@@ -164,6 +173,15 @@ jobs:
               # Re-add any files that may have been unstaged during rebase
               git add data/scans/ reports/ || true
               if ! git diff --cached --quiet; then
+                # Re-run integrity check AFTER rebase: if the stash pop
+                # introduced conflict markers in latest_scan.json (this
+                # actually happened — git inserts <<<<<<< even on stash
+                # pop conflicts), we must NOT amend+push the corrupted
+                # file. (Audit finding #2 — pipeline.)
+                if ! python -m scripts.scan_integrity_check; then
+                  echo "POST-REBASE INTEGRITY FAIL — refusing to amend+push corrupted scan"
+                  exit 1
+                fi
                 git commit --amend --no-edit
               fi
             done

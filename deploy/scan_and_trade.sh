@@ -74,11 +74,28 @@ echo "Current scan parquet hash: ${START_HASH:0:12}"
 # If unavailable, skip — relies on the workflow's own cron schedule.
 if [ -n "${GITHUB_TOKEN:-}" ]; then
     echo "Triggering GH Actions auto_scan workflow..."
-    curl -fsS -X POST \
+    DISPATCH_HTTP=$(curl -fsS -o /tmp/dispatch_resp -w "%{http_code}" -X POST \
         -H "Authorization: token ${GITHUB_TOKEN}" \
         -H "Accept: application/vnd.github+json" \
         https://api.github.com/repos/asafamos/stock-scout/actions/workflows/auto_scan.yml/dispatches \
-        -d '{"ref":"main"}' && echo "  ✓ Workflow dispatched" || echo "  ✗ Dispatch failed (continuing with poll-only)"
+        -d '{"ref":"main"}' 2>&1) || DISPATCH_HTTP="curl_failed"
+    if [ "$DISPATCH_HTTP" = "204" ]; then
+        echo "  ✓ Workflow dispatched (HTTP 204)"
+    else
+        echo "  ✗ Dispatch failed (HTTP=$DISPATCH_HTTP)"
+        # Telegram alert — silent dispatch failure (token expired, rate
+        # limited) used to mean a 2.5h timeout before we noticed.
+        if [ -n "${TRADE_TELEGRAM_TOKEN:-}" ] && [ -n "${TRADE_TELEGRAM_CHAT_ID:-}" ]; then
+            DISP_BODY=$(head -c 200 /tmp/dispatch_resp 2>/dev/null || true)
+            curl -fsS -X POST \
+                "https://api.telegram.org/bot${TRADE_TELEGRAM_TOKEN}/sendMessage" \
+                -d "chat_id=${TRADE_TELEGRAM_CHAT_ID}" \
+                -d "parse_mode=HTML" \
+                --data-urlencode "text=⚠️ <b>PIPELINE DISPATCH FAIL</b>%0AHTTP=${DISPATCH_HTTP}%0A${DISP_BODY}%0AContinuing with cron-only fallback." \
+                >/dev/null 2>&1 || true
+        fi
+        echo "  → Continuing with poll-only (cron fallback)"
+    fi
 else
     echo "No GITHUB_TOKEN — relying on workflow's own cron schedule."
 fi
@@ -121,9 +138,27 @@ SCAN_AGE_MIN=$(( ($(date +%s) - $(stat -c %Y "$SCAN_FILE")) / 60 ))
 echo "Scan file age: ${SCAN_AGE_MIN}m"
 
 # Record outcomes (regime-tagged JSONL for ML feedback loop).
+# Capture full output to a file (for diagnostics) AND tail to stdout.
+# Failure here doesn't block the trade, but it WILL Telegram-alert so we
+# don't silently lose the ML feedback loop again like 2026-04-23..27.
 echo "Recording outcomes..."
-$PY -m scripts.track_scan_outcomes --record 2>&1 | tail -3 || \
-    echo "  (outcomes-record returned non-zero — continuing)"
+OUT_LOG=/tmp/outcomes-record-$$.log
+$PY -m scripts.track_scan_outcomes --record >"$OUT_LOG" 2>&1
+OUT_EXIT=$?
+tail -3 "$OUT_LOG"
+if [ "$OUT_EXIT" -ne 0 ]; then
+    echo "  ✗ outcomes-record FAILED (exit=$OUT_EXIT)"
+    if [ -n "${TRADE_TELEGRAM_TOKEN:-}" ] && [ -n "${TRADE_TELEGRAM_CHAT_ID:-}" ]; then
+        ERR_TAIL=$(tail -c 500 "$OUT_LOG" 2>/dev/null || true)
+        curl -fsS -X POST \
+            "https://api.telegram.org/bot${TRADE_TELEGRAM_TOKEN}/sendMessage" \
+            -d "chat_id=${TRADE_TELEGRAM_CHAT_ID}" \
+            -d "parse_mode=HTML" \
+            --data-urlencode "text=⚠️ <b>OUTCOMES-RECORD FAILED</b>%0Aexit=${OUT_EXIT}%0A<pre>${ERR_TAIL}</pre>%0AML feedback loop at risk. Trade will still run." \
+            >/dev/null 2>&1 || true
+    fi
+fi
+rm -f "$OUT_LOG"
 
 # Fire the trade evaluator. Live price refresh + 8 risk gates inside.
 # TRADE_LIVE_CONFIRMED=1 is the systemd-pipeline authorization to run live;

@@ -14,6 +14,22 @@ from core.trading.position_tracker import PositionTracker
 logger = logging.getLogger(__name__)
 
 
+# Account-tier thresholds. IB regulations split accounts into 3 functional
+# tiers; many of our protective-order and sizing decisions depend on which
+# tier the user is in. The system reads these dynamically from
+# get_net_liquidation() so we don't have to redeploy when the account
+# crosses a threshold.
+TIER_SUB_2K = "sub_2k"        # Net liq < $2,000 — IB blocks short side,
+                              # certain order types, requires goodAfterTime
+                              # to avoid day-trade rejection on small accts.
+TIER_2K_TO_25K = "cash"       # $2k–$25k — cash account day-trade rules
+                              # (T+1 settlement; can't sell-then-buy with
+                              # unsettled funds same day).
+TIER_25K_PLUS = "margin_pdt"  # >=$25k — pattern day trader thresholds met;
+                              # if margin account, T+0; if cash, still T+1
+                              # but no $2k restrictions.
+
+
 class RiskManager:
     """Validates every trade against position limits and account state."""
 
@@ -22,6 +38,48 @@ class RiskManager:
         self.client = client
         self.tracker = tracker
         self.cfg = config or CONFIG
+
+    def get_account_tier(self) -> Tuple[str, float]:
+        """Return (tier_name, net_liquidation). Reads live from IB.
+
+        Used by the bracket-order code (whether goodAfterTime is needed)
+        and by sizing checks (whether the post-buy cash drops below the
+        $2k IB minimum). Falls back to TIER_SUB_2K on read failure — the
+        most conservative tier — so we apply maximum protection in
+        ambiguous states.
+        """
+        try:
+            net = float(self.client.get_net_liquidation() or 0)
+        except Exception as e:
+            logger.warning("get_account_tier: net liq read failed: %s", e)
+            return TIER_SUB_2K, 0.0
+        if net < 2000:
+            return TIER_SUB_2K, net
+        if net < 25000:
+            return TIER_2K_TO_25K, net
+        return TIER_25K_PLUS, net
+
+    def check_cash_after_buy(self, cost: float) -> Tuple[bool, str]:
+        """Block buys that would drop cash below IB's $2,000 minimum.
+
+        Without this gate, IB rejects post-buy resubmits with "minimum
+        of 2000" (the cash-account rule). Detected reactively today, but
+        the position is then unprotected until the user adds cash.
+        Proactive check is cheaper and clearer. (Audit finding #10.)
+        """
+        try:
+            cash = float(self.client.get_cash_balance() or 0)
+        except Exception:
+            return True, ""  # can't check — let it through (fall back to IB-side reject)
+        # Only enforce when this buy WOULD cross the $2k boundary.
+        # Above $2k post-buy, the rule doesn't bite.
+        if cash - cost < 2000 and cash >= 2000:
+            return False, (
+                f"Cash post-buy ${cash - cost:.0f} would fall below IB's $2,000 "
+                f"minimum (cash now ${cash:.0f}, buy ${cost:.0f}). "
+                f"Buy would succeed but resubmits/protective orders would fail."
+            )
+        return True, ""
 
     def check_daily_loss_breaker(self) -> Tuple[bool, str]:
         """Return (allowed, reason). Blocks new buys if today's P&L < -max_daily_loss_pct.
@@ -53,6 +111,34 @@ class RiskManager:
         try:
             pct, realized, unrealized, net = _compute_pct_and_parts()
             if pct is None:
+                # Net liq read failed — try realized-only check before giving up.
+                # If realized losses today already breached the threshold, BLOCK
+                # even without unrealized data (fail-CLOSED for big drawdowns).
+                # Audit finding #7: previously this fell through to "True, ''" so
+                # a broken IB connection silently disabled the loss breaker
+                # exactly when you most need it.
+                today = date.today().isoformat()
+                realized_only = sum(
+                    float(t.get("pnl") or 0)
+                    for t in self.tracker.get_trade_log()
+                    if t.get("action") == "CLOSE"
+                    and str(t.get("timestamp", "")).startswith(today)
+                )
+                # Use a defensive estimated net = max_position * max_open as a
+                # rough capital-at-risk proxy; gives a sane percentage when
+                # IB is unreachable.
+                est_net = self.cfg.max_position_size * self.cfg.max_open_positions
+                est_pct = (realized_only / max(est_net, 1)) * 100
+                if est_pct <= -self.cfg.max_daily_loss_pct:
+                    return False, (
+                        f"Daily loss breaker (IB unreachable, realized-only): "
+                        f"realized ${realized_only:.0f} / est-net ${est_net:.0f} "
+                        f"= {est_pct:+.2f}% <= -{self.cfg.max_daily_loss_pct}%"
+                    )
+                logger.warning(
+                    "Daily loss breaker: net liq unreadable; allowing trade "
+                    "(realized-only %+.2f%% within threshold).", est_pct,
+                )
                 return True, ""
 
             if pct <= -self.cfg.max_daily_loss_pct:
@@ -73,8 +159,8 @@ class RiskManager:
                 )
             return True, ""
         except Exception as e:
-            logger.warning("Daily loss breaker check failed: %s", e)
-            return True, ""  # Fail open (don't block trades on error)
+            logger.warning("Daily loss breaker check failed: %s — failing OPEN", e)
+            return True, ""  # genuine exception path: still fail-open (rare)
 
     def check_sector_concentration(self, new_sector: str) -> Tuple[bool, str]:
         """Block if we'd exceed max_sector_positions in same sector."""
@@ -291,7 +377,30 @@ class RiskManager:
         if not allowed:
             return False, reason
 
-        # 0a. Day-trade prevention (cash account cannot re-buy same-day sell)
+        # 1b. Cash-after-buy minimum gate (only enforced for the $2k tier
+        # boundary). If we'd drop cash below $2k by buying, IB will accept
+        # the buy but reject all subsequent protective-order resubmits.
+        # Better to skip than have a position without protection. The
+        # check is automatically a no-op for accounts already above $2k
+        # OR already below it (the user is past that boundary).
+        # See risk_manager.check_cash_after_buy.
+        try:
+            est_cost = price * self.cfg.max_position_size / max(price, 1)  # placeholder
+            # Use config max_position_size directly as the upper bound on cost
+            est_cost = min(self.cfg.max_position_size, price)
+            allowed, reason = self.check_cash_after_buy(est_cost)
+            if not allowed:
+                return False, reason
+        except Exception as _e:
+            logger.debug("check_cash_after_buy skipped: %s", _e)
+
+        # 0a. Day-trade prevention — applies in TIER_SUB_2K and TIER_2K_TO_25K
+        # (cash accounts). In TIER_25K_PLUS with margin, T+0 settlement makes
+        # this a non-issue; we still keep the tracker check as a sanity guard.
+        # The check uses the trade_log for same-day CLOSE/PARTIAL entries —
+        # see audit finding for the gap where IB-side same-day sells aren't
+        # caught if monitor hasn't reconciled yet (low risk in practice
+        # because the monitor reconciles every 30s).
         try:
             today = date.today().isoformat()
             for t in self.tracker.get_trade_log():

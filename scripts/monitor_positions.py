@@ -332,14 +332,51 @@ def _drift_check(tracker, client, ibkr_orders, notify):
         ib_pos_by_ticker = {p.contract.symbol: float(p.position)
                             for p in client._ib.portfolio()
                             if p.position != 0}
-    except Exception:
-        return  # Can't check without portfolio
+    except Exception as _e:
+        # Surface portfolio-fetch failures (with cooldown) so silent
+        # degradation of the drift check doesn't go unnoticed. Previously
+        # this returned silently, making drift detection a no-op for
+        # entire cycles. (Audit finding #6 — monitor.)
+        if _cooldown_ok(("drift_check", "portfolio_fail"),
+                        _ALERT_COOLDOWN, 1800):
+            try:
+                notify._send(
+                    f"⚠️ <b>DRIFT CHECK SKIPPED</b>\n"
+                    f"Portfolio fetch failed: {_e}\n"
+                    f"Drift detection is currently a no-op until next cycle."
+                )
+            except Exception:
+                pass
+        return
 
     tracked = {p["ticker"]: p for p in tracker.get_open_positions()}
 
-    # Check 1: untracked IB positions
+    # Check 1: untracked IB positions.
+    # Race-window suppression: if a buy filled in IB but the tracker write
+    # hasn't landed yet, drift_check would alert spuriously and the user
+    # would learn to ignore it. Suppress if the position appears < 5 min
+    # old (recent BUY fill in executions). (Audit finding #6 — monitor.)
+    recent_buy_tickers = set()
+    try:
+        from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+        cutoff = _dt.now(_tz.utc) - _td(minutes=5)
+        for ex in client._ib.executions():
+            try:
+                if ex.execution.side in ("BOT", "BUY") and ex.time >= cutoff:
+                    recent_buy_tickers.add(ex.contract.symbol)
+            except Exception:
+                continue
+    except Exception:
+        pass
+
     for sym, qty in ib_pos_by_ticker.items():
         if sym not in tracked:
+            if sym in recent_buy_tickers:
+                logger.debug(
+                    "drift_check: skipping %s (BUY filled <5 min ago, "
+                    "tracker write may still be propagating)", sym,
+                )
+                continue
             issues.append(f"IB holds {sym} ({int(qty)} shares) but tracker doesn't")
 
     # Check 2: protective-order count per tracked position
@@ -614,7 +651,14 @@ def _take_partial_profit(tracker, client, notify):
         # This prevents accidental day-trade violations from exception paths.
         today_iso = date.today().isoformat()
         opened_at = str(pos.get("opened_at", "") or "")[:10]
-        is_prior_day = bool(opened_at) and opened_at != today_iso and opened_at < today_iso
+        # Strict ISO parse — see ratchet copy below for full rationale.
+        # Fail-CLOSED on parse failure (treat as same-day → skip).
+        is_prior_day = False
+        try:
+            _od = date.fromisoformat(opened_at)
+            is_prior_day = _od < date.today()
+        except (ValueError, TypeError):
+            is_prior_day = False
         if not is_prior_day:
             logger.debug(
                 "Partial profit skip %s: opened_at=%r, today=%s (need prior-day)",
@@ -626,9 +670,20 @@ def _take_partial_profit(tracker, client, notify):
         if not port_item:
             continue
 
-        current_price = float(port_item.marketPrice)
+        # NaN guard — IB returns nan for marketPrice on halted stocks /
+        # outside RTH for some symbols. Without explicit math.isfinite,
+        # nan slips through every comparison (`nan > 0` is False, `nan < x`
+        # is False, etc.) and we'd record nan into trade_log, breaking
+        # the JSON downstream. (Audit finding #8.)
+        import math as _m
+        try:
+            current_price = float(port_item.marketPrice)
+        except (TypeError, ValueError):
+            continue
+        if not _m.isfinite(current_price) or current_price <= 0:
+            continue
         entry = pos["entry_price"]
-        if entry <= 0 or current_price <= 0:
+        if entry <= 0:
             continue
 
         pnl_pct = (current_price - entry) / entry * 100
@@ -764,7 +819,17 @@ def _ratchet_stops(tracker, client, ibkr_orders, notify):
         # same-day positions (cash account = T+1 day-trade violation).
         today_iso = date.today().isoformat()
         opened_at = str(pos.get("opened_at", "") or "")[:10]
-        is_prior_day = bool(opened_at) and opened_at < today_iso
+        # Strict ISO parse — lexical compare alone breaks on malformed
+        # dates like "2026-4-30" or " 2026-04-30" (lex < "2026-04-30" lex
+        # incorrectly says is_prior_day=True). Fail-CLOSED on parse failure
+        # so we treat ambiguous as same-day and skip the action that
+        # could trigger a day-trade violation. (Audit finding #5.)
+        is_prior_day = False
+        try:
+            _od = date.fromisoformat(opened_at)
+            is_prior_day = _od < date.today()
+        except (ValueError, TypeError):
+            is_prior_day = False  # treat malformed as same-day (skip)
         if not is_prior_day:
             logger.debug(
                 "Ratchet skip %s: opened_at=%r, today=%s (need prior-day)",
@@ -822,12 +887,22 @@ def _ratchet_stops(tracker, client, ibkr_orders, notify):
         if order_type == "TRAIL" and current_trail > 0 and target_trail_pct >= current_trail:
             continue  # Already tighter or equal
 
-        # Safety: with the new trail %, the projected stop should still
-        # be below current price by a reasonable margin (else immediate fill).
+        # Safety: skip ONLY when the projected stop would be ABOVE
+        # current price (and would fire immediately). The old check used
+        # `>= current * 0.995` unconditionally, which blocked tightening
+        # when a stock pulled back from peak — exactly when you most want
+        # the protection ratchet (peak +28%, current +25% → tier 3 trail
+        # 2% projected at peak * 0.98 = current * 1.005 would skip with
+        # the old check, leaving the loose trail in place). Now: skip
+        # only if the trail would be ABOVE current price; below current
+        # is fine because IB's trailing-stop logic is "don't fire until
+        # market drops to stop" and the starting trail amount means
+        # current price is above stop already. (Audit finding #4 — monitor.)
         projected_stop = peak_price * (1 - target_trail_pct / 100)
-        if projected_stop >= current_price * 0.995:
+        if projected_stop >= current_price:
             logger.debug(
-                "Ratchet skip %s: projected stop $%.2f too close to current $%.2f",
+                "Ratchet skip %s: projected stop $%.2f at-or-above current $%.2f "
+                "(would fire immediately)",
                 ticker, projected_stop, current_price,
             )
             continue

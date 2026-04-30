@@ -182,13 +182,28 @@ class IBKRClient:
                 # Non-collision error — give up immediately
                 break
 
+        # All retries exhausted — clean up the dangling IB() instance so
+        # we don't leak file descriptors on repeated reconnect attempts.
+        # The daemon runs forever; without this, every Gateway 2FA expiry
+        # would burn 5 fds and eventually break with EMFILE. (Audit
+        # finding #7 — monitor section.)
+        try:
+            if self._ib is not None:
+                self._ib.disconnect()
+        except Exception:
+            pass
+        self._ib = None
         logger.error("Failed to connect to IBKR after %d attempts: %s",
                      len(ids_to_try), last_err)
         self._connected = False
         return False
 
     def disconnect(self):
-        if self._ib and self._connected:
+        # Always try to disconnect the IB instance, regardless of whether
+        # we think we're "connected". Otherwise reconnect attempts that
+        # failed at handshake stage leave dangling sockets. (Audit
+        # finding #7 — monitor section.)
+        if self._ib is not None:
             try:
                 self._ib.disconnect()
             except Exception:
@@ -573,22 +588,37 @@ class IBKRClient:
                 )
                 qty = filled_qty
 
-            # Leg 2: Trailing stop (OCA)
+            # Account-tier-aware day-trade protection.
             #
-            # IMPORTANT: TRAIL has NO goodAfterTime — it's active immediately.
-            # Day-trade rules in cash accounts apply to PROFIT-taking
-            # round-trips, not to stop-loss exits. A flash-crash, news event,
-            # or halted-stock recovery on day 1 needs an active stop —
-            # delaying it until tomorrow's open meant the position was
-            # unprotected for ~6 hours after every buy. (Audit 2026-04-30
-            # finding #5.) Only the LIMIT (target) carries goodAfterTime,
-            # which is the leg that would actually generate a same-day
-            # round-trip if it filled.
-            _next_open = self._next_trading_day_open_utc()
+            # Tier rules (see risk_manager.get_account_tier):
+            #   TIER_SUB_2K (<$2k):     LMT goodAfterTime — IB strict on
+            #                            small accounts, will reject same-day
+            #                            sells.
+            #   TIER_2K_TO_25K (cash):  LMT goodAfterTime — T+1 settlement
+            #                            means same-day profit round-trip
+            #                            uses unsettled funds.
+            #   TIER_25K_PLUS (margin): NO goodAfterTime — PDT-eligible,
+            #                            T+0 on margin, can intraday round-trip.
+            #
+            # In ALL tiers, TRAIL has NO goodAfterTime — stop-loss exits
+            # don't violate day-trade rules and the position MUST be
+            # protected from flash crashes / news events from minute zero.
+            # (Audit 2026-04-30 finding #5.)
+            account_tier = "sub_2k"  # conservative default if read fails
+            try:
+                net_liq = float(self.get_net_liquidation() or 0)
+                if net_liq >= 25000:
+                    account_tier = "margin_pdt"
+                elif net_liq >= 2000:
+                    account_tier = "cash"
+            except Exception:
+                pass
+            apply_goodaftertime_to_lmt = account_tier in ("sub_2k", "cash")
+
+            _next_open = self._next_trading_day_open_utc() if apply_goodaftertime_to_lmt else ""
             logger.info(
-                "Bracket: TRAIL active immediately, LIMIT goodAfterTime=%s "
-                "(prevents same-day profit round-trip; stop-loss not affected)",
-                _next_open,
+                "Bracket: tier=%s, TRAIL immediate, LMT goodAfterTime=%s",
+                account_tier, _next_open or "none",
             )
 
             trail_order = Order()
@@ -611,7 +641,8 @@ class IBKRClient:
                 limit_order.orderType = "LMT"
                 limit_order.lmtPrice = round(target_price, 2)
                 limit_order.tif = "GTC"
-                limit_order.goodAfterTime = _next_open  # Prevent same-day profit round-trip
+                if apply_goodaftertime_to_lmt:
+                    limit_order.goodAfterTime = _next_open
                 limit_order.ocaGroup = oca_group
                 limit_order.ocaType = 1
                 limit_order.transmit = True
