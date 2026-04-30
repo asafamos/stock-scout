@@ -83,9 +83,27 @@ def check_parquet() -> Tuple[List[str], List[str]]:
     if missing:
         errors.append(f"Required columns missing: {missing}")
 
-    # Score sanity
+    # Duplicate-ticker detection — the scan should produce one row per
+    # unique ticker. If looping logic is broken, the same ticker could
+    # appear 30× and pass the row-count check. (Audit finding #3.)
+    if "Ticker" in df.columns:
+        unique_tickers = df["Ticker"].dropna().nunique()
+        if unique_tickers < n * 0.95:  # allow up to 5% dupes (rare edge case)
+            errors.append(
+                f"Duplicate tickers: only {unique_tickers} unique among {n} rows "
+                f"(>5% duplication — scan loop likely broken)"
+            )
+
+    # Score sanity (broader: check NaN density, not just empty)
     if "FinalScore_20d" in df.columns:
-        scores = pd.to_numeric(df["FinalScore_20d"], errors="coerce").dropna()
+        raw_scores = pd.to_numeric(df["FinalScore_20d"], errors="coerce")
+        nan_frac = raw_scores.isna().sum() / max(n, 1)
+        if nan_frac > 0.10:
+            errors.append(
+                f"FinalScore_20d NaN on {nan_frac*100:.0f}% of rows "
+                f"(scoring engine likely failed)"
+            )
+        scores = raw_scores.dropna()
         if scores.empty:
             errors.append("FinalScore_20d column has no numeric values")
         else:
@@ -94,12 +112,11 @@ def check_parquet() -> Tuple[List[str], List[str]]:
                     f"Scores out of range: min={scores.min():.1f}, max={scores.max():.1f} "
                     f"(expected [{SCORE_MIN}, {SCORE_MAX}])"
                 )
-            if scores.isna().any():
-                warnings.append(f"{scores.isna().sum()} rows with NaN score")
 
     # Regime broadcast (caused real bug 2026-04-22..27)
     if "Market_Regime" in df.columns:
-        regime_missing = df["Market_Regime"].isna() | (df["Market_Regime"].astype(str) == "")
+        regime_str = df["Market_Regime"].astype(str)
+        regime_missing = df["Market_Regime"].isna() | (regime_str == "") | (regime_str == "None")
         miss_frac = regime_missing.sum() / max(n, 1)
         if miss_frac > REGIME_MISSING_MAX_FRAC:
             errors.append(
@@ -107,8 +124,16 @@ def check_parquet() -> Tuple[List[str], List[str]]:
                 f"(> {REGIME_MISSING_MAX_FRAC*100:.0f}% threshold) — "
                 f"regime broadcast broken"
             )
+        # Monoculture check: if EVERY row says NEUTRAL, the regime
+        # classifier likely crashed and defaulted. Real scans always have
+        # at least 1-2 distinct regimes. (Audit finding #3.)
+        present = regime_str[~regime_missing]
+        if not present.empty and present.nunique() == 1 and present.iloc[0] == "NEUTRAL":
+            warnings.append(
+                "Market_Regime is NEUTRAL on 100% of rows — classifier may be broken"
+            )
 
-    # ML probability sanity
+    # ML probability sanity (broader: dead-model detection)
     if "ML_20d_Prob" in df.columns:
         ml = pd.to_numeric(df["ML_20d_Prob"], errors="coerce").dropna()
         if not ml.empty:
@@ -116,6 +141,29 @@ def check_parquet() -> Tuple[List[str], List[str]]:
                 errors.append(
                     f"ML_20d_Prob out of [0,1]: min={ml.min():.3f}, max={ml.max():.3f}"
                 )
+            # Dead-model: if >50% of rows have ML=0, the model crashed
+            # and is returning the default fallback. (Audit finding #3.)
+            zero_frac = (ml == 0).sum() / len(ml)
+            if zero_frac > 0.5:
+                errors.append(
+                    f"ML_20d_Prob is 0 on {zero_frac*100:.0f}% of rows "
+                    f"(model likely crashed → returning default 0)"
+                )
+
+    # Price coherence — Stop must be < Entry < Target (long positions).
+    # Wrong order means downstream RewardRisk math produces garbage.
+    if all(c in df.columns for c in ("Entry_Price", "Stop_Loss", "Target_Price")):
+        ep = pd.to_numeric(df["Entry_Price"], errors="coerce")
+        sp = pd.to_numeric(df["Stop_Loss"], errors="coerce")
+        tp = pd.to_numeric(df["Target_Price"], errors="coerce")
+        valid = ep.notna() & sp.notna() & tp.notna() & (ep > 0) & (sp > 0) & (tp > 0)
+        bad_order = valid & ((sp >= ep) | (tp <= ep))
+        bad_frac = bad_order.sum() / max(valid.sum(), 1)
+        if bad_frac > 0.05:
+            errors.append(
+                f"Price coherence broken on {bad_frac*100:.0f}% of valid-priced rows "
+                f"(Stop>=Entry OR Target<=Entry) — RewardRisk math invalid"
+            )
 
     logger.info(
         "Parquet: %d rows, %d cols, score [%.1f, %.1f]",

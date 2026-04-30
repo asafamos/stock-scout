@@ -273,14 +273,21 @@ class IBKRClient:
             # Delayed feed takes longer to populate than live snapshot.
             self._ib.sleep(timeout)
             try:
-                # Try every field that might carry a price (live, delayed, close).
-                # ib_insync exposes delayed values on the same fields when
-                # marketDataType=3 is active.
+                # Try every field that might carry a CURRENT price.
+                # IMPORTANT: `close` and `delayedClose` are YESTERDAY'S close
+                # under marketDataType=3. They were originally in this list
+                # as fallbacks but caused real harm: in pre/post-market when
+                # last/delayedLast are NaN, returning yesterday's close as
+                # "live price" would size stops/targets to a stale anchor and
+                # IB would trigger them on the open as soon as today's price
+                # diverged. (See audit 2026-04-30 finding #4.)
+                # If no live tick is available, return None and let the caller
+                # fall back to scan_price + slippage guard rather than trade
+                # against day-old data.
                 candidates = [
                     getattr(ticker_obj, "last", None),
                     getattr(ticker_obj, "delayedLast", None),
-                    getattr(ticker_obj, "close", None),
-                    getattr(ticker_obj, "delayedClose", None),
+                    getattr(ticker_obj, "marketPrice", None),
                 ]
                 for v in candidates:
                     if v is None:
@@ -506,26 +513,91 @@ class IBKRClient:
             buy_order.transmit = True
             buy_trade = self._ib.placeOrder(contract, buy_order)
 
-            # Wait for fill
+            # Wait for fill — up to 30s. CRITICAL: if the buy doesn't fill
+            # we must NOT proceed to place protective orders or report
+            # success — otherwise the tracker records a phantom OPEN with
+            # zero qty, then reconciliation later writes a fake CLOSE with
+            # estimated P&L. (See KNX phantom 2026-04-28; audit finding #2.)
             for _ in range(30):
                 self._ib.sleep(1)
                 if buy_trade.orderStatus.status == "Filled":
                     break
+                # Also exit early on hard rejects so we don't burn 30s
+                if buy_trade.orderStatus.status in ("Cancelled", "Inactive", "ApiCancelled"):
+                    break
 
             filled = buy_trade.orderStatus.avgFillPrice or 0.0
+            filled_qty = int(buy_trade.orderStatus.filled or 0)
+            buy_status = buy_trade.orderStatus.status
+
+            # Hard reject if buy didn't fill — return status=Error so the
+            # caller skips add_position and skips placing protective orders
+            # for shares we don't own.
+            if buy_status != "Filled" or filled_qty <= 0 or filled <= 0:
+                err = (
+                    f"buy did not fill: status={buy_status}, "
+                    f"filled_qty={filled_qty}, avg_price={filled}"
+                )
+                logger.error("BRACKET buy unfilled for %s: %s", ticker, err)
+                # Best-effort cancel the buy so it doesn't fill late
+                try:
+                    self._ib.cancelOrder(buy_trade.order)
+                except Exception:
+                    pass
+                return {
+                    "buy": TradeResult(
+                        ticker=ticker, action="BUY", order_type="MKT",
+                        quantity=qty, filled_price=0.0, status="Error",
+                        error=err, order_id=buy_trade.order.orderId,
+                    ),
+                    "trailing_stop": TradeResult(
+                        ticker=ticker, action="SELL", order_type="TRAIL",
+                        quantity=qty, filled_price=0.0, status="Error",
+                        error="skipped — buy did not fill",
+                    ),
+                    "limit_sell": TradeResult(
+                        ticker=ticker, action="SELL", order_type="LMT",
+                        quantity=qty, filled_price=0.0, status="Error",
+                        error="skipped — buy did not fill",
+                    ),
+                }
+
+            # Partial fill — log + truncate qty for protective orders.
+            # The position tracker should also use filled_qty, not the
+            # ordered qty (handled in order_manager.py).
+            if filled_qty < qty:
+                logger.warning(
+                    "PARTIAL BUY %s: ordered %d, filled %d @ $%.2f — "
+                    "using filled_qty for protective orders",
+                    ticker, qty, filled_qty, filled,
+                )
+                qty = filled_qty
 
             # Leg 2: Trailing stop (OCA)
-            trail_order = Order()
-            # Prevent day-trade violation: protective orders can't fire same day
+            #
+            # IMPORTANT: TRAIL has NO goodAfterTime — it's active immediately.
+            # Day-trade rules in cash accounts apply to PROFIT-taking
+            # round-trips, not to stop-loss exits. A flash-crash, news event,
+            # or halted-stock recovery on day 1 needs an active stop —
+            # delaying it until tomorrow's open meant the position was
+            # unprotected for ~6 hours after every buy. (Audit 2026-04-30
+            # finding #5.) Only the LIMIT (target) carries goodAfterTime,
+            # which is the leg that would actually generate a same-day
+            # round-trip if it filled.
             _next_open = self._next_trading_day_open_utc()
-            logger.info("Setting goodAfterTime=%s on protective orders (prevent day-trade)", _next_open)
+            logger.info(
+                "Bracket: TRAIL active immediately, LIMIT goodAfterTime=%s "
+                "(prevents same-day profit round-trip; stop-loss not affected)",
+                _next_open,
+            )
 
+            trail_order = Order()
             trail_order.action = "SELL"
             trail_order.totalQuantity = qty
             trail_order.orderType = "TRAIL"
             trail_order.trailingPercent = trail_pct
             trail_order.tif = "GTC"
-            trail_order.goodAfterTime = _next_open  # Prevent same-day fill
+            # NO goodAfterTime — stop-loss must be active from the moment we hold the position.
             trail_order.ocaGroup = oca_group
             trail_order.ocaType = 1  # Cancel remaining on fill
             trail_order.transmit = True
@@ -539,7 +611,7 @@ class IBKRClient:
                 limit_order.orderType = "LMT"
                 limit_order.lmtPrice = round(target_price, 2)
                 limit_order.tif = "GTC"
-                limit_order.goodAfterTime = _next_open  # Prevent same-day fill
+                limit_order.goodAfterTime = _next_open  # Prevent same-day profit round-trip
                 limit_order.ocaGroup = oca_group
                 limit_order.ocaType = 1
                 limit_order.transmit = True
@@ -847,14 +919,61 @@ class IBKRClient:
 
             old_pct = float(getattr(target_trade.order, "trailingPercent", 0) or 0)
             target_trade.order.trailingPercent = float(new_trail_pct)
+            target_trade.order.transmit = True  # explicit — don't inherit
             # Re-submit with same orderId — IB treats this as a modification.
             self._ib.placeOrder(target_trade.contract, target_trade.order)
-            self._ib.sleep(2)
+            self._ib.sleep(3)
 
             ticker = target_trade.contract.symbol
             qty = int(target_trade.order.totalQuantity)
+
+            # POST-VERIFY: re-fetch the live order from IB and confirm the
+            # trailingPercent actually changed. IB acks the placeOrder
+            # before validating the modification — a rejection (errorEvent
+            # 161/202: "no such order modify" or "invalid order state")
+            # may arrive after our sleep. Without verification, the tracker
+            # would record success while IB still has the old %. (Audit
+            # finding #8.)
+            actual_pct = None
+            try:
+                # Re-pull fresh state via reqAllOpenOrders to get current values
+                self._ib.reqAllOpenOrders()
+                self._ib.sleep(1)
+                for t in self._ib.openTrades():
+                    if t.order.orderId == order_id:
+                        actual_pct = float(getattr(t.order, "trailingPercent", -1) or -1)
+                        break
+            except Exception as _verr:
+                logger.warning("Post-verify of TRAIL #%d failed: %s", order_id, _verr)
+
+            if actual_pct is None:
+                # Order disappeared — likely cancelled. That's a hard error.
+                logger.error(
+                    "MODIFY TRAIL %s #%d: order not found after submit — treating as REJECTED",
+                    ticker, order_id,
+                )
+                return TradeResult(
+                    ticker=ticker, action="SELL", order_type="TRAIL",
+                    quantity=qty, filled_price=0.0, status="Error",
+                    order_id=order_id, error="order disappeared after modify",
+                )
+
+            # Allow tiny float jitter — but the modification was rejected
+            # if the live % is materially different from what we set.
+            if abs(actual_pct - new_trail_pct) > 0.05:
+                logger.error(
+                    "MODIFY TRAIL %s #%d REJECTED: requested %.1f%% but IB still has %.1f%%",
+                    ticker, order_id, new_trail_pct, actual_pct,
+                )
+                return TradeResult(
+                    ticker=ticker, action="SELL", order_type="TRAIL",
+                    quantity=qty, filled_price=0.0, status="Error",
+                    order_id=order_id,
+                    error=f"modify rejected: IB has {actual_pct:.2f}% not {new_trail_pct:.2f}%",
+                )
+
             logger.info(
-                "✓ MODIFIED TRAIL %s #%d: %.1f%% → %.1f%%",
+                "✓ MODIFIED TRAIL %s #%d: %.1f%% → %.1f%% (verified live)",
                 ticker, order_id, old_pct, new_trail_pct,
             )
             return TradeResult(

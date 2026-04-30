@@ -17,7 +17,11 @@
 # Manual: bash deploy/scan_and_trade.sh [label]
 # Systemd: stockscout-pipeline.service / .timer
 
-set -uo pipefail
+set -euo pipefail
+# `-e` added 2026-04-30: previous setup let `git fetch` failures fall
+# through silently (returning "none" hash) which triggered false-positive
+# "new scan" detections on the very next successful fetch — leading to
+# trades against stale parquets. (Audit finding #10.)
 exec > >(while IFS= read -r line; do echo "[$(date -u +%H:%M:%S)] $line"; done)
 exec 2>&1
 
@@ -30,6 +34,17 @@ MAX_WAIT_SEC=$((150 * 60))  # 150 min hard cap — generous to absorb GH Actions
                             # 2026-04-28 (cron 47 min late + 49 min scan).
 POLL_SEC=30
 
+# ─── Single-instance lock ─────────────────────────────────────────────
+# Prevents the 17:30 timer from firing while the 13:30 instance is still
+# polling/trading (a slow scan can run >4h). Without this, two pipelines
+# could send duplicate buy orders. (Audit finding #9.)
+LOCK_FILE=/run/stockscout-pipeline.lock
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+    echo "Another pipeline instance is running (lock $LOCK_FILE held). Exiting."
+    exit 7
+fi
+
 cd "$ROOT"
 set -a
 source .env.trading 2>/dev/null || true
@@ -40,8 +55,18 @@ echo "Starting $LABEL pipeline (event-driven scan→trade)"
 echo "═══════════════════════════════════════════════════════"
 
 # Snapshot the current scan parquet hash so we can detect a NEW one.
-git fetch origin main --quiet 2>/dev/null || true
+# Fail-fast if the initial fetch fails — we must have a true baseline,
+# not "none", or the next successful fetch will trip the change detector
+# and trade on the stale parquet still on disk. (Audit finding #10.)
+if ! git fetch origin main --quiet; then
+    echo "FATAL: initial git fetch failed — cannot establish baseline. Aborting."
+    exit 5
+fi
 START_HASH=$(git log -1 --format=%H origin/main -- data/scans/latest_scan.parquet 2>/dev/null || echo "none")
+if [ "$START_HASH" = "none" ]; then
+    echo "FATAL: no parquet hash found on origin/main. Aborting."
+    exit 5
+fi
 echo "Current scan parquet hash: ${START_HASH:0:12}"
 
 # Best-effort: trigger a fresh GH Actions scan via REST.
@@ -106,7 +131,9 @@ $PY -m scripts.track_scan_outcomes --record 2>&1 | tail -3 || \
 # DRY mode for safety. See run_auto_trade.py for the full policy.
 echo "Triggering auto-trade..."
 TRADE_T0=$(date +%s)
-TRADE_LIVE_CONFIRMED=1 $PY -m scripts.run_auto_trade 2>&1 | tail -25
+# `|| true` so set -e + pipefail don't abort the final summary block on
+# a non-zero trade exit; we log the exit explicitly below.
+TRADE_LIVE_CONFIRMED=1 $PY -m scripts.run_auto_trade 2>&1 | tail -25 || true
 TRADE_EXIT=${PIPESTATUS[0]}
 TRADE_DUR=$(( $(date +%s) - TRADE_T0 ))
 echo "Trade finished (exit=$TRADE_EXIT, duration=${TRADE_DUR}s)"

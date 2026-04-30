@@ -211,6 +211,46 @@ class PositionTracker:
         logger.info("Position closed: %s @ $%.2f (P&L: $%.2f, reason: %s)",
                      ticker, exit_price, pnl, reason)
 
+    def reconcile_drop(self, ticker: str, reason: str = "reconcile_drop"):
+        """Drop a position from the tracker when IB doesn't have it,
+        WITHOUT writing a CLOSE entry to trade_log.
+
+        Used by the monitor's reconciliation flow when:
+          - IB reports zero position for a ticker the tracker thinks we hold
+          - We can't determine an exit price from fills/executions/trades
+
+        Why a separate path: the old behavior wrote a phantom CLOSE row
+        with an ESTIMATED exit_price (from stop_loss or peak_price),
+        producing fake P&L numbers that polluted statistics, daily summary,
+        and ML feedback. (See KNX phantom 2026-04-28; audit finding #1.)
+
+        A RECONCILE_DROP entry IS written (action=RECONCILE_DROP, pnl=null)
+        so analytics layers can filter these out by `action != "CLOSE"`.
+        """
+        with _file_lock(self._positions_path):
+            positions = self._read_positions_unlocked()
+            removed = [p for p in positions if p["ticker"] == ticker]
+            remaining = [p for p in positions if p["ticker"] != ticker]
+            if not removed:
+                logger.warning("reconcile_drop: no position found for %s", ticker)
+                return
+            _atomic_write_json(self._positions_path, remaining)
+
+        pos = removed[0]
+        # IMPORTANT: pnl=None (not 0) — distinguishes "dropped without
+        # knowing P&L" from "closed at break-even". Downstream stats code
+        # already filters None.
+        self._log_trade("RECONCILE_DROP", ticker, pos["quantity"], 0.0, {
+            "entry_price": pos["entry_price"],
+            "pnl": None,
+            "reason": reason,
+            "held_since": pos.get("opened_at"),
+        })
+        logger.warning(
+            "Position %s dropped from tracker (no P&L recorded): %s",
+            ticker, reason,
+        )
+
     # ── Target Date Exits ─────────────────────────────────────
 
     def check_target_date_exits(self) -> List[str]:

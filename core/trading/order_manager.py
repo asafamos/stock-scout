@@ -584,6 +584,26 @@ class OrderManager:
             live_price = None
         if live_price and live_price > 0 and scan_price > 0:
             move_pct = (live_price - scan_price) / scan_price * 100
+
+            # SLIPPAGE HARD-REJECT — refuse to trade against a price that
+            # has moved >5% from scan time. Beyond that we're chasing a
+            # different stock than the one the scan analyzed (halt+reopen,
+            # gap-up news, etc). Proportional rescaling of stop/target
+            # masks the problem; backtests showed runaway losses on these
+            # entries. (Audit 2026-04-30 finding #3.)
+            if abs(move_pct) > 5.0:
+                logger.warning(
+                    "SLIPPAGE REJECT %s: scan $%.2f → live $%.2f (%+.2f%%, > 5%% threshold)",
+                    ticker, scan_price, live_price, move_pct,
+                )
+                return {
+                    "ticker": ticker, "status": "skipped",
+                    "reason": (
+                        f"Live price ${live_price:.2f} moved {move_pct:+.1f}% "
+                        f"from scan ${scan_price:.2f} (> 5% reject threshold)"
+                    ),
+                }
+
             # Re-derive stop & target using the scan's intended R:R/stop ratios
             # so the trade preserves its risk profile around the live price.
             if stop > 0:
@@ -698,10 +718,48 @@ class OrderManager:
 
         buy_result = bracket["buy"]
         if buy_result.status in ("Error",):
+            # Buy didn't fill (status="Error" from bracket_order's hard-reject
+            # path means: timeout, rejection, or zero-quantity fill). Skip
+            # add_position so we don't create a phantom OPEN entry that
+            # later gets reconciled with a fake P&L.
+            logger.warning(
+                "Buy unfilled for %s — skipping tracker write: %s",
+                ticker, buy_result.error,
+            )
+            try:
+                notify.notify_error(
+                    "Buy unfilled",
+                    f"⚠️ {ticker} ${price:.2f} buy did not fill: "
+                    f"{buy_result.error}. No position recorded; no protective "
+                    f"orders placed (correctly). Likely cause: cash<$2k rule, "
+                    f"insufficient buying power, or IB account restriction."
+                )
+            except Exception:
+                pass
             return {"ticker": ticker, "status": "error",
                     "error": buy_result.error}
 
+        # Use the ACTUAL filled quantity (in case of partial fill — bracket_order
+        # already truncated the protective qty to match).
+        actual_qty = buy_result.quantity or qty
+        if actual_qty != qty:
+            logger.warning(
+                "%s partial fill: ordered %d, filled %d — recording %d in tracker",
+                ticker, qty, actual_qty, actual_qty,
+            )
+        qty = actual_qty
+
         filled_price = buy_result.filled_price or price
+        if filled_price <= 0:
+            # Defensive — shouldn't happen given the bracket_order hard-reject,
+            # but if it slips through, refusing to record is safer than recording
+            # a $0 cost basis that breaks all P&L math downstream.
+            logger.error(
+                "%s: filled_price <= 0 (%.2f) despite Filled status — refusing add_position",
+                ticker, filled_price,
+            )
+            return {"ticker": ticker, "status": "error",
+                    "error": "zero filled_price"}
 
         # Slippage — actual vs scan-expected price. A consistent positive
         # slippage across many trades means we're getting worse fills than

@@ -206,27 +206,29 @@ def run_check():
                     except Exception:
                         pass
 
-                # FINAL fallback: estimate from stop_loss or peak_price.
-                # Flag this clearly so the user knows to verify in IB directly.
-                estimated = False
-                if exit_price == 0.0:
-                    exit_price = (pos.get("stop_loss") or pos.get("peak_price")
-                                  or pos["entry_price"])
-                    reason = f"{reason}_estimated"
-                    estimated = True
-
-                tracker.remove_position(ticker, exit_price, reason)
-                pnl = (exit_price - pos["entry_price"]) * pos["quantity"] if exit_price else 0
-                notify.notify_sell(ticker, pos["quantity"], exit_price, reason, pnl)
-                if estimated:
-                    # Emphasized follow-up so the user checks IB for true fill price
+                # If we found a real exit price → record a proper CLOSE
+                # with accurate P&L. If we DIDN'T → use reconcile_drop
+                # which removes the position from the tracker WITHOUT
+                # writing a CLOSE row with a fake P&L. Old behavior
+                # estimated from stop_loss/peak_price and produced
+                # misleading P&L (see audit finding #1; KNX phantom
+                # 2026-04-28). Now: no fake numbers reach the trade log.
+                if exit_price > 0:
+                    tracker.remove_position(ticker, exit_price, reason)
+                    pnl = (exit_price - pos["entry_price"]) * pos["quantity"]
+                    notify.notify_sell(ticker, pos["quantity"], exit_price, reason, pnl)
+                else:
+                    # Genuinely couldn't find an exit price. Drop it from
+                    # the tracker silently for accounting; alert the user
+                    # so they can verify in IB if it was a real close.
+                    tracker.reconcile_drop(ticker, reason=f"{reason}_no_fill_data")
                     try:
                         notify.notify_error(
-                            "Exit price estimated",
-                            f"⚠️ {ticker} exit price could not be retrieved from IB — "
-                            f"using estimate ${exit_price:.2f}. "
-                            f"Please verify the actual fill in IB and correct "
-                            f"the trade_log if needed."
+                            "Tracker drift — position dropped",
+                            f"⚠️ {ticker} not found in IB and no fill data "
+                            f"available. Tracker entry dropped (no P&L "
+                            f"recorded). Verify in IB whether this was a "
+                            f"real close, an unfilled order, or a sync glitch."
                         )
                     except Exception:
                         pass
