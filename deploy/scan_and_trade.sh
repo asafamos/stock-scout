@@ -38,7 +38,13 @@ POLL_SEC=30
 # Prevents the 17:30 timer from firing while the 13:30 instance is still
 # polling/trading (a slow scan can run >4h). Without this, two pipelines
 # could send duplicate buy orders. (Audit finding #9.)
-LOCK_FILE=/run/stockscout-pipeline.lock
+#
+# Use /tmp/ rather than /run/ — /run/ is writable only by root on most
+# distros, and the pipeline runs as the stockscout user. /tmp/ is
+# user-writable and tmpfs-mounted (auto-cleared on reboot, same as /run).
+# Initial bug 2026-04-30: lock at /run/ caused `set -e` to exit
+# immediately at startup, missing the entire 13:30 trading window.
+LOCK_FILE=/tmp/stockscout-pipeline.lock
 exec 9>"$LOCK_FILE"
 if ! flock -n 9; then
     echo "Another pipeline instance is running (lock $LOCK_FILE held). Exiting."
