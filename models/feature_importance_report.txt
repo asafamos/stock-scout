@@ -1,50 +1,50 @@
 Feature Importance Report
-Generated: 2026-04-29 02:36:04
+Generated: 2026-04-30 02:35:34
 ============================================================
 
-Training Date: 2026-04-29 02:35:44
+Training Date: 2026-04-30 02:35:11
 Total Features: 23
-Total Training Samples: 130909
+Total Training Samples: 131633
 CV Folds: 5
-Mean OOS AUC: 0.6295 ± 0.0359
-Mean P@20: 58.0%
+Mean OOS AUC: 0.6314 ± 0.0355
+Mean P@20: 66.0%
 
 ============================================================
 📊 FEATURE IMPORTANCE ANALYSIS
 ============================================================
 
 🔹 Permutation Importance (AUC-based, Top 15):
-   ATR_Pct                      +0.0500 ± 0.0020 █████████
-   Distance_From_52w_Low        +0.0251 ± 0.0019 █████
-   Sector_Momentum              +0.0122 ± 0.0004 ██
-   Consolidation_Tightness      +0.0117 ± 0.0009 ██
-   Support_Strength             +0.0049 ± 0.0007 
-   MA50_Slope                   +0.0037 ± 0.0007 
-   VCP_Ratio                    +0.0028 ± 0.0012 
-   RS_vs_SPY_20d                +0.0022 ± 0.0003 
-   Return_20d                   +0.0013 ± 0.0007 
-   RSI_Delta_5d                 +0.0008 ± 0.0003 
-   Momentum_x_Volume            +0.0004 ± 0.0004 
-   Volume_Delta_5d              +0.0003 ± 0.0004 
-   Squeeze_x_Volume             +0.0003 ± 0.0001 
-   VCP_x_RS                     +0.0003 ± 0.0002 
-   Momentum_Consistency         +0.0001 ± 0.0002 
+   ATR_Pct                      +0.0585 ± 0.0013 ███████████
+   Distance_From_52w_Low        +0.0151 ± 0.0014 ███
+   Sector_Momentum              +0.0124 ± 0.0012 ██
+   Consolidation_Tightness      +0.0111 ± 0.0006 ██
+   MA50_Slope                   +0.0064 ± 0.0007 █
+   VCP_Ratio                    +0.0018 ± 0.0012 
+   Momentum_x_Volume            +0.0009 ± 0.0004 
+   VCP_x_RS                     +0.0007 ± 0.0004 
+   Squeeze_x_Volume             +0.0001 ± 0.0001 
+   Sector_Rank                  +0.0001 ± 0.0002 
+   Return_20d                   +0.0001 ± 0.0004 
+   Volume_Delta_5d              +0.0000 ± 0.0002 
+   RSI_Delta_5d                 -0.0007 ± 0.0002 
+   Momentum_Acceleration        -0.0008 ± 0.0002 
+   Tightness_Ratio              -0.0009 ± 0.0004 
 
-⚠️  Harmful features (negative importance, consider removing): ['Sector_Rank', 'Distance_To_Resistance', 'Tightness_Ratio', 'Momentum_Acceleration', 'Volume_Surge', 'ATR_Delta_5d', 'MACD_Hist', 'ADX']
+⚠️  Harmful features (negative importance, consider removing): ['RSI_Delta_5d', 'Momentum_Acceleration', 'Tightness_Ratio', 'RS_vs_SPY_20d', 'Momentum_Consistency', 'Volume_Surge', 'Support_Strength', 'ATR_Delta_5d', 'Distance_To_Resistance', 'ADX', 'MACD_Hist']
 
 🔹 Feature Importance Tiers:
    🥇 High impact (≥0.01):     4 features
-   🥈 Medium impact (0.005-0.01): 0 features
-   🥉 Low impact (0.001-0.005):   5 features
-   ❌ Negligible (<0.001):       14 features
+   🥈 Medium impact (0.005-0.01): 1 features
+   🥉 Low impact (0.001-0.005):   1 features
+   ❌ Negligible (<0.001):       17 features
 
 🔄 Highly Correlated Features (r > 0.95):
-   RS_vs_SPY_20d <-> Return_20d: r=0.978
+   RS_vs_SPY_20d <-> Return_20d: r=0.977
    RS_vs_SPY_20d <-> VCP_x_RS: r=0.963
-   Removing: ['Return_20d', 'VCP_x_RS']
+   Removing: ['VCP_x_RS', 'Return_20d']
 
-Recommended Features (20): ['ATR_Pct', 'Distance_From_52w_Low', 'Sector_Momentum', 'Consolidation_Tightness', 'Support_Strength', 'MA50_Slope', 'VCP_Ratio', 'RS_vs_SPY_20d', 'Return_20d', 'RSI_Delta_5d', 'Momentum_x_Volume', 'Volume_Delta_5d', 'Squeeze_x_Volume', 'VCP_x_RS', 'Momentum_Consistency', 'Sector_Rank', 'Distance_To_Resistance', 'Tightness_Ratio', 'Momentum_Acceleration', 'Volume_Surge']
-Candidates for Removal (3): ['ATR_Delta_5d', 'MACD_Hist', 'ADX']
+Recommended Features (20): ['ATR_Pct', 'Distance_From_52w_Low', 'Sector_Momentum', 'Consolidation_Tightness', 'MA50_Slope', 'VCP_Ratio', 'Momentum_x_Volume', 'VCP_x_RS', 'Squeeze_x_Volume', 'Sector_Rank', 'Return_20d', 'Volume_Delta_5d', 'RSI_Delta_5d', 'Momentum_Acceleration', 'Tightness_Ratio', 'RS_vs_SPY_20d', 'Momentum_Consistency', 'Volume_Surge', 'Support_Strength', 'ATR_Delta_5d']
+Candidates for Removal (3): ['Distance_To_Resistance', 'ADX', 'MACD_Hist']
 
 
 ============================================================
@@ -53,26 +53,26 @@ FULL PERMUTATION IMPORTANCE TABLE
 
 Feature                          Importance        Std
 -------------------------------------------------------
-ATR_Pct                           +0.049965   0.002033
-Distance_From_52w_Low             +0.025081   0.001919
-Sector_Momentum                   +0.012196   0.000393
-Consolidation_Tightness           +0.011688   0.000940
-Support_Strength                  +0.004939   0.000725
-MA50_Slope                        +0.003717   0.000724
-VCP_Ratio                         +0.002807   0.001165
-RS_vs_SPY_20d                     +0.002239   0.000344
-Return_20d                        +0.001265   0.000668
-RSI_Delta_5d                      +0.000756   0.000262
-Momentum_x_Volume                 +0.000421   0.000362
-Volume_Delta_5d                   +0.000339   0.000383
-Squeeze_x_Volume                  +0.000292   0.000131
-VCP_x_RS                          +0.000277   0.000188
-Momentum_Consistency              +0.000121   0.000228
-Sector_Rank                       -0.000057   0.000311
-Distance_To_Resistance            -0.000849   0.000497
-Tightness_Ratio                   -0.000958   0.000392
-Momentum_Acceleration             -0.001130   0.000174
-Volume_Surge                      -0.001306   0.000669
-ATR_Delta_5d                      -0.002127   0.000499
-MACD_Hist                         -0.005536   0.000371
-ADX                               -0.005689   0.000918
+ATR_Pct                           +0.058531   0.001264
+Distance_From_52w_Low             +0.015126   0.001356
+Sector_Momentum                   +0.012398   0.001182
+Consolidation_Tightness           +0.011107   0.000625
+MA50_Slope                        +0.006366   0.000747
+VCP_Ratio                         +0.001830   0.001158
+Momentum_x_Volume                 +0.000891   0.000431
+VCP_x_RS                          +0.000686   0.000369
+Squeeze_x_Volume                  +0.000147   0.000079
+Sector_Rank                       +0.000112   0.000160
+Return_20d                        +0.000061   0.000368
+Volume_Delta_5d                   +0.000039   0.000246
+RSI_Delta_5d                      -0.000748   0.000192
+Momentum_Acceleration             -0.000773   0.000197
+Tightness_Ratio                   -0.000856   0.000397
+RS_vs_SPY_20d                     -0.001383   0.000381
+Momentum_Consistency              -0.002185   0.000231
+Volume_Surge                      -0.002427   0.000473
+Support_Strength                  -0.002469   0.000601
+ATR_Delta_5d                      -0.002670   0.000514
+Distance_To_Resistance            -0.004038   0.000363
+ADX                               -0.006087   0.000768
+MACD_Hist                         -0.006817   0.000418
