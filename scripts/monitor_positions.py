@@ -687,6 +687,104 @@ def _take_partial_profit(tracker, client, notify):
             continue
 
         pnl_pct = (current_price - entry) / entry * 100
+        # Use peak_gain (not current PnL) for ladder triggers — locks
+        # gains based on best-seen price, not on a pullback.
+        peak_price = max(pos.get("peak_price", entry), current_price)
+        peak_gain_pct = (peak_price - entry) / entry * 100
+
+        # ── LADDER MODE (preferred): tier-based fractional sells ─────
+        if CONFIG.profit_ladder_enabled:
+            # Determine which ladder tier the position currently qualifies for.
+            tiers = [
+                (3, CONFIG.profit_ladder_tier3_gain, CONFIG.profit_ladder_tier3_fraction),
+                (2, CONFIG.profit_ladder_tier2_gain, CONFIG.profit_ladder_tier2_fraction),
+                (1, CONFIG.profit_ladder_tier1_gain, CONFIG.profit_ladder_tier1_fraction),
+            ]
+            target_tier = None
+            for tier_num, threshold, frac in tiers:
+                if peak_gain_pct >= threshold:
+                    target_tier = (tier_num, threshold, frac)
+                    break
+            if target_tier is None:
+                continue
+
+            tier_num, threshold, _frac = target_tier
+            ladder_state = pos.get("ladder_tiers_fired", [])  # list of int tier numbers
+            already_fired = sorted(ladder_state)
+
+            # Fire ALL tiers up to target_tier that haven't fired yet,
+            # in ASCENDING order (a stock that opened, surged 30% in a single
+            # cycle should sell tier 1 + tier 2 + tier 3 in sequence —
+            # otherwise it skips the lower tiers and undershoots cumulative).
+            tiers_to_fire = []
+            for tn, thr, fr in sorted(tiers, key=lambda x: x[0]):
+                if tn <= tier_num and tn not in already_fired and peak_gain_pct >= thr:
+                    tiers_to_fire.append((tn, thr, fr))
+
+            if not tiers_to_fire:
+                continue
+
+            qty = int(pos["quantity"])
+            original_qty = pos.get("original_quantity", qty + sum(
+                int(pos.get(f"ladder_qty_t{t}", 0)) for t in already_fired
+            ))
+            # Ensure we record original_quantity once
+            if "original_quantity" not in pos:
+                pos["original_quantity"] = original_qty
+                changed = True
+
+            for tn, thr, fr in tiers_to_fire:
+                # Fraction is of the ORIGINAL position, not remaining.
+                # 25% × 4 tiers = 100% (last 25% reserved for TRAIL/target).
+                sell_qty = max(1, int(round(original_qty * fr)))
+                if sell_qty >= qty:
+                    sell_qty = qty - 1  # leave at least 1 share for trail
+                if sell_qty <= 0:
+                    continue
+
+                logger.info(
+                    "LADDER T%d %s: peak +%.1f%% (>=%.0f%%) — selling %d (frac=%.2f of orig %d)",
+                    tn, ticker, peak_gain_pct, thr, sell_qty, fr, original_qty,
+                )
+                result = client._sell_market(ticker, sell_qty)
+                if result.status in ("Filled", "Submitted", "PreSubmitted"):
+                    pnl_abs = (current_price - entry) * sell_qty
+                    qty -= sell_qty
+                    pos["quantity"] = qty
+                    pos.setdefault("ladder_tiers_fired", []).append(tn)
+                    pos[f"ladder_qty_t{tn}"] = sell_qty
+                    pos[f"ladder_price_t{tn}"] = current_price
+                    pos["partial_taken"] = True  # backwards-compat flag
+                    changed = True
+                    try:
+                        tracker._log_trade("PARTIAL", ticker, sell_qty, current_price, {
+                            "entry_price": entry,
+                            "pnl": round(pnl_abs, 2),
+                            "reason": f"ladder_t{tn}_peak_{thr:.0f}pct",
+                            "remaining_qty": qty,
+                            "peak_gain_pct": round(peak_gain_pct, 2),
+                        })
+                    except Exception as _le:
+                        logger.error("Ladder log failed: %s", _le)
+                    try:
+                        notify._send(
+                            f"📈 <b>LADDER T{tn} {ticker}</b>\n"
+                            f"  Peak: +{peak_gain_pct:.1f}% (≥{thr:.0f}% threshold)\n"
+                            f"  Sold {sell_qty} @ ${current_price:.2f} "
+                            f"(P&L ${pnl_abs:+.2f})\n"
+                            f"  Remaining: {qty} shares riding TRAIL"
+                        )
+                    except Exception:
+                        pass
+                else:
+                    logger.error(
+                        "LADDER T%d %s SELL failed: status=%s",
+                        tn, ticker, result.status,
+                    )
+                    break  # stop firing this position this cycle
+            continue  # move to next position
+
+        # ── LEGACY single-trigger partial (kept for backwards-compat) ──
         if pnl_pct < CONFIG.partial_profit_trigger_pct:
             continue
 

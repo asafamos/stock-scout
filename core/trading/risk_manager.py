@@ -162,6 +162,103 @@ class RiskManager:
             logger.warning("Daily loss breaker check failed: %s — failing OPEN", e)
             return True, ""  # genuine exception path: still fail-open (rare)
 
+    # Module-level earnings cache (populated lazily, persists for one day).
+    # Keeps yfinance API hits to <50/day even with 10+ scan runs.
+    _EARNINGS_CACHE: dict = {}
+    _EARNINGS_CACHE_DATE: Optional[date] = None
+
+    def check_earnings_window(self, ticker: str) -> Tuple[bool, str]:
+        """Block buys if next earnings announcement is within
+        cfg.earnings_block_days trading days.
+
+        Why this matters: earnings gaps are the largest source of
+        catastrophic single-trade losses for short-term swing strategies.
+        A 5% TRAIL won't save you from a -22% overnight gap on a missed
+        EPS. Better to skip earnings windows entirely.
+
+        Implementation: yfinance Ticker.calendar (free, no API key).
+        Cached per-ticker per-day so we don't hammer the API.
+        On any error → fail-OPEN (allow buy) — refusing to trade because
+        we can't fetch earnings would be worse than the protection.
+        """
+        try:
+            from datetime import datetime as _dt, timedelta as _td
+
+            # Reset cache daily
+            today = date.today()
+            if RiskManager._EARNINGS_CACHE_DATE != today:
+                RiskManager._EARNINGS_CACHE.clear()
+                RiskManager._EARNINGS_CACHE_DATE = today
+
+            cached = RiskManager._EARNINGS_CACHE.get(ticker)
+            if cached is None:
+                cached = self._fetch_earnings_date(ticker)
+                RiskManager._EARNINGS_CACHE[ticker] = cached  # may be sentinel "none"
+
+            if cached == "none":
+                return True, ""  # No upcoming earnings found → allow
+
+            try:
+                ed = date.fromisoformat(cached)
+            except Exception:
+                return True, ""  # malformed cache → allow
+
+            days_until = (ed - today).days
+            if 0 <= days_until <= self.cfg.earnings_block_days:
+                return False, (
+                    f"Earnings block: {ticker} reports in {days_until}d "
+                    f"({ed.isoformat()}) — within {self.cfg.earnings_block_days}d "
+                    f"window (binary-risk gate)"
+                )
+            return True, ""
+        except Exception as e:
+            logger.debug("check_earnings_window %s skipped: %s", ticker, e)
+            return True, ""  # fail-OPEN
+
+    def _fetch_earnings_date(self, ticker: str) -> str:
+        """Return next earnings date as ISO string, or 'none' if not found.
+        Tried sources (in order): yfinance Ticker.calendar, then .info.
+        """
+        try:
+            import yfinance as yf
+            t = yf.Ticker(ticker)
+            # 1. .calendar (most reliable when populated)
+            try:
+                cal = t.calendar
+                if cal is not None:
+                    # cal is a dict with key "Earnings Date" → list of dates
+                    earnings_key = next(
+                        (k for k in cal if "earnings" in str(k).lower() and "date" in str(k).lower()),
+                        None,
+                    )
+                    if earnings_key:
+                        ed_list = cal[earnings_key]
+                        # Could be a list of datetime, single datetime, etc.
+                        if isinstance(ed_list, list) and ed_list:
+                            ed = ed_list[0]
+                        else:
+                            ed = ed_list
+                        try:
+                            return ed.isoformat()[:10]  # truncate to YYYY-MM-DD
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+            # 2. .info fallback (less reliable, more rate-limited)
+            try:
+                info = t.info or {}
+                ts = info.get("earningsTimestamp") or info.get("earningsTimestampStart")
+                if ts:
+                    from datetime import datetime as _dt
+                    return _dt.utcfromtimestamp(int(ts)).date().isoformat()
+            except Exception:
+                pass
+
+            return "none"
+        except Exception:
+            return "none"
+
     def check_sector_concentration(self, new_sector: str) -> Tuple[bool, str]:
         """Block if we'd exceed max_sector_positions in same sector."""
         if not new_sector:
@@ -424,6 +521,17 @@ class RiskManager:
         # during the oil crash; XLE was down >5% that week).
         if sector:
             allowed, reason, _sector_mom = self.check_sector_momentum(sector)
+            if not allowed:
+                return False, reason
+
+        # 0c2. Earnings calendar gate — refuse to enter <3 trading days
+        # before an earnings announcement. A surprise miss can cause a
+        # 15–25% gap-down overnight that no TRAIL stop can protect
+        # against. (Recommendation #1 from 2026-04-30 audit.) This is
+        # the single biggest binary-risk reduction available — earnings
+        # gaps are the #1 source of catastrophic single-trade losses.
+        if self.cfg.earnings_gate_enabled:
+            allowed, reason = self.check_earnings_window(ticker)
             if not allowed:
                 return False, reason
 

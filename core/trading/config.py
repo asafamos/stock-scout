@@ -127,6 +127,17 @@ class TradingConfig:
         default_factory=lambda: _env("BLOCKED_SECTORS", "Consumer Defensive")
     )  # Comma-separated list
 
+    # ── Earnings calendar gate (binary-risk reduction) ─────────
+    # Block buys when an earnings announcement is within the window.
+    # Earnings gaps are the #1 source of catastrophic losses for swing
+    # strategies — a 5% TRAIL won't save you from a -22% overnight gap.
+    earnings_gate_enabled: bool = field(
+        default_factory=lambda: _env_bool("EARNINGS_GATE_ENABLED", True)
+    )
+    earnings_block_days: int = field(
+        default_factory=lambda: _env_int("EARNINGS_BLOCK_DAYS", 3)
+    )
+
     # ── Stop / Target ─────────────────────────────────────────
     trailing_stop_pct: float = field(
         default_factory=lambda: _env_float("TRAILING_STOP_PCT", 5.0)
@@ -148,6 +159,36 @@ class TradingConfig:
         default_factory=lambda: _env_float("PARTIAL_PROFIT_FRACTION", 0.33)
     )  # Fraction of position to sell (0.33 = one-third).
     # Reduced from 0.5 so two-thirds ride the target after partial.
+
+    # ── Tiered profit-taking ladder (preferred over single partial) ─
+    # Sells fractional pieces at multiple peak-gain thresholds instead
+    # of one big sell at +12%. Locks in cumulative gains while letting
+    # the remaining quarter ride the TRAIL toward the full target.
+    # Set ladder_enabled=True to use this; falls back to single-trigger
+    # partial above if disabled. (Recommendation #3 from 2026-04-30 audit.)
+    profit_ladder_enabled: bool = field(
+        default_factory=lambda: _env_bool("PROFIT_LADDER_ENABLED", True)
+    )
+    # Each tier: (peak_gain_threshold_pct, fraction_of_ORIGINAL_position_to_sell).
+    # Defaults sell 25% at +10%, +18%, +28% → 75% locked, 25% rides.
+    profit_ladder_tier1_gain: float = field(
+        default_factory=lambda: _env_float("LADDER_T1_GAIN", 10.0)
+    )
+    profit_ladder_tier1_fraction: float = field(
+        default_factory=lambda: _env_float("LADDER_T1_FRAC", 0.25)
+    )
+    profit_ladder_tier2_gain: float = field(
+        default_factory=lambda: _env_float("LADDER_T2_GAIN", 18.0)
+    )
+    profit_ladder_tier2_fraction: float = field(
+        default_factory=lambda: _env_float("LADDER_T2_FRAC", 0.25)
+    )
+    profit_ladder_tier3_gain: float = field(
+        default_factory=lambda: _env_float("LADDER_T3_GAIN", 28.0)
+    )
+    profit_ladder_tier3_fraction: float = field(
+        default_factory=lambda: _env_float("LADDER_T3_FRAC", 0.25)
+    )
 
     # ── Dynamic Stop Ratcheting (tighten the trailing stop as it runs up) ─
     # When peak gain crosses thresholds, MODIFY the existing TRAIL order's
