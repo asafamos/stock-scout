@@ -59,6 +59,58 @@ class RiskManager:
             return TIER_2K_TO_25K, net
         return TIER_25K_PLUS, net
 
+    def check_performance_throttle(self) -> Tuple[bool, str, float]:
+        """Rolling-window safety brake. Returns (allowed, reason, size_multiplier).
+
+        Reads the last N closed trades from trade_log. If win rate drops
+        below thresholds:
+          - >= 30% → no throttle (mult=1.0)
+          - 20-30% → halve position size (mult=0.5)
+          - < 20%  → halt all new buys (allowed=False)
+
+        Skips throttle when there are fewer than `throttle_min_trades`
+        closed trades — avoid early-sample false alarms.
+
+        This is a SAFETY brake against regime change / model drift —
+        it doesn't replace risk gates, it adds a portfolio-level circuit
+        breaker that fires when live performance diverges from expected.
+        """
+        if not self.cfg.throttle_enabled:
+            return True, "", 1.0
+        try:
+            log = self.tracker.get_trade_log()
+            # Only look at REAL closes — skip RECONCILE_DROP and PARTIAL
+            closes = [
+                t for t in log
+                if t.get("action") == "CLOSE"
+                and (t.get("pnl") is not None)
+            ]
+            recent = closes[-self.cfg.throttle_window_trades:]
+            n = len(recent)
+            if n < self.cfg.throttle_min_trades:
+                return True, "", 1.0
+            wins = sum(1 for t in recent if (t.get("pnl") or 0) > 0)
+            win_rate = wins / n
+            if win_rate < self.cfg.throttle_halt_winrate:
+                return (
+                    False,
+                    f"Performance throttle HALT: win rate {win_rate:.0%} "
+                    f"({wins}/{n}) < {self.cfg.throttle_halt_winrate:.0%} threshold "
+                    f"— possible model drift or regime change",
+                    0.0,
+                )
+            if win_rate < self.cfg.throttle_warn_winrate:
+                logger.warning(
+                    "Performance throttle WARN: win rate %.0f%% (%d/%d) — "
+                    "halving position size",
+                    win_rate * 100, wins, n,
+                )
+                return True, "", 0.5
+            return True, "", 1.0
+        except Exception as e:
+            logger.debug("throttle check skipped: %s", e)
+            return True, "", 1.0
+
     def check_cash_after_buy(self, cost: float) -> Tuple[bool, str]:
         """Block buys that would drop cash below IB's $2,000 minimum.
 
@@ -427,6 +479,7 @@ class RiskManager:
         stop_loss: float = 0.0,
         target_price: float = 0.0,
         market_regime: str = "",
+        ml_prob: float = 0.0,
     ) -> Tuple[bool, str]:
         """Return (allowed, reason). Reason is empty string if allowed.
 
@@ -473,6 +526,14 @@ class RiskManager:
         allowed, reason = self.check_daily_loss_breaker()
         if not allowed:
             return False, reason
+
+        # 1a. Performance throttle — halt buys when rolling win rate
+        # drops below 20%. Returns size_multiplier for sizing path.
+        allowed, reason, _throttle_mult = self.check_performance_throttle()
+        if not allowed:
+            return False, reason
+        # Stash mult for the sizing call below (avoid recomputing)
+        self._last_throttle_mult = _throttle_mult
 
         # 1b. Cash-after-buy minimum gate (only enforced for the $2k tier
         # boundary). If we'd drop cash below $2k by buying, IB will accept
@@ -560,10 +621,20 @@ class RiskManager:
                 f"Daily buy limit reached ({daily}/{self.cfg.max_daily_buys})"
             )
 
-        # 4. Calculate qty using DYNAMIC cash-aware sizing
+        # 4. Calculate qty using DYNAMIC cash-aware sizing.
+        # Now includes ml_prob (more capital to higher-prob picks) and
+        # throttle_mult (halve size when recent performance is poor).
         cash = self.client.get_cash_balance()
         available_cash = max(0, cash - self.cfg.cash_reserve)
-        qty_est = self.calculate_qty(price, cash_available=available_cash)
+        qty_est = self.calculate_qty(
+            price,
+            cash_available=available_cash,
+            atr_pct=atr_pct,
+            score=score,
+            rr=rr,
+            ml_prob=ml_prob,
+            throttle_mult=getattr(self, "_last_throttle_mult", 1.0),
+        )
 
         if qty_est == 0:
             return False, (
@@ -644,8 +715,9 @@ class RiskManager:
 
     def calculate_qty(self, price: float, cash_available: float = None,
                       atr_pct: float = 0.0, score: float = 0.0,
-                      rr: float = 0.0) -> int:
-        """Calculate number of shares to buy — conviction × volatility × cash sizing.
+                      rr: float = 0.0, ml_prob: float = 0.0,
+                      throttle_mult: float = 1.0) -> int:
+        """Calculate number of shares to buy — conviction × ML × volatility × throttle × cash sizing.
 
         Sizing logic (applied in order):
         1. **Conviction tier**: score + R:R determine size multiplier
@@ -653,17 +725,24 @@ class RiskManager:
            - Score ≥78, RR ≥2.2 → 1.15×
            - Score ≥75, RR ≥2.0 → 1.00× (base)
            - Score ≥73, RR ≥1.8 → 0.70× (marginal)
-        2. **Volatility scaling** (if atr_pct given):
+        2. **ML probability sizing** (if ml_prob given): linear scale around
+           ml_sizing_anchor (default 0.40):
+           size_mult = 1 + slope × (ml_prob - anchor), clamped [min_mult, max_mult]
+           - ML 0.50 with slope 2.0 → 1.20× (overweight high conviction)
+           - ML 0.30 with slope 2.0 → 0.80× (underweight low conviction)
+           Disabled when ml_sizing_enabled=False or ml_prob<=0.
+        3. **Volatility scaling** (if atr_pct given):
            - 2% ATR baseline → 1.0×; scales inversely with ATR
-           - Formula: vol_factor = clamp(2.0 / max(atr_pct, 1.0), 0.5, 1.0)
-        3. target_spend = base × conviction_mult × vol_factor
-        4. qty = floor(target_spend / price), clamped to cash_available
-        5. Fallback: 1 share if we can afford it
+        4. **Performance throttle** — externally computed (caller passes
+           throttle_mult). 0.5 when win rate is in WARN range, 1.0 otherwise.
+        5. target_spend = base × conviction × ml_size × vol × throttle
+        6. qty = floor(target_spend / price), clamped to cash_available
+        7. Fallback: 1 share if we can afford it
 
         Examples (base $300):
-        - score=85, rr=2.8, ATR 2% → 1.35 × 1.0 × $300 = $405
-        - score=76, rr=2.1, ATR 3% → 1.0 × 0.67 × $300 = $201
-        - score=74, rr=1.9, ATR 2% → 0.7 × 1.0 × $300 = $210
+        - score=85, rr=2.8, ATR 2%, ML 0.50, throttle 1.0 → $405 × 1.20 × 1.0 = $486
+        - score=85, rr=2.8, ATR 2%, ML 0.30, throttle 1.0 → $405 × 0.80 × 1.0 = $324
+        - score=85, rr=2.8, ATR 2%, ML 0.50, throttle 0.5 → $486 × 0.5 = $243 (warn)
         """
         if price <= 0:
             return 0
@@ -675,12 +754,23 @@ class RiskManager:
         # Conviction multiplier — HIGH signal gets more capital
         conviction_mult = self._conviction_multiplier(score, rr) if (score or rr) else 1.0
 
+        # ML probability multiplier — MORE capital to higher-prob picks
+        ml_mult = 1.0
+        if self.cfg.ml_sizing_enabled and ml_prob > 0:
+            raw = 1.0 + self.cfg.ml_sizing_slope * (ml_prob - self.cfg.ml_sizing_anchor)
+            ml_mult = max(self.cfg.ml_sizing_min_mult,
+                          min(self.cfg.ml_sizing_max_mult, raw))
+
         # Volatility factor: high-vol stocks get smaller positions
         vol_factor = 1.0
         if atr_pct and atr_pct > 0:
             vol_factor = max(0.5, min(2.0 / max(atr_pct, 1.0), 1.0))
 
-        target_spend = base_spend * conviction_mult * vol_factor
+        # Apply throttle multiplier (0.5 in WARN, 1.0 normal, 0 = should
+        # never reach here because halt is checked separately)
+        throttle_mult = max(0.0, min(throttle_mult, 1.0))
+
+        target_spend = base_spend * conviction_mult * ml_mult * vol_factor * throttle_mult
         # Never allow a single position to exceed 1.5× base (cap on upside)
         target_spend = min(target_spend, self.cfg.max_position_size * 1.5)
         # And never exceed available cash
@@ -688,9 +778,10 @@ class RiskManager:
             target_spend = min(target_spend, cash_available)
 
         logger.info(
-            "Sizing: score=%.1f rr=%.2f atr=%.1f%% → "
-            "conviction=%.2fx vol=%.2fx spend=$%.0f (base=$%.0f)",
-            score, rr, atr_pct, conviction_mult, vol_factor,
+            "Sizing: score=%.1f rr=%.2f atr=%.1f%% ml=%.3f throttle=%.2f → "
+            "conv=%.2fx ml_mult=%.2fx vol=%.2fx spend=$%.0f (base=$%.0f)",
+            score, rr, atr_pct, ml_prob, throttle_mult,
+            conviction_mult, ml_mult, vol_factor,
             target_spend, base_spend,
         )
 

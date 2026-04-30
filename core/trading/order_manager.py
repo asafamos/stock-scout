@@ -555,10 +555,37 @@ class OrderManager:
         if sector_col and sector_col in result.columns:
             try:
                 sector_boost = self._compute_sector_momentum_boost(result[sector_col])
-                # Add 10% of normalized boost to the rank (clipped to [0,1])
+                # Add 10% of normalized boost to the rank
                 rank = rank * 0.9 + sector_boost * 0.1
             except Exception as _e:
                 logger.debug("sector momentum boost skipped: %s", _e)
+
+        # INSIDER BUYING BOOST — Form 4 from SEC EDGAR.
+        # Stocks with >$50K of CEO/CFO/Director open-market purchases in the
+        # last 30 days get an additional +10% rank weight. One of the most
+        # robust alpha signals in academic literature (4-7% annualized
+        # outperformance). Only computed for the TOP 20 candidates to avoid
+        # spamming SEC API. (Recommendation #1 from 2026-04-30 audit.)
+        if self.cfg.insider_signal_enabled:
+            try:
+                # Compute insider scores ONLY for top 20 (cap API spend)
+                top_idx = rank.sort_values(ascending=False).head(20).index
+                from core.data.insider_signal import insider_score as _ins_score
+                insider_vals = []
+                for idx in result.index:
+                    if idx in top_idx:
+                        ticker = str(result.loc[idx, ticker_col])
+                        insider_vals.append(_ins_score(ticker))
+                    else:
+                        insider_vals.append(0.0)  # not checked
+                ins_series = pd.Series(insider_vals, index=result.index)
+                # Add 10% weight: rank = 90% existing + 10% insider
+                rank = rank * 0.9 + ins_series * 0.1
+                if (ins_series > 0).any():
+                    boosted = result[ins_series > 0][ticker_col].tolist()
+                    logger.info("INSIDER BOOST: %s have insider buying", boosted)
+            except Exception as _e:
+                logger.debug("insider signal skipped: %s", _e)
 
         result["_rank_score"] = rank
         result = result.sort_values("_rank_score", ascending=False)
@@ -748,22 +775,25 @@ class OrderManager:
         # (matches scoring_config.REGIME_MIN_SCORE + 5 buffer) instead of
         # using the static 73 that blocked all SIDEWAYS-day trades.
         _row_regime = str(row.get("Market_Regime", "") or "").upper()
+        _row_ml = float(row.get("ML_20d_Prob", row.get("ml_prob", 0)) or 0)
         allowed, reason = self.risk.can_open_position(
             ticker, price, score, rr, sector=sector, atr_pct=atr_pct,
             stop_loss=stop, target_price=target, market_regime=_row_regime,
+            ml_prob=_row_ml,
         )
         if not allowed:
             logger.info("SKIP %s: %s", ticker, reason)
             return {"ticker": ticker, "status": "skipped", "reason": reason}
 
-        # Calculate quantity — cash + volatility aware sizing
+        # Calculate quantity — cash + volatility + ML + throttle aware sizing.
+        # Conviction (score+RR), ML probability, and the rolling-window
+        # performance throttle all flow through here.
         cash = self.client.get_cash_balance()
         available_cash = max(0, cash - self.cfg.cash_reserve)
-        # Conviction-aware sizing: high score + high R:R = larger position,
-        # marginal signals get smaller allocations.
         qty = self.risk.calculate_qty(
             price, cash_available=available_cash, atr_pct=atr_pct,
-            score=score, rr=rr,
+            score=score, rr=rr, ml_prob=_row_ml,
+            throttle_mult=getattr(self.risk, "_last_throttle_mult", 1.0),
         )
         if qty <= 0:
             return {"ticker": ticker, "status": "skipped",

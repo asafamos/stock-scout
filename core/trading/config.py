@@ -138,6 +138,61 @@ class TradingConfig:
         default_factory=lambda: _env_int("EARNINGS_BLOCK_DAYS", 3)
     )
 
+    # ── Performance throttle (safety brake on losing streaks) ─────
+    # Tracks the rolling win rate of the last N closed trades. When the
+    # rate drops below thresholds, the system reduces exposure or halts
+    # entirely. This protects against regime change / model drift
+    # that the system itself can't detect — if recent live performance
+    # is materially worse than expected, something is wrong; better to
+    # cut size than to compound losses.
+    throttle_enabled: bool = field(
+        default_factory=lambda: _env_bool("THROTTLE_ENABLED", True)
+    )
+    throttle_window_trades: int = field(
+        default_factory=lambda: _env_int("THROTTLE_WINDOW", 10)
+    )   # Rolling window of last N closed trades for win-rate calc
+    throttle_warn_winrate: float = field(
+        default_factory=lambda: _env_float("THROTTLE_WARN_WIN_RATE", 0.30)
+    )   # Below this → halve position sizes
+    throttle_halt_winrate: float = field(
+        default_factory=lambda: _env_float("THROTTLE_HALT_WIN_RATE", 0.20)
+    )   # Below this → block all new buys
+    throttle_min_trades: int = field(
+        default_factory=lambda: _env_int("THROTTLE_MIN_TRADES", 5)
+    )   # Need at least N trades before throttle kicks in (avoid early-noise)
+
+    # ── Dynamic position sizing (by ML probability) ──────────────
+    # Scale base position size by ML conviction. Higher-prob picks get
+    # larger size, lower-prob picks smaller. Without this, we burn edge
+    # by allocating equally across high and low conviction trades.
+    # Formula: size = base × (1 + ml_sizing_slope × (ml_prob - ml_sizing_anchor))
+    # Defaults: anchor 0.40, slope 2.0 → ML 0.50 = 1.20× base, ML 0.30 = 0.80×.
+    # Capped at min_position_size on the low end and 1.3× max on the high end.
+    ml_sizing_enabled: bool = field(
+        default_factory=lambda: _env_bool("ML_SIZING_ENABLED", True)
+    )
+    ml_sizing_anchor: float = field(
+        default_factory=lambda: _env_float("ML_SIZING_ANCHOR", 0.40)
+    )
+    ml_sizing_slope: float = field(
+        default_factory=lambda: _env_float("ML_SIZING_SLOPE", 2.0)
+    )
+    ml_sizing_max_mult: float = field(
+        default_factory=lambda: _env_float("ML_SIZING_MAX_MULT", 1.30)
+    )   # Hard cap on multiplier — even ML 1.0 won't exceed this
+    ml_sizing_min_mult: float = field(
+        default_factory=lambda: _env_float("ML_SIZING_MIN_MULT", 0.70)
+    )   # Hard floor — even ML 0.0 won't shrink below this
+
+    # ── Insider buying signal (SEC EDGAR Form 4) ─────────────────
+    # Boost ranking for stocks where insiders (CEO/CFO/Director) bought
+    # ≥$50K worth of stock on the open market in the last 30 days. One
+    # of the most robust alpha signals — 4-7% annualized outperformance.
+    # Disabled when offline or rate-limited; fail-OPEN.
+    insider_signal_enabled: bool = field(
+        default_factory=lambda: _env_bool("INSIDER_SIGNAL_ENABLED", True)
+    )
+
     # ── Stop / Target ─────────────────────────────────────────
     trailing_stop_pct: float = field(
         default_factory=lambda: _env_float("TRAILING_STOP_PCT", 5.0)
