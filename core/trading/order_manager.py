@@ -540,16 +540,77 @@ class OrderManager:
             weight = 1.0
         if ml_col and ml_col in result.columns:
             ml_norm = _norm(result[ml_col])
-            # Re-weight: 50% score + 30% RR + 20% ML
+            # Re-weight: 45% score + 25% RR + 20% ML + 10% sector momentum
             if rr_col and rr_col in result.columns:
-                rank = 0.5 * scores_norm + 0.3 * _norm(result[rr_col]) + 0.2 * ml_norm
+                rank = 0.45 * scores_norm + 0.25 * _norm(result[rr_col]) + 0.20 * ml_norm
             else:
-                rank = 0.7 * scores_norm + 0.3 * ml_norm
+                rank = 0.65 * scores_norm + 0.25 * ml_norm
+
+        # Sector momentum BOOST (positive ranking signal, not just block).
+        # Stocks in strong sectors get a bonus; weak sectors get a penalty
+        # (above the existing block at -5%). This expresses the
+        # rotation-following insight: even mediocre stocks in a hot
+        # sector outperform stars in a cold sector. (Recommendation #6
+        # from 2026-04-30 audit.)
+        if sector_col and sector_col in result.columns:
+            try:
+                sector_boost = self._compute_sector_momentum_boost(result[sector_col])
+                # Add 10% of normalized boost to the rank (clipped to [0,1])
+                rank = rank * 0.9 + sector_boost * 0.1
+            except Exception as _e:
+                logger.debug("sector momentum boost skipped: %s", _e)
+
         result["_rank_score"] = rank
         result = result.sort_values("_rank_score", ascending=False)
         result = result.drop(columns=["_rank_score"])
 
         return result
+
+    def _compute_sector_momentum_boost(self, sector_series) -> "pd.Series":
+        """Map each row's sector to a 30-day-momentum-based [0,1] score.
+        Strong sectors (XLE +5%) get ~1.0, weak sectors (XLE -5%) get ~0.0.
+
+        Cached per-call: only fetches each unique ETF once per filter run.
+        Falls back to neutral 0.5 on errors.
+        """
+        import pandas as pd
+        sector_to_etf = {
+            "Technology": "XLK", "Communication Services": "XLC",
+            "Consumer Cyclical": "XLY", "Consumer Defensive": "XLP",
+            "Financial Services": "XLF", "Health Care": "XLV",
+            "Healthcare": "XLV", "Industrials": "XLI",
+            "Real Estate": "XLRE", "Utilities": "XLU",
+            "Materials": "XLB", "Basic Materials": "XLB",
+            "Energy": "XLE",
+        }
+        # Cache momentum per unique ETF
+        unique_sectors = set(s for s in sector_series.dropna().unique() if s)
+        etf_momentum = {}
+        try:
+            import yfinance as yf
+            for sec in unique_sectors:
+                etf = sector_to_etf.get(sec)
+                if etf is None:
+                    etf_momentum[sec] = 0.5  # unknown sector
+                    continue
+                try:
+                    hist = yf.Ticker(etf).history(period="35d", interval="1d")
+                    if hist is None or len(hist) < 25:
+                        etf_momentum[sec] = 0.5
+                        continue
+                    closes = hist["Close"].dropna()
+                    if len(closes) < 25:
+                        etf_momentum[sec] = 0.5
+                        continue
+                    mom_30d = (closes.iloc[-1] / closes.iloc[-25] - 1) * 100
+                    # Map -10%..+10% to 0..1 via clipping; neutral at 0% → 0.5
+                    boost = max(0.0, min(1.0, (mom_30d + 10) / 20))
+                    etf_momentum[sec] = boost
+                except Exception:
+                    etf_momentum[sec] = 0.5
+        except Exception:
+            return pd.Series([0.5] * len(sector_series), index=sector_series.index)
+        return sector_series.map(lambda s: etf_momentum.get(s, 0.5)).astype(float)
 
     def _execute_single(self, row: pd.Series) -> Dict:
         """Execute a single recommendation: buy + trailing stop + limit sell."""
@@ -658,6 +719,30 @@ class OrderManager:
                 return {"ticker": ticker, "status": "skipped",
                         "reason": f"Gap down {gap_pct:+.1f}% vs scan (possible news event)"}
 
+        # News catalyst gate — refuse to enter when the stock has had a
+        # large 24h move on heavy volume. The technicals look great
+        # (just rallied!) but the catalyst is already priced in — we'd
+        # be the bagholder. Crude proxy: 24h price move > 8% AND volume
+        # > 2× average. (Recommendation #5 from 2026-04-30 audit.)
+        try:
+            move_24h_pct = abs(float(row.get("Price_Change_1d_pct",
+                                            row.get("Pct_Change_1d", 0)) or 0))
+            vol_ratio = float(row.get("VolumeSurge",
+                                       row.get("Volume_Surge", 1)) or 1)
+            if move_24h_pct >= 8.0 and vol_ratio >= 2.0:
+                logger.info(
+                    "NEWS CATALYST SKIP %s: 24h move %.1f%% on %.1fx volume "
+                    "— catalyst priced in",
+                    ticker, move_24h_pct, vol_ratio,
+                )
+                return {"ticker": ticker, "status": "skipped",
+                        "reason": (
+                            f"News catalyst already priced in: "
+                            f"24h move {move_24h_pct:.1f}% on {vol_ratio:.1f}x volume"
+                        )}
+        except Exception:
+            pass
+
         # Risk check — now validates target/stop sanity too.
         # Pass market_regime so the score floor adjusts to the regime
         # (matches scoring_config.REGIME_MIN_SCORE + 5 buffer) instead of
@@ -693,10 +778,21 @@ class OrderManager:
         logger.info("EXECUTING: BUY %d x %s @ ~$%.2f (score=%.1f, RR=%.2f)",
                      qty, ticker, price, score, rr)
 
-        # Calculate trailing stop % — 3 sources, use tightest reasonable:
-        # 1. Scan's stop loss → (price - stop) / price
-        # 2. ATR-based (1.5 × ATR%) → dynamic volatility match
-        # 3. Fallback: config default
+        # Calculate trailing stop % — volatility-adaptive AND regime-adaptive.
+        # Blend 3 sources, then scale the result by a regime multiplier so
+        # trends get wider trails (let winners run) while choppy / declining
+        # regimes get tighter trails (cut faster). (Recommendation #4 from
+        # 2026-04-30 audit.)
+        #
+        # Sources:
+        #   1. Scan's stop loss → (price - stop) / price
+        #   2. ATR-based (1.5 × ATR%) → dynamic per-stock volatility match
+        #   3. Fallback: config default
+        # Regime multiplier:
+        #   TREND_UP / MODERATE_UP: 1.20 (wider — let winners run)
+        #   SIDEWAYS / NEUTRAL:     1.00 (baseline)
+        #   DISTRIBUTION:           0.85 (tighter — sellers active)
+        #   CORRECTION / PANIC:     0.70 (much tighter — preserve capital)
         _trail_candidates = []
         if stop > 0 and price > 0:
             _trail_candidates.append(round((price - stop) / price * 100, 1))
@@ -704,14 +800,33 @@ class OrderManager:
             # 1.5x ATR gives stop that's wide enough to avoid noise, tight enough to protect
             _trail_candidates.append(round(atr_pct * 1.5, 1))
         if _trail_candidates:
-            # Use average to blend signals; floor/cap for safety
-            trail_pct = sum(_trail_candidates) / len(_trail_candidates)
-            trail_pct = max(3.0, min(trail_pct, 8.0))
+            base_trail_pct = sum(_trail_candidates) / len(_trail_candidates)
         else:
-            trail_pct = self.cfg.trailing_stop_pct
-        logger.info("  Trail %.1f%% (ATR: %.1f%%, scan stop: %.1f%%)",
-                     trail_pct, atr_pct if atr_pct > 0 else 0,
-                     (price - stop) / price * 100 if stop > 0 else 0)
+            base_trail_pct = self.cfg.trailing_stop_pct
+
+        # Regime adjustment
+        regime_mult = 1.0
+        _row_regime = str(row.get("Market_Regime", "") or "").upper()
+        if _row_regime in ("TREND_UP", "MODERATE_UP", "BULLISH"):
+            regime_mult = 1.20
+        elif _row_regime in ("DISTRIBUTION",):
+            regime_mult = 0.85
+        elif _row_regime in ("CORRECTION", "BEARISH", "PANIC"):
+            regime_mult = 0.70
+        # SIDEWAYS / NEUTRAL / unknown → 1.0 baseline
+
+        trail_pct = base_trail_pct * regime_mult
+        # Floor/cap for safety — even in panic, 2% is the floor; even in
+        # raging bull, 9% is the cap (positions worth $200 don't need
+        # 12% trails — that's $24 of paper loss before the stop fires).
+        trail_pct = max(2.0, min(trail_pct, 9.0))
+        logger.info(
+            "  Trail %.1f%% (base %.1f%% × regime %.2f, ATR %.1f%%, scan stop %.1f%%, regime=%s)",
+            trail_pct, base_trail_pct, regime_mult,
+            atr_pct if atr_pct > 0 else 0,
+            (price - stop) / price * 100 if stop > 0 else 0,
+            _row_regime or "default",
+        )
 
         # Execute as OCA bracket: buy + trailing stop + limit sell (linked)
         bracket = self.client.buy_with_bracket(

@@ -927,6 +927,22 @@ try:
 
         _age_dot_b = "#10b981" if _age_min_live < 20 else "#f59e0b" if _age_min_live < 60 else "#ef4444"
         _age_label_b = f"{int(_age_min_live)}m ago" if _age_min_live < 60 else f"{int(_age_min_live/60)}h ago"
+
+        # STALE-DATA WARNING — when the snapshot is more than 6 hours old,
+        # the displayed positions/cash may not reflect the live IB state.
+        # The cloud Streamlit instance only sees what's been pushed to git;
+        # the VPS updates portfolio_snapshot.json frequently in-place but
+        # only commits sporadically. Without this warning users have made
+        # decisions on Friday-EOD numbers thinking they were live (saw it
+        # firsthand on 2026-04-30). Show a clear banner above the LIVE
+        # TRADING card when stale.
+        if _age_min_live >= 360:  # 6 hours
+            st.warning(
+                f"⚠️ **Live Trading data is {_age_label_b} (stale)** — "
+                f"the actual IB account state may differ from what's "
+                f"shown below. Check Telegram (@stockscout_asaf_bot) "
+                f"by sending `status` for the real-time portfolio."
+            )
         _pnl_bg_b = "linear-gradient(135deg, rgba(16,185,129,0.10), rgba(16,185,129,0.02))" if _pnl_live >= 0 else "linear-gradient(135deg, rgba(239,68,68,0.10), rgba(239,68,68,0.02))"
         _pnl_border_b = "rgba(16,185,129,0.25)" if _pnl_live >= 0 else "rgba(239,68,68,0.25)"
         _pnl_color_b = "#10b981" if _pnl_live >= 0 else "#ef4444"
