@@ -127,7 +127,18 @@ def build_market_context_table(
     )
     vix_df["VIX_pct_responsive"] = vix_df[["VIX_pct", "VIX_pct_20d"]].max(axis=1)
 
-    # Merge
+    # Merge — normalize date columns to TZ-naive first.
+    # 2026-04-30: caught a critical bug where SPY came back from yfinance
+    # with timezone-aware dates (datetime64[s, America/New_York]) while
+    # VIX came back tz-naive. The merge raised ValueError, which left
+    # Market_Regime defaulting to whatever the calling fallback path set.
+    # In practice this caused the scan to label the regime CORRECTION
+    # incorrectly even on bull-market days, blocking ALL auto-trades.
+    spy_df = spy_df.copy()
+    vix_df = vix_df.copy()
+    spy_df["date"] = pd.to_datetime(spy_df["date"]).dt.tz_localize(None)
+    vix_df["date"] = pd.to_datetime(vix_df["date"]).dt.tz_localize(None)
+
     context_df = spy_df[["date", "SPY_20d_ret", "SPY_60d_ret", "SPY_drawdown_60d", "SPY_momentum_20d"]].copy()
     context_df = context_df.merge(
         vix_df[["date", "VIX_close", "VIX_pct", "VIX_pct_responsive"]],
@@ -154,15 +165,25 @@ def build_market_context_table(
             breadth = float(get_market_breadth(date_key))
             dd = r.get("SPY_drawdown_60d", 0)
             ret_60d = r.get("SPY_60d_ret", 0)
-            vix_pct = r.get("VIX_pct_responsive", r.get("VIX_pct", 0.5))
+            # Use the STABLE 63-day percentile, NOT the responsive max(20d,63d).
+            # VIX_pct_responsive falsely flagged CORRECTION on 2026-04-30
+            # because VIX ticked from 14 to 17 — a 75th-percentile move
+            # over 20 days but well within normal-market range absolutely.
+            # Result: blocked ALL trades on a non-correction day. Use the
+            # 63d percentile + a hard absolute floor to avoid this.
+            vix_pct = r.get("VIX_pct", 0.5)
             vix_close = r.get("VIX_close", 20.0)
             momentum = r.get("SPY_momentum_20d", 0.0)
             if pd.isna(dd) or pd.isna(ret_60d) or pd.isna(vix_pct) or not np.isfinite(breadth):
                 return "SIDEWAYS", 50
             # ── Negative regimes (checked first) ──
-            if dd < -0.15 or vix_pct > 0.85 or vix_close > 30:
+            # PANIC requires either deep drawdown OR extreme VIX (both percentile AND absolute).
+            if dd < -0.15 or (vix_pct > 0.85 and vix_close > 28) or vix_close > 32:
                 phase = "PANIC"
-            elif dd < -0.08 or vix_pct > 0.70 or vix_close > 25:
+            # CORRECTION requires meaningful drawdown OR (high-percentile VIX AND high-absolute VIX).
+            # The AND on VIX prevents false-positive on low-VIX days where the 63d percentile
+            # spikes due to a small local move.
+            elif dd < -0.08 or (vix_pct > 0.70 and vix_close > 20) or vix_close > 26:
                 phase = "CORRECTION"
             elif abs(ret_60d) <= 0.02 and breadth < 0.40:
                 phase = "DISTRIBUTION"
