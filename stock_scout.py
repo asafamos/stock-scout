@@ -441,12 +441,19 @@ with st.sidebar:
         logger.debug("Portfolio sidebar error: %s", _pf_e)
 
     # ── Live Trading (IB/VPS) — minimal badge, details in top banner ─
+    # Skipped when state-feed is healthy — the new automated dashboard
+    # at the top already shows live positions with 30s freshness.
+    try:
+        from core.streamlit_components import fetch_state as _sl_fs
+        _sidebar_skip_legacy = bool(_sl_fs())
+    except Exception:
+        _sidebar_skip_legacy = False
     try:
         from pathlib import Path as _Path
         import json as _json
         from datetime import datetime as _dt, timezone as _tz
         _snap_file = _Path("data/trades/portfolio_snapshot.json")
-        if _snap_file.exists():
+        if not _sidebar_skip_legacy and _snap_file.exists():
             _snap = _json.loads(_snap_file.read_text())
             _positions = _snap.get("positions", [])
             _orders = _snap.get("orders", [])

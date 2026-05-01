@@ -218,6 +218,27 @@ button[kind="header"] {
     direction: ltr !important;
 }
 
+/* Force LTR on data tables / dataframes — RTL was truncating cell
+   values to single characters (e.g. "$111.33" rendered as "1")
+   because the table layout assumed LTR for column widths. */
+[data-testid="stDataFrame"],
+[data-testid="stDataFrame"] *,
+[data-testid="stTable"],
+[data-testid="stTable"] *,
+.stDataFrame,
+.stDataFrame * {
+    direction: ltr !important;
+    text-align: left !important;
+}
+
+/* Streamlit native metric component — keep numeric values LTR */
+[data-testid="stMetricValue"],
+[data-testid="stMetricLabel"],
+[data-testid="stMetricDelta"] {
+    direction: ltr !important;
+    text-align: left !important;
+}
+
 h1, h2, h3, h4, h5, h6 {
     text-align: right;
     color: var(--ss-text-primary);
