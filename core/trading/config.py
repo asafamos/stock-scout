@@ -263,24 +263,34 @@ class TradingConfig:
     # Lower tier % = tighter stop (closer to current price).
     # The starting trail is 3–8% (scan-derived). Ratchet only TIGHTENS,
     # never loosens, so a stock that started with TRAIL 3% never widens.
+    # Ratchet thresholds STAGGERED 2pp ABOVE ladder thresholds.
+    # Audit H8 (2026-05-01): when ladder and ratchet shared the same
+    # gain trigger (e.g. both at +10%), a stock that peaked at +10%
+    # then retraced 4% with normal noise would BOTH partial-exit AND
+    # get stopped out of the rest. Now ladder fires first (lock in a
+    # quarter), then ratchet fires later (tighten what's left).
+    # Order on a +12% peak that retraces 4%:
+    #     +10% → ladder partial 25%  (locked)
+    #     +12% → ratchet to 4%       (tightens trail on remaining 75%)
+    #     -4%  from peak → trail fires on remaining 75%
     ratchet_tier1_gain: float = field(
-        default_factory=lambda: _env_float("RATCHET_T1_GAIN", 10.0)
+        default_factory=lambda: _env_float("RATCHET_T1_GAIN", 12.0)
     )
     ratchet_tier1_trail_pct: float = field(
         default_factory=lambda: _env_float("RATCHET_T1_TRAIL_PCT", 4.0)
-    )   # Peak +10% → trail tightens to 4%
+    )   # Peak +12% → trail tightens to 4% (was +10% — now staggered after ladder T1)
     ratchet_tier2_gain: float = field(
-        default_factory=lambda: _env_float("RATCHET_T2_GAIN", 18.0)
+        default_factory=lambda: _env_float("RATCHET_T2_GAIN", 20.0)
     )
     ratchet_tier2_trail_pct: float = field(
         default_factory=lambda: _env_float("RATCHET_T2_TRAIL_PCT", 3.0)
-    )   # Peak +18% → trail tightens to 3%
+    )   # Peak +20% → trail tightens to 3% (was +18% — now staggered after ladder T2)
     ratchet_tier3_gain: float = field(
-        default_factory=lambda: _env_float("RATCHET_T3_GAIN", 28.0)
+        default_factory=lambda: _env_float("RATCHET_T3_GAIN", 30.0)
     )
     ratchet_tier3_trail_pct: float = field(
         default_factory=lambda: _env_float("RATCHET_T3_TRAIL_PCT", 2.0)
-    )   # Peak +28% → trail tightens to 2%
+    )   # Peak +30% → trail tightens to 2% (was +28% — now staggered after ladder T3)
 
     # ── Paths ──────────────────────────────────────────────────
     scan_results_path: str = "data/scans/latest_scan_live.json"

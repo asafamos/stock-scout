@@ -141,30 +141,87 @@ def confidence_floor(regime: str, cfg) -> int:
     return base
 
 
+_BLOCKED_TICKERS_CACHE: Dict[str, Any] = {
+    "tickers": set(),  # last-known-good
+    "fetched_at": 0.0,
+    "mtime": 0.0,
+}
+_BLOCKED_TICKERS_TTL = 30.0  # seconds — matches dashboard polling cadence
+
+
 def _load_blocked_tickers() -> Set[str]:
-    """Tickers blocked via command_bus /block. Cached read — file is small."""
+    """Tickers blocked via command_bus /block.
+
+    Audit C5 (2026-05-01): the previous version read the JSON from disk
+    on EVERY gate evaluation. With Streamlit polling state-feed every 30s
+    over 2000 scan rows, that was 4000 disk reads/min during dashboard
+    render — and worse, if the file was mid-write while command_bus was
+    updating it, the JSON parse failed silently and the gate let through
+    blocked tickers.
+
+    Now: TTL cache (default 30s) + last-known-good fallback on parse
+    failure so the gate never silently regresses to "no blocks" because
+    of a transient read-during-write race.
+    """
+    import time as _time
+    now_ts = _time.time()
+
     try:
         from core.control.command_bus import BLOCK_FILE
         import json as _json
         from datetime import datetime as _dt, timezone as _tz
+
         if not BLOCK_FILE.exists():
+            _BLOCKED_TICKERS_CACHE["tickers"] = set()
+            _BLOCKED_TICKERS_CACHE["fetched_at"] = now_ts
             return set()
-        blocks = _json.loads(BLOCK_FILE.read_text())
+
+        # mtime-aware refresh: re-read immediately if file has changed
+        # (operator just ran /block) even within TTL window.
+        try:
+            current_mtime = BLOCK_FILE.stat().st_mtime
+        except Exception:
+            current_mtime = 0.0
+
+        cache_age = now_ts - _BLOCKED_TICKERS_CACHE["fetched_at"]
+        cache_mtime = _BLOCKED_TICKERS_CACHE["mtime"]
+        if (
+            cache_age < _BLOCKED_TICKERS_TTL
+            and current_mtime == cache_mtime
+            and _BLOCKED_TICKERS_CACHE["fetched_at"] > 0
+        ):
+            return _BLOCKED_TICKERS_CACHE["tickers"]
+
+        # Read + parse. On parse failure, return last-known-good set
+        # rather than silently degrading to "no blocks".
+        try:
+            text = BLOCK_FILE.read_text()
+            blocks = _json.loads(text)
+        except Exception as parse_err:
+            # File mid-write or corrupt — keep the last-known set.
+            # Don't update fetched_at, so we'll retry on next call.
+            return _BLOCKED_TICKERS_CACHE["tickers"]
+
         active = set()
-        now = _dt.now(_tz.utc)
+        now_dt = _dt.now(_tz.utc)
         for tkr, rec in blocks.items():
             until = rec.get("until")
             if until:
                 try:
-                    if _dt.fromisoformat(until) > now:
+                    if _dt.fromisoformat(until) > now_dt:
                         active.add(tkr.upper())
                 except Exception:
                     active.add(tkr.upper())  # malformed date → block defensively
             else:
                 active.add(tkr.upper())
+
+        _BLOCKED_TICKERS_CACHE["tickers"] = active
+        _BLOCKED_TICKERS_CACHE["fetched_at"] = now_ts
+        _BLOCKED_TICKERS_CACHE["mtime"] = current_mtime
         return active
     except Exception:
-        return set()
+        # Any other error (import, file system) → return cached or empty.
+        return _BLOCKED_TICKERS_CACHE.get("tickers", set())
 
 
 def evaluate_static_gates(

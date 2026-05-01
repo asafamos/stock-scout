@@ -211,8 +211,92 @@ class RiskManager:
                 )
             return True, ""
         except Exception as e:
-            logger.warning("Daily loss breaker check failed: %s — failing OPEN", e)
-            return True, ""  # genuine exception path: still fail-open (rare)
+            # FAIL-CLOSED on exception path when realized losses today already
+            # breached the threshold. Audit 2026-05-01 (C3): the previous
+            # behavior fell through to "True, ''" on ANY exception — a swallowed
+            # IB error during the loss-breaker check silently disabled the
+            # breaker exactly when you most need it. Now: realized-only check
+            # FIRST, fall back to fail-OPEN only when realized is also clean.
+            try:
+                today_iso = date.today().isoformat()
+                realized_only = sum(
+                    float(t.get("pnl") or 0)
+                    for t in self.tracker.get_trade_log()
+                    if t.get("action") == "CLOSE"
+                    and str(t.get("timestamp", "")).startswith(today_iso)
+                )
+                est_net = self.cfg.max_position_size * self.cfg.max_open_positions
+                est_pct = (realized_only / max(est_net, 1)) * 100
+                if est_pct <= -self.cfg.max_daily_loss_pct:
+                    logger.warning(
+                        "Daily loss breaker: outer-exception path FAIL-CLOSED "
+                        "(realized %+.2f%% <= -%.1f%%, exception=%s)",
+                        est_pct, self.cfg.max_daily_loss_pct, e,
+                    )
+                    return False, (
+                        f"Daily loss breaker (outer-exception fail-CLOSED): "
+                        f"realized ${realized_only:.0f} = {est_pct:+.2f}% "
+                        f"<= -{self.cfg.max_daily_loss_pct}%"
+                    )
+            except Exception:
+                pass
+            logger.warning("Daily loss breaker check failed: %s — failing OPEN (no realized loss today)", e)
+            return True, ""
+
+    def check_drawdown_breaker(self) -> Tuple[bool, str]:
+        """Block new buys when account is down >max_drawdown_pct from peak.
+
+        Audit 2026-05-01 (C1): cfg.max_drawdown_pct is documented as
+        "Pause trading if portfolio is down >X% from peak" but had ZERO
+        readers in production code. With $1000 capital, a portfolio-level
+        circuit breaker is essential — the daily-loss breaker only catches
+        single-session drops, not cumulative bleeding over many days.
+
+        Uses analytics.compute_drawdown over the realized equity curve
+        (closed trades only). Open positions are EXCLUDED — drawdown is
+        a confirmed loss, not an unrealized fluctuation. Threshold compares
+        current_dd_pct (from peak to last close) against the configured cap.
+
+        Fails OPEN if the curve can't be built (insufficient history); the
+        daily-loss breaker still covers fresh damage in that window.
+        """
+        try:
+            cap = float(getattr(self.cfg, "max_drawdown_pct", 10.0))
+            if cap <= 0:
+                return True, ""  # disabled
+
+            from core.trading.analytics import (
+                build_equity_curve,
+                compute_drawdown,
+                pair_buy_sell_events,
+            )
+            log = self.tracker.get_trade_log()
+            pairs = pair_buy_sell_events(log)
+            if not pairs or len(pairs) < 2:
+                return True, ""  # not enough history to compute peak
+
+            # Use net liquidation as starting equity; falls back to a sane
+            # default if IB is unreachable.
+            try:
+                start_eq = float(self.client.get_net_liquidation() or 0)
+            except Exception:
+                start_eq = 0.0
+            if start_eq <= 0:
+                start_eq = self.cfg.max_position_size * self.cfg.max_open_positions
+
+            curve = build_equity_curve(pairs, starting_balance=start_eq)
+            dd = compute_drawdown(curve)
+            current_dd = float(dd.get("current_dd_pct", 0) or 0)
+
+            if current_dd >= cap:
+                return False, (
+                    f"Drawdown breaker: current DD {current_dd:.1f}% "
+                    f">= cap {cap:.1f}% (peak ${start_eq + dd.get('max_dd_abs',0):.0f})"
+                )
+            return True, ""
+        except Exception as e:
+            logger.debug("check_drawdown_breaker skipped: %s", e)
+            return True, ""  # fail-OPEN — daily-loss breaker is the safety net
 
     # Module-level earnings cache (populated lazily, persists for one day).
     # Keeps yfinance API hits to <50/day even with 10+ scan runs.
@@ -559,6 +643,15 @@ class RiskManager:
         if not allowed:
             return False, reason
 
+        # 1.5. Drawdown circuit breaker — pause trading when account is
+        # down more than max_drawdown_pct from peak. The daily-loss
+        # breaker only catches single-session drops; this catches
+        # cumulative bleeding over many days. (Audit C1 — was configured
+        # but not enforced for ~12 months.)
+        allowed, reason = self.check_drawdown_breaker()
+        if not allowed:
+            return False, reason
+
         # 1a. Performance throttle — halt buys when rolling win rate
         # drops below 20%. Returns size_multiplier for sizing path.
         allowed, reason, _throttle_mult = self.check_performance_throttle()
@@ -586,21 +679,58 @@ class RiskManager:
 
         # 0a. Day-trade prevention — applies in TIER_SUB_2K and TIER_2K_TO_25K
         # (cash accounts). In TIER_25K_PLUS with margin, T+0 settlement makes
-        # this a non-issue; we still keep the tracker check as a sanity guard.
-        # The check uses the trade_log for same-day CLOSE/PARTIAL entries —
-        # see audit finding for the gap where IB-side same-day sells aren't
-        # caught if monitor hasn't reconciled yet (low risk in practice
-        # because the monitor reconciles every 30s).
+        # this a non-issue; we still keep the check as a sanity guard.
+        # Audit C2 (2026-05-01): prior version checked only the tracker, which
+        # is updated every 5 min by the monitor. Between a TRAIL fill and the
+        # next monitor cycle there was a 5-min window where re-buying the same
+        # ticker was possible — that's a Good Faith Violation in a cash
+        # account (3 GFVs in 12 months → 90-day freeze). NOW: check the
+        # tracker FIRST (cheap), then check IB's executions API for today
+        # (authoritative, ~50ms). Either path tripping → block.
         try:
-            today = date.today().isoformat()
+            today_iso = date.today().isoformat()
+            # 1. Cheap path: trade_log
             for t in self.tracker.get_trade_log():
                 if (t.get("ticker") == ticker
                         and t.get("action") in ("CLOSE", "PARTIAL")
-                        and str(t.get("timestamp", "")).startswith(today)):
+                        and str(t.get("timestamp", "")).startswith(today_iso)):
                     return False, (
                         f"Day-trade block: {ticker} was sold today "
-                        f"(cash account can't re-buy same day)"
+                        f"(cash account can't re-buy same day) [tracker]"
                     )
+            # 2. Authoritative path: IB executions today. Catches the
+            # window where a TRAIL filled but the monitor hasn't reconciled
+            # the close into the tracker yet.
+            try:
+                ib = getattr(self.client, "_ib", None)
+                if ib is not None:
+                    from datetime import datetime as _dt, timezone as _tz
+                    # `executions()` returns recent fills (typically last
+                    # 7 days). Filter to today UTC + this ticker + SELL side.
+                    today_dt_start = _dt.combine(
+                        date.today(), _dt.min.time(), tzinfo=_tz.utc
+                    )
+                    for ex in ib.executions():
+                        try:
+                            sym = getattr(ex.contract, "symbol", "") or ""
+                            side = getattr(ex.execution, "side", "") or ""
+                            t_ex = getattr(ex, "time", None) or getattr(ex.execution, "time", None)
+                            if sym.upper() != ticker.upper():
+                                continue
+                            if side not in ("SLD", "SELL"):
+                                continue
+                            if t_ex is not None and t_ex < today_dt_start:
+                                continue
+                            return False, (
+                                f"Day-trade block: {ticker} was sold today "
+                                f"(cash account can't re-buy same day) [IB executions]"
+                            )
+                        except Exception:
+                            continue
+            except Exception as _ib_err:
+                # IB unreachable → fall back to tracker-only (already done above).
+                # Don't fail the whole gate.
+                logger.debug("IB executions day-trade check skipped: %s", _ib_err)
         except Exception:
             pass
 
