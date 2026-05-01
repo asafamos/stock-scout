@@ -2627,6 +2627,91 @@ else:
     except Exception:
         pass
 
+    # ── BUY ELIGIBILITY PRE-CHECK ──
+    # Run each scan candidate through the same gates the auto-trade
+    # pipeline uses, so the user can see at-a-glance which picks would
+    # actually trigger a buy if the pipeline ran on this scan now.
+    try:
+        from core.streamlit_components import (
+            evaluate_scan_row_for_buy as _eval_buy,
+            fetch_state as _fs_for_eval,
+        )
+        _eval_state = _fs_for_eval()
+        if _eval_state is not None:
+            _evals = []
+            for _idx, _row in sorted_df.iterrows():
+                _evals.append(_eval_buy(_row, _eval_state))
+            _eligible = [e for e in _evals if e["would_buy"]]
+            _n_eligible = len(_eligible)
+            _n_total = len(_evals)
+
+            # Stash on session state so individual cards can read their badge
+            st.session_state["_buy_evals"] = {
+                str(sorted_df.iloc[i]["Ticker"]): _evals[i]
+                for i in range(len(_evals))
+            }
+
+            # Top-level summary banner
+            if _n_eligible > 0:
+                _eligible_tickers = [
+                    str(sorted_df.iloc[i]["Ticker"])
+                    for i, e in enumerate(_evals) if e["would_buy"]
+                ]
+                st.markdown(
+                    f'<div dir="ltr" style="direction:ltr;background:#064e3b;'
+                    f'color:white;padding:14px 18px;border-radius:8px;'
+                    f'margin:12px 0;border-left:4px solid #10b981;">'
+                    f'<div style="font-size:0.78rem;color:#86efac;'
+                    f'font-weight:600;text-transform:uppercase;'
+                    f'letter-spacing:0.05em;margin-bottom:4px;">'
+                    f'🚀 Auto-trade pre-check'
+                    f'</div>'
+                    f'<div style="color:white;font-size:1.05rem;font-weight:700;">'
+                    f'{_n_eligible} of {_n_total} would trigger a BUY '
+                    f'<span style="font-weight:400;opacity:0.85;">'
+                    f'if pipeline ran now</span>'
+                    f'</div>'
+                    f'<div style="color:white;font-size:0.85rem;'
+                    f'opacity:0.85;margin-top:6px;">'
+                    f'Eligible: <code style="background:rgba(255,255,255,0.15);'
+                    f'padding:2px 8px;border-radius:4px;color:white;">'
+                    f'{", ".join(_eligible_tickers[:10])}'
+                    f'{" …" if len(_eligible_tickers) > 10 else ""}</code>'
+                    f'</div></div>',
+                    unsafe_allow_html=True,
+                )
+            else:
+                # Most common skip reason for visibility
+                _reason_counts: Dict[str, int] = {}
+                for e in _evals:
+                    _reason_counts[e["reason"]] = _reason_counts.get(e["reason"], 0) + 1
+                _top_reason = max(_reason_counts.items(), key=lambda x: x[1]) \
+                    if _reason_counts else ("(no candidates)", 0)
+                st.markdown(
+                    f'<div dir="ltr" style="direction:ltr;background:#451a03;'
+                    f'color:white;padding:14px 18px;border-radius:8px;'
+                    f'margin:12px 0;border-left:4px solid #fcd34d;">'
+                    f'<div style="font-size:0.78rem;color:#fcd34d;'
+                    f'font-weight:600;text-transform:uppercase;'
+                    f'letter-spacing:0.05em;margin-bottom:4px;">'
+                    f'⏭ Auto-trade pre-check'
+                    f'</div>'
+                    f'<div style="color:white;font-size:1.05rem;font-weight:700;">'
+                    f'0 of {_n_total} would trigger a BUY'
+                    f'</div>'
+                    f'<div style="color:white;font-size:0.85rem;'
+                    f'opacity:0.85;margin-top:6px;">'
+                    f'Most common skip: <code style="background:'
+                    f'rgba(255,255,255,0.15);padding:2px 8px;border-radius:4px;'
+                    f'color:white;">{_top_reason[0]}</code> '
+                    f'({_top_reason[1]} stocks)'
+                    f'</div></div>',
+                    unsafe_allow_html=True,
+                )
+    except Exception as _ee:
+        import logging as _le
+        _le.getLogger(__name__).debug("buy eligibility pre-check failed: %s", _ee)
+
     # All recommendations sorted by score (each card has Core/Spec badge)
     _rec_header_cols = st.columns([6, 2])
     with _rec_header_cols[0]:

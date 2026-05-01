@@ -28,6 +28,169 @@ STATE_FEED_URL = (
 _STATE_CACHE: Dict[str, Any] = {"data": None, "fetched_at": 0}
 
 
+def evaluate_scan_row_for_buy(row, state: Optional[Dict] = None) -> Dict:
+    """Evaluate whether a single scan row would TRIGGER A BUY if the
+    auto-trade pipeline ran on this scan right now.
+
+    Returns:
+      {
+        "would_buy": True/False,
+        "verdict": "BUY ELIGIBLE" | "SKIP",
+        "reason": "<human-readable why>",
+        "color": "#hex",
+        "icon": "emoji",
+        "gates_passed": [list of names],
+        "gates_failed": [list of names],
+      }
+
+    Mirrors the gates in risk_manager.can_open_position +
+    order_manager._filter_candidates that DON'T require IB live data.
+    Cannot check: cash availability, day-trade history, IB rejection.
+    For those we rely on the actual pipeline run.
+
+    The point is to give the user an at-a-glance view in the dashboard
+    of which scan candidates would survive the gauntlet — so the
+    research view feels connected to the trading decisions.
+    """
+    state = state or fetch_state() or {}
+    # Pull current account state for gates that depend on it
+    positions = state.get("positions", []) or []
+    held_tickers = {p.get("ticker", "").upper() for p in positions}
+    pipeline = state.get("pipeline", {}) or {}
+    regime = (pipeline.get("regime") or
+              str(row.get("Market_Regime", "") or "")).upper()
+    is_paused = state.get("paused", False)
+    throttle = state.get("throttle", {}) or {}
+    throttle_halt = throttle.get("level") == "halt"
+
+    # Extract row fields (defensive — pandas Series or dict both work)
+    def g(key, default=None):
+        if hasattr(row, "get"):
+            return row.get(key, default)
+        try:
+            return row[key]
+        except Exception:
+            return default
+
+    ticker = str(g("Ticker", g("ticker", ""))).upper()
+    score = float(g("FinalScore_20d", g("Score", 0)) or 0)
+    rr = float(g("RewardRisk", g("RR", 0)) or 0)
+    ml_prob = float(g("ML_20d_Prob", g("ml_prob", 0)) or 0)
+    sector = str(g("Sector", g("sector", "")))
+    confidence = str(g("SignalQuality", g("Confidence_Level", "")))
+
+    # Regime-based score floor (mirrors risk_manager logic)
+    REGIME_FLOORS = {
+        "TREND_UP": 60, "BULLISH": 60, "MODERATE_UP": 65,
+        "SIDEWAYS": 75, "NEUTRAL": 75,
+        "DISTRIBUTION": 80, "CORRECTION": 85,
+        "BEARISH": 80, "PANIC": 100,
+    }
+    score_floor = REGIME_FLOORS.get(regime, 73)
+
+    # Run the gates
+    gates_failed = []
+    gates_passed = []
+
+    # 1. Auto-trade paused?
+    if is_paused:
+        gates_failed.append("AUTO-TRADING PAUSED")
+    else:
+        gates_passed.append("not paused")
+
+    # 2. Throttle halt?
+    if throttle_halt:
+        gates_failed.append("Performance throttle HALT")
+    else:
+        gates_passed.append("throttle ok")
+
+    # 3. Already holding?
+    if ticker in held_tickers:
+        gates_failed.append(f"Already holding {ticker}")
+    else:
+        gates_passed.append("not held")
+
+    # 4. Regime block?
+    if regime in ("PANIC", "CORRECTION"):
+        gates_failed.append(f"Market regime blocked: {regime}")
+    else:
+        gates_passed.append(f"regime ok ({regime})")
+
+    # 5. Score floor (regime-aware)
+    if score < score_floor:
+        gates_failed.append(
+            f"Score {score:.1f} < {score_floor} ({regime} floor)"
+        )
+    else:
+        gates_passed.append(f"score ≥ {score_floor}")
+
+    # 6. RR floor
+    if rr < 2.0:
+        gates_failed.append(f"R:R {rr:.2f} < 2.0")
+    else:
+        gates_passed.append("R:R ≥ 2.0")
+
+    # 7. ML floor
+    if ml_prob < 0.33:
+        gates_failed.append(f"ML {ml_prob:.3f} < 0.33")
+    else:
+        gates_passed.append("ML ≥ 0.33")
+
+    # 8. Confidence floor (regime-aware: TREND_UP allows Medium)
+    conf_map = {"HIGH": 3, "MEDIUM": 2, "LOW": 1, "SPECULATIVE": 1}
+    conf_val = conf_map.get(confidence.upper(), 0)
+    min_conf = 2 if regime in ("TREND_UP", "MODERATE_UP", "BULLISH") else 3
+    if conf_val < min_conf:
+        gates_failed.append(
+            f"Confidence {confidence} < required ({['n/a','Low','Medium','High'][min_conf]})"
+        )
+    else:
+        gates_passed.append(f"confidence ≥ {confidence}")
+
+    # 9. Blocked sector
+    if sector == "Consumer Defensive":
+        gates_failed.append(f"Blocked sector: {sector}")
+    else:
+        gates_passed.append("sector ok")
+
+    # Verdict
+    would_buy = len(gates_failed) == 0
+    if would_buy:
+        return {
+            "would_buy": True,
+            "verdict": "BUY ELIGIBLE",
+            "reason": f"Passes all {len(gates_passed)} gates",
+            "color": "#10b981",
+            "icon": "🚀",
+            "gates_passed": gates_passed,
+            "gates_failed": [],
+        }
+    else:
+        primary = gates_failed[0]
+        return {
+            "would_buy": False,
+            "verdict": "SKIP",
+            "reason": primary,
+            "color": "#94a3b8",
+            "icon": "⏭",
+            "gates_passed": gates_passed,
+            "gates_failed": gates_failed,
+        }
+
+
+def render_eligibility_badge(eval_result: Dict) -> str:
+    """Return inline HTML badge HTML for use in scan result cards."""
+    return (
+        f'<span dir="ltr" style="direction:ltr;display:inline-flex;'
+        f'align-items:center;gap:6px;padding:3px 10px;border-radius:999px;'
+        f'background:{eval_result["color"]};color:white;font-size:0.72rem;'
+        f'font-weight:700;text-transform:uppercase;letter-spacing:0.04em;'
+        f'margin-right:8px;font-family:-apple-system,sans-serif;">'
+        f'{eval_result["icon"]} {eval_result["verdict"]}'
+        f'</span>'
+    )
+
+
 def fetch_state(max_age_sec: int = 30) -> Optional[Dict]:
     """Fetch system_state.json from state-feed. Cached 30s.
 
