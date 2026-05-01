@@ -1122,17 +1122,37 @@ else:
 # Prefer Wyckoff-specific confidence when available; fallback to simple regime confidence
 regime_confidence = st.session_state.get("wyckoff_confidence", market_regime_data.get("confidence", 50))
 
-# Use Streamlit's native components (st.info/st.success) which respect
-# the app's color theme and dark/light mode automatically. Custom CSS
-# divs were getting stripped/overridden by Streamlit's theme on cloud.
-_regime_emoji_label = f"{_regime_emoji} Market Regime: {_regime_label.upper()} (confidence: {regime_confidence}%)"
+# High-contrast regime banner — explicit dark backgrounds with !important
+# to defeat any theme override on Streamlit Cloud. Uses HTML inside markdown.
 _regime_kind = market_regime_data.get("regime", "neutral")
-if _regime_kind == "bullish":
-    st.success(_regime_emoji_label + (f" — {_regime_details}" if _regime_details else ""))
-elif _regime_kind == "bearish":
-    st.error(_regime_emoji_label + (f" — {_regime_details}" if _regime_details else ""))
-else:  # neutral / unknown
-    st.warning(_regime_emoji_label + (f" — {_regime_details}" if _regime_details else ""))
+_bg_strong = {
+    "bullish": "#064e3b",   # emerald-950
+    "neutral": "#451a03",   # amber-950
+    "bearish": "#450a0a",   # red-950
+}.get(_regime_kind, "#451a03")
+_text_strong = "#ffffff"
+_label_color = {
+    "bullish": "#86efac",   # emerald-300
+    "neutral": "#fcd34d",   # amber-300
+    "bearish": "#fca5a5",   # red-300
+}.get(_regime_kind, "#fcd34d")
+
+st.markdown(
+    f"""<div style='background:{_bg_strong} !important; color:{_text_strong} !important;
+         padding:14px 18px; border-radius:8px; margin:12px 0;
+         border-left:4px solid {_label_color};
+         font-family: -apple-system, BlinkMacSystemFont, sans-serif;'>
+      <div style='color:{_label_color} !important; font-size:0.75rem; text-transform:uppercase;
+           letter-spacing:0.06em; font-weight:600; margin-bottom:4px;'>
+        Market Regime
+      </div>
+      <div style='color:{_text_strong} !important; font-size:1.1rem; font-weight:700;'>
+        {_regime_emoji} {_regime_label.upper()} <span style='font-weight:400; opacity:0.85;'>· confidence {regime_confidence}%</span>
+      </div>
+      {f'<div style="color:{_text_strong} !important; opacity:0.85; font-size:0.85rem; margin-top:6px;">{_regime_details}</div>' if _regime_details else ''}
+    </div>""",
+    unsafe_allow_html=True,
+)
 
 if skip_pipeline:
     # Use precomputed results from full pipeline

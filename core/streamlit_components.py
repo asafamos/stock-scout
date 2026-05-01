@@ -99,7 +99,19 @@ def pipeline_status_widget(st):
         label = "PAUSED ⏸" if pipe_paused else f"{state_emoji} {pipe_state.upper()}"
         st.metric("Pipeline", label)
     with cols[1]:
-        st.metric("Next fire", next_fire[11:16] + " UTC" if next_fire and len(next_fire) > 16 else "—")
+        # next_fire might be ISO string ("2026-05-01T13:30:00+00:00"),
+        # an int (microseconds-since-epoch), None, or "—". Handle all.
+        nf_display = "—"
+        try:
+            if isinstance(next_fire, str) and len(next_fire) >= 16:
+                nf_display = next_fire[11:16] + " UTC"
+            elif isinstance(next_fire, (int, float)) and next_fire > 0:
+                from datetime import datetime as _dt, timezone as _tz
+                _v = next_fire / 1_000_000 if next_fire > 1e12 else next_fire
+                nf_display = _dt.fromtimestamp(_v, tz=_tz.utc).strftime("%H:%M UTC")
+        except Exception:
+            pass
+        st.metric("Next fire", nf_display)
     with cols[2]:
         net = account.get("net_liquidation", 0)
         tier_emoji = {"sub_2k": "🟠", "cash": "🟡", "margin_pdt": "🟢"}.get(

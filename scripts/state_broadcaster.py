@@ -80,8 +80,16 @@ def _list_timer(unit: str) -> Optional[str]:
         rows = json.loads(r.stdout) if r.stdout.strip() else []
         if rows and isinstance(rows, list):
             ts = rows[0].get("next")
-            if ts and ts != "n/a":
-                return ts
+            if ts and ts != "n/a" and ts != 0:
+                # systemctl returns microseconds-since-epoch as int. Convert
+                # to ISO format so downstream consumers can parse it.
+                if isinstance(ts, int):
+                    try:
+                        dt = datetime.fromtimestamp(ts / 1_000_000, tz=timezone.utc)
+                        return dt.isoformat()
+                    except Exception:
+                        return None
+                return str(ts)
     except Exception:
         pass
     return None
@@ -101,9 +109,14 @@ def _journal(unit: str, since: str = "1 hour ago", lines: int = 200) -> str:
 
 def _build_pipeline_state() -> Dict:
     """Read the most recent pipeline run from journal + parse outcomes."""
-    j = _journal("stockscout-pipeline.service", since="2 hours ago")
+    # Try last 24h first — captures both today's runs and yesterday's
+    # for context (so we don't show "unknown" between scheduled fires).
+    j = _journal("stockscout-pipeline.service", since="24 hours ago", lines=500)
     if not j:
-        return {"state": "unknown", "last_fire": None, "last_outcome": None}
+        # No journal at all → service has never run OR journal disabled.
+        # That's "idle" not "unknown" — the timer is set up correctly,
+        # we just haven't seen a fire yet.
+        return {"state": "idle", "last_fire": None, "last_outcome": None}
 
     # Find the last START line and trace forward
     lines = j.splitlines()
