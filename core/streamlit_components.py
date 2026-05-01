@@ -57,8 +57,15 @@ def evaluate_scan_row_for_buy(row, state: Optional[Dict] = None) -> Dict:
     positions = state.get("positions", []) or []
     held_tickers = {p.get("ticker", "").upper() for p in positions}
     pipeline = state.get("pipeline", {}) or {}
-    regime = (pipeline.get("regime") or
-              str(row.get("Market_Regime", "") or "")).upper()
+    # IMPORTANT: regime should come from the ROW (this scan's own
+    # regime classification), not from state.pipeline.regime which
+    # reflects the LAST PIPELINE RUN's regime — possibly hours ago
+    # and on different scan data. The row regime is what the actual
+    # auto-trade flow will see when it processes this scan.
+    regime = str(row.get("Market_Regime", "") or "").upper()
+    if not regime:
+        # Fallback to state-pipeline regime only if row doesn't have it
+        regime = (pipeline.get("regime") or "").upper()
     is_paused = state.get("paused", False)
     throttle = state.get("throttle", {}) or {}
     throttle_halt = throttle.get("level") == "halt"
@@ -79,12 +86,15 @@ def evaluate_scan_row_for_buy(row, state: Optional[Dict] = None) -> Dict:
     sector = str(g("Sector", g("sector", "")))
     confidence = str(g("SignalQuality", g("Confidence_Level", "")))
 
-    # Regime-based score floor (mirrors risk_manager logic)
+    # Regime-based score floor (mirrors risk_manager logic).
+    # Includes STRONG_UPTREND from the outcomes-tracker's classifier
+    # which uses different label space than the scan's regime classifier.
     REGIME_FLOORS = {
+        "STRONG_UPTREND": 55, "UPTREND": 60,
         "TREND_UP": 60, "BULLISH": 60, "MODERATE_UP": 65,
-        "SIDEWAYS": 75, "NEUTRAL": 75,
+        "SIDEWAYS": 75, "NEUTRAL": 75, "RANGING": 75,
         "DISTRIBUTION": 80, "CORRECTION": 85,
-        "BEARISH": 80, "PANIC": 100,
+        "DOWNTREND": 80, "BEARISH": 80, "PANIC": 100,
     }
     score_floor = REGIME_FLOORS.get(regime, 73)
 
