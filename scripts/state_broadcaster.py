@@ -62,6 +62,26 @@ def _read_json(p: Path, default=None):
 
 
 def _is_active(unit: str) -> bool:
+    """Return True if a systemd unit is up.
+
+    Treats both "active" and "activating" as up — IB Gateway in
+    particular cycles through activating during IBC autologin and
+    cron-based restarts; calling those moments "down" produced
+    red dots in the service health line for ~30s every few minutes.
+    """
+    try:
+        r = subprocess.run(["systemctl", "is-active", unit],
+                           capture_output=True, text=True, timeout=4)
+        state = r.stdout.strip()
+        return state in ("active", "activating", "reloading")
+    except Exception:
+        return False
+
+
+def _is_strictly_running(unit: str) -> bool:
+    """Stricter variant — only "active" counts. Used by the pipeline
+    state detection where "activating" doesn't mean the pipeline is
+    running its event loop yet."""
     try:
         r = subprocess.run(["systemctl", "is-active", unit],
                            capture_output=True, text=True, timeout=4)
@@ -120,7 +140,10 @@ def _build_pipeline_state() -> Dict:
     "Pipeline complete" message can be lost on systemd shutdown).
     """
     # SOURCE OF TRUTH: is the service currently running?
-    is_running = _is_active("stockscout-pipeline.service")
+    # Use STRICT check here ("active" only, not "activating") because
+    # the pipeline being in "activating" state doesn't mean it's
+    # processing events — it means systemd is launching it.
+    is_running = _is_strictly_running("stockscout-pipeline.service")
 
     # Try last 24h first — captures both today's runs and yesterday's
     # for context (so we don't show "unknown" between scheduled fires).

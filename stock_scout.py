@@ -2651,34 +2651,23 @@ else:
                 for i in range(len(_evals))
             }
 
-            # Top-level summary banner
+            # Top-level summary banner — uses st.success/warning native
+            # components for guaranteed contrast across themes (the prior
+            # custom HTML was rendering as empty divs on Cloud due to
+            # nested RTL CSS conflicts hiding the inner text).
             if _n_eligible > 0:
                 _eligible_tickers = [
                     str(sorted_df.iloc[i]["Ticker"])
                     for i, e in enumerate(_evals) if e["would_buy"]
                 ]
-                st.markdown(
-                    f'<div dir="ltr" style="direction:ltr;background:#064e3b;'
-                    f'color:white;padding:14px 18px;border-radius:8px;'
-                    f'margin:12px 0;border-left:4px solid #10b981;">'
-                    f'<div style="font-size:0.78rem;color:#86efac;'
-                    f'font-weight:600;text-transform:uppercase;'
-                    f'letter-spacing:0.05em;margin-bottom:4px;">'
-                    f'🚀 Auto-trade pre-check'
-                    f'</div>'
-                    f'<div style="color:white;font-size:1.05rem;font-weight:700;">'
-                    f'{_n_eligible} of {_n_total} would trigger a BUY '
-                    f'<span style="font-weight:400;opacity:0.85;">'
-                    f'if pipeline ran now</span>'
-                    f'</div>'
-                    f'<div style="color:white;font-size:0.85rem;'
-                    f'opacity:0.85;margin-top:6px;">'
-                    f'Eligible: <code style="background:rgba(255,255,255,0.15);'
-                    f'padding:2px 8px;border-radius:4px;color:white;">'
-                    f'{", ".join(_eligible_tickers[:10])}'
-                    f'{" …" if len(_eligible_tickers) > 10 else ""}</code>'
-                    f'</div></div>',
-                    unsafe_allow_html=True,
+                _ticker_list = ", ".join(_eligible_tickers[:10])
+                if len(_eligible_tickers) > 10:
+                    _ticker_list += " …"
+                st.success(
+                    f"🚀 **Auto-trade pre-check:** "
+                    f"**{_n_eligible} of {_n_total}** would trigger a BUY "
+                    f"if pipeline ran now\n\n"
+                    f"**Eligible:** `{_ticker_list}`"
                 )
             else:
                 # Most common skip reason for visibility
@@ -2687,26 +2676,18 @@ else:
                     _reason_counts[e["reason"]] = _reason_counts.get(e["reason"], 0) + 1
                 _top_reason = max(_reason_counts.items(), key=lambda x: x[1]) \
                     if _reason_counts else ("(no candidates)", 0)
-                st.markdown(
-                    f'<div dir="ltr" style="direction:ltr;background:#451a03;'
-                    f'color:white;padding:14px 18px;border-radius:8px;'
-                    f'margin:12px 0;border-left:4px solid #fcd34d;">'
-                    f'<div style="font-size:0.78rem;color:#fcd34d;'
-                    f'font-weight:600;text-transform:uppercase;'
-                    f'letter-spacing:0.05em;margin-bottom:4px;">'
-                    f'⏭ Auto-trade pre-check'
-                    f'</div>'
-                    f'<div style="color:white;font-size:1.05rem;font-weight:700;">'
-                    f'0 of {_n_total} would trigger a BUY'
-                    f'</div>'
-                    f'<div style="color:white;font-size:0.85rem;'
-                    f'opacity:0.85;margin-top:6px;">'
-                    f'Most common skip: <code style="background:'
-                    f'rgba(255,255,255,0.15);padding:2px 8px;border-radius:4px;'
-                    f'color:white;">{_top_reason[0]}</code> '
-                    f'({_top_reason[1]} stocks)'
-                    f'</div></div>',
-                    unsafe_allow_html=True,
+                # Top 3 reasons for transparency
+                _sorted_reasons = sorted(
+                    _reason_counts.items(), key=lambda x: -x[1]
+                )[:3]
+                _reason_lines = "\n".join(
+                    f"  • `{r}` — {c} stocks"
+                    for r, c in _sorted_reasons
+                )
+                st.warning(
+                    f"⏭ **Auto-trade pre-check:** "
+                    f"**0 of {_n_total}** would trigger a BUY\n\n"
+                    f"**Top skip reasons:**\n{_reason_lines}"
                 )
     except Exception as _ee:
         import logging as _le
