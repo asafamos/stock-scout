@@ -164,7 +164,14 @@ def positions_with_earnings_section(st):
         return
 
     st.markdown("### 📊 Live Positions")
-    rows = []
+
+    # Build an HTML table manually — st.dataframe was being mangled by
+    # the global RTL CSS even with overrides, truncating cells to a
+    # single char. Hand-rolled HTML with explicit dir="ltr" and inline
+    # styles gives us guaranteed reliable rendering.
+    headers = ["Ticker", "Qty", "Entry", "Mkt", "P&L", "Peak", "Trail",
+               "Target", "Earnings"]
+    rows_html = []
     for p in positions:
         days_ed = p.get("days_to_earnings")
         ed_str = p.get("earnings_date", "")
@@ -173,31 +180,56 @@ def positions_with_earnings_section(st):
         elif days_ed < 0:
             ed_disp = f"{ed_str} (past)"
         elif days_ed == 0:
-            ed_disp = f"⚠️ TODAY ({ed_str})"
+            ed_disp = f"⚠️ TODAY"
         elif days_ed <= 3:
-            ed_disp = f"🔴 in {days_ed}d ({ed_str})"
+            ed_disp = f"🔴 in {days_ed}d"
         elif days_ed <= 7:
-            ed_disp = f"🟡 in {days_ed}d ({ed_str})"
+            ed_disp = f"🟡 in {days_ed}d"
         else:
-            ed_disp = f"✅ in {days_ed}d ({ed_str})"
+            ed_disp = f"✅ in {days_ed}d"
 
         pnl_pct = p.get("pnl_pct", 0) or 0
-        pnl_color = "🟢" if pnl_pct >= 0 else "🔴"
+        pnl_color = "#10b981" if pnl_pct >= 0 else "#ef4444"
+        pnl_emoji = "🟢" if pnl_pct >= 0 else "🔴"
+        pnl_disp = f"{pnl_emoji} {pnl_pct:+.1f}%" if pnl_pct else "—"
 
-        rows.append({
-            "Ticker": p.get("ticker"),
-            "Qty": p.get("qty"),
-            "Entry": f"${p.get('entry', 0):.2f}" if p.get("entry") else "—",
-            "Mkt": f"${p.get('mkt', 0):.2f}" if p.get("mkt") else "—",
-            "P&L": f"{pnl_color} {pnl_pct:+.1f}%" if pnl_pct else "—",
-            "Peak": f"+{p.get('peak_pct', 0):.1f}%" if p.get("peak_pct") else "—",
-            "Trail": f"{p.get('trail_pct', 0):.1f}%",
-            "Target": f"${p.get('target', 0):.2f}" if p.get("target") else "—",
-            "Earnings": ed_disp,
-        })
+        cells = [
+            f"<b>{p.get('ticker','?')}</b>",
+            str(p.get("qty", "")),
+            f"${p.get('entry', 0):.2f}" if p.get("entry") else "—",
+            f"${p.get('mkt', 0):.2f}" if p.get("mkt") else "—",
+            f'<span style="color:{pnl_color};font-weight:600">{pnl_disp}</span>',
+            f"+{p.get('peak_pct', 0):.1f}%" if p.get("peak_pct") else "—",
+            f"{p.get('trail_pct', 0):.1f}%",
+            f"${p.get('target', 0):.2f}" if p.get("target") else "—",
+            ed_disp,
+        ]
+        cells_html = "".join(
+            f'<td style="padding:8px 12px;direction:ltr;text-align:left;'
+            f'border-bottom:1px solid rgba(0,0,0,0.06);font-feature-settings:\'tnum\'">'
+            f'{c}</td>' for c in cells
+        )
+        rows_html.append(f"<tr>{cells_html}</tr>")
 
-    import pandas as _pd
-    st.dataframe(_pd.DataFrame(rows), hide_index=True, use_container_width=True)
+    headers_html = "".join(
+        f'<th style="padding:10px 12px;direction:ltr;text-align:left;'
+        f'border-bottom:2px solid rgba(0,0,0,0.12);font-size:0.78rem;'
+        f'font-weight:600;text-transform:uppercase;letter-spacing:0.04em;'
+        f'color:rgba(0,0,0,0.6)">{h}</th>'
+        for h in headers
+    )
+    table_html = (
+        f'<div dir="ltr" style="direction:ltr;width:100%;overflow-x:auto;'
+        f'background:var(--ss-bg-card,white);border-radius:8px;'
+        f'border:1px solid rgba(0,0,0,0.08);margin:8px 0;">'
+        f'<table dir="ltr" style="direction:ltr;width:100%;'
+        f'border-collapse:collapse;font-family:-apple-system,sans-serif;'
+        f'font-size:0.92rem">'
+        f'<thead><tr>{headers_html}</tr></thead>'
+        f'<tbody>{"".join(rows_html)}</tbody>'
+        f'</table></div>'
+    )
+    st.markdown(table_html, unsafe_allow_html=True)
 
 
 def todays_actions_section(st):
@@ -209,25 +241,53 @@ def todays_actions_section(st):
         st.info("📋 No actions yet today.")
         return
 
-    st.markdown("### 📋 Today's Actions")
-    import pandas as _pd
-    rows = []
+    headers = ["Time", "Action", "Ticker", "Qty", "Price", "P&L", "Reason"]
+    rows_html = []
     for a in actions[-20:]:
         ts = str(a.get("timestamp", ""))[11:19]
         action = a.get("action", "")
         emoji = {"OPEN": "🟢", "CLOSE": "🔴", "PARTIAL": "🟡",
                  "RECONCILE_DROP": "🧹"}.get(action, "•")
         pnl = a.get("pnl")
-        rows.append({
-            "Time": ts,
-            "Action": f"{emoji} {action}",
-            "Ticker": a.get("ticker", ""),
-            "Qty": a.get("quantity", ""),
-            "Price": f"${a.get('price', 0):.2f}" if a.get("price") else "—",
-            "P&L": f"${pnl:+.2f}" if isinstance(pnl, (int, float)) else "—",
-            "Reason": str(a.get("reason", ""))[:40],
-        })
-    st.dataframe(_pd.DataFrame(rows), hide_index=True, use_container_width=True)
+        pnl_color = "inherit"
+        pnl_str = "—"
+        if isinstance(pnl, (int, float)):
+            pnl_color = "#10b981" if pnl >= 0 else "#ef4444"
+            pnl_str = f"${pnl:+.2f}"
+        cells = [
+            ts,
+            f"{emoji} {action}",
+            f"<b>{a.get('ticker','')}</b>",
+            str(a.get("quantity", "")),
+            f"${a.get('price', 0):.2f}" if a.get("price") else "—",
+            f'<span style="color:{pnl_color}">{pnl_str}</span>',
+            str(a.get("reason", ""))[:40],
+        ]
+        cells_html = "".join(
+            f'<td style="padding:6px 10px;direction:ltr;text-align:left;'
+            f'border-bottom:1px solid rgba(0,0,0,0.06);font-size:0.88rem">'
+            f'{c}</td>' for c in cells
+        )
+        rows_html.append(f"<tr>{cells_html}</tr>")
+
+    headers_html = "".join(
+        f'<th style="padding:8px 10px;direction:ltr;text-align:left;'
+        f'border-bottom:2px solid rgba(0,0,0,0.12);font-size:0.72rem;'
+        f'font-weight:600;text-transform:uppercase;letter-spacing:0.04em;'
+        f'color:rgba(0,0,0,0.6)">{h}</th>'
+        for h in headers
+    )
+    table_html = (
+        f'<div dir="ltr" style="direction:ltr;width:100%;overflow-x:auto;'
+        f'background:var(--ss-bg-card,white);border-radius:8px;'
+        f'border:1px solid rgba(0,0,0,0.08);margin:8px 0;">'
+        f'<table dir="ltr" style="direction:ltr;width:100%;'
+        f'border-collapse:collapse;font-family:-apple-system,sans-serif">'
+        f'<thead><tr>{headers_html}</tr></thead>'
+        f'<tbody>{"".join(rows_html)}</tbody>'
+        f'</table></div>'
+    )
+    st.markdown(table_html, unsafe_allow_html=True)
 
 
 def emergency_controls_section(st):

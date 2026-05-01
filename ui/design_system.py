@@ -218,17 +218,24 @@ button[kind="header"] {
     direction: ltr !important;
 }
 
-/* Force LTR on data tables / dataframes — RTL was truncating cell
-   values to single characters (e.g. "$111.33" rendered as "1")
-   because the table layout assumed LTR for column widths. */
+/* Force LTR on ALL Streamlit native widgets that contain data —
+   RTL was truncating cell values to single chars (e.g. "$111.33"
+   rendered as "1"). The browser's RTL layout was clipping content
+   from the LEFT (so we saw the last char). */
 [data-testid="stDataFrame"],
 [data-testid="stDataFrame"] *,
 [data-testid="stTable"],
 [data-testid="stTable"] *,
-.stDataFrame,
-.stDataFrame * {
+.stDataFrame, .stDataFrame *,
+table, table *,
+thead, tbody, tr, td, th,
+div[role="table"], div[role="table"] *,
+div[role="row"], div[role="cell"], div[role="columnheader"],
+div[role="rowheader"], div[role="gridcell"],
+.glide-data-grid, .glide-data-grid * {
     direction: ltr !important;
     text-align: left !important;
+    unicode-bidi: embed !important;
 }
 
 /* Streamlit native metric component — keep numeric values LTR */
@@ -237,6 +244,11 @@ button[kind="header"] {
 [data-testid="stMetricDelta"] {
     direction: ltr !important;
     text-align: left !important;
+}
+
+/* Catch-all: any element marked .ltr or with explicit dir="ltr" */
+[dir="ltr"], [dir="ltr"] * {
+    direction: ltr !important;
 }
 
 h1, h2, h3, h4, h5, h6 {

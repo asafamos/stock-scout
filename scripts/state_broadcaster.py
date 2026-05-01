@@ -108,7 +108,20 @@ def _journal(unit: str, since: str = "1 hour ago", lines: int = 200) -> str:
 
 
 def _build_pipeline_state() -> Dict:
-    """Read the most recent pipeline run from journal + parse outcomes."""
+    """Read the most recent pipeline run from journal + parse outcomes.
+
+    AUTHORITATIVE source for state is `systemctl is-active`:
+      - "active" / "activating" → service is currently RUNNING
+      - "inactive" / "failed" → service is NOT running (idle)
+
+    We use the journal only to fill in details (last_fire, regime,
+    candidate counts) — never to determine the BINARY running/idle
+    state, since journal parsing has timing edge cases (e.g. the bash
+    "Pipeline complete" message can be lost on systemd shutdown).
+    """
+    # SOURCE OF TRUTH: is the service currently running?
+    is_running = _is_active("stockscout-pipeline.service")
+
     # Try last 24h first — captures both today's runs and yesterday's
     # for context (so we don't show "unknown" between scheduled fires).
     j = _journal("stockscout-pipeline.service", since="24 hours ago", lines=500)
@@ -116,11 +129,14 @@ def _build_pipeline_state() -> Dict:
         # No journal at all → service has never run OR journal disabled.
         # That's "idle" not "unknown" — the timer is set up correctly,
         # we just haven't seen a fire yet.
-        return {"state": "idle", "last_fire": None, "last_outcome": None}
+        return {"state": "running" if is_running else "idle",
+                "last_fire": None, "last_outcome": None}
 
     # Find the last START line and trace forward
     lines = j.splitlines()
-    state = "idle"
+    # Default to is_running source-of-truth — overridden only if we find
+    # specific in-flight markers below.
+    state = "idle" if not is_running else "running"
     last_fire = None
     last_complete = None
     candidates_total = None
@@ -129,44 +145,40 @@ def _build_pipeline_state() -> Dict:
     regime = None
     new_scan_hash = None
 
-    # Most-recent-first scan
+    # Iterate journal lines to extract details. State is ONLY updated
+    # to in-flight values (dispatched/polling/trading) when the service
+    # is currently running. Otherwise stays "idle" regardless of journal.
     for i, ln in enumerate(lines):
         if "Starting pipeline pipeline" in ln:
             # Extract timestamp from `[HH:MM:SS] Starting pipeline pipeline`
             m = re.search(r"\[(\d{2}:\d{2}:\d{2})\]", ln)
             if m:
                 last_fire = m.group(1)
-        if "✓ Workflow dispatched" in ln:
-            state = "dispatched"
-        if "Polling for new scan" in ln:
-            state = "polling"
-        if "✓ New scan detected" in ln:
-            state = "trading"
-            m = re.search(r"hash ([a-f0-9]+)", ln)
-            if m:
-                new_scan_hash = m.group(1)
-        if "Recording outcomes" in ln:
-            pass  # in-flight
+        if is_running:
+            # Only update state from journal if service is ACTUALLY running.
+            # When inactive, journal contains stale "✓ Workflow dispatched"
+            # from yesterday — irrelevant.
+            if "✓ Workflow dispatched" in ln:
+                state = "dispatched"
+            if "Polling for new scan" in ln:
+                state = "polling"
+            if "✓ New scan detected" in ln:
+                state = "trading"
+                m = re.search(r"hash ([a-f0-9]+)", ln)
+                if m:
+                    new_scan_hash = m.group(1)
+            if "Triggering auto-trade" in ln:
+                state = "trading"
+            if "TIMEOUT after" in ln:
+                state = "failed_timeout"
         if "regime=" in ln:
             m = re.search(r"regime=(\w+)", ln)
             if m:
                 regime = m.group(1)
-        if "Triggering auto-trade" in ln:
-            state = "trading"
         if "No candidates passed filters" in ln:
             candidates_passed = 0
-        if "BUY " in ln and "EXECUTING" in ln:
-            m = re.search(r"BUY (\d+) x (\w+)", ln)
-            if m:
-                # Could parse all buys but for now keep simple
-                pass
-        if "Trade finished" in ln:
-            state = "done"
         if "Pipeline complete" in ln or "stockscout-pipeline.service: Deactivated successfully" in ln:
-            state = "idle"
             last_complete = "yes"
-        if "TIMEOUT after" in ln:
-            state = "failed_timeout"
 
     # Today's skips — read trade_log for SKIP entries (from order_manager)
     today_iso = date.today().isoformat()
