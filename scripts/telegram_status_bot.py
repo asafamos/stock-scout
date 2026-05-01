@@ -361,14 +361,136 @@ def main():
                         "To proceed: reply <code>/panic confirm</code>\n"
                         "To preview (no action): reply <code>/panic preview</code>"
                     )
+                # ── New commands via shared command_bus ──────────────
+                elif text in ("/today", "today", "היום"):
+                    logger.info("Today log requested")
+                    try:
+                        from core.control.command_bus import execute as _exec
+                        r = _exec("today", source="telegram")
+                        actions = r.get("actions", [])
+                        if not actions:
+                            send_message("📋 No actions today.")
+                        else:
+                            lines = [f"📋 <b>Today's actions ({len(actions)}):</b>"]
+                            for a in actions[-15:]:
+                                ts = str(a.get("timestamp", ""))[11:19]
+                                act = a.get("action", "")
+                                tk = a.get("ticker", "")
+                                px = a.get("price", "?")
+                                pnl = a.get("pnl", "")
+                                emoji = {"OPEN": "🟢", "CLOSE": "🔴",
+                                         "PARTIAL": "🟡"}.get(act, "•")
+                                pnl_str = f" P&L ${pnl:+.2f}" if isinstance(pnl, (int, float)) else ""
+                                lines.append(f"  {emoji} {ts} {act} {tk} @ ${px}{pnl_str}")
+                            send_message("\n".join(lines))
+                    except Exception as _e:
+                        send_message(f"⚠️ today failed: {_e}")
+                elif text in ("/pause", "pause", "השהה"):
+                    logger.info("Pause requested")
+                    try:
+                        from core.control.command_bus import execute as _exec
+                        r = _exec("pause", source="telegram")
+                        send_message(f"⏸ Auto-trading paused ({r.get('paused_until')})")
+                    except Exception as _e:
+                        send_message(f"⚠️ pause failed: {_e}")
+                elif text.startswith("/pause "):
+                    try:
+                        from core.control.command_bus import execute as _exec
+                        days = int(text.split()[1])
+                        r = _exec("pause", source="telegram", days=days)
+                        send_message(f"⏸ Paused for {days}d (until {r.get('paused_until')})")
+                    except Exception as _e:
+                        send_message(f"⚠️ {_e}")
+                elif text in ("/resume", "resume", "המשך"):
+                    logger.info("Resume requested")
+                    try:
+                        from core.control.command_bus import execute as _exec
+                        _exec("resume", source="telegram")
+                        send_message("▶️ Auto-trading resumed.")
+                    except Exception as _e:
+                        send_message(f"⚠️ resume failed: {_e}")
+                elif text in ("/scan", "scan", "סריקה"):
+                    logger.info("Manual scan triggered")
+                    try:
+                        from core.control.command_bus import execute as _exec
+                        r = _exec("scan", source="telegram")
+                        if r.get("already_running"):
+                            send_message(
+                                f"⏳ Scan already running.\n{r.get('url', '')}\n"
+                                f"Started: {r.get('started_at', '?')}"
+                            )
+                        elif r.get("ok"):
+                            send_message("🔍 Scan dispatched — watch GH Actions.")
+                        else:
+                            send_message(f"⚠️ {r.get('error', 'unknown error')}")
+                    except Exception as _e:
+                        send_message(f"⚠️ scan failed: {_e}")
+                elif text.startswith("/sell "):
+                    try:
+                        from core.control.command_bus import execute as _exec
+                        ticker = text.split()[1].upper()
+                        send_message(f"⏳ Selling {ticker}...")
+                        r = _exec("sell", source="telegram", ticker=ticker)
+                        if r.get("ok"):
+                            send_message(
+                                f"✅ Sold {r.get('qty')} x {ticker} @ "
+                                f"${r.get('fill_price', 0):.2f}"
+                            )
+                        else:
+                            send_message(f"❌ {r.get('error', 'sell failed')}")
+                    except Exception as _e:
+                        send_message(f"⚠️ {_e}")
+                elif text.startswith("/block "):
+                    try:
+                        from core.control.command_bus import execute as _exec
+                        parts = text.split()
+                        ticker = parts[1].upper()
+                        days = int(parts[2]) if len(parts) > 2 else 30
+                        r = _exec("block", source="telegram", ticker=ticker, days=days)
+                        send_message(
+                            f"🚫 Blocked {ticker} until {r.get('blocked_until', '?')[:10]}"
+                        )
+                    except Exception as _e:
+                        send_message(f"⚠️ {_e}")
+                elif text.startswith("/unblock "):
+                    try:
+                        from core.control.command_bus import execute as _exec
+                        ticker = text.split()[1].upper()
+                        _exec("unblock", source="telegram", ticker=ticker)
+                        send_message(f"✅ {ticker} unblocked")
+                    except Exception as _e:
+                        send_message(f"⚠️ {_e}")
+                elif text.startswith("/resubmit "):
+                    try:
+                        from core.control.command_bus import execute as _exec
+                        ticker = text.split()[1].upper()
+                        send_message(f"⏳ Resubmitting protection for {ticker}...")
+                        r = _exec("resubmit", source="telegram", ticker=ticker)
+                        if r.get("ok"):
+                            send_message(f"✅ {ticker} protected.")
+                        else:
+                            send_message(f"❌ {r.get('error', 'resubmit failed')}")
+                    except Exception as _e:
+                        send_message(f"⚠️ {_e}")
                 elif text in ("help", "עזרה", "/help"):
                     send_message(
-                        "<b>Available commands:</b>\n"
+                        "<b>📋 Available commands:</b>\n\n"
+                        "<b>VIEW</b>\n"
                         "• <b>status</b> — portfolio + orders\n"
-                        "• <b>/pnl</b> — today + total P&L\n"
-                        "• <b>/history</b> — recent closed trades\n"
-                        "• <b>/panic</b> — emergency close-all (with confirm)\n"
-                        "• <b>help</b> — this message"
+                        "• <b>/today</b> — today's actions\n"
+                        "• <b>/pnl</b> — P&L summary\n"
+                        "• <b>/history</b> — recent closed trades\n\n"
+                        "<b>CONTROL</b>\n"
+                        "• <b>/pause [N]</b> — pause auto-trading [N days]\n"
+                        "• <b>/resume</b> — resume auto-trading\n"
+                        "• <b>/scan</b> — trigger manual scan\n\n"
+                        "<b>POSITIONS</b>\n"
+                        "• <b>/sell TICKER</b> — close one position\n"
+                        "• <b>/resubmit TICKER</b> — re-place protective orders\n"
+                        "• <b>/block TICKER [N]</b> — do-not-buy [N days]\n"
+                        "• <b>/unblock TICKER</b> — remove from block list\n\n"
+                        "<b>EMERGENCY</b>\n"
+                        "• <b>/panic</b> — close everything (with confirm)"
                     )
 
         except Exception as e:

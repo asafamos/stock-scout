@@ -60,6 +60,18 @@ echo "════════════════════════�
 echo "Starting $LABEL pipeline (event-driven scan→trade)"
 echo "═══════════════════════════════════════════════════════"
 
+# Notify Telegram pipeline START — gives the user visibility into what's
+# happening before the 50min scan completes, instead of silence followed by
+# either a buy or "no candidates passed" with no context.
+if [ -n "${TRADE_TELEGRAM_TOKEN:-}" ] && [ -n "${TRADE_TELEGRAM_CHAT_ID:-}" ]; then
+    curl -fsS -X POST \
+        "https://api.telegram.org/bot${TRADE_TELEGRAM_TOKEN}/sendMessage" \
+        -d "chat_id=${TRADE_TELEGRAM_CHAT_ID}" \
+        -d "parse_mode=HTML" \
+        --data-urlencode "text=🔍 <b>Pipeline started</b> ($LABEL)%0AWaiting for fresh scan from GH Actions..." \
+        >/dev/null 2>&1 || true
+fi
+
 # Snapshot the current scan parquet hash so we can detect a NEW one.
 # Fail-fast if the initial fetch fails — we must have a true baseline,
 # not "none", or the next successful fetch will trip the change detector
@@ -166,16 +178,58 @@ if [ "$OUT_EXIT" -ne 0 ]; then
 fi
 rm -f "$OUT_LOG"
 
+# Notify Telegram that scan landed + how many candidates we'll evaluate
+# (gives the user context before the trade evaluator runs).
+SCAN_REGIME=$($PY -c "
+import pandas as pd
+try:
+    df = pd.read_parquet('$SCAN_FILE')
+    print(df['Market_Regime'].mode().iloc[0] if 'Market_Regime' in df.columns and len(df) else 'unknown')
+except Exception:
+    print('unknown')
+" 2>/dev/null || echo "unknown")
+SCAN_TOP=$($PY -c "
+import pandas as pd
+try:
+    df = pd.read_parquet('$SCAN_FILE')
+    print(f\"{len(df)} rows, top score {df['FinalScore_20d'].max():.1f}\" if len(df) else '0 rows')
+except Exception:
+    print('?')
+" 2>/dev/null || echo "?")
+if [ -n "${TRADE_TELEGRAM_TOKEN:-}" ] && [ -n "${TRADE_TELEGRAM_CHAT_ID:-}" ]; then
+    curl -fsS -X POST \
+        "https://api.telegram.org/bot${TRADE_TELEGRAM_TOKEN}/sendMessage" \
+        -d "chat_id=${TRADE_TELEGRAM_CHAT_ID}" \
+        -d "parse_mode=HTML" \
+        --data-urlencode "text=📊 <b>Scan landed</b>%0ARegime: $SCAN_REGIME%0A$SCAN_TOP%0AEvaluating candidates..." \
+        >/dev/null 2>&1 || true
+fi
+
 # Fire the trade evaluator. Live price refresh + 8 risk gates inside.
 # TRADE_LIVE_CONFIRMED=1 is the systemd-pipeline authorization to run live;
 # manual ssh runs (without this env var and without --live flag) default to
 # DRY mode for safety. See run_auto_trade.py for the full policy.
 echo "Triggering auto-trade..."
 TRADE_T0=$(date +%s)
-# `|| true` so set -e + pipefail don't abort the final summary block on
-# a non-zero trade exit; we log the exit explicitly below.
-TRADE_LIVE_CONFIRMED=1 $PY -m scripts.run_auto_trade 2>&1 | tail -25 || true
-TRADE_EXIT=${PIPESTATUS[0]}
+# Capture stdout to grep for "No candidates" later — used to push a
+# meaningful "why no buy" message to Telegram.
+TRADE_OUT=/tmp/trade-output-$$.log
+TRADE_LIVE_CONFIRMED=1 $PY -m scripts.run_auto_trade > "$TRADE_OUT" 2>&1 || true
+TRADE_EXIT=$?
+tail -25 "$TRADE_OUT"
+# Detect "no candidates" path and notify with reason
+if grep -q "No candidates passed filters" "$TRADE_OUT"; then
+    SKIP_REASONS=$(grep -E "^\s*SKIP " "$TRADE_OUT" | head -5 | sed 's/^\s*//' || true)
+    if [ -n "${TRADE_TELEGRAM_TOKEN:-}" ] && [ -n "${TRADE_TELEGRAM_CHAT_ID:-}" ]; then
+        curl -fsS -X POST \
+            "https://api.telegram.org/bot${TRADE_TELEGRAM_TOKEN}/sendMessage" \
+            -d "chat_id=${TRADE_TELEGRAM_CHAT_ID}" \
+            -d "parse_mode=HTML" \
+            --data-urlencode "text=⏭ <b>Scan: 0 buys</b>%0ATop skips:%0A<pre>${SKIP_REASONS:-No candidates entered evaluation}</pre>" \
+            >/dev/null 2>&1 || true
+    fi
+fi
+rm -f "$TRADE_OUT"
 TRADE_DUR=$(( $(date +%s) - TRADE_T0 ))
 echo "Trade finished (exit=$TRADE_EXIT, duration=${TRADE_DUR}s)"
 

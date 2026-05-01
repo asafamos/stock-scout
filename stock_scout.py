@@ -635,7 +635,28 @@ phase_times: Dict[str, float] = st.session_state["phase_times"]
 # One-shot Live Scan button:
 # - By default, the app prefers precomputed scan (if it exists).
 # - If the user clicks the button, we force a single live run and ignore the snapshot for this run only.
-if st.button("🔄 Run Live Scan Now", key="live_scan_button", type="primary"):
+# - CONFLICT GUARD: if VPS pipeline is currently running a scan, show a notice
+#   instead of letting the user kick off a duplicate that wastes API quota.
+_pipeline_running = False
+try:
+    from core.streamlit_components import fetch_state as _fs
+    _state = _fs()
+    if _state:
+        _pstate = _state.get("pipeline", {}).get("state", "idle")
+        _pipeline_running = _pstate in ("dispatched", "polling", "trading")
+except Exception:
+    pass
+
+if _pipeline_running:
+    st.info(
+        "⏳ **VPS pipeline is currently running a scan.** "
+        "Manual scan would compete for the same API quota. "
+        "Wait for completion (~50 min) or use the Telegram bot's `/today` "
+        "to monitor progress."
+    )
+    st.button("🔄 Run Live Scan Now (disabled — pipeline running)",
+             key="live_scan_button", disabled=True)
+elif st.button("🔄 Run Live Scan Now", key="live_scan_button", type="primary"):
     st.session_state["force_live_scan_once"] = True
     st.session_state["skip_pipeline"] = False  # ensure live path
     # Reset progress tracking for the new scan
@@ -904,6 +925,36 @@ else:
     
 # Reset the one-shot flag (always)
 st.session_state["force_live_scan_once"] = False
+
+# ==================== AUTOMATED-MODE DASHBOARD (state-feed) ====================
+# Top-of-page widgets backed by VPS state broadcaster (refreshed every 30s).
+# These reflect what the VPS pipeline + monitor + IB are doing in real time —
+# unlike the legacy LIVE TRADING BANNER below, which reads stale git-checked-in
+# portfolio_snapshot.json.
+try:
+    from core.streamlit_components import (
+        pipeline_status_widget,
+        positions_with_earnings_section,
+        todays_actions_section,
+        emergency_controls_section,
+        fetch_state,
+    )
+    _state_for_check = fetch_state()
+    if _state_for_check:
+        with st.container():
+            pipeline_status_widget(st)
+        st.divider()
+        positions_with_earnings_section(st)
+        with st.expander("📋 Today's Actions", expanded=False):
+            todays_actions_section(st)
+        with st.expander("🎛️ System Controls", expanded=False):
+            emergency_controls_section(st)
+        st.divider()
+except Exception as _ssc_err:
+    # Fall through to legacy banner if state-feed not yet available
+    import logging as _lg
+    _lg.getLogger(__name__).debug("state-feed unavailable: %s", _ssc_err)
+
 
 # ==================== LIVE TRADING BANNER (restored polish) ====================
 try:

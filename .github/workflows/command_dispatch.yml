@@ -1,0 +1,58 @@
+name: Command Dispatch
+
+# Triggered by Streamlit dashboard via repository_dispatch.
+# Receives a command + payload and pushes it to a queue file in the
+# `commands` branch. The VPS polls this branch and processes new commands
+# (single source of truth — same pipeline regardless of caller).
+
+on:
+  repository_dispatch:
+    types: [stockscout-command]
+
+permissions:
+  contents: write
+
+jobs:
+  enqueue:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate payload
+        run: |
+          CMD="${{ github.event.client_payload.command }}"
+          if [ -z "$CMD" ]; then
+            echo "::error::No command provided in client_payload"
+            exit 1
+          fi
+          echo "Command: $CMD"
+
+      - name: Checkout commands branch (or create empty)
+        run: |
+          git config --global user.email "command-dispatch@stockscout"
+          git config --global user.name "stockscout-command-dispatch"
+          mkdir command_queue && cd command_queue
+          git init -q
+          git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          if git fetch origin commands 2>/dev/null; then
+            git checkout -B commands origin/commands
+          else
+            git checkout -b commands
+          fi
+
+      - name: Append command to queue
+        run: |
+          cd command_queue
+          mkdir -p commands
+          QF=commands/queue.jsonl
+          touch "$QF"
+          # JSON-encode the full client_payload + metadata
+          PAYLOAD='${{ toJSON(github.event.client_payload) }}'
+          NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          ID=$(date -u +%s)-$RANDOM
+          echo "{\"id\":\"$ID\",\"ts\":\"$NOW\",\"source\":\"streamlit-dispatch\",\"payload\":$PAYLOAD,\"status\":\"pending\"}" >> "$QF"
+
+      - name: Push command to commands branch
+        run: |
+          cd command_queue
+          git add commands/queue.jsonl
+          git commit -q -m "queue: ${{ github.event.client_payload.command }}"
+          git push -q origin commands

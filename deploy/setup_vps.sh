@@ -356,6 +356,37 @@ Persistent=true
 WantedBy=timers.target
 SVCEOF
 
+# --- State Broadcaster (every 30s) ---
+# Builds system_state.json + force-pushes to GitHub state-feed branch.
+# Streamlit reads via raw URL → near-real-time dashboard without lagging
+# on git checkouts. Lightweight (~3s per run, mostly file IO).
+sudo tee /etc/systemd/system/stockscout-state-broadcaster.service > /dev/null << 'SVCEOF'
+[Unit]
+Description=StockScout state broadcaster (VPS → state-feed branch)
+
+[Service]
+Type=oneshot
+User=stockscout
+WorkingDirectory=/home/stockscout/stock-scout-2
+EnvironmentFile=/home/stockscout/stock-scout-2/.env.trading
+ExecStart=/home/stockscout/stock-scout-2/.venv/bin/python -m scripts.state_broadcaster
+TimeoutStartSec=60
+SVCEOF
+
+sudo tee /etc/systemd/system/stockscout-state-broadcaster.timer > /dev/null << 'SVCEOF'
+[Unit]
+Description=StockScout state broadcaster timer (every 30s)
+
+[Timer]
+OnBootSec=60
+OnUnitActiveSec=30
+AccuracySec=5
+Persistent=false
+
+[Install]
+WantedBy=timers.target
+SVCEOF
+
 # --- Daily morning health summary (07:00 UTC = 10:00 IL) ---
 # Surface bugs that took days to detect in the past:
 # outcomes-record stale, services down, positions without protective
