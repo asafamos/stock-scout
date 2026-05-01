@@ -1,6 +1,21 @@
 # Per-user identity (persisted SSO email, never commit)
 data/.user_identity
 
+# Runtime trading state — DO NOT TRACK.
+# These files represent live state on whichever machine is running the
+# monitor (Mac OR VPS). Tracking them in git creates a critical race:
+# `git pull origin main` on the VPS overwrites the live tracker with
+# whatever was last committed, dropping current positions silently.
+# Observed 2026-05-01: a routine pull on the VPS replaced the live
+# tracker (ORCL+RDDT) with a stale committed snapshot (CF+TDW from
+# 2 weeks earlier), causing the monitor to alert on phantom positions
+# and re-adopt the real ones from IB.
+# trade_log.json is also runtime state — historical events should be
+# logged elsewhere (Supabase) if audit history is needed.
+data/trades/open_positions.json
+data/trades/portfolio_snapshot.json
+data/trades/trade_log.json
+
 # Environment and secrets
 .env
 *.nev
