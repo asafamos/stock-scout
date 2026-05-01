@@ -112,25 +112,49 @@ class RiskManager:
             return True, "", 1.0
 
     def check_cash_after_buy(self, cost: float) -> Tuple[bool, str]:
-        """Block buys that would drop cash below IB's $2,000 minimum.
+        """Block buys that would leave cash below the level needed for
+        IB's protective-order resubmit logic to function.
 
-        Without this gate, IB rejects post-buy resubmits with "minimum
-        of 2000" (the cash-account rule). Detected reactively today, but
-        the position is then unprotected until the user adds cash.
-        Proactive check is cheaper and clearer. (Audit finding #10.)
+        Audit M3 (2026-05-01): previously this gate ONLY fired when a
+        $2k+ account would drop below $2k. For the user's actual
+        sub-$2k account it was a no-op — yet IB STILL rejects resubmits
+        in the sub-$2k tier when there's not enough cash buffer for
+        commission + slippage on the protective leg. Now the gate has
+        TWO branches:
+
+          1. Crossing the $2k boundary (existing behavior).
+          2. Sub-$2k tier: ensure post-buy cash >= 1.5× cost-of-one-share
+             buffer for commission + slippage when IB resubmits the
+             protective LMT. Roughly: leave at least $25 of free cash.
         """
         try:
             cash = float(self.client.get_cash_balance() or 0)
         except Exception:
-            return True, ""  # can't check — let it through (fall back to IB-side reject)
-        # Only enforce when this buy WOULD cross the $2k boundary.
-        # Above $2k post-buy, the rule doesn't bite.
-        if cash - cost < 2000 and cash >= 2000:
+            return True, ""  # can't check — let it through (IB will reject)
+
+        post_buy_cash = cash - cost
+
+        # Branch 1: $2k boundary crossing
+        if post_buy_cash < 2000 and cash >= 2000:
             return False, (
-                f"Cash post-buy ${cash - cost:.0f} would fall below IB's $2,000 "
+                f"Cash post-buy ${post_buy_cash:.0f} would fall below IB's $2,000 "
                 f"minimum (cash now ${cash:.0f}, buy ${cost:.0f}). "
                 f"Buy would succeed but resubmits/protective orders would fail."
             )
+
+        # Branch 2: sub-$2k tier — leave commission/slippage buffer.
+        # IB charges $1 commission per leg; protective LMT resubmits can
+        # need a few cents of slippage budget on the limit price. $25 is a
+        # generous buffer that prevents "insufficient funds" rejects on
+        # the protective resubmit path.
+        SUB_2K_MIN_BUFFER = 25.0
+        if cash < 2000 and post_buy_cash < SUB_2K_MIN_BUFFER:
+            return False, (
+                f"Cash post-buy ${post_buy_cash:.0f} below sub-$2k buffer "
+                f"${SUB_2K_MIN_BUFFER:.0f} (cash ${cash:.0f}, cost ${cost:.0f}). "
+                f"Risk of failed protective-order resubmit."
+            )
+
         return True, ""
 
     def check_daily_loss_breaker(self) -> Tuple[bool, str]:
@@ -302,6 +326,45 @@ class RiskManager:
     # Keeps yfinance API hits to <50/day even with 10+ scan runs.
     _EARNINGS_CACHE: dict = {}
     _EARNINGS_CACHE_DATE: Optional[date] = None
+
+    # yfinance health: a single 60s-ttl health check that all yfinance-
+    # dependent gates consult. Audit Cross-cut #2 (2026-05-01): five gates
+    # rely on yfinance (earnings, sector momentum, sector boost, correlation,
+    # analyst PT) — and all of them fail-OPEN on errors. A yfinance outage
+    # silently disables five protective layers simultaneously. The health
+    # check probes once per minute with a tiny request (SPY 1d) and lets
+    # any caller short-circuit fast when yfinance is down.
+    _YF_HEALTH_CACHE: Dict[str, float] = {"ok": 0.0, "checked_at": 0.0}
+
+    @classmethod
+    def yfinance_healthy(cls) -> bool:
+        """Return True if yfinance is reachable. 60s TTL cache.
+
+        Used as a soft signal — gates still fail-OPEN, but they can log
+        the un-healthy state once instead of failing silently 5 times.
+        Also surfaces a single Telegram alert from monitor when health
+        flips False so the operator knows multiple gates are degraded.
+        """
+        import time as _time
+        now_ts = _time.time()
+        if now_ts - cls._YF_HEALTH_CACHE["checked_at"] < 60.0:
+            return cls._YF_HEALTH_CACHE["ok"] >= 1.0
+        try:
+            import yfinance as yf
+            # Tiny probe: SPY most recent day. Cheap and always-cached upstream.
+            hist = yf.Ticker("SPY").history(period="1d", interval="1d")
+            ok = hist is not None and len(hist) > 0
+        except Exception:
+            ok = False
+        cls._YF_HEALTH_CACHE["ok"] = 1.0 if ok else 0.0
+        cls._YF_HEALTH_CACHE["checked_at"] = now_ts
+        if not ok:
+            logger.warning(
+                "yfinance health check FAILED — earnings, sector momentum, "
+                "correlation, and analyst-PT gates will all fail-OPEN this "
+                "cycle. Trades may proceed with degraded protection."
+            )
+        return ok
 
     def check_earnings_window(self, ticker: str) -> Tuple[bool, str]:
         """Block buys if next earnings announcement is within
@@ -564,6 +627,8 @@ class RiskManager:
         target_price: float = 0.0,
         market_regime: str = "",
         ml_prob: float = 0.0,
+        signal_quality: str = "",
+        reliability_score: float = 100.0,
     ) -> Tuple[bool, str]:
         """Return (allowed, reason). Reason is empty string if allowed.
 
@@ -572,7 +637,62 @@ class RiskManager:
         buffer). Without this, a static threshold of 73 was blocking
         ALL SIDEWAYS-day trades because the scan's regime-adjusted
         scores top out around 70 in those markets.
+
+        signal_quality / reliability_score: forwarded to
+        policy.evaluate_static_gates as defense-in-depth. If
+        order_manager._filter_candidates is bypassed (manual call,
+        future refactor), the static gates still re-apply here.
         """
+
+        # Audit Cross-cut #3 (2026-05-01): runner-level parity with
+        # the dashboard preview. Both paths now invoke the SAME
+        # `policy.evaluate_static_gates` — not just the same helpers.
+        # Any future bug in static-gate logic shows up identically in
+        # the UI and in the trader, eliminating "preview ≠ production"
+        # drift even when `_filter_candidates` is bypassed.
+        try:
+            from core.trading.policy import evaluate_static_gates
+            synthetic_row = {
+                "Ticker": ticker,
+                "FinalScore_20d": score,
+                "RewardRisk": rr,
+                "ML_20d_Prob": ml_prob,
+                "Sector": sector,
+                "SignalQuality": signal_quality or "High",  # filtered upstream
+                "Market_Regime": market_regime,
+                "Reliability_Score": reliability_score,
+                "Entry_Price": price,
+                "Stop_Loss": stop_loss,
+                "Target_Price": target_price,
+            }
+            # Build a state dict from local sources (no state-feed needed
+            # in production — risk_manager uses authoritative tracker +
+            # command_bus directly).
+            try:
+                from core.control.command_bus import _is_paused as _ipd
+                paused_now = bool(_ipd())
+            except Exception:
+                paused_now = False
+            held_set = {
+                p.get("ticker", "").upper()
+                for p in self.tracker.get_open_positions()
+            }
+            state_for_gates = {
+                "paused": paused_now,
+                "positions": [{"ticker": t} for t in held_set],
+            }
+            gate_result = evaluate_static_gates(
+                synthetic_row, cfg=self.cfg, state=state_for_gates,
+                held_tickers=held_set,
+            )
+            if not gate_result.would_buy:
+                return False, gate_result.primary_reason
+        except Exception as _gate_err:
+            # NEVER let the unification call break a trade decision.
+            # If evaluate_static_gates errors, fall through to the
+            # legacy in-line gates below. Worst case: pre-this-commit
+            # behavior.
+            logger.debug("policy.evaluate_static_gates skipped: %s", _gate_err)
 
         # 0. Trade levels sanity — refuse buys with missing/absurd stops or targets.
         # Protects against scan rows where stop_loss/target_price are missing,
@@ -668,8 +788,11 @@ class RiskManager:
         # OR already below it (the user is past that boundary).
         # See risk_manager.check_cash_after_buy.
         try:
-            est_cost = price * self.cfg.max_position_size / max(price, 1)  # placeholder
-            # Use config max_position_size directly as the upper bound on cost
+            # Use the smaller of (max_position_size, price) as the cost
+            # estimate — for shares priced above max_position_size we'd
+            # only buy 1 share so cost == price; otherwise cost is bounded
+            # by max_position_size. (Audit M2: removed a redundant
+            # placeholder calculation that was immediately overwritten.)
             est_cost = min(self.cfg.max_position_size, price)
             allowed, reason = self.check_cash_after_buy(est_cost)
             if not allowed:

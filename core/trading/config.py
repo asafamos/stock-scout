@@ -135,8 +135,11 @@ class TradingConfig:
         default_factory=lambda: _env_bool("EARNINGS_GATE_ENABLED", True)
     )
     earnings_block_days: int = field(
-        default_factory=lambda: _env_int("EARNINGS_BLOCK_DAYS", 3)
-    )
+        default_factory=lambda: _env_int("EARNINGS_BLOCK_DAYS", 5)
+    )  # Audit H3 (2026-05-01): widened from 3 to 5 days. Options-implied
+       # gap risk prices in at T-5; intraday volatility lifts at T-1; the
+       # report itself can produce 15-25% gap-down on miss. 3-day window
+       # only covered the report itself, not the lead-in elevated-vol period.
 
     # ── Performance throttle (safety brake on losing streaks) ─────
     # Tracks the rolling win rate of the last N closed trades. When the

@@ -127,6 +127,24 @@ class OrderManager:
 
         logger.info("Candidates after filtering: %d", len(candidates))
 
+        # Audit M5+H6 (2026-05-01): pre-warm analyst-PT cache for top-N
+        # candidates BEFORE entering the trade loop. Each
+        # `_cap_target_with_analysts` call inside `_execute_single` would
+        # otherwise hit yfinance during the time-sensitive trade window.
+        # If yfinance is rate-limiting at scan-end (fairly common), trades
+        # would skip with no analyst data — silently bypassing the
+        # analyst-veto gate. Pre-fetching outside the trade loop also
+        # lets us short-circuit when yfinance is fully down (we know
+        # before placing any orders that the analyst gate is degraded).
+        try:
+            n_to_prefetch = min(len(candidates), int(self.cfg.max_daily_buys * 2))
+            top_tickers = candidates.head(n_to_prefetch).get("Ticker", pd.Series([])).tolist()
+            for _t in top_tickers:
+                _fetch_analyst_target(_t)  # populates module-level cache
+            logger.info("Pre-warmed analyst-PT cache for %d candidates", n_to_prefetch)
+        except Exception as _pw_err:
+            logger.debug("Analyst pre-warm skipped: %s", _pw_err)
+
         results = []
         try:
             # 4. Execute trades
@@ -800,10 +818,13 @@ class OrderManager:
         # using the static 73 that blocked all SIDEWAYS-day trades.
         _row_regime = str(row.get("Market_Regime", "") or "").upper()
         _row_ml = float(row.get("ML_20d_Prob", row.get("ml_prob", 0)) or 0)
+        _row_sq = str(row.get("SignalQuality", row.get("Confidence_Level", "")))
+        _row_rel = float(row.get("Reliability_Score", row.get("Reliability", 100)) or 100)
         allowed, reason = self.risk.can_open_position(
             ticker, price, score, rr, sector=sector, atr_pct=atr_pct,
             stop_loss=stop, target_price=target, market_regime=_row_regime,
             ml_prob=_row_ml,
+            signal_quality=_row_sq, reliability_score=_row_rel,
         )
         if not allowed:
             logger.info("SKIP %s: %s", ticker, reason)

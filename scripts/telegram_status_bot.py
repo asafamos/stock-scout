@@ -200,6 +200,46 @@ def get_pnl_summary() -> str:
     total_emoji = "🟢" if realized_total >= 0 else "🔴"
     un_emoji = "🟢" if unrealized >= 0 else "🔴"
 
+    # Audit M7: surface MAX DRAWDOWN and PROFIT FACTOR — both already
+    # computed by analytics, just weren't exposed via /pnl. Profit factor
+    # = gross wins ÷ gross losses (>1.0 = strategy is positive expectancy).
+    # Max DD = peak-to-trough decline of the realized equity curve.
+    extra_block = ""
+    try:
+        from core.trading.analytics import (
+            compute_drawdown,
+            build_equity_curve,
+            pair_buy_sell_events,
+        )
+        pairs = pair_buy_sell_events(log)
+        if pairs and len(pairs) >= 2:
+            curve = build_equity_curve(pairs, starting_balance=1000.0)
+            dd = compute_drawdown(curve)
+            max_dd_pct = float(dd.get("max_dd_pct", 0) or 0)
+
+            # Profit factor — gross wins ÷ |gross losses|
+            gross_wins = sum(
+                float(t.get("pnl", 0) or 0)
+                for t in log if t.get("action") == "CLOSE"
+                and float(t.get("pnl", 0) or 0) > 0
+            )
+            gross_losses = abs(sum(
+                float(t.get("pnl", 0) or 0)
+                for t in log if t.get("action") == "CLOSE"
+                and float(t.get("pnl", 0) or 0) < 0
+            ))
+            pf = (gross_wins / gross_losses) if gross_losses > 0 else float("inf")
+            pf_str = "∞" if pf == float("inf") else f"{pf:.2f}"
+            pf_emoji = "🟢" if pf >= 1.5 else ("🟡" if pf >= 1.0 else "🔴")
+            dd_emoji = "🟢" if max_dd_pct < 5 else ("🟡" if max_dd_pct < 10 else "🔴")
+            extra_block = (
+                f"\n<b>Profit Factor:</b> {pf_emoji} {pf_str} "
+                f"<i>(gross wins ÷ gross losses)</i>\n"
+                f"<b>Max Drawdown:</b> {dd_emoji} -{max_dd_pct:.1f}%"
+            )
+    except Exception as _e:
+        logger.debug("PF/DD enrichment skipped: %s", _e)
+
     return (
         f"<b>💰 P&L Summary</b>\n\n"
         f"{today_emoji} <b>Today (realized):</b> ${realized_today:+.2f}\n"
@@ -207,6 +247,7 @@ def get_pnl_summary() -> str:
         f"{total_emoji} <b>Lifetime (closed):</b> ${realized_total:+.2f}\n\n"
         f"<b>Record:</b> {wins}W / {losses}L "
         f"({win_rate:.0f}% win rate, {total_closes} trades)"
+        f"{extra_block}"
     )
 
 
