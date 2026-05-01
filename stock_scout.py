@@ -257,17 +257,64 @@ with st.sidebar:
       <div style="font-size: 0.68rem; color: var(--ss-text-secondary); margin-top: 6px; font-weight: 600;">{_user_icon} {_user_display}</div>
     </div>
     """, unsafe_allow_html=True)
-    st.markdown('<p style="font-size:0.78rem; font-weight:700; color:var(--ss-text-muted); text-transform:uppercase; letter-spacing:0.06em; margin:0 0 4px 0;">Scan History</p>', unsafe_allow_html=True)
-    # Show Supabase persistence status
+    # Detect automated mode — used to dim noise and skip stale legacy widgets.
+    _automated_mode = False
+    _state_for_sidebar = None
     try:
-        from core.db.supabase_client import get_supabase_client
-        _sb_ok = get_supabase_client() is not None
-        if _sb_ok:
-            st.caption("☁️ Cloud persistence active")
-        else:
-            st.caption("⚠️ Local only — history lost on redeploy")
+        from core.streamlit_components import fetch_state as _sb_fs
+        _state_for_sidebar = _sb_fs()
+        _automated_mode = bool(_state_for_sidebar)
     except Exception:
-        st.caption("⚠️ Local only")
+        pass
+
+    # ── Today's Activity (compact) ──
+    # Shown only in automated mode — the user wanted the sidebar to feel
+    # quieter and more useful. This single card replaces the previous
+    # "Cloud persistence active" caption + Virtual Portfolio panel.
+    if _automated_mode and _state_for_sidebar:
+        try:
+            _today_log = _state_for_sidebar.get("trade_log_today", []) or []
+            _summary = _state_for_sidebar.get("summary", {}) or {}
+            _buys = sum(1 for a in _today_log if a.get("action") == "OPEN")
+            _sells = sum(1 for a in _today_log if a.get("action") in ("CLOSE", "PARTIAL"))
+            _open_count = _summary.get("open_positions", len(_state_for_sidebar.get("positions", []) or []))
+            _today_pnl = sum(
+                float(a.get("pnl") or 0)
+                for a in _today_log
+                if a.get("action") in ("CLOSE", "PARTIAL") and a.get("pnl") is not None
+            )
+            _pnl_color = "#10b981" if _today_pnl >= 0 else "#ef4444"
+            _pnl_sign = "+" if _today_pnl >= 0 else ""
+            st.markdown(f"""
+            <div dir="ltr" style="direction:ltr; text-align:left; background:var(--ss-bg-card); border:1px solid var(--ss-border); border-radius:10px; padding:10px 12px; margin:0 0 14px 0;">
+              <div style="font-size:0.72rem; font-weight:700; color:var(--ss-text-muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:6px;">📋 Today</div>
+              <div style="display:flex; justify-content:space-between; gap:8px; font-size:0.82rem;">
+                <span style="color:var(--ss-text-primary);">🟢 {_buys} buy{'' if _buys == 1 else 's'}</span>
+                <span style="color:var(--ss-text-primary);">🔴 {_sells} sell{'' if _sells == 1 else 's'}</span>
+              </div>
+              <div style="display:flex; justify-content:space-between; gap:8px; margin-top:4px; font-size:0.82rem;">
+                <span style="color:var(--ss-text-secondary);">Open: <b style="color:var(--ss-text-primary);">{_open_count}</b></span>
+                <span style="color:{_pnl_color}; font-weight:700; font-feature-settings:'tnum';">{_pnl_sign}${_today_pnl:.2f}</span>
+              </div>
+            </div>
+            """, unsafe_allow_html=True)
+        except Exception as _tl_e:
+            logger.debug("Today's activity sidebar error: %s", _tl_e)
+
+    st.markdown('<p style="font-size:0.78rem; font-weight:700; color:var(--ss-text-muted); text-transform:uppercase; letter-spacing:0.06em; margin:0 0 4px 0;">Scan History</p>', unsafe_allow_html=True)
+    # Show Supabase persistence status only when state-feed is unavailable
+    # (legacy fallback). In automated mode the top dashboard already shows
+    # health — repeating "☁️ Cloud persistence active" here was just noise.
+    if not _automated_mode:
+        try:
+            from core.db.supabase_client import get_supabase_client
+            _sb_ok = get_supabase_client() is not None
+            if _sb_ok:
+                st.caption("☁️ Cloud persistence active")
+            else:
+                st.caption("⚠️ Local only — history lost on redeploy")
+        except Exception:
+            st.caption("⚠️ Local only")
     _scan_dir = Path(__file__).parent / "data" / "scans"
     _user_scan_dir = user_scan_dir(_scan_dir, _user_id)
     try:
@@ -414,31 +461,43 @@ with st.sidebar:
         st.caption(f"ML info unavailable: {_ml_e}")
 
     # ── Portfolio Summary ──────────────────────────────────────────
-    st.markdown('<div style="height:1px; background:var(--ss-border); margin:14px 0;"></div>', unsafe_allow_html=True)
+    # Skipped in automated mode — when state-feed is healthy we use Live
+    # Positions on the main panel as the single source of truth. Showing a
+    # paper "Virtual Portfolio" alongside live IB positions confused the
+    # owner ("130 open / 280 closed" is paper-trade history, not live).
+    _skip_virtual_portfolio = False
     try:
-        _pm_sidebar = get_portfolio_manager(_user_id)
-        _pf_stats = _pm_sidebar.get_portfolio_stats()
-        if _pf_stats.get("open_count", 0) > 0 or _pf_stats.get("closed_count", 0) > 0:
-            _recent_date = date.today() - timedelta(days=30)
-            _recent_stats = _pm_sidebar.get_portfolio_stats(since_date=_recent_date)
-            _exit_counts = _pm_sidebar.get_exit_reason_counts()
-            st.markdown(
-                render_portfolio_sidebar_full(_pf_stats, _recent_stats, _exit_counts),
-                unsafe_allow_html=True,
-            )
-        else:
-            st.markdown("""
-            <div class="ss-portfolio-summary">
-              <div style="font-size:0.78rem; font-weight:700; color:var(--ss-text-muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:4px;">
-                💼 Virtual Portfolio
-              </div>
-              <div style="font-size:0.72rem; color:var(--ss-text-muted);">
-                No positions yet. Use the + buttons on recommendation cards to add stocks.
-              </div>
-            </div>
-            """, unsafe_allow_html=True)
-    except Exception as _pf_e:
-        logger.debug("Portfolio sidebar error: %s", _pf_e)
+        from core.streamlit_components import fetch_state as _vp_fs
+        _skip_virtual_portfolio = bool(_vp_fs())
+    except Exception:
+        pass
+
+    if not _skip_virtual_portfolio:
+        st.markdown('<div style="height:1px; background:var(--ss-border); margin:14px 0;"></div>', unsafe_allow_html=True)
+        try:
+            _pm_sidebar = get_portfolio_manager(_user_id)
+            _pf_stats = _pm_sidebar.get_portfolio_stats()
+            if _pf_stats.get("open_count", 0) > 0 or _pf_stats.get("closed_count", 0) > 0:
+                _recent_date = date.today() - timedelta(days=30)
+                _recent_stats = _pm_sidebar.get_portfolio_stats(since_date=_recent_date)
+                _exit_counts = _pm_sidebar.get_exit_reason_counts()
+                st.markdown(
+                    render_portfolio_sidebar_full(_pf_stats, _recent_stats, _exit_counts),
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown("""
+                <div class="ss-portfolio-summary">
+                  <div style="font-size:0.78rem; font-weight:700; color:var(--ss-text-muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:4px;">
+                    💼 Virtual Portfolio
+                  </div>
+                  <div style="font-size:0.72rem; color:var(--ss-text-muted);">
+                    No positions yet. Use the + buttons on recommendation cards to add stocks.
+                  </div>
+                </div>
+                """, unsafe_allow_html=True)
+        except Exception as _pf_e:
+            logger.debug("Portfolio sidebar error: %s", _pf_e)
 
     # ── Live Trading (IB/VPS) — minimal badge, details in top banner ─
     # Skipped when state-feed is healthy — the new automated dashboard
@@ -661,7 +720,7 @@ if _pipeline_running:
         "Wait for completion (~50 min) or send `/today` to "
         "@stockscout_asaf_bot to monitor progress."
     )
-    st.button("🔄 Run Live Scan Now (disabled — pipeline running)",
+    st.button("⏳ VPS scan in progress — buttons disabled",
              key="live_scan_button", disabled=True)
 else:
     _scan_cols = st.columns([3, 2])
@@ -943,7 +1002,7 @@ else:
             logger.debug("unknown: %s", e)
         use_precomputed = True
     else:
-        status_manager.update_detail("No scan data — click 'Run Live Scan Now' or wait for auto-scan")
+        status_manager.update_detail("No scan data — click 'Trigger VPS Scan' or wait for the next scheduled run")
         use_precomputed = False
         st.session_state["skip_pipeline"] = False
     
@@ -962,12 +1021,32 @@ try:
         positions_with_earnings_section,
         todays_actions_section,
         emergency_controls_section,
+        buy_pre_check_widget,
+        earnings_warning_widget,
         fetch_state,
     )
     _state_for_check = fetch_state()
     if _state_for_check:
         with st.container():
             pipeline_status_widget(st)
+        # Earnings warning — high priority above positions if any position
+        # has earnings ≤7d (binary risk reminder)
+        earnings_warning_widget(st)
+        # AUTO-TRADE PRE-CHECK at TOP — most important info: would the
+        # next pipeline run actually buy something? Tries to use the
+        # currently-loaded scan results if available; falls back to
+        # showing nothing if scan isn't loaded yet.
+        try:
+            _scan_for_precheck = st.session_state.get("precomputed_results")
+            if _scan_for_precheck is None or len(_scan_for_precheck) == 0:
+                # If state-feed has eval data from earlier render, skip;
+                # otherwise we need scan data which loads later in the
+                # page — pre-check then runs at its later location.
+                pass
+            else:
+                buy_pre_check_widget(st, _scan_for_precheck)
+        except Exception:
+            pass
         st.divider()
         positions_with_earnings_section(st)
         with st.expander("📋 Today's Actions", expanded=False):
@@ -1929,11 +2008,27 @@ except Exception as e:
 
 
 # ==================== LIVE TRADING PERFORMANCE DASHBOARD ====================
+# Only show when state-feed throttle is missing (legacy fallback) AND we have
+# enough trades for the win rate to be meaningful. Otherwise the unified
+# throttle widget at the top is the single source of truth — showing this
+# small-sample dashboard alongside it produced inconsistent WR readouts
+# (e.g. "5 trades 20%" here vs "10 trades 28%" in the throttle widget).
+_skip_legacy_perf = False
 try:
+    from core.streamlit_components import fetch_state as _fetch_state_perf
+    _sf_state = _fetch_state_perf(max_age_sec=600)
+    if _sf_state and (_sf_state.get("throttle") or {}).get("win_rate") is not None:
+        _skip_legacy_perf = True
+except Exception:
+    pass
+
+try:
+    if _skip_legacy_perf:
+        raise StopIteration  # use exception to skip cleanly
     from core.trading.analytics import get_full_performance
     _perf = get_full_performance()
     _metrics = _perf.get("metrics", {})
-    if _metrics.get("total_trades", 0) > 0:
+    if _metrics.get("total_trades", 0) >= 10:
         # Prominent header with color-coded P&L
         _perf_pnl = _metrics.get('total_pnl_abs', 0)
         _perf_pnl_color = "#10b981" if _perf_pnl >= 0 else "#ef4444"
@@ -2022,6 +2117,8 @@ try:
                 with _bc2:
                     st.error(f"📉 **Worst:** {_worst['ticker']} {_worst['pnl_pct']:+.1f}% "
                              f"(${_worst['pnl_abs']:+.2f}) in {_worst['hold_days']}d")
+except StopIteration:
+    pass  # state-feed has authoritative throttle data
 except Exception as _perf_err:
     logger.debug("Performance dashboard error: %s", _perf_err)
 

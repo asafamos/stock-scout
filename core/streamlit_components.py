@@ -188,6 +188,73 @@ def evaluate_scan_row_for_buy(row, state: Optional[Dict] = None) -> Dict:
         }
 
 
+def buy_pre_check_widget(st, scan_df=None):
+    """Top-of-page widget showing how many scan candidates would
+    pass all gates if the auto-trade pipeline ran on the current scan now.
+
+    Renders inline with pipeline_status_widget for at-a-glance visibility.
+    Falls back gracefully if scan_df is missing or empty.
+    """
+    state = fetch_state() or {}
+    if scan_df is None or len(scan_df) == 0:
+        return  # silent — nothing to evaluate
+
+    evals = []
+    for _idx, row in scan_df.iterrows():
+        evals.append(evaluate_scan_row_for_buy(row, state))
+    eligible = [e for e in evals if e["would_buy"]]
+    n_eligible = len(eligible)
+    n_total = len(evals)
+
+    if n_eligible > 0:
+        eligible_tickers = [
+            str(scan_df.iloc[i]["Ticker"])
+            for i, e in enumerate(evals) if e["would_buy"]
+        ]
+        ticker_list = ", ".join(eligible_tickers[:8])
+        if len(eligible_tickers) > 8:
+            ticker_list += f" +{len(eligible_tickers) - 8} more"
+        st.success(
+            f"🚀 **{n_eligible} of {n_total}** would BUY if pipeline ran now · "
+            f"`{ticker_list}`"
+        )
+    else:
+        # Top 3 reasons
+        reason_counts: Dict[str, int] = {}
+        for e in evals:
+            reason_counts[e["reason"]] = reason_counts.get(e["reason"], 0) + 1
+        sorted_reasons = sorted(reason_counts.items(), key=lambda x: -x[1])[:3]
+        reason_summary = " · ".join(f"`{r}` ({c})" for r, c in sorted_reasons)
+        st.warning(
+            f"⏭ **0 of {n_total}** would BUY · Top blocks: {reason_summary}"
+        )
+
+
+def earnings_warning_widget(st):
+    """Banner above Live Positions when any current position has earnings
+    within 7 trading days — flags binary risk and reminds the user that
+    the system will auto-tighten TRAIL to 2% at <2d."""
+    state = fetch_state() or {}
+    positions = state.get("positions", []) or []
+    soon = []
+    for p in positions:
+        d = p.get("days_to_earnings")
+        if d is not None and 0 <= d <= 7:
+            soon.append((p.get("ticker"), d, p.get("earnings_date", "")))
+    if not soon:
+        return
+    soon.sort(key=lambda x: x[1])
+    parts = [
+        f"**{t}** in {d}d ({date_str})"
+        + (" 🔴 auto-tighten zone" if d <= 2 else "")
+        for t, d, date_str in soon
+    ]
+    st.warning(
+        "📅 **Earnings approaching:** " + " · ".join(parts) +
+        " — system will auto-tighten TRAIL to 2% at <2d."
+    )
+
+
 def render_eligibility_badge(eval_result: Dict) -> str:
     """Return inline HTML badge HTML for use in scan result cards."""
     return (
@@ -326,10 +393,43 @@ def pipeline_status_widget(st):
     next_fire = health.get("pipeline_next_fire", "—")
     pipe_paused = state.get("paused", False)
 
+    # When pipeline is running, compute elapsed and rough ETA
+    elapsed_str = None
+    eta_str = None
+    if pipe_state in ("dispatched", "polling", "trading"):
+        last_fire = pipeline.get("last_fire", "")
+        if last_fire and len(last_fire) >= 8:
+            try:
+                from datetime import datetime as _dt, timezone as _tz
+                # last_fire is "HH:MM:SS" — assume today UTC
+                today = _dt.now(_tz.utc).date()
+                hh, mm, ss = last_fire.split(":")
+                start_dt = _dt(today.year, today.month, today.day,
+                               int(hh), int(mm), int(ss), tzinfo=_tz.utc)
+                elapsed_sec = (_dt.now(_tz.utc) - start_dt).total_seconds()
+                if elapsed_sec < 0:
+                    elapsed_sec += 86400  # crossed midnight
+                elapsed_min = int(elapsed_sec // 60)
+                elapsed_str = f"{elapsed_min}m"
+                # Typical scan completes in ~50 min, trade is fast
+                # ETA = max(0, 55 - elapsed)
+                eta_min = max(0, 55 - elapsed_min)
+                eta_str = f"~{eta_min}m left"
+            except Exception:
+                pass
+
     cols = st.columns([2, 2, 2, 2, 2])
     with cols[0]:
-        label = "PAUSED ⏸" if pipe_paused else f"{state_emoji} {pipe_state.upper()}"
-        st.metric("Pipeline", label)
+        if pipe_paused:
+            label = "⏸ PAUSED"
+            delta = None
+        elif elapsed_str:
+            label = f"{state_emoji} {pipe_state.upper()}"
+            delta = f"{elapsed_str} · {eta_str}" if eta_str else elapsed_str
+        else:
+            label = f"{state_emoji} {pipe_state.upper()}"
+            delta = None
+        st.metric("Pipeline", label, delta)
     with cols[1]:
         # next_fire might be ISO string ("2026-05-01T13:30:00+00:00"),
         # an int (microseconds-since-epoch), None, or "—". Handle all.
@@ -361,7 +461,7 @@ def pipeline_status_widget(st):
             st.metric(f"Throttle {color}", f"{int(mult*100)}% size",
                       f"WR {int(wr*100)}%")
         else:
-            st.metric("Throttle", "✅ inactive")
+            st.metric("Throttle", "🟢 inactive")
 
     # ── Service health line ──
     services = ["stockscout-monitor", "stockscout-pipeline.timer",
@@ -369,7 +469,7 @@ def pipeline_status_widget(st):
     badges = []
     for s in services:
         ok = health.get(s, False)
-        emoji = "✅" if ok else "🔴"
+        emoji = "🟢" if ok else "🔴"
         badges.append(f"{emoji} {s.replace('stockscout-', '')}")
     st.caption(" • ".join(badges))
 
@@ -406,7 +506,7 @@ def positions_with_earnings_section(st):
         elif days_ed <= 7:
             ed_disp = f"🟡 in {days_ed}d"
         else:
-            ed_disp = f"✅ in {days_ed}d"
+            ed_disp = f"🟢 in {days_ed}d"
 
         pnl_pct = p.get("pnl_pct", 0) or 0
         pnl_color = "#10b981" if pnl_pct >= 0 else "#ef4444"
