@@ -3147,11 +3147,28 @@ with col_json:
         mime="application/json",
     )
 
+# RTL-safe rendering: st.dataframe uses glide-data-grid (canvas-based)
+# which ignores CSS direction overrides — negative numbers showed as
+# "0.0702-" instead of "-0.0702", and short values like Risk_Band="n"
+# got truncated. Pre-format numeric columns to strings (so the canvas
+# sees them as text and renders LTR by default), and wrap in a
+# direction-locked container.
+_export_df = csv_df[[c for c in show_order_unique if c in csv_df.columns]].copy()
+# Format numeric columns to strings with proper sign placement.
+import numpy as _np_export
+for _col in _export_df.columns:
+    if _np_export.issubdtype(_export_df[_col].dtype, _np_export.number):
+        _export_df[_col] = _export_df[_col].apply(
+            lambda x: "—" if pd.isna(x) else f"{x:,.4f}".rstrip("0").rstrip(".") or "0"
+        )
+
+st.markdown('<div dir="ltr" style="direction:ltr;">', unsafe_allow_html=True)
 st.dataframe(
-    csv_df[[c for c in show_order_unique if c in csv_df.columns]],
+    _export_df,
     width='stretch',
     hide_index=True,
 )
+st.markdown('</div>', unsafe_allow_html=True)
 
 # ==================== Virtual Portfolio ====================
 st.markdown("""
