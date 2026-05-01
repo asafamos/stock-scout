@@ -68,7 +68,7 @@ if [ -n "${TRADE_TELEGRAM_TOKEN:-}" ] && [ -n "${TRADE_TELEGRAM_CHAT_ID:-}" ]; t
         "https://api.telegram.org/bot${TRADE_TELEGRAM_TOKEN}/sendMessage" \
         -d "chat_id=${TRADE_TELEGRAM_CHAT_ID}" \
         -d "parse_mode=HTML" \
-        --data-urlencode "text=🔍 <b>Pipeline started</b> ($LABEL)%0AWaiting for fresh scan from GH Actions..." \
+        --data-urlencode "$(printf 'text=🔍 <b>Pipeline started</b> (%s)\nWaiting for fresh scan from GH Actions...' "$LABEL")" \
         >/dev/null 2>&1 || true
 fi
 
@@ -109,7 +109,7 @@ if [ -n "${GITHUB_TOKEN:-}" ]; then
                 "https://api.telegram.org/bot${TRADE_TELEGRAM_TOKEN}/sendMessage" \
                 -d "chat_id=${TRADE_TELEGRAM_CHAT_ID}" \
                 -d "parse_mode=HTML" \
-                --data-urlencode "text=⚠️ <b>PIPELINE DISPATCH FAIL</b>%0AHTTP=${DISPATCH_HTTP}%0A${DISP_BODY}%0AContinuing with cron-only fallback." \
+                --data-urlencode "$(printf 'text=⚠️ <b>PIPELINE DISPATCH FAIL</b>\nHTTP=%s\n%s\nContinuing with cron-only fallback.' "$DISPATCH_HTTP" "$DISP_BODY")" \
                 >/dev/null 2>&1 || true
         fi
         echo "  → Continuing with poll-only (cron fallback)"
@@ -172,7 +172,7 @@ if [ "$OUT_EXIT" -ne 0 ]; then
             "https://api.telegram.org/bot${TRADE_TELEGRAM_TOKEN}/sendMessage" \
             -d "chat_id=${TRADE_TELEGRAM_CHAT_ID}" \
             -d "parse_mode=HTML" \
-            --data-urlencode "text=⚠️ <b>OUTCOMES-RECORD FAILED</b>%0Aexit=${OUT_EXIT}%0A<pre>${ERR_TAIL}</pre>%0AML feedback loop at risk. Trade will still run." \
+            --data-urlencode "$(printf 'text=⚠️ <b>OUTCOMES-RECORD FAILED</b>\nexit=%s\n<pre>%s</pre>\nML feedback loop at risk. Trade will still run.' "$OUT_EXIT" "$ERR_TAIL")" \
             >/dev/null 2>&1 || true
     fi
 fi
@@ -201,7 +201,7 @@ if [ -n "${TRADE_TELEGRAM_TOKEN:-}" ] && [ -n "${TRADE_TELEGRAM_CHAT_ID:-}" ]; t
         "https://api.telegram.org/bot${TRADE_TELEGRAM_TOKEN}/sendMessage" \
         -d "chat_id=${TRADE_TELEGRAM_CHAT_ID}" \
         -d "parse_mode=HTML" \
-        --data-urlencode "text=📊 <b>Scan landed</b>%0ARegime: $SCAN_REGIME%0A$SCAN_TOP%0AEvaluating candidates..." \
+        --data-urlencode "$(printf 'text=📊 <b>Scan landed</b>\nRegime: %s\n%s\nEvaluating candidates...' "$SCAN_REGIME" "$SCAN_TOP")" \
         >/dev/null 2>&1 || true
 fi
 
@@ -225,7 +225,7 @@ if grep -q "No candidates passed filters" "$TRADE_OUT"; then
             "https://api.telegram.org/bot${TRADE_TELEGRAM_TOKEN}/sendMessage" \
             -d "chat_id=${TRADE_TELEGRAM_CHAT_ID}" \
             -d "parse_mode=HTML" \
-            --data-urlencode "text=⏭ <b>Scan: 0 buys</b>%0ATop skips:%0A<pre>${SKIP_REASONS:-No candidates entered evaluation}</pre>" \
+            --data-urlencode "$(printf 'text=⏭ <b>Scan: 0 buys</b>\nTop skips:\n<pre>%s</pre>' "${SKIP_REASONS:-No candidates entered evaluation}")" \
             >/dev/null 2>&1 || true
     fi
 fi
