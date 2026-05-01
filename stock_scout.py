@@ -1030,6 +1030,7 @@ try:
         emergency_controls_section,
         buy_pre_check_widget,
         earnings_warning_widget,
+        execution_preview_section,
         fetch_state,
     )
     _state_for_check = fetch_state()
@@ -1052,6 +1053,13 @@ try:
                 pass
             else:
                 buy_pre_check_widget(st, _scan_for_precheck)
+                # EXECUTION PREVIEW — show the ACTUAL entry/stop/target/trail
+                # the trader will submit (vs the raw scan numbers). Closes
+                # the trust gap that worried the owner ("are the prices in
+                # the UI the same numbers that get bought?"). Identical math
+                # to order_manager._execute_single via shared policy module.
+                with st.expander("🎯 Execution preview — what the trader would actually submit", expanded=False):
+                    execution_preview_section(st, _scan_for_precheck)
         except Exception:
             pass
         st.divider()

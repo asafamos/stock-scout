@@ -43,149 +43,55 @@ def evaluate_scan_row_for_buy(row, state: Optional[Dict] = None) -> Dict:
         "gates_failed": [list of names],
       }
 
-    Mirrors the gates in risk_manager.can_open_position +
-    order_manager._filter_candidates that DON'T require IB live data.
-    Cannot check: cash availability, day-trade history, IB rejection.
-    For those we rely on the actual pipeline run.
+    Implementation note: this function is now a THIN WRAPPER around
+    `core.trading.policy.evaluate_static_gates`, which is the single
+    source of truth for buy-eligibility gates shared with
+    risk_manager / order_manager. Hardcoded constants previously here
+    (0.33 / 2.0 / 'Consumer Defensive' / a parallel REGIME_FLOORS
+    table) drifted whenever the production CONFIG changed — exactly
+    the parity bug we no longer want to ship.
 
-    The point is to give the user an at-a-glance view in the dashboard
-    of which scan candidates would survive the gauntlet — so the
-    research view feels connected to the trading decisions.
+    Cannot check (those run only in production): live cash, market
+    hours, day-trade history, earnings calendar, sector momentum
+    (yfinance), portfolio correlation, slippage hard-reject.
     """
     state = state or fetch_state() or {}
-    # Pull current account state for gates that depend on it
-    positions = state.get("positions", []) or []
-    held_tickers = {p.get("ticker", "").upper() for p in positions}
-    pipeline = state.get("pipeline", {}) or {}
-    # IMPORTANT: regime should come from the ROW (this scan's own
-    # regime classification), not from state.pipeline.regime which
-    # reflects the LAST PIPELINE RUN's regime — possibly hours ago
-    # and on different scan data. The row regime is what the actual
-    # auto-trade flow will see when it processes this scan.
-    regime = str(row.get("Market_Regime", "") or "").upper()
-    if not regime:
-        # Fallback to state-pipeline regime only if row doesn't have it
-        regime = (pipeline.get("regime") or "").upper()
-    is_paused = state.get("paused", False)
-    throttle = state.get("throttle", {}) or {}
-    throttle_halt = throttle.get("level") == "halt"
 
-    # Extract row fields (defensive — pandas Series or dict both work)
-    def g(key, default=None):
-        if hasattr(row, "get"):
-            return row.get(key, default)
-        try:
-            return row[key]
-        except Exception:
-            return default
+    try:
+        from core.trading.policy import evaluate_static_gates
+    except Exception as _imp_err:
+        # Fallback — if policy.py is unavailable for any reason, fail
+        # OPEN with a clear note rather than silently skipping the row.
+        return {
+            "would_buy": False,
+            "verdict": "UNKNOWN",
+            "reason": f"policy module unavailable: {_imp_err}",
+            "color": "#94a3b8",
+            "icon": "❓",
+            "gates_passed": [],
+            "gates_failed": [f"policy import failed: {_imp_err}"],
+        }
 
-    ticker = str(g("Ticker", g("ticker", ""))).upper()
-    score = float(g("FinalScore_20d", g("Score", 0)) or 0)
-    rr = float(g("RewardRisk", g("RR", 0)) or 0)
-    ml_prob = float(g("ML_20d_Prob", g("ml_prob", 0)) or 0)
-    sector = str(g("Sector", g("sector", "")))
-    confidence = str(g("SignalQuality", g("Confidence_Level", "")))
-
-    # Regime-based score floor (mirrors risk_manager logic).
-    # Includes STRONG_UPTREND from the outcomes-tracker's classifier
-    # which uses different label space than the scan's regime classifier.
-    REGIME_FLOORS = {
-        "STRONG_UPTREND": 55, "UPTREND": 60,
-        "TREND_UP": 60, "BULLISH": 60, "MODERATE_UP": 65,
-        "SIDEWAYS": 75, "NEUTRAL": 75, "RANGING": 75,
-        "DISTRIBUTION": 80, "CORRECTION": 85,
-        "DOWNTREND": 80, "BEARISH": 80, "PANIC": 100,
-    }
-    score_floor = REGIME_FLOORS.get(regime, 73)
-
-    # Run the gates
-    gates_failed = []
-    gates_passed = []
-
-    # 1. Auto-trade paused?
-    if is_paused:
-        gates_failed.append("AUTO-TRADING PAUSED")
-    else:
-        gates_passed.append("not paused")
-
-    # 2. Throttle halt?
-    if throttle_halt:
-        gates_failed.append("Performance throttle HALT")
-    else:
-        gates_passed.append("throttle ok")
-
-    # 3. Already holding?
-    if ticker in held_tickers:
-        gates_failed.append(f"Already holding {ticker}")
-    else:
-        gates_passed.append("not held")
-
-    # 4. Regime block?
-    if regime in ("PANIC", "CORRECTION"):
-        gates_failed.append(f"Market regime blocked: {regime}")
-    else:
-        gates_passed.append(f"regime ok ({regime})")
-
-    # 5. Score floor (regime-aware)
-    if score < score_floor:
-        gates_failed.append(
-            f"Score {score:.1f} < {score_floor} ({regime} floor)"
-        )
-    else:
-        gates_passed.append(f"score ≥ {score_floor}")
-
-    # 6. RR floor
-    if rr < 2.0:
-        gates_failed.append(f"R:R {rr:.2f} < 2.0")
-    else:
-        gates_passed.append("R:R ≥ 2.0")
-
-    # 7. ML floor
-    if ml_prob < 0.33:
-        gates_failed.append(f"ML {ml_prob:.3f} < 0.33")
-    else:
-        gates_passed.append("ML ≥ 0.33")
-
-    # 8. Confidence floor (regime-aware: TREND_UP allows Medium)
-    conf_map = {"HIGH": 3, "MEDIUM": 2, "LOW": 1, "SPECULATIVE": 1}
-    conf_val = conf_map.get(confidence.upper(), 0)
-    min_conf = 2 if regime in ("TREND_UP", "MODERATE_UP", "BULLISH") else 3
-    if conf_val < min_conf:
-        gates_failed.append(
-            f"Confidence {confidence} < required ({['n/a','Low','Medium','High'][min_conf]})"
-        )
-    else:
-        gates_passed.append(f"confidence ≥ {confidence}")
-
-    # 9. Blocked sector
-    if sector == "Consumer Defensive":
-        gates_failed.append(f"Blocked sector: {sector}")
-    else:
-        gates_passed.append("sector ok")
-
-    # Verdict
-    would_buy = len(gates_failed) == 0
-    if would_buy:
+    result = evaluate_static_gates(row, state=state)
+    if result.would_buy:
         return {
             "would_buy": True,
             "verdict": "BUY ELIGIBLE",
-            "reason": f"Passes all {len(gates_passed)} gates",
+            "reason": f"Passes all {len(result.gates_passed)} gates",
             "color": "#10b981",
             "icon": "🚀",
-            "gates_passed": gates_passed,
+            "gates_passed": result.gates_passed,
             "gates_failed": [],
         }
-    else:
-        primary = gates_failed[0]
-        return {
-            "would_buy": False,
-            "verdict": "SKIP",
-            "reason": primary,
-            "color": "#94a3b8",
-            "icon": "⏭",
-            "gates_passed": gates_passed,
-            "gates_failed": gates_failed,
-        }
+    return {
+        "would_buy": False,
+        "verdict": "SKIP",
+        "reason": result.primary_reason,
+        "color": "#94a3b8",
+        "icon": "⏭",
+        "gates_passed": result.gates_passed,
+        "gates_failed": result.gates_failed,
+    }
 
 
 def buy_pre_check_widget(st, scan_df=None):
@@ -194,6 +100,11 @@ def buy_pre_check_widget(st, scan_df=None):
 
     Renders inline with pipeline_status_widget for at-a-glance visibility.
     Falls back gracefully if scan_df is missing or empty.
+
+    For each eligible candidate, also renders the **execution preview**:
+    the actual entry / stop / target / trail % the order_manager would
+    submit to IB (via core.trading.policy.compute_execution_preview).
+    Eliminates the "scan numbers ≠ trade numbers" trust gap.
     """
     state = fetch_state() or {}
     if scan_df is None or len(scan_df) == 0:
@@ -277,6 +188,110 @@ def earnings_warning_widget(st):
         f'📅 <b>Earnings approaching:</b> ' + " · ".join(parts) +
         ' — system will auto-tighten TRAIL to 2% at &lt;2d.'
         f'</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def execution_preview_section(st, scan_df=None, max_rows: int = 5):
+    """Render the EXECUTION PREVIEW table — what the order_manager would
+    actually submit for the top eligible candidates.
+
+    Closes the trust gap between "scan numbers" and "trade numbers":
+    - Live-refreshed entry (when state-feed has cached prices).
+    - Proportionally-rescaled stop & target.
+    - Trail % after regime multiplier + safety clamp.
+    - Estimated qty + spend given current cash.
+
+    Identical math to `order_manager._execute_single` (via the shared
+    `core.trading.policy.compute_execution_preview`). Eliminates the
+    "5 trades 20% WR vs throttle 28%" class of inconsistency: this
+    table is pulled from the same code path the trader runs.
+    """
+    if scan_df is None or len(scan_df) == 0:
+        return
+    try:
+        from core.trading.policy import (
+            compute_execution_preview,
+            evaluate_static_gates,
+        )
+    except Exception as _e:
+        st.caption(f"⚠️ execution preview unavailable: {_e}")
+        return
+
+    state = fetch_state() or {}
+    # Filter to rows that pass all static gates first — no point previewing
+    # rows that won't be considered by the trader.
+    eligible_rows = []
+    for _idx, row in scan_df.iterrows():
+        gr = evaluate_static_gates(row, state=state)
+        if gr.would_buy:
+            eligible_rows.append(row)
+    if not eligible_rows:
+        return  # silent — pre_check_widget already shows "0 of N would BUY"
+
+    # Cash budget for sizing — read from state-feed account snapshot
+    account = state.get("account", {}) or {}
+    cash = float(account.get("cash") or 0)
+    cfg_reserve = 20.0  # cfg.cash_reserve default
+    available_cash = max(0.0, cash - cfg_reserve)
+
+    previews = []
+    for row in eligible_rows[:max_rows]:
+        try:
+            p = compute_execution_preview(
+                row, available_cash=available_cash if available_cash > 0 else None,
+            )
+            previews.append(p)
+        except Exception:
+            continue
+
+    if not previews:
+        return
+
+    # Render as LTR-locked HTML table (same pattern as Live Positions)
+    headers = ["Ticker", "Entry", "Stop", "Target", "Trail %",
+               "Qty", "Spend", "Notes"]
+    rows_html = []
+    for p in previews:
+        notes_short = "; ".join(p.notes)[:48] if p.notes else "—"
+        cells = [
+            f"<b>{p.ticker}</b>",
+            f"${p.entry:.2f}",
+            f"${p.stop:.2f}",
+            f"${p.target:.2f}",
+            f"{p.trail_pct:.1f}%",
+            str(p.qty_estimate),
+            f"${p.spend_estimate:,.0f}",
+            f'<span style="font-size:0.74rem;color:rgba(0,0,0,0.55)">{notes_short}</span>',
+        ]
+        cells_html = "".join(
+            f'<td style="padding:7px 11px;direction:ltr;text-align:left;'
+            f'border-bottom:1px solid rgba(0,0,0,0.06);font-feature-settings:\'tnum\'">'
+            f'{c}</td>' for c in cells
+        )
+        rows_html.append(f"<tr>{cells_html}</tr>")
+    headers_html = "".join(
+        f'<th style="padding:9px 11px;direction:ltr;text-align:left;'
+        f'border-bottom:2px solid rgba(0,0,0,0.12);font-size:0.72rem;'
+        f'font-weight:600;text-transform:uppercase;letter-spacing:0.04em;'
+        f'color:rgba(0,0,0,0.6)">{h}</th>'
+        for h in headers
+    )
+    st.markdown(
+        '<div dir="ltr" style="direction:ltr;width:100%;overflow-x:auto;'
+        'background:var(--ss-bg-card,white);border-radius:8px;'
+        'border:1px solid rgba(0,0,0,0.08);margin:8px 0;">'
+        f'<table dir="ltr" style="direction:ltr;width:100%;border-collapse:collapse;">'
+        f'<thead><tr>{headers_html}</tr></thead>'
+        f'<tbody>{"".join(rows_html)}</tbody>'
+        f'</table>'
+        f'<div style="padding:8px 12px;font-size:0.72rem;color:rgba(0,0,0,0.55);direction:ltr;text-align:left;">'
+        f'These are the numbers the trader will actually submit to IB '
+        f'(after live-price refresh + proportional rescale + regime-aware trail). '
+        f'Static gates passed; runtime gates (slippage, earnings, sector momentum) '
+        f'are evaluated at execution time.'
+        f'</div>'
+        '</div>',
         unsafe_allow_html=True,
     )
 

@@ -19,6 +19,24 @@ from core.trading.config import CONFIG
 logger = logging.getLogger(__name__)
 
 
+def _ib_symbol(ticker: str) -> str:
+    """Convert a Yahoo/scanner ticker to IB's expected symbol format.
+
+    IB uses a SPACE for class-share separators on US equities ("BRK B",
+    "BF B"), while Yahoo and our scanner use a DOT ("BRK.B", "BF.B").
+    For affected tickers, qualifyContracts() throws and the trade
+    silently fails. Run every Stock() construction through this helper.
+
+    Delegates to `core.trading.policy.normalize_ticker_for_ib` so the
+    list of affected symbols is maintained in one place.
+    """
+    try:
+        from core.trading.policy import normalize_ticker_for_ib
+        return normalize_ticker_for_ib(ticker)
+    except Exception:
+        return str(ticker).strip().upper() if ticker else ticker
+
+
 def _make_oca_group(ticker: str) -> str:
     """Generate a guaranteed-unique OCA group name.
 
@@ -274,7 +292,7 @@ class IBKRClient:
             return None
         try:
             from ib_insync import Stock
-            contract = Stock(ticker, "SMART", "USD")
+            contract = Stock(_ib_symbol(ticker), "SMART", "USD")
             self._ib.qualifyContracts(contract)
             # 3 = delayed (~15 min lag, free with all IB accounts).
             # We set this once per call; it's idempotent and cheap.
@@ -345,7 +363,7 @@ class IBKRClient:
             )
         try:
             from ib_insync import Stock, MarketOrder
-            contract = Stock(ticker, "SMART", "USD")
+            contract = Stock(_ib_symbol(ticker), "SMART", "USD")
             self._ib.qualifyContracts(contract)
             order = MarketOrder("BUY", qty)
             trade = self._ib.placeOrder(contract, order)
@@ -390,7 +408,7 @@ class IBKRClient:
             )
         try:
             from ib_insync import Stock, Order
-            contract = Stock(ticker, "SMART", "USD")
+            contract = Stock(_ib_symbol(ticker), "SMART", "USD")
             self._ib.qualifyContracts(contract)
 
             order = Order()
@@ -432,7 +450,7 @@ class IBKRClient:
             )
         try:
             from ib_insync import Stock, LimitOrder
-            contract = Stock(ticker, "SMART", "USD")
+            contract = Stock(_ib_symbol(ticker), "SMART", "USD")
             self._ib.qualifyContracts(contract)
             order = LimitOrder("SELL", qty, round(price, 2))
             order.tif = "GTC"
@@ -514,7 +532,7 @@ class IBKRClient:
             from ib_insync import Stock, Order
             import time as _time
 
-            contract = Stock(ticker, "SMART", "USD")
+            contract = Stock(_ib_symbol(ticker), "SMART", "USD")
             self._ib.qualifyContracts(contract)
 
             # Generate OCA group name (unique per trade)
@@ -717,7 +735,7 @@ class IBKRClient:
             from ib_insync import Stock, Order
             import time as _time
 
-            contract = Stock(ticker, "SMART", "USD")
+            contract = Stock(_ib_symbol(ticker), "SMART", "USD")
             self._ib.qualifyContracts(contract)
 
             # Cancel any existing live protective orders for this ticker
@@ -869,7 +887,7 @@ class IBKRClient:
             )
         try:
             from ib_insync import Stock, Order
-            contract = Stock(ticker, "SMART", "USD")
+            contract = Stock(_ib_symbol(ticker), "SMART", "USD")
             self._ib.qualifyContracts(contract)
 
             order = Order()
@@ -1031,7 +1049,7 @@ class IBKRClient:
             )
         try:
             from ib_insync import Stock, MarketOrder
-            contract = Stock(ticker, "SMART", "USD")
+            contract = Stock(_ib_symbol(ticker), "SMART", "USD")
             self._ib.qualifyContracts(contract)
             order = MarketOrder("SELL", qty)
             trade = self._ib.placeOrder(contract, order)

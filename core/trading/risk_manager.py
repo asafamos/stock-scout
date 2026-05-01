@@ -690,23 +690,14 @@ class RiskManager:
                 f"Insufficient cash (${cash:,.0f} < ${actual_cost:,.0f})"
             )
 
-        # 6. Score filter — regime-aware. The scan's REGIME_MIN_SCORE table
-        # adjusts the floor based on regime (TREND_UP=55, MODERATE_UP=60,
-        # SIDEWAYS=70, DISTRIBUTION=75, etc). Apply the same shape here +
-        # small +5 buffer so trades demand higher conviction than scan
-        # inclusion. Falls back to static cfg.min_score_to_trade when
-        # regime is missing/unknown.
-        _trade_min = float(self.cfg.min_score_to_trade)
-        if market_regime:
-            try:
-                from core.scoring_config import REGIME_MIN_SCORE
-                _scan_min = float(REGIME_MIN_SCORE.get(
-                    market_regime.upper(), _trade_min - 5.0
-                ))
-                # Trade buffer over scan inclusion
-                _trade_min = _scan_min + 5.0
-            except Exception:
-                pass
+        # 6. Score filter — regime-aware. Delegates to policy.regime_score_floor
+        # so the dashboard preview and production path stay in lockstep.
+        # The floor table is REGIME_MIN_SCORE in core.scoring_config + a
+        # cfg-driven +5 buffer (trades demand higher conviction than scan
+        # inclusion). Falls back to cfg.min_score_to_trade when regime is
+        # missing/unknown.
+        from core.trading.policy import regime_score_floor
+        _trade_min = regime_score_floor(market_regime, self.cfg)
         if score < _trade_min:
             return False, (
                 f"Score too low ({score:.1f} < {_trade_min:.1f} "

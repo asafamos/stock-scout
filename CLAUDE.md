@@ -24,17 +24,22 @@ AI-powered stock recommendation system that scans 3,000+ US stocks using technic
 - Max portfolio exposure: $900
 - Score filter: 73-95 (lowered from 75 to catch near-miss stocks like BURL)
 - ML probability min: 0.33 (lowered from 0.40 — real ML output range is 0.30-0.37, 0.40 blocked 100%)
-- Trailing stop: adaptive per stock from scan's stop loss (floor 3%, cap 8%)
+- Trailing stop: adaptive — `avg(scan_stop_pct, 1.5×ATR%) × regime_mult`, clamped `[2%, 9%]`
+  - Regime mult: TREND_UP/MODERATE_UP/BULLISH=1.20, SIDEWAYS/NEUTRAL=1.00, DISTRIBUTION=0.85, CORRECTION/BEARISH/PANIC=0.70
 - Blocked sectors: Consumer Defensive
-- Selection: sorted by 60% score + 40% R:R ratio (not just score)
+- Selection ranking (in order):
+  1. Base: 45% score + 25% R:R + 20% ML + (10% sector momentum at 30-day ETF level)
+  2. After ranking: insider-buying boost — `rank = 0.9 × prior_rank + 0.1 × insider_score` (top 20 only, SEC EDGAR Form 4)
 
 ### Trading Architecture
-- `core/trading/ibkr_client.py` - IB connection + OCA bracket orders (buy + trailing stop + limit sell)
-- `core/trading/order_manager.py` - Scan → filter → risk check → execute → track (auto-picks newest scan: GH Actions or Streamlit)
+- `core/trading/policy.py` - **Single source of truth for buy gates + execution preview.**
+  Both `risk_manager.can_open_position` (production) and `streamlit_components.evaluate_scan_row_for_buy` (dashboard preview) call into `evaluate_static_gates()`. Eliminates parity drift between the "🚀 BUY ELIGIBLE" badge in the UI and what the trader actually does. Also exposes `compute_execution_preview()` which mirrors `_execute_single`'s price/stop/target/trail derivation, so the UI shows the SAME numbers that get submitted to IB.
+- `core/trading/ibkr_client.py` - IB connection + OCA bracket orders (buy + trailing stop + limit sell). All Stock contracts are routed through `_ib_symbol()` → `policy.normalize_ticker_for_ib()` so `BRK.B` becomes `BRK B` for IB.
+- `core/trading/order_manager.py` - Scan → filter → risk check → execute → track. **Tracker write happens BEFORE notify_buy** (so a Telegram BUY message is always backed by an audit row).
 - `core/trading/position_tracker.py` - JSON-backed position tracking
-- `core/trading/risk_manager.py` - Pre-trade validation
+- `core/trading/risk_manager.py` - Pre-trade validation. Uses `policy.regime_score_floor()` and `policy.confidence_floor()` for parity with the dashboard preview.
 - `core/trading/notifications.py` - Telegram alerts
-- `core/trading/config.py` - All settings (override via TRADE_* env vars)
+- `core/trading/config.py` - All settings (override via TRADE_* env vars). All gate thresholds (min_score, min_ml, min_rr, min_confidence, blocked_sectors) read FROM here — never hardcoded in callers.
 - `scripts/run_auto_trade.py` - CLI entry point
 - `scripts/monitor_positions.py` - Position monitoring daemon
 

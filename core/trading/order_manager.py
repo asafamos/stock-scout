@@ -394,23 +394,16 @@ class OrderManager:
                 )
                 return pd.DataFrame()
 
-        # Score band filter — regime-aware. Mirror the regime-aware floor
-        # used downstream by risk_manager.can_open_position so candidates
-        # don't get filtered out HERE only to be re-checked LATER (or
-        # vice-versa: don't let through stocks risk will reject anyway).
+        # Score band filter — regime-aware via policy.regime_score_floor
+        # (same helper risk_manager + dashboard preview use). Single source
+        # of truth — when CONFIG knobs change, all three paths update together.
         cur_regime = ""
         if regime_col and regime_col in result.columns:
             _r = result[regime_col].dropna().astype(str).str.upper()
             if not _r.empty:
                 cur_regime = _r.iloc[0]
-        _min_score = float(self.cfg.min_score_to_trade)
-        if cur_regime:
-            try:
-                from core.scoring_config import REGIME_MIN_SCORE
-                _scan_min = float(REGIME_MIN_SCORE.get(cur_regime, _min_score - 5.0))
-                _min_score = _scan_min + 5.0  # +5 buffer above scan inclusion
-            except Exception:
-                pass
+        from core.trading.policy import regime_score_floor
+        _min_score = regime_score_floor(cur_regime, self.cfg)
         scores = pd.to_numeric(result[score_col], errors="coerce")
         result = result[
             (scores >= _min_score) &
@@ -461,21 +454,16 @@ class OrderManager:
         # but we don't lower it). PANIC/CORRECTION are blocked entirely
         # upstream by blocked_regimes.
         if confidence_col and confidence_col in result.columns:
-            # Map confidence levels: High=3, Medium=2, Low/Speculative=1
-            conf_map = {
-                "HIGH": 3, "MEDIUM": 2, "LOW": 1, "SPECULATIVE": 1, "NONE": 0
-            }
-            base_min = conf_map.get(self.cfg.min_confidence.upper(), 3)
-            # Regime override: TREND_UP / MODERATE_UP / BULLISH → allow Medium
+            # Confidence floor — regime-aware via policy.confidence_floor
+            # (single source of truth — preview and production agree).
+            from core.trading.policy import confidence_floor as _cf
+            from core.trading.policy import _CONF_MAP as conf_map
             cur_regime = ""
             if regime_col and regime_col in result.columns:
                 _r = result[regime_col].dropna().astype(str).str.upper()
                 if not _r.empty:
                     cur_regime = _r.iloc[0]
-            if cur_regime in {"TREND_UP", "MODERATE_UP", "BULLISH"}:
-                min_conf_val = min(base_min, 2)  # allow Medium
-            else:
-                min_conf_val = base_min
+            min_conf_val = _cf(cur_regime, self.cfg)
             conf_vals = result[confidence_col].astype(str).str.upper().map(
                 lambda x: conf_map.get(x, 0)
             )
@@ -965,17 +953,21 @@ class OrderManager:
             "oca_group": bracket.get("oca_group", ""),
         }
 
-        # Step 4: Notify
-        notify.notify_buy(ticker, qty, filled_price, stop, target, score,
-                          trail_pct=trail_pct, rr=rr, target_date=target_date)
-
-        # Step 5: Track position (include ML prob for exit signal tracking).
-        # CRITICAL: if add_position fails (disk full, permission denied),
-        # the buy has already filled and protective orders are placed —
-        # but the monitor will never see this position. It becomes a
-        # ghost in IBKR. We MUST alert the user so they can correct
-        # the tracker manually before the monitor's next cycle.
+        # Step 4: Track position FIRST — before any user-facing notification.
+        # Audit finding: previously notify_buy was sent BEFORE add_position.
+        # If the tracker write failed, the user got "✅ BUY filled @ $X" in
+        # Telegram with NO matching audit row — easy to miss the followup
+        # error message and end up with a tracker/IB mismatch.
+        # New ordering:
+        #   1. add_position (tracker write)
+        #   2. notify_buy (only on success — the message is ALWAYS backed
+        #      by an audit row)
+        #   3. on tracker failure: send a CRITICAL error notification
+        #      instead of the routine BUY notification.
+        # The position is still protected in IBKR by OCA either way; this
+        # change only affects the Telegram message ordering/accuracy.
         ml_prob = float(row.get("ML_20d_Prob", row.get("ml_prob", 0)) or 0)
+        _tracker_ok = False
         try:
             self.tracker.add_position(
                 ticker=ticker,
@@ -988,6 +980,7 @@ class OrderManager:
                 score=score,
                 order_ids=order_ids,
             )
+            _tracker_ok = True
         except Exception as _tracker_err:
             logger.error(
                 "CRITICAL: position tracker add failed for %s after buy filled: %s",
@@ -1007,6 +1000,16 @@ class OrderManager:
             # Don't re-raise — the position is protected in IBKR by OCA,
             # and the user has been alerted. Continue returning success
             # so the caller sees the buy went through.
+
+        # Step 5: Send the BUY notification — only after the audit row is
+        # safely on disk. If the tracker write failed above, the user
+        # already got a more important CRITICAL alert; don't pile on a
+        # second routine notification that suggests everything's fine.
+        if _tracker_ok:
+            notify.notify_buy(
+                ticker, qty, filled_price, stop, target, score,
+                trail_pct=trail_pct, rr=rr, target_date=target_date,
+            )
         # Store extra data (sector, ml_prob) for monitor's exit logic
         try:
             _all = self.tracker.get_open_positions()
