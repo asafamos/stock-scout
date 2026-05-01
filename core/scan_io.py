@@ -112,24 +112,23 @@ def load_latest_scan(path_latest: Path) -> Tuple[Optional[pd.DataFrame], Optiona
         results_df = pd.read_parquet(path_latest, engine="pyarrow")
         logger.info(f"Loaded scan from {path_latest} ({len(results_df)} tickers)")
         
-        # Load metadata — prefer .meta.json, fallback to .json
-        meta_json_path = path_latest.with_suffix(".meta.json")
+        # Load metadata. save_scan writes to ".json" (path_latest with the
+        # parquet suffix replaced). The legacy ".meta.json" path was never
+        # written by the current save path; preferring it here returned
+        # stale metadata from before a refactor (frozen at 2026-04-12 in
+        # this repo). We now read only the file that the writer produces.
         meta_path = path_latest.with_suffix(".json")
         metadata = {}
         _loaded_meta_path = None
-        for _mp in [meta_json_path, meta_path]:
-            if _mp.exists():
-                try:
-                    with open(_mp, "r") as f:
-                        _data = json.load(f)
-                    if isinstance(_data, dict):
-                        metadata = _data
-                        _loaded_meta_path = _mp
-                        break
-                    else:
-                        logger.debug("Skipping %s — not a dict (got %s)", _mp, type(_data).__name__)
-                except Exception:
-                    pass
+        if meta_path.exists():
+            try:
+                with open(meta_path, "r") as f:
+                    _data = json.load(f)
+                if isinstance(_data, dict):
+                    metadata = _data
+                    _loaded_meta_path = meta_path
+            except Exception:
+                pass
         if _loaded_meta_path:
             logger.info(f"Loaded metadata from {_loaded_meta_path}")
         else:
