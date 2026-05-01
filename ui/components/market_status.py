@@ -123,8 +123,22 @@ _MARKET_STATUS_HTML = """
   const AFTER_END   = 20 * 60;       // 20:00 ET
 
   function toET(d) {
-    const s = d.toLocaleString('en-US', { timeZone: 'America/New_York' });
-    return new Date(s);
+    // BUGFIX: previously used `new Date(d.toLocaleString('en-US', { timeZone: 'America/New_York' }))`
+    // which double-converts: toLocaleString correctly emits ET components,
+    // but `new Date(string)` re-parses them in the *user's local* tz. From
+    // Israel (UTC+3) at 14:09 IL the chain produced 12:09 AM "ET" — 7
+    // hours off. Use formatToParts to extract ET components directly,
+    // then build a Date that reports those components via getHours/getDay/etc.
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hour12: false
+    }).formatToParts(d);
+    const v = {};
+    parts.forEach(p => { if (p.type !== 'literal') v[p.type] = parseInt(p.value, 10); });
+    if (v.hour === 24) v.hour = 0;  // hour12:false sometimes emits "24"
+    return new Date(v.year, v.month - 1, v.day, v.hour, v.minute, v.second);
   }
 
   function fmtDate(d) {

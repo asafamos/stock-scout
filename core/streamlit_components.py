@@ -206,6 +206,9 @@ def buy_pre_check_widget(st, scan_df=None):
     n_eligible = len(eligible)
     n_total = len(evals)
 
+    # Render a hand-rolled LTR-locked box. st.success/st.warning inherit
+    # the global RTL CSS and end up flipping the leading numbers/symbols
+    # to the wrong end of the line — confusing for English-content alerts.
     if n_eligible > 0:
         eligible_tickers = [
             str(scan_df.iloc[i]["Ticker"])
@@ -214,9 +217,15 @@ def buy_pre_check_widget(st, scan_df=None):
         ticker_list = ", ".join(eligible_tickers[:8])
         if len(eligible_tickers) > 8:
             ticker_list += f" +{len(eligible_tickers) - 8} more"
-        st.success(
-            f"🚀 **{n_eligible} of {n_total}** would BUY if pipeline ran now · "
-            f"`{ticker_list}`"
+        st.markdown(
+            f'<div dir="ltr" style="direction:ltr;text-align:left;'
+            f'background:rgba(16,185,129,0.10);border-left:4px solid #10b981;'
+            f'border-radius:8px;padding:12px 16px;margin:8px 0;'
+            f'font-size:0.92rem;color:var(--ss-text-primary,#0c4a36);">'
+            f'🚀 <b>{n_eligible} of {n_total}</b> would BUY if pipeline ran now · '
+            f'<code style="direction:ltr;">{ticker_list}</code>'
+            f'</div>',
+            unsafe_allow_html=True,
         )
     else:
         # Top 3 reasons
@@ -224,9 +233,18 @@ def buy_pre_check_widget(st, scan_df=None):
         for e in evals:
             reason_counts[e["reason"]] = reason_counts.get(e["reason"], 0) + 1
         sorted_reasons = sorted(reason_counts.items(), key=lambda x: -x[1])[:3]
-        reason_summary = " · ".join(f"`{r}` ({c})" for r, c in sorted_reasons)
-        st.warning(
-            f"⏭ **0 of {n_total}** would BUY · Top blocks: {reason_summary}"
+        reason_summary = " · ".join(
+            f'<code style="direction:ltr;">{r}</code> ({c})'
+            for r, c in sorted_reasons
+        )
+        st.markdown(
+            f'<div dir="ltr" style="direction:ltr;text-align:left;'
+            f'background:rgba(234,179,8,0.10);border-left:4px solid #eab308;'
+            f'border-radius:8px;padding:12px 16px;margin:8px 0;'
+            f'font-size:0.92rem;color:var(--ss-text-primary,#78350f);">'
+            f'⏭ <b>0 of {n_total}</b> would BUY · Top blocks: {reason_summary}'
+            f'</div>',
+            unsafe_allow_html=True,
         )
 
 
@@ -245,13 +263,21 @@ def earnings_warning_widget(st):
         return
     soon.sort(key=lambda x: x[1])
     parts = [
-        f"**{t}** in {d}d ({date_str})"
+        f"<b>{t}</b> in {d}d ({date_str})"
         + (" 🔴 auto-tighten zone" if d <= 2 else "")
         for t, d, date_str in soon
     ]
-    st.warning(
-        "📅 **Earnings approaching:** " + " · ".join(parts) +
-        " — system will auto-tighten TRAIL to 2% at <2d."
+    # Hand-rolled LTR box — st.warning was rendering RTL-flipped on the
+    # Hebrew-default page (".Earnings approaching..." with leading period).
+    st.markdown(
+        f'<div dir="ltr" style="direction:ltr;text-align:left;'
+        f'background:rgba(234,179,8,0.10);border-left:4px solid #eab308;'
+        f'border-radius:8px;padding:12px 16px;margin:8px 0;'
+        f'font-size:0.92rem;color:var(--ss-text-primary,#78350f);">'
+        f'📅 <b>Earnings approaching:</b> ' + " · ".join(parts) +
+        ' — system will auto-tighten TRAIL to 2% at &lt;2d.'
+        f'</div>',
+        unsafe_allow_html=True,
     )
 
 
@@ -519,7 +545,8 @@ def positions_with_earnings_section(st):
             f"${p.get('entry', 0):.2f}" if p.get("entry") else "—",
             f"${p.get('mkt', 0):.2f}" if p.get("mkt") else "—",
             f'<span style="color:{pnl_color};font-weight:600">{pnl_disp}</span>',
-            f"+{p.get('peak_pct', 0):.1f}%" if p.get("peak_pct") else "—",
+            # Use +.1f so negative peaks render "-1.1%" not "+-1.1%"
+            f"{p.get('peak_pct', 0):+.1f}%" if p.get("peak_pct") else "—",
             f"{p.get('trail_pct', 0):.1f}%",
             f"${p.get('target', 0):.2f}" if p.get("target") else "—",
             ed_disp,

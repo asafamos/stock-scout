@@ -641,9 +641,16 @@ st.session_state["_fmp_ok"] = fmp_ok
 status_manager = StatusManager(get_pipeline_stages())
 if "_sm_current_stage" in st.session_state:
     status_manager.current_stage = st.session_state["_sm_current_stage"]
-    # Re-render the bar at the persisted progress level
+    # Re-render the bar at the persisted progress level — but only when a
+    # local scan is actively in progress, not after completion. The
+    # post-completion "Pipeline complete · 100%" bar duplicates the state-
+    # feed Pipeline widget at the top of the page.
     _total = len(status_manager.stages)
-    if status_manager.current_stage > 0:
+    _scan_in_progress = bool(
+        st.session_state.get("force_live_scan_once", False)
+        or st.session_state.get("_pipeline_running", False)
+    )
+    if status_manager.current_stage > 0 and _scan_in_progress and status_manager.current_stage < _total:
         _prog = min(status_manager.current_stage / _total, 1.0)
         _stage_label = status_manager.stages[min(status_manager.current_stage, _total) - 1]
         status_manager._render_bar(_prog, _stage_label, min(status_manager.current_stage, _total))
@@ -3014,7 +3021,18 @@ else:
                     _badges.append(
                         '<span dir="ltr" style="display:inline-block; padding:4px 10px; background:rgba(16,185,129,0.12); color:#10b981; border:1px solid rgba(16,185,129,0.3); border-radius:8px; font-size:0.72rem; font-weight:600;">🔴 LIVE</span>'
                     )
-                if _is_open:
+                # Virtual portfolio badge — suppressed in automated mode
+                # (state-feed healthy). The owner explicitly hid the virtual
+                # portfolio sidebar; showing "📋 Virtual +0.0%" badges on
+                # recommendation cards re-introduces the same noise.
+                _show_virtual_badge = True
+                try:
+                    from core.streamlit_components import fetch_state as _vbfs
+                    if _vbfs():
+                        _show_virtual_badge = False
+                except Exception:
+                    pass
+                if _is_open and _show_virtual_badge:
                     _cur_pnl = _hist.get("current_pnl_pct", 0)
                     _c = "#10b981" if _cur_pnl >= 0 else "#ef4444"
                     _s = "+" if _cur_pnl >= 0 else ""
@@ -3252,9 +3270,15 @@ with col_json:
 # direction-locked container.
 _export_df = csv_df[[c for c in show_order_unique if c in csv_df.columns]].copy()
 # Format numeric columns to strings with proper sign placement.
-import numpy as _np_export
+# Use pandas' is_numeric_dtype which handles extension dtypes correctly —
+# numpy.issubdtype crashes on pandas string/Arrow dtypes under Python 3.13
+# ("TypeError: Cannot interpret '...' as a data type").
 for _col in _export_df.columns:
-    if _np_export.issubdtype(_export_df[_col].dtype, _np_export.number):
+    try:
+        _is_num = pd.api.types.is_numeric_dtype(_export_df[_col])
+    except Exception:
+        _is_num = False
+    if _is_num:
         _export_df[_col] = _export_df[_col].apply(
             lambda x: "—" if pd.isna(x) else f"{x:,.4f}".rstrip("0").rstrip(".") or "0"
         )
