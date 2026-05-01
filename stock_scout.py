@@ -651,18 +651,35 @@ if _pipeline_running:
     st.info(
         "⏳ **VPS pipeline is currently running a scan.** "
         "Manual scan would compete for the same API quota. "
-        "Wait for completion (~50 min) or use the Telegram bot's `/today` "
-        "to monitor progress."
+        "Wait for completion (~50 min) or send `/today` to "
+        "@stockscout_asaf_bot to monitor progress."
     )
     st.button("🔄 Run Live Scan Now (disabled — pipeline running)",
              key="live_scan_button", disabled=True)
-elif st.button("🔄 Run Live Scan Now", key="live_scan_button", type="primary"):
-    st.session_state["force_live_scan_once"] = True
-    st.session_state["skip_pipeline"] = False  # ensure live path
-    # Reset progress tracking for the new scan
-    st.session_state["_sm_current_stage"] = 0
-    st.session_state["_completed_stages"] = set()
-    st.rerun()
+else:
+    _scan_cols = st.columns([3, 2])
+    with _scan_cols[0]:
+        if st.button("🚀 Trigger VPS Scan + Auto-Trade",
+                     key="dispatch_scan_button", type="primary",
+                     help="Same as the scheduled 13:30/17:30 UTC scan — "
+                          "runs on the VPS pipeline. If candidates pass all "
+                          "gates, will execute live buys automatically."):
+            try:
+                from core.streamlit_components import _dispatch_command
+                _dispatch_command(st, "scan")
+            except Exception as _e:
+                st.error(f"Dispatch failed: {_e}")
+    with _scan_cols[1]:
+        if st.button("🔍 Local Preview Only",
+                     key="live_scan_button",
+                     help="Run the scan on Streamlit Cloud for research / "
+                          "preview only — does NOT trigger any trades on the "
+                          "VPS. Use 'Trigger VPS Scan' above for real buys."):
+            st.session_state["force_live_scan_once"] = True
+            st.session_state["skip_pipeline"] = False
+            st.session_state["_sm_current_stage"] = 0
+            st.session_state["_completed_stages"] = set()
+            st.rerun()
 
 force_live_scan_once = st.session_state.get("force_live_scan_once", False)
 

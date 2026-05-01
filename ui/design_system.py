@@ -208,6 +208,16 @@ body, .stApp, .main, .block-container {
     font-family: var(--ss-font);
 }
 
+/* Keep Streamlit native chrome (sidebar collapse, header) in LTR so
+   built-in arrow icons render in the correct direction. RTL on the
+   global app caused the sidebar collapse arrow to flip wrong. */
+[data-testid="stSidebar"],
+[data-testid="stHeader"],
+[data-testid="collapsedControl"],
+button[kind="header"] {
+    direction: ltr !important;
+}
+
 h1, h2, h3, h4, h5, h6 {
     text-align: right;
     color: var(--ss-text-primary);
