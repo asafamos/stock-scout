@@ -29,14 +29,26 @@ _STATE_CACHE: Dict[str, Any] = {"data": None, "fetched_at": 0}
 
 
 def fetch_state(max_age_sec: int = 30) -> Optional[Dict]:
-    """Fetch system_state.json from state-feed. Cached 30s."""
+    """Fetch system_state.json from state-feed. Cached 30s.
+
+    Uses a cache-busting query parameter to defeat the Fastly CDN that
+    fronts raw.githubusercontent.com (~5 minute CDN cache by default).
+    Without `?t=...` the dashboard would show 5-minute-stale state even
+    though the VPS broadcaster pushes every 30s.
+    """
     now = time.time()
     if _STATE_CACHE["data"] and (now - _STATE_CACHE["fetched_at"]) < max_age_sec:
         return _STATE_CACHE["data"]
     try:
+        # Cache-bust by appending current epoch — every fetch is a new URL.
+        url = f"{STATE_FEED_URL}?t={int(now)}"
         req = urllib.request.Request(
-            STATE_FEED_URL,
-            headers={"User-Agent": "StockScoutDashboard/1.0"},
+            url,
+            headers={
+                "User-Agent": "StockScoutDashboard/1.0",
+                "Cache-Control": "no-cache",
+                "Pragma": "no-cache",
+            },
         )
         with urllib.request.urlopen(req, timeout=5) as resp:
             data = json.loads(resp.read())
