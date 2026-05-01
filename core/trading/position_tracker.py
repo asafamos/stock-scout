@@ -190,6 +190,54 @@ class PositionTracker:
 
     def remove_position(self, ticker: str, exit_price: float = 0.0,
                         reason: str = "closed"):
+        # ── Duplicate-CLOSE guard ──────────────────────────────────
+        # If a CLOSE row for this ticker was already written today,
+        # refuse to write a second one. This prevents the exact
+        # scenario from 2026-05-01:
+        #   1. CF was sold at 14:02 UTC, monitor wrote a clean CLOSE row.
+        #   2. Operator ran `git pull` on VPS at 19:25 UTC — this
+        #      overwrote `open_positions.json` with a stale committed
+        #      snapshot that had CF as still-open.
+        #   3. Monitor's next cycles saw CF "missing from IB" → after
+        #      the consecutive-miss threshold, called remove_position
+        #      again → wrote a SECOND CLOSE row with the same +$22.24
+        #      P&L (re-derived from IB's still-cached fill data).
+        #   4. /pnl double-counted — reported +$44.48 instead of +$22.24.
+        #
+        # Cheap defensive write — same-day same-ticker CLOSE never makes
+        # sense in a long-only swing system (we don't open and close the
+        # same name twice in one day; the day-trade gate refuses re-buys).
+        try:
+            today_iso = date.today().isoformat()
+            log = self.get_trade_log()
+            for entry in log:
+                if (
+                    entry.get("ticker") == ticker
+                    and entry.get("action") == "CLOSE"
+                    and str(entry.get("timestamp", "")).startswith(today_iso)
+                ):
+                    logger.warning(
+                        "remove_position(%s): refusing duplicate CLOSE — "
+                        "already logged at %s with P&L $%.2f. Tracker entry "
+                        "will still be removed but no second CLOSE row written.",
+                        ticker,
+                        entry.get("timestamp", "")[:19],
+                        entry.get("pnl") or 0,
+                    )
+                    # Still need to remove the (probably-stale) tracker entry
+                    # so subsequent cycles don't keep firing this guard.
+                    with _file_lock(self._positions_path):
+                        positions = self._read_positions_unlocked()
+                        remaining = [p for p in positions if p["ticker"] != ticker]
+                        if len(remaining) != len(positions):
+                            _atomic_write_json(self._positions_path, remaining)
+                    return
+        except Exception as _dup_err:
+            # Never let the guard break a real close — if dedup fails,
+            # fall through to the normal close path. Worst case: we get
+            # the duplicate row, which is exactly the pre-guard behavior.
+            logger.debug("duplicate-CLOSE guard skipped: %s", _dup_err)
+
         # Read-modify-write under exclusive lock
         with _file_lock(self._positions_path):
             positions = self._read_positions_unlocked()

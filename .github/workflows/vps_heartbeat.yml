@@ -1,0 +1,104 @@
+name: VPS Heartbeat
+
+# Watches the state-feed branch for staleness — surfaces VPS / network /
+# broadcaster failures via Telegram WITHOUT depending on the VPS itself.
+#
+# Why an external check: every other piece of monitoring lives ON the VPS
+# (stockscout-statusbot, stockscout-monitor, stockscout-healthcheck). If
+# the VPS is partitioned or down, all of them go silent simultaneously
+# and the operator has NO way to know — the dashboard staleness banner
+# only helps if you happen to be looking. This action runs on GitHub's
+# infrastructure, so it stays alive even if the VPS is on fire.
+#
+# Trigger window: Mon-Sun 13:00-21:00 UTC (= covers extended ET trading
+# 9 AM ET → 5 PM ET). Outside that window the VPS is allowed to be
+# quiet — no point alerting at 3am IL when nothing is happening.
+#
+# Telegram target: same TRADE_TELEGRAM_TOKEN / TRADE_TELEGRAM_CHAT_ID
+# secrets the rest of the system uses.
+
+on:
+  schedule:
+    # Every 15 minutes during the extended trading day.
+    # 13:00-21:00 UTC = 9 AM - 5 PM ET = full pre-market through after-hours.
+    - cron: '*/15 13-21 * * *'
+  workflow_dispatch: {}  # Allow manual smoke-tests
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fetch state-feed and check freshness
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TRADE_TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TRADE_TELEGRAM_CHAT_ID }}
+        run: |
+          set -euo pipefail
+
+          # Pull the JSON the dashboard reads. Use the Contents API path so
+          # we hit the same data the dashboard sees (raw URL has CDN cache).
+          STATE_URL='https://api.github.com/repos/asafamos/stock-scout/contents/data/state/system_state.json?ref=state-feed'
+
+          echo "→ fetching $STATE_URL"
+          RAW=$(curl -fsS -H 'Accept: application/vnd.github+json' "$STATE_URL")
+          CONTENT_B64=$(echo "$RAW" | jq -r '.content' | tr -d '\n')
+
+          if [ -z "$CONTENT_B64" ] || [ "$CONTENT_B64" = "null" ]; then
+            echo "::error::state-feed content empty"
+            MSG="🚨 *VPS HEARTBEAT FAIL* — state-feed file empty or 404 (broadcaster never wrote it?)"
+            curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
+              -d "chat_id=${TELEGRAM_CHAT_ID}" \
+              -d "parse_mode=Markdown" \
+              -d "text=${MSG}" >/dev/null
+            exit 1
+          fi
+
+          STATE=$(echo "$CONTENT_B64" | base64 -d)
+          LAST_UPDATED=$(echo "$STATE" | jq -r '.last_updated // empty')
+
+          if [ -z "$LAST_UPDATED" ]; then
+            echo "::warning::no last_updated field"
+            exit 0  # don't alert on schema drift — that's a different problem
+          fi
+
+          # Compute age in seconds. last_updated is ISO 8601 UTC.
+          NOW_EPOCH=$(date -u +%s)
+          LAST_EPOCH=$(date -u -d "$LAST_UPDATED" +%s 2>/dev/null || echo 0)
+          AGE_SEC=$((NOW_EPOCH - LAST_EPOCH))
+          AGE_MIN=$((AGE_SEC / 60))
+
+          echo "state age: ${AGE_SEC}s (${AGE_MIN} min)"
+
+          # Threshold: 5 minutes. The broadcaster pushes every 30s, so
+          # genuinely-healthy state should be < 60s old. Anything > 5 min
+          # means the broadcaster has missed at least 10 cycles.
+          if [ "$AGE_SEC" -gt 300 ]; then
+            # Also pull a few other useful fields for the alert
+            PIPELINE=$(echo "$STATE" | jq -r '.pipeline.state // "?"')
+            ALL_ACTIVE=$(echo "$STATE" | jq -r '.system_health.all_active // "?"')
+
+            MSG=$(cat <<EOF
+🚨 *VPS HEARTBEAT STALE*
+state-feed last updated *${AGE_MIN} min ago* (threshold 5)
+pipeline: \`${PIPELINE}\`
+all_active: \`${ALL_ACTIVE}\`
+Likely VPS down, network partition, or broadcaster crashed.
+Check: \`ssh root@87.99.142.12\` then \`systemctl status stockscout-state-broadcaster.timer\`
+EOF
+)
+            # Telegram caps text-length at 4096; we're well under
+            curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
+              -d "chat_id=${TELEGRAM_CHAT_ID}" \
+              -d "parse_mode=Markdown" \
+              --data-urlencode "text=${MSG}" >/dev/null
+            echo "::warning::sent stale-heartbeat alert"
+            # Exit 0 so the workflow shows green even after alerting —
+            # we don't want stale-state to trigger ANOTHER round of
+            # GitHub failure emails on top of the alert we just sent.
+          else
+            echo "✓ heartbeat OK (state ${AGE_SEC}s fresh)"
+          fi
