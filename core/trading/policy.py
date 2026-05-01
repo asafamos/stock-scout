@@ -58,6 +58,33 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 
+# ────────────────────────────────────────────────────────────────────
+# CANONICAL TABLES — owned here, re-exported by scoring_config for
+# backward compatibility. Both the trading layer (this file) and the
+# scoring layer (core.scoring_config / core.pipeline.runner) need
+# these floors. Originally defined in scoring_config and imported by
+# trading; the trading layer ended up owning the semantics (it picks
+# the +5 buffer, it has the dashboard preview, it has the runtime
+# enforcement) so the audit (Cross-cut #1, 2026-05-01) recommended
+# inverting the dependency. scoring_config now imports FROM here.
+# ────────────────────────────────────────────────────────────────────
+
+# Regime-aware minimum FinalScore_20d for inclusion in scan output.
+# In weaker regimes, demand higher quality — prevents recommending
+# stocks that merely "survived" a regime penalty multiplier.
+REGIME_MIN_SCORE: Dict[str, float] = {
+    "TREND_UP": 55.0,
+    "BULLISH": 55.0,
+    "MODERATE_UP": 60.0,
+    "SIDEWAYS": 70.0,   # raised from 65 — in neutral markets demand higher quality
+    "NEUTRAL": 70.0,    # raised from 65
+    "DISTRIBUTION": 75.0,
+    "CORRECTION": 80.0,
+    "BEARISH": 80.0,
+    "PANIC": 100.0,     # effectively blocks all recommendations
+}
+
+
 @dataclass
 class GateResult:
     """Outcome of running buy-eligibility gates against one row."""
@@ -112,20 +139,16 @@ def _row_get_first(row: Any, keys: List[str], default: Any = None) -> Any:
 def regime_score_floor(regime: str, cfg) -> float:
     """Regime-aware minimum FinalScore_20d to trade.
 
-    Reads `REGIME_MIN_SCORE` from `core.scoring_config` and adds a +5
-    buffer over the scan's inclusion threshold (so trades demand higher
-    conviction than mere recommendation). Falls back to
+    Uses `REGIME_MIN_SCORE` (defined in this module) plus a +5 buffer
+    over the scan's inclusion threshold — trades demand higher
+    conviction than mere recommendation. Falls back to
     `cfg.min_score_to_trade` when the regime is unknown.
     """
     base = float(getattr(cfg, "min_score_to_trade", 73.0))
     if not regime:
         return base
-    try:
-        from core.scoring_config import REGIME_MIN_SCORE
-        scan_min = float(REGIME_MIN_SCORE.get(regime.upper(), base - 5.0))
-        return scan_min + 5.0
-    except Exception:
-        return base
+    scan_min = float(REGIME_MIN_SCORE.get(regime.upper(), base - 5.0))
+    return scan_min + 5.0
 
 
 def confidence_floor(regime: str, cfg) -> int:

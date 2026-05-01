@@ -580,6 +580,67 @@ class OrderManager:
             except Exception as _e:
                 logger.debug("sector momentum boost skipped: %s", _e)
 
+        # ── LIVE-WR SECTOR AWARENESS (Audit H7, 2026-05-01) ──
+        # Adjust rank by historical performance OF THE SAME SECTOR in
+        # this strategy's live trade log. Idea: if we've lost 5/5 in
+        # Energy lately, rank Energy candidates LOWER even when their
+        # forward-looking signals (score, RR, ML) are strong — the live
+        # data is telling us this strategy isn't capturing those wins.
+        #
+        # Implementation: compute per-sector P&L over the last
+        # `live_wr_window` closed trades, normalize to [0..1] across
+        # all sectors present, give it a small (default 5%) weight in
+        # the rank. New sectors with no trade history get 0.5 (neutral).
+        # Disabled when there are <5 closed trades total (premature).
+        if sector_col and sector_col in result.columns:
+            try:
+                LIVE_WR_WINDOW = 30
+                LIVE_WR_WEIGHT = 0.05
+                trade_log = self.tracker.get_trade_log()
+                closes = [
+                    t for t in trade_log
+                    if t.get("action") == "CLOSE"
+                    and t.get("pnl") is not None
+                ]
+                if len(closes) >= 5:
+                    recent_closes = closes[-LIVE_WR_WINDOW:]
+                    sector_pnls: Dict[str, list] = {}
+                    for c in recent_closes:
+                        sec_c = str(c.get("sector", "") or "")
+                        if not sec_c:
+                            # Look up from open_positions history if tracker
+                            # didn't persist sector on the CLOSE row.
+                            continue
+                        sector_pnls.setdefault(sec_c, []).append(
+                            float(c.get("pnl") or 0)
+                        )
+                    # Average pnl per sector → normalize to [0..1]
+                    if sector_pnls:
+                        avg_by_sector = {s: sum(v) / len(v) for s, v in sector_pnls.items()}
+                        vals = list(avg_by_sector.values())
+                        rng = max(vals) - min(vals)
+                        if rng > 1e-9:
+                            sector_live_wr = {
+                                s: (v - min(vals)) / rng
+                                for s, v in avg_by_sector.items()
+                            }
+                        else:
+                            sector_live_wr = {s: 0.5 for s in avg_by_sector}
+                        # Map per-row; unknown sectors → 0.5 (neutral)
+                        live_wr_series = result[sector_col].astype(str).map(
+                            lambda s: sector_live_wr.get(s, 0.5)
+                        ).astype(float)
+                        signals.append((LIVE_WR_WEIGHT, live_wr_series))
+                        logger.info(
+                            "LIVE-WR sector boost: %s",
+                            ", ".join(
+                                f"{s}={sector_live_wr.get(s, 0.5):.2f}"
+                                for s in avg_by_sector
+                            ),
+                        )
+            except Exception as _e:
+                logger.debug("live-WR sector ranking skipped: %s", _e)
+
         # Insider buying signal (Form 4 from SEC EDGAR). Only computed
         # for the top-20 candidates by base rank to cap API spend; the
         # rest get 0, which is the unbiased neutral for an additive signal.

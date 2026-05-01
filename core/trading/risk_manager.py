@@ -62,14 +62,16 @@ class RiskManager:
     def check_performance_throttle(self) -> Tuple[bool, str, float]:
         """Rolling-window safety brake. Returns (allowed, reason, size_multiplier).
 
-        Reads the last N closed trades from trade_log. If win rate drops
-        below thresholds:
-          - >= 30% → no throttle (mult=1.0)
-          - 20-30% → halve position size (mult=0.5)
-          - < 20%  → halt all new buys (allowed=False)
+        Two modes (cfg.throttle_mode):
+          - "winrate" (default, backward-compat): WR < halt → halt;
+            WR < warn → halve. WR thresholds default 0.20 / 0.30.
+          - "expectancy" (audit H2, 2026-05-01): avg_pnl_pct < halt
+            → halt; avg_pnl_pct < warn → halve. Better for 2.0+ R:R
+            strategies where 30% WR is normal. Defaults: warn=0,
+            halt=-1.5%.
 
         Skips throttle when there are fewer than `throttle_min_trades`
-        closed trades — avoid early-sample false alarms.
+        closed trades (avoid early-sample false alarms).
 
         This is a SAFETY brake against regime change / model drift —
         it doesn't replace risk gates, it adds a portfolio-level circuit
@@ -89,6 +91,46 @@ class RiskManager:
             n = len(recent)
             if n < self.cfg.throttle_min_trades:
                 return True, "", 1.0
+
+            mode = str(getattr(self.cfg, "throttle_mode", "winrate")).lower()
+
+            if mode == "expectancy":
+                # Average pnl % per trade. Computed against entry_price
+                # × qty when those are available; falls back to absolute
+                # pnl when not (older trade_log rows pre-feature-engineering).
+                pnl_pcts = []
+                for t in recent:
+                    entry = float(t.get("entry_price") or 0)
+                    qty = float(t.get("quantity") or 0)
+                    pnl = float(t.get("pnl") or 0)
+                    if entry > 0 and qty > 0:
+                        pct = (pnl / (entry * qty)) * 100
+                    else:
+                        # Absolute fallback: use $300 base as "expected"
+                        # cost basis. Less precise but never wildly off.
+                        pct = (pnl / 300.0) * 100
+                    pnl_pcts.append(pct)
+                avg_pct = sum(pnl_pcts) / max(len(pnl_pcts), 1)
+                halt_thr = float(self.cfg.throttle_halt_expectancy_pct)
+                warn_thr = float(self.cfg.throttle_warn_expectancy_pct)
+                if avg_pct <= halt_thr:
+                    return (
+                        False,
+                        f"Performance throttle HALT (expectancy): "
+                        f"avg {avg_pct:+.2f}% per trade <= {halt_thr:+.2f}% "
+                        f"({n} trades) — strategy is bleeding",
+                        0.0,
+                    )
+                if avg_pct < warn_thr:
+                    logger.warning(
+                        "Performance throttle WARN (expectancy): avg %+.2f%% "
+                        "per trade < %+.2f%% (%d trades) — halving sizes",
+                        avg_pct, warn_thr, n,
+                    )
+                    return True, "", 0.5
+                return True, "", 1.0
+
+            # Default: winrate mode (legacy, backward compatible)
             wins = sum(1 for t in recent if (t.get("pnl") or 0) > 0)
             win_rate = wins / n
             if win_rate < self.cfg.throttle_halt_winrate:

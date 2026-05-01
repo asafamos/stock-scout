@@ -405,6 +405,37 @@ def _state_age_seconds(state: Dict) -> Optional[float]:
         return None
 
 
+# Stash the last-seen broadcast_seq so we can detect missed cycles
+# across reads. Audit Cross-cut #4 (2026-05-01): age alone doesn't
+# tell the user whether the snapshot includes the trade that just
+# fired — sequence counter does.
+_LAST_SEEN_SEQ: Dict[str, int] = {"value": 0}
+
+
+def state_freshness_label(state: Optional[Dict]) -> str:
+    """Build a one-line freshness label for dashboard headers.
+
+    Returns something like:
+        "27s old · seq #4119"           (normal)
+        "9m old · seq #4119 (+2 cycles missed)"   (degraded)
+    """
+    if not state:
+        return "(no state)"
+    age = _state_age_seconds(state)
+    age_part = f"{int(age)}s old" if age and age < 60 else (
+        f"{int(age/60)}m old" if age else "?s"
+    )
+    seq = int(state.get("broadcast_seq", 0) or 0)
+    if seq <= 0:
+        return age_part  # broadcaster pre-CC#4 — sequence not present
+    last = _LAST_SEEN_SEQ.get("value", 0)
+    suffix = ""
+    if last > 0 and seq > last + 1:
+        suffix = f" (+{seq - last - 1} cycles missed)"
+    _LAST_SEEN_SEQ["value"] = seq
+    return f"{age_part} · seq #{seq}{suffix}"
+
+
 def pipeline_status_widget(st):
     """Top-of-dashboard widget showing live pipeline + system state."""
     state = fetch_state()

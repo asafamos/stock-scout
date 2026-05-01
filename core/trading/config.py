@@ -51,17 +51,27 @@ class TradingConfig:
     ibkr_timeout: int = 30  # seconds
 
     # ── Position Sizing ────────────────────────────────────────
+    # Audit H1 (2026-05-01): defaults rebalanced for the ~$1k account.
+    # Old defaults (3 × $300 = $900 exposure) committed 90% of capital
+    # and paid $1 commission per trade = 0.67% structural drag at $300.
+    # New defaults (2 × $400 = $800 exposure) keep the same total
+    # exposure ratio (80% vs 90%), commit to fewer concurrent bets so
+    # entries can stagger by a day (decorrelating timing risk on
+    # volatile open-prints), and reduce commission drag to 0.50% at
+    # $400. Production VPS uses .env.trading which overrides these
+    # defaults — to apply the new sizing on production, update
+    # /home/stockscout/stock-scout-2/.env.trading explicitly.
     max_position_size: float = field(
-        default_factory=lambda: _env_float("MAX_POSITION_SIZE", 300.0)
+        default_factory=lambda: _env_float("MAX_POSITION_SIZE", 400.0)
     )
     max_open_positions: int = field(
-        default_factory=lambda: _env_int("MAX_OPEN_POSITIONS", 3)
+        default_factory=lambda: _env_int("MAX_OPEN_POSITIONS", 2)
     )
     max_daily_buys: int = field(
-        default_factory=lambda: _env_int("MAX_DAILY_BUYS", 3)
+        default_factory=lambda: _env_int("MAX_DAILY_BUYS", 2)
     )
     max_portfolio_exposure: float = field(
-        default_factory=lambda: _env_float("MAX_PORTFOLIO_EXPOSURE", 900.0)
+        default_factory=lambda: _env_float("MAX_PORTFOLIO_EXPOSURE", 800.0)
     )
     cash_reserve: float = field(
         default_factory=lambda: _env_float("CASH_RESERVE", 20.0)
@@ -163,6 +173,30 @@ class TradingConfig:
     throttle_min_trades: int = field(
         default_factory=lambda: _env_int("THROTTLE_MIN_TRADES", 5)
     )   # Need at least N trades before throttle kicks in (avoid early-noise)
+
+    # ── EXPECTANCY-BASED THROTTLE (audit H2, 2026-05-01) ──
+    # Win-rate alone misjudges a 2.0+ R:R strategy. A 30% WR strategy
+    # with avg_win = $30 and avg_loss = $10 has expectancy
+    #   = 0.3 × $30 − 0.7 × $10 = $9 − $7 = +$2/trade
+    # which is profitable. The WR-based throttle (default 30% WARN)
+    # punishes this strategy for behaving normally.
+    #
+    # When THROTTLE_MODE=expectancy, the throttle uses average per-trade
+    # P&L instead of WR:
+    #   - avg_pnl_pct >= warn → no throttle
+    #   - 0 < avg_pnl_pct < warn (default 0%) → halve sizes
+    #   - avg_pnl_pct <= halt (default -1.5%) → halt all new buys
+    # When THROTTLE_MODE=winrate (default — backward-compat), uses the
+    # legacy WR thresholds above.
+    throttle_mode: str = field(
+        default_factory=lambda: _env("THROTTLE_MODE", "winrate")
+    )   # "winrate" (default) or "expectancy"
+    throttle_warn_expectancy_pct: float = field(
+        default_factory=lambda: _env_float("THROTTLE_WARN_EXPECTANCY_PCT", 0.0)
+    )   # avg pnl% under this → halve sizes (0 = unprofitable on average)
+    throttle_halt_expectancy_pct: float = field(
+        default_factory=lambda: _env_float("THROTTLE_HALT_EXPECTANCY_PCT", -1.5)
+    )   # avg pnl% under this → halt buys (losing >1.5% per trade is severe)
 
     # ── Dynamic position sizing (by ML probability) ──────────────
     # Scale base position size by ML conviction. Higher-prob picks get
