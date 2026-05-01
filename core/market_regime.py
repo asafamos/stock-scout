@@ -240,7 +240,14 @@ def detect_market_regime(
             qqq_ret_pct = float((_qqq_c.iloc[-1] / _qqq_c.iloc[-20] - 1) * 100) if len(_qqq_c) >= 21 else 0.0
         except Exception:
             qqq_ret_pct = 0.0
-        details = f"SPY {spy_ret_pct:+.1f}% | QQQ {qqq_ret_pct:+.1f}% | VIX {vix_level} ({vix_val:.1f})"
+        # 20-day total returns — labeled explicitly so the user doesn't
+        # mistake them for daily moves. (Audit: "SPY +9.6%" was reading
+        # like a one-day +9.6% which would be alarming.)
+        details = (
+            f"SPY {spy_ret_pct:+.1f}% (20d) | "
+            f"QQQ {qqq_ret_pct:+.1f}% (20d) | "
+            f"VIX {vix_level} ({vix_val:.1f})"
+        )
         out = {
             "regime": regime,
             "confidence": confidence,

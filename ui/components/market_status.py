@@ -223,7 +223,14 @@ _MARKET_STATUS_HTML = """
       countdownText = 'Opens ' + dayNames[nbd.getDay()] + ' · ' + fmtCountdown(diff);
     }
 
-    const timeStr = et.toLocaleTimeString('en-US', {
+    // Display ET time directly from `now` (the real UTC instant), NOT from
+    // `et` (which is an artificial Date with ET-fields stored as
+    // browser-local-tz fields). Using `et` here causes a second
+    // round-trip conversion that shifts the displayed time by the
+    // browser's UTC offset — Israel (UTC+3) saw 12:43 AM instead of 7:43 AM.
+    // The `timeZone: 'America/New_York'` option correctly converts the real
+    // UTC instant to ET regardless of where the user's browser lives.
+    const timeStr = now.toLocaleTimeString('en-US', {
       hour: '2-digit', minute: '2-digit', second: '2-digit',
       hour12: true, timeZone: 'America/New_York'
     }) + ' ET';

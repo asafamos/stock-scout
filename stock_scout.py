@@ -2739,10 +2739,15 @@ else:
     except Exception:
         pass
 
-    # ── BUY ELIGIBILITY PRE-CHECK ──
+    # ── BUY ELIGIBILITY PER-CARD ──
     # Run each scan candidate through the same gates the auto-trade
-    # pipeline uses, so the user can see at-a-glance which picks would
-    # actually trigger a buy if the pipeline ran on this scan now.
+    # pipeline uses. We skip the duplicate banner here (the top-of-page
+    # `buy_pre_check_widget` already shows the authoritative count over
+    # the full scan, e.g. "0 of 101"); rendering "0 of 39" again right
+    # above the cards confused the owner because the totals diverge —
+    # 39 is sorted_df (post quality filter), 101 is the full scan.
+    # Instead, we just stash per-ticker evaluations on session state so
+    # each card can show its own eligibility badge inline.
     try:
         from core.streamlit_components import (
             evaluate_scan_row_for_buy as _eval_buy,
@@ -2753,54 +2758,11 @@ else:
             _evals = []
             for _idx, _row in sorted_df.iterrows():
                 _evals.append(_eval_buy(_row, _eval_state))
-            _eligible = [e for e in _evals if e["would_buy"]]
-            _n_eligible = len(_eligible)
-            _n_total = len(_evals)
-
             # Stash on session state so individual cards can read their badge
             st.session_state["_buy_evals"] = {
                 str(sorted_df.iloc[i]["Ticker"]): _evals[i]
                 for i in range(len(_evals))
             }
-
-            # Top-level summary banner — uses st.success/warning native
-            # components for guaranteed contrast across themes (the prior
-            # custom HTML was rendering as empty divs on Cloud due to
-            # nested RTL CSS conflicts hiding the inner text).
-            if _n_eligible > 0:
-                _eligible_tickers = [
-                    str(sorted_df.iloc[i]["Ticker"])
-                    for i, e in enumerate(_evals) if e["would_buy"]
-                ]
-                _ticker_list = ", ".join(_eligible_tickers[:10])
-                if len(_eligible_tickers) > 10:
-                    _ticker_list += " …"
-                st.success(
-                    f"🚀 **Auto-trade pre-check:** "
-                    f"**{_n_eligible} of {_n_total}** would trigger a BUY "
-                    f"if pipeline ran now\n\n"
-                    f"**Eligible:** `{_ticker_list}`"
-                )
-            else:
-                # Most common skip reason for visibility
-                _reason_counts: Dict[str, int] = {}
-                for e in _evals:
-                    _reason_counts[e["reason"]] = _reason_counts.get(e["reason"], 0) + 1
-                _top_reason = max(_reason_counts.items(), key=lambda x: x[1]) \
-                    if _reason_counts else ("(no candidates)", 0)
-                # Top 3 reasons for transparency
-                _sorted_reasons = sorted(
-                    _reason_counts.items(), key=lambda x: -x[1]
-                )[:3]
-                _reason_lines = "\n".join(
-                    f"  • `{r}` — {c} stocks"
-                    for r, c in _sorted_reasons
-                )
-                st.warning(
-                    f"⏭ **Auto-trade pre-check:** "
-                    f"**0 of {_n_total}** would trigger a BUY\n\n"
-                    f"**Top skip reasons:**\n{_reason_lines}"
-                )
     except Exception as _ee:
         import logging as _le
         _le.getLogger(__name__).debug("buy eligibility pre-check failed: %s", _ee)
@@ -3025,6 +2987,26 @@ else:
 
                 # Build badges
                 _badges = []
+                # ── BUY ELIGIBILITY badge ─
+                # Reads the per-ticker evaluation stashed earlier in
+                # session state. Closes the "84-score stock with R/R 1.77x
+                # is shown but won't actually buy" trust gap — the user
+                # now sees inline whether THIS specific card would clear
+                # the trader's gates and, if not, why.
+                _evals_map = st.session_state.get("_buy_evals", {}) or {}
+                _eval = _evals_map.get(_tkr)
+                if _eval:
+                    if _eval.get("would_buy"):
+                        _badges.append(
+                            '<span dir="ltr" style="display:inline-block; padding:4px 10px; background:rgba(16,185,129,0.12); color:#10b981; border:1px solid rgba(16,185,129,0.3); border-radius:8px; font-size:0.72rem; font-weight:600;">🚀 BUY ELIGIBLE</span>'
+                        )
+                    else:
+                        _reason_short = str(_eval.get("reason", "skip"))
+                        if len(_reason_short) > 48:
+                            _reason_short = _reason_short[:45] + "…"
+                        _badges.append(
+                            f'<span dir="ltr" style="display:inline-block; padding:4px 10px; background:rgba(245,158,11,0.10); color:#f59e0b; border:1px solid rgba(245,158,11,0.30); border-radius:8px; font-size:0.72rem; font-weight:600;" title="Pre-check vs auto-trade gates">⏭ Won\'t buy — {_reason_short}</span>'
+                        )
                 if _is_live:
                     _badges.append(
                         '<span dir="ltr" style="display:inline-block; padding:4px 10px; background:rgba(16,185,129,0.12); color:#10b981; border:1px solid rgba(16,185,129,0.3); border-radius:8px; font-size:0.72rem; font-weight:600;">🔴 LIVE</span>'
