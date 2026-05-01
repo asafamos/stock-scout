@@ -251,6 +251,67 @@ class PositionTracker:
             ticker, reason,
         )
 
+    def reconcile_adopt(
+        self,
+        ticker: str,
+        quantity: int,
+        entry_price: float,
+        stop_loss: float,
+        target_price: float,
+        trailing_stop_pct: float = 0.0,
+        oca_group: str = "",
+        order_ids: Optional[Dict[str, int]] = None,
+        reason: str = "reconcile_adopt",
+    ):
+        """Adopt an IB-only position into the tracker.
+
+        Symmetric to reconcile_drop(): the monitor's drift check found a
+        position in IB that the tracker doesn't know about. Without
+        adoption the position would (a) keep firing DRIFT alerts every
+        cooldown window, and (b) be invisible to monitor's exit logic
+        (target_date check, peak/ratchet, earnings exit). Adoption brings
+        it back under management.
+
+        Writes a RECONCILE_ADOPT entry to trade_log so analytics can
+        distinguish adopted positions from organic OPENs (action != "OPEN").
+        Caller is responsible for verifying the OCA group is one of ours
+        (e.g. SS_* prefix) before calling — this method does not validate.
+        """
+        with _file_lock(self._positions_path):
+            positions = self._read_positions_unlocked()
+            if any(p["ticker"] == ticker for p in positions):
+                logger.warning("reconcile_adopt: %s already tracked — skipping", ticker)
+                return
+            positions.append({
+                "ticker": ticker,
+                "quantity": quantity,
+                "entry_price": entry_price,
+                "stop_loss": stop_loss,
+                "target_price": target_price,
+                "target_date": None,  # unknown for adopted positions
+                "trailing_stop_pct": trailing_stop_pct,
+                "score": 0.0,
+                "opened_at": datetime.utcnow().isoformat(),
+                "order_ids": {**(order_ids or {}), "oca_group": oca_group},
+                "adopted": True,
+                "adopt_reason": reason,
+            })
+            _atomic_write_json(self._positions_path, positions)
+
+        # pnl=None — adoption is not a P&L event; keep stats unaffected.
+        self._log_trade("RECONCILE_ADOPT", ticker, quantity, entry_price, {
+            "stop_loss": stop_loss,
+            "target_price": target_price,
+            "trailing_stop_pct": trailing_stop_pct,
+            "oca_group": oca_group,
+            "reason": reason,
+            "pnl": None,
+        })
+        logger.warning(
+            "Position %s adopted into tracker (qty=%d, entry=$%.2f, reason=%s)",
+            ticker, quantity, entry_price, reason,
+        )
+
     # ── Target Date Exits ─────────────────────────────────────
 
     def check_target_date_exits(self) -> List[str]:

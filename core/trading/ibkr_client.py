@@ -1105,6 +1105,13 @@ class IBKRClient:
                     "status": t.orderStatus.status,
                     "filled": t.orderStatus.filled,
                     "oca_group": t.order.ocaGroup or "",
+                    # Price fields — needed by drift-check adoption to
+                    # recover the original stop %, limit target, and stop
+                    # price for an IB-only position. None when the order
+                    # type doesn't carry that field (e.g. MKT has no lmt).
+                    "trailing_percent": getattr(t.order, "trailingPercent", None),
+                    "lmt_price": getattr(t.order, "lmtPrice", None),
+                    "aux_price": getattr(t.order, "auxPrice", None),
                 }
                 for t in trades
             ]

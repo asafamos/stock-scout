@@ -399,6 +399,124 @@ def _earnings_exit_pass(tracker, client, ibkr_orders, notify):
             )
 
 
+def _try_adopt_ib_only(sym, qty, ibkr_orders, ib_pos_obj, tracker, notify):
+    """Adopt an IB-only position into the tracker if it has a complete
+    SS_* OCA group (TRAIL + LMT) active. Returns True iff adopted.
+
+    Safety filters:
+      - Long only (qty > 0; caller already filtered).
+      - OCA group must start with 'SS_' (our system's signature, see
+        ibkr_client._oca_group_name) — prevents adopting random manual
+        shorts/swing trades the user placed outside the system.
+      - Both TRAIL and LMT must be active in the same OCA group.
+      - avg_cost must be available from IB position object.
+
+    On success, the next cycle's exit logic (target_date, ratchet, etc.)
+    will treat the adopted position normally; the trade_log entry is
+    RECONCILE_ADOPT (not OPEN) so analytics filter it out of P&L stats.
+    """
+    # Group live SELL orders for this ticker by OCA
+    sell_orders = [
+        o for o in ibkr_orders
+        if o.get("ticker") == sym
+        and o.get("action") == "SELL"
+        and o.get("status") in ("Submitted", "PreSubmitted")
+    ]
+    by_oca: dict = {}
+    for o in sell_orders:
+        g = o.get("oca_group", "")
+        if g and g.startswith("SS_"):
+            by_oca.setdefault(g, []).append(o)
+
+    chosen_oca = None
+    trail_order = None
+    limit_order = None
+    for g, orders in by_oca.items():
+        t_ord = next((o for o in orders if o.get("order_type") == "TRAIL"), None)
+        l_ord = next((o for o in orders if o.get("order_type") == "LMT"), None)
+        if t_ord and l_ord:
+            chosen_oca = g
+            trail_order = t_ord
+            limit_order = l_ord
+            break
+
+    if not chosen_oca:
+        logger.info(
+            "adopt %s: no complete SS_* OCA group with TRAIL+LMT — leaving as drift",
+            sym,
+        )
+        return False
+
+    if ib_pos_obj is None:
+        logger.warning("adopt %s: no IB position object — cannot derive entry price", sym)
+        return False
+
+    try:
+        entry_price = float(ib_pos_obj.avgCost or 0)
+    except (TypeError, ValueError):
+        entry_price = 0.0
+    if entry_price <= 0:
+        logger.warning("adopt %s: avgCost is %r — cannot adopt safely", sym, ib_pos_obj.avgCost)
+        return False
+
+    try:
+        trail_pct = float(trail_order.get("trailing_percent") or 0)
+    except (TypeError, ValueError):
+        trail_pct = 0.0
+    try:
+        target_price = float(limit_order.get("lmt_price") or 0)
+    except (TypeError, ValueError):
+        target_price = 0.0
+
+    if trail_pct <= 0 or target_price <= 0:
+        logger.warning(
+            "adopt %s: missing trail_pct (%.2f) or target (%.2f) — skipping",
+            sym, trail_pct, target_price,
+        )
+        return False
+
+    # Conservative initial stop = entry × (1 - trail_pct/100). Real
+    # trailing stop on IB will move with price; this just gives the
+    # tracker a non-zero baseline so monitor's exit math doesn't divide
+    # by zero on `(price - stop) / price`.
+    stop_loss = round(entry_price * (1 - trail_pct / 100.0), 2)
+
+    order_ids = {
+        "trailing_stop": trail_order.get("order_id", 0),
+        "limit_sell": limit_order.get("order_id", 0),
+    }
+
+    try:
+        tracker.reconcile_adopt(
+            ticker=sym,
+            quantity=int(qty),
+            entry_price=entry_price,
+            stop_loss=stop_loss,
+            target_price=target_price,
+            trailing_stop_pct=trail_pct,
+            oca_group=chosen_oca,
+            order_ids=order_ids,
+            reason="ib_only_drift",
+        )
+    except Exception as e:
+        logger.error("adopt %s: tracker.reconcile_adopt failed: %s", sym, e)
+        return False
+
+    try:
+        notify._send(
+            f"✅ <b>RECONCILE: {sym} adopted</b>\n"
+            f"IB-only position pulled into tracker.\n"
+            f"Qty: {int(qty)} @ ${entry_price:.2f}\n"
+            f"Trail: {trail_pct:.1f}% | Target: ${target_price:.2f}\n"
+            f"OCA: <code>{chosen_oca}</code>\n"
+            f"Monitor's exit logic will now manage this position."
+        )
+    except Exception:
+        pass
+
+    return True
+
+
 def _drift_check(tracker, client, ibkr_orders, notify):
     """Surface tracker↔IB drift before it becomes a silent bug.
 
@@ -464,6 +582,16 @@ def _drift_check(tracker, client, ibkr_orders, notify):
     except Exception:
         pass
 
+    # Build a per-ticker IB-position lookup so we can pull avg_cost during
+    # adoption (entry_price is required to compute realistic stop_loss).
+    ib_position_objs = {}
+    try:
+        for p in client._ib.portfolio():
+            if p.position != 0:
+                ib_position_objs[p.contract.symbol] = p
+    except Exception:
+        pass
+
     for sym, qty in ib_pos_by_ticker.items():
         if sym not in tracked:
             if sym in recent_buy_tickers:
@@ -472,6 +600,20 @@ def _drift_check(tracker, client, ibkr_orders, notify):
                     "tracker write may still be propagating)", sym,
                 )
                 continue
+            # Try to auto-adopt before warning. Symmetric to reconcile_drop:
+            # if the position has a complete SS_* OCA group (TRAIL + LMT)
+            # active, it's almost certainly one of ours that lost its
+            # tracker row (manual buy via IB, crashed tracker write, or
+            # restored backup). Adopting is safer than letting it fire
+            # DRIFT every cooldown forever and stay invisible to monitor's
+            # exit logic.
+            if qty > 0:
+                adopted = _try_adopt_ib_only(
+                    sym, qty, ibkr_orders, ib_position_objs.get(sym),
+                    tracker, notify,
+                )
+                if adopted:
+                    continue
             issues.append(f"IB holds {sym} ({int(qty)} shares) but tracker doesn't")
 
     # Check 2: protective-order count per tracked position
