@@ -492,12 +492,15 @@ def _try_adopt_ib_only(sym, qty, ibkr_orders, ib_pos_obj, tracker, notify):
         logger.warning("adopt %s: no IB position object — cannot derive entry price", sym)
         return False
 
+    raw_avg_cost = getattr(ib_pos_obj, "averageCost", None)
+    if raw_avg_cost is None:
+        raw_avg_cost = getattr(ib_pos_obj, "avgCost", None)
     try:
-        entry_price = float(ib_pos_obj.avgCost or 0)
+        entry_price = float(raw_avg_cost or 0)
     except (TypeError, ValueError):
         entry_price = 0.0
     if entry_price <= 0:
-        logger.warning("adopt %s: avgCost is %r — cannot adopt safely", sym, ib_pos_obj.avgCost)
+        logger.warning("adopt %s: avgCost is %r — cannot adopt safely", sym, raw_avg_cost)
         return False
 
     try:
