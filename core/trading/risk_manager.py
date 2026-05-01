@@ -522,6 +522,38 @@ class RiskManager:
                 f"<= ${price * MAX_STOP_MULT:.2f} (entry-0.5%)"
             )
 
+        # 0. Auto-trade pause flag — set via command_bus.cmd_pause from
+        # Telegram or Streamlit. Highest-priority gate; nothing else
+        # matters if the user explicitly paused trading.
+        try:
+            from core.control.command_bus import _is_paused
+            if _is_paused():
+                return False, "Auto-trading paused (run /resume to lift)"
+        except Exception:
+            pass
+
+        # 0e. Block list — tickers explicitly blocked via command_bus.cmd_block.
+        try:
+            from core.control.command_bus import BLOCK_FILE
+            import json as _json
+            from datetime import datetime as _dt, timezone as _tz
+            if BLOCK_FILE.exists():
+                blocks = _json.loads(BLOCK_FILE.read_text())
+                rec = blocks.get(ticker.upper())
+                if rec:
+                    until = rec.get("until")
+                    if until:
+                        try:
+                            if _dt.fromisoformat(until) > _dt.now(_tz.utc):
+                                return False, (
+                                    f"Ticker {ticker} blocked until {until[:10]} "
+                                    f"(via command_bus)"
+                                )
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+
         # 1. Daily loss circuit breaker
         allowed, reason = self.check_daily_loss_breaker()
         if not allowed:

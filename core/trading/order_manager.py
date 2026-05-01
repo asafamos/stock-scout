@@ -192,12 +192,17 @@ class OrderManager:
 
         return results
 
-    def resubmit_protections(self) -> List[Dict]:
-        """Re-submit protective orders (trailing stop + limit sell) for all open positions.
+    def resubmit_protections(self, only_ticker: Optional[str] = None) -> List[Dict]:
+        """Re-submit protective orders (trailing stop + limit sell) for open positions.
 
-        Use when orders expired because they were placed as DAY instead of GTC.
+        Use when orders expired because they were placed as DAY instead of GTC,
+        or via command_bus to manually re-protect a specific ticker.
+
+        only_ticker: if provided, only resubmits for that one position.
         """
         positions = self.tracker.get_open_positions()
+        if only_ticker:
+            positions = [p for p in positions if p["ticker"].upper() == only_ticker.upper()]
         if not positions:
             logger.info("No open positions — nothing to resubmit")
             return []
