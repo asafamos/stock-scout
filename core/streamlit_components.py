@@ -194,16 +194,63 @@ def render_eligibility_badge(eval_result: Dict) -> str:
 def fetch_state(max_age_sec: int = 30) -> Optional[Dict]:
     """Fetch system_state.json from state-feed. Cached 30s.
 
-    Uses a cache-busting query parameter to defeat the Fastly CDN that
-    fronts raw.githubusercontent.com (~5 minute CDN cache by default).
-    Without `?t=...` the dashboard would show 5-minute-stale state even
-    though the VPS broadcaster pushes every 30s.
+    Uses GitHub Contents API instead of raw.githubusercontent.com because
+    raw URLs are fronted by Fastly CDN with ~5 minute cache that ignores
+    `?t=...` cache-busting on small static files. The Contents API
+    returns base64-encoded content but has no aggressive CDN cache,
+    so we get sub-30s freshness reliably.
+
+    Auth: if GITHUB_TOKEN is in env or st.secrets, uses it for higher
+    rate limit (5000/h vs 60/h unauth). Streamlit polls every 30s = 2/min
+    so unauth is fine for now.
     """
+    import base64
+    import os
+
     now = time.time()
     if _STATE_CACHE["data"] and (now - _STATE_CACHE["fetched_at"]) < max_age_sec:
         return _STATE_CACHE["data"]
+
+    # Try Streamlit secrets for the token first (cloud), then env (local)
+    token = None
     try:
-        # Cache-bust by appending current epoch — every fetch is a new URL.
+        import streamlit as _st
+        token = _st.secrets.get("GITHUB_TOKEN") if hasattr(_st, "secrets") else None
+    except Exception:
+        token = None
+    if not token:
+        token = os.environ.get("GITHUB_TOKEN")
+
+    api_url = (
+        "https://api.github.com/repos/asafamos/stock-scout/"
+        "contents/data/state/system_state.json?ref=state-feed"
+    )
+    headers = {
+        "User-Agent": "StockScoutDashboard/1.0",
+        "Accept": "application/vnd.github+json",
+        "Cache-Control": "no-cache",
+    }
+    if token:
+        headers["Authorization"] = f"token {token}"
+
+    try:
+        req = urllib.request.Request(api_url, headers=headers)
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            api_resp = json.loads(resp.read())
+        # Content is base64-encoded
+        content_b64 = api_resp.get("content", "")
+        if content_b64:
+            content = base64.b64decode(content_b64).decode("utf-8")
+            data = json.loads(content)
+            _STATE_CACHE["data"] = data
+            _STATE_CACHE["fetched_at"] = now
+            return data
+    except Exception:
+        pass  # fall through to raw URL fallback
+
+    # FALLBACK: raw URL with cache-busting (less reliable due to CDN
+    # but works without auth and might cache us a result)
+    try:
         url = f"{STATE_FEED_URL}?t={int(now)}"
         req = urllib.request.Request(
             url,
@@ -219,7 +266,7 @@ def fetch_state(max_age_sec: int = 30) -> Optional[Dict]:
         _STATE_CACHE["fetched_at"] = now
         return data
     except Exception:
-        return _STATE_CACHE.get("data")  # Return stale on network error
+        return _STATE_CACHE.get("data")  # last-known on total failure
 
 
 def _state_age_seconds(state: Dict) -> Optional[float]:
