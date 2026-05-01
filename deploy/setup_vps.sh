@@ -415,6 +415,37 @@ Persistent=true
 WantedBy=timers.target
 SVCEOF
 
+# --- Command Poller (long-running, polls every 15s) ---
+# Watches the `commands` branch on GitHub for entries appended by the
+# command_dispatch.yml workflow (which fires on Streamlit dispatch
+# button clicks via repository_dispatch). Picks up pending commands,
+# runs them through core.control.command_bus, posts results back to
+# Telegram. Without this, Streamlit's "Trigger VPS Scan" / "Pause" /
+# "Sell All" buttons silently queue up and never execute.
+#
+# Type=simple (long-running, not oneshot) — the script has its own
+# 15s poll loop. Restart=always so it survives transient git/network
+# errors. KillMode=process ensures clean shutdown via SIGTERM.
+sudo tee /etc/systemd/system/stockscout-command-poller.service > /dev/null << 'SVCEOF'
+[Unit]
+Description=StockScout command poller (commands branch -> command_bus)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=stockscout
+WorkingDirectory=/home/stockscout/stock-scout-2
+EnvironmentFile=/home/stockscout/stock-scout-2/.env.trading
+ExecStart=/home/stockscout/stock-scout-2/.venv/bin/python -m scripts.command_poller
+Restart=always
+RestartSec=10
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+
 sudo systemctl daemon-reload
 
 echo ""

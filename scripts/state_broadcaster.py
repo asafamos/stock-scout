@@ -317,7 +317,12 @@ def _build_throttle_state() -> Dict:
 def _build_health() -> Dict:
     services = ["stockscout-monitor", "stockscout-pipeline.timer",
                 "stockscout-statusbot", "stockscout-healthcheck.timer",
-                "stockscout-daily-summary.timer", "ibgateway"]
+                "stockscout-daily-summary.timer",
+                # command-poller is what makes Streamlit dispatch buttons
+                # actually execute (consumes commands branch queue).
+                # Without it, buttons silently queue and never run.
+                "stockscout-command-poller",
+                "ibgateway"]
     health = {s: _is_active(s) for s in services}
     health["all_active"] = all(health.values())
 
