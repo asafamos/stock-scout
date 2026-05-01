@@ -1096,8 +1096,11 @@ else:
     _regime_emoji = {"bullish": "📈", "neutral": "➡️", "bearish": "📉"}.get(
         market_regime_data.get("regime", "neutral"), "➡️"
     )
-    _regime_color = {"bullish": "#16a34a", "neutral": "#f59e0b", "bearish": "#dc2626"}.get(
-        market_regime_data.get("regime", "neutral"), "#f59e0b"
+    # Darker base colors for better contrast — the older shades washed out
+    # in light mode (e.g. amber on white background → text barely visible).
+    # These have AA-level contrast against white text.
+    _regime_color = {"bullish": "#15803d", "neutral": "#b45309", "bearish": "#b91c1c"}.get(
+        market_regime_data.get("regime", "neutral"), "#b45309"
     )
     _regime_details = market_regime_data.get("details", "")
 
@@ -1105,9 +1108,9 @@ else:
 regime_confidence = st.session_state.get("wyckoff_confidence", market_regime_data.get("confidence", 50))
 
 st.markdown(
-    f"""<div style='background:{_regime_color};color:white;padding:12px 16px;border-radius:var(--ss-radius-md);margin:10px 0;font-size:0.88rem;'>
-    <strong>{_regime_emoji} Market Regime: {_regime_label.upper()}</strong> (confidence: {regime_confidence}%)<br>
-    <small style="opacity:0.85;">{_regime_details}</small>
+    f"""<div style='background:{_regime_color};color:#ffffff;padding:14px 18px;border-radius:8px;margin:12px 0;font-size:0.95rem;box-shadow:0 1px 3px rgba(0,0,0,0.12);'>
+    <strong style='color:#ffffff;font-size:1.05rem;'>{_regime_emoji} Market Regime: {_regime_label.upper()}</strong> <span style='color:#ffffff;opacity:0.92;'>(confidence: {regime_confidence}%)</span><br>
+    <small style="color:#ffffff;opacity:0.88;">{_regime_details}</small>
     </div>""",
     unsafe_allow_html=True
 )
