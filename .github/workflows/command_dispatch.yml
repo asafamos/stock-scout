@@ -44,11 +44,23 @@ jobs:
           mkdir -p commands
           QF=commands/queue.jsonl
           touch "$QF"
-          # JSON-encode the full client_payload + metadata
-          PAYLOAD='${{ toJSON(github.event.client_payload) }}'
           NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           ID=$(date -u +%s)-$RANDOM
-          echo "{\"id\":\"$ID\",\"ts\":\"$NOW\",\"source\":\"streamlit-dispatch\",\"payload\":$PAYLOAD,\"status\":\"pending\"}" >> "$QF"
+          # CRITICAL: build the entry through jq with --compact-output so the
+          # resulting JSON is a SINGLE LINE. Previous version used
+          # ${{ toJSON(...) }} directly which emits pretty-printed JSON
+          # (multi-line). The poller reads queue.jsonl line-by-line and
+          # logged "malformed queue line: Expecting value" warnings on every
+          # entry — silently dropping ALL Streamlit-dispatched commands.
+          # Diagnosed 2026-05-01: a "pause" click reached the workflow
+          # successfully, the queue was appended, but the poller couldn't
+          # parse the multi-line JSON and skipped it forever.
+          jq -nc \
+            --arg id "$ID" \
+            --arg ts "$NOW" \
+            --argjson payload '${{ toJSON(github.event.client_payload) }}' \
+            '{id: $id, ts: $ts, source: "streamlit-dispatch", payload: $payload, status: "pending"}' \
+            >> "$QF"
 
       - name: Push command to commands branch
         run: |

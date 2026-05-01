@@ -67,6 +67,15 @@ def _save_processed(ids: Set[str]):
 
 
 def _fetch_queue() -> List[Dict]:
+    """Fetch and parse the commands queue.
+
+    Robust to BOTH JSONL (one object per line — preferred) AND
+    multi-line pretty-printed JSON. The latter happened in production
+    when the dispatch workflow accidentally emitted multi-line JSON
+    via toJSON(); the poller silently dropped every entry as
+    "malformed queue line". We now use raw_decode to consume objects
+    sequentially regardless of line breaks.
+    """
     try:
         req = urllib.request.Request(
             QUEUE_URL,
@@ -74,15 +83,31 @@ def _fetch_queue() -> List[Dict]:
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
             text = resp.read().decode("utf-8")
-        out = []
-        for line in text.splitlines():
-            line = line.strip()
-            if not line:
-                continue
+
+        out: List[Dict] = []
+        decoder = json.JSONDecoder()
+        idx = 0
+        n = len(text)
+        while idx < n:
+            # Skip whitespace (including newlines between objects)
+            while idx < n and text[idx].isspace():
+                idx += 1
+            if idx >= n:
+                break
             try:
-                out.append(json.loads(line))
-            except Exception as e:
-                logger.warning("malformed queue line: %s", e)
+                obj, end = decoder.raw_decode(text, idx)
+                if isinstance(obj, dict):
+                    out.append(obj)
+                idx = end
+            except json.JSONDecodeError as e:
+                # Skip to next newline and retry — protects against
+                # genuinely-corrupted lines without dropping everything.
+                next_nl = text.find("\n", idx)
+                if next_nl < 0:
+                    logger.warning("queue parse error at end: %s", e)
+                    break
+                logger.warning("skipping malformed region: %s", e)
+                idx = next_nl + 1
         return out
     except urllib.error.HTTPError as e:
         if e.code == 404:
