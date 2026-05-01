@@ -540,6 +540,37 @@ def _drift_check(tracker, client, ibkr_orders, notify):
     """
     issues = []
 
+    # ── Pre-check: skip drift entirely if the IB connection isn't
+    # actually live. Two scenarios that previously caused noisy
+    # "DRIFT CHECK SKIPPED" Telegram spam every cycle:
+    #
+    #   1. dry_run=True. `connect()` returns True without setting
+    #      `_ib` (the dry-run path skips the real IB() instantiation).
+    #      Any `_ib.portfolio()` then raises 'NoneType' has no
+    #      attribute 'portfolio'. There is no real portfolio to compare
+    #      against in dry-run anyway — the alert is meaningless.
+    #
+    #   2. Connection dropped between cycles. `_ib` exists but
+    #      `_ib.isConnected()` is False (Gateway restarted, 2FA
+    #      expired, network blip). Calling `.portfolio()` on a
+    #      disconnected IB() returns empty/raises depending on
+    #      ib_insync version — neither produces useful drift output.
+    #
+    # Better behavior: log at DEBUG and return silently. The next
+    # successful cycle will catch any genuine drift; one missed cycle
+    # is invisible to the user and far better than a constant alarm.
+    if getattr(client, "cfg", None) and getattr(client.cfg, "dry_run", False):
+        logger.debug("drift_check skipped: client is in DRY_RUN mode")
+        return
+    if client._ib is None or not client._ib.isConnected():
+        logger.warning(
+            "drift_check skipped: IB connection not live "
+            "(_ib=%s, connected=%s)",
+            "None" if client._ib is None else "set",
+            False if client._ib is None else client._ib.isConnected(),
+        )
+        return
+
     # IB positions
     try:
         ib_pos_by_ticker = {p.contract.symbol: float(p.position)
