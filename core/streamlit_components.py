@@ -235,11 +235,20 @@ def execution_preview_section(st, scan_df=None, max_rows: int = 5):
     cfg_reserve = 20.0  # cfg.cash_reserve default
     available_cash = max(0.0, cash - cfg_reserve)
 
+    # Throttle multiplier — match production sizing exactly. When the
+    # rolling-window WR is in WARN range (under 30%), production halves
+    # position sizes; the preview must apply the same factor or qty
+    # estimates will be off by 2× from what actually executes.
+    throttle = state.get("throttle", {}) or {}
+    throttle_mult = float(throttle.get("size_multiplier", 1.0) or 1.0)
+
     previews = []
     for row in eligible_rows[:max_rows]:
         try:
             p = compute_execution_preview(
-                row, available_cash=available_cash if available_cash > 0 else None,
+                row,
+                available_cash=available_cash if available_cash > 0 else None,
+                throttle_mult=throttle_mult,
             )
             previews.append(p)
         except Exception:

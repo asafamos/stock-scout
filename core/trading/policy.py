@@ -377,6 +377,7 @@ def compute_execution_preview(
     cfg=None,
     live_price: Optional[float] = None,
     available_cash: Optional[float] = None,
+    throttle_mult: float = 1.0,
 ) -> ExecutionPreview:
     """Return what the order_manager would submit for this scan row.
 
@@ -391,6 +392,10 @@ def compute_execution_preview(
                     just shows scan-derived numbers (clearly labeled).
         available_cash: cash available for sizing. When None, the qty
                         estimate uses cfg.max_position_size as the bound.
+        throttle_mult: rolling-window-WR multiplier. 1.0 = normal, 0.5 =
+                       throttle WARN level (halves position sizes), 0.0 =
+                       throttle HALT (preview shows qty=0 with note).
+                       Caller passes from state.throttle.size_multiplier.
 
     Returns: ExecutionPreview with all the numbers the dashboard should
              display alongside (or instead of) raw scan numbers.
@@ -494,14 +499,31 @@ def compute_execution_preview(
     if atr_pct > 0:
         vol_factor = max(0.5, min(2.0 / max(atr_pct, 1.0), 1.0))
 
-    target_spend = base_spend * conviction_mult * ml_mult * vol_factor
+    # Throttle multiplier — rolling-window-WR safety brake.
+    # Production code applies this in risk_manager.calculate_qty; the
+    # preview must apply the same factor or qty estimates inflate by 2×
+    # when throttle is at WARN (0.5×) level.
+    throttle_mult = max(0.0, min(throttle_mult, 1.0))
+
+    target_spend = base_spend * conviction_mult * ml_mult * vol_factor * throttle_mult
     target_spend = min(target_spend, float(getattr(cfg, "max_position_size", 300.0)) * 1.5)
     if available_cash is not None:
         target_spend = min(target_spend, max(0.0, available_cash))
 
     qty_estimate = math.floor(target_spend / entry) if entry > 0 else 0
-    if qty_estimate == 0 and entry > 0 and entry <= base_spend:
-        qty_estimate = 1  # fallback for high-priced stocks
+    # Fallback: 1 share if we can afford it. Mirrors risk_manager.calculate_qty
+    # exactly — bound is `available_cash` (when known) or `max_position_size × 2`,
+    # NOT base_spend. This matters for $400-$600 stocks where the conviction-
+    # weighted spend stays below the price but we DO have enough cash to buy 1.
+    # Disabled when throttle is at HALT level (production blocks the trade
+    # at the gate before reaching the sizing fallback).
+    if qty_estimate == 0 and entry > 0 and throttle_mult > 0:
+        max_affordable = (
+            available_cash if available_cash is not None
+            else float(getattr(cfg, "max_position_size", 300.0)) * 2
+        )
+        if entry <= max_affordable:
+            qty_estimate = 1
 
     spend_estimate = qty_estimate * entry
 
