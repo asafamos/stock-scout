@@ -956,13 +956,31 @@ except Exception as _ssc_err:
     _lg.getLogger(__name__).debug("state-feed unavailable: %s", _ssc_err)
 
 
-# ==================== LIVE TRADING BANNER (restored polish) ====================
+# ==================== LIVE TRADING BANNER (LEGACY — disabled when state-feed available) ====================
+# This banner reads from data/trades/portfolio_snapshot.json on the main
+# branch, which is committed sporadically by the VPS (not real-time).
+# When state-feed is available (which is the new norm), the
+# pipeline_status_widget + positions_with_earnings_section above already
+# show fresh data — duplicating it here just confuses users with
+# 60+h-stale numbers.
+#
+# We keep the legacy code as a FALLBACK for when state-feed is unavailable
+# (e.g. during a brief broadcaster outage). When state-feed worked recently,
+# we skip the legacy banner entirely.
+_skip_legacy_banner = False
+try:
+    from core.streamlit_components import fetch_state as _fs_check
+    if _fs_check():
+        _skip_legacy_banner = True  # state-feed is healthy; legacy is redundant
+except Exception:
+    pass
+
 try:
     from pathlib import Path as _PathLB
     import json as _jsonLB
     from datetime import datetime as _dtLB, timezone as _tzLB
     _snap_path = _PathLB("data/trades/portfolio_snapshot.json")
-    if _snap_path.exists():
+    if not _skip_legacy_banner and _snap_path.exists():
         _sdata = _jsonLB.loads(_snap_path.read_text())
         _positions_live = _sdata.get("positions", [])
         _cash_live = _sdata.get("cash", 0)
@@ -979,21 +997,18 @@ try:
         _age_dot_b = "#10b981" if _age_min_live < 20 else "#f59e0b" if _age_min_live < 60 else "#ef4444"
         _age_label_b = f"{int(_age_min_live)}m ago" if _age_min_live < 60 else f"{int(_age_min_live/60)}h ago"
 
-        # STALE-DATA WARNING — when the snapshot is more than 6 hours old,
-        # the displayed positions/cash may not reflect the live IB state.
-        # The cloud Streamlit instance only sees what's been pushed to git;
-        # the VPS updates portfolio_snapshot.json frequently in-place but
-        # only commits sporadically. Without this warning users have made
-        # decisions on Friday-EOD numbers thinking they were live (saw it
-        # firsthand on 2026-04-30). Show a clear banner above the LIVE
-        # TRADING card when stale.
+        # STALE-DATA WARNING — kept only as fallback when state-feed is
+        # unavailable. Normally state-feed handles freshness.
         if _age_min_live >= 360:  # 6 hours
             st.warning(
-                f"⚠️ **Live Trading data is {_age_label_b} (stale)** — "
-                f"the actual IB account state may differ from what's "
-                f"shown below. Check Telegram (@stockscout_asaf_bot) "
-                f"by sending `status` for the real-time portfolio."
+                f"⚠️ **Legacy snapshot is {_age_label_b} (stale)** — "
+                f"state-feed is unavailable. Real values may differ. "
+                f"Check Telegram (@stockscout_asaf_bot) for live state."
             )
+        # Hide the visual banner card when state-feed is healthy — the new
+        # widgets above already show this info with fresh data.
+        # (We've already skipped the wrapping `if not _skip_legacy_banner`
+        # block above, so reaching this code means state-feed is down.)
         _pnl_bg_b = "linear-gradient(135deg, rgba(16,185,129,0.10), rgba(16,185,129,0.02))" if _pnl_live >= 0 else "linear-gradient(135deg, rgba(239,68,68,0.10), rgba(239,68,68,0.02))"
         _pnl_border_b = "rgba(16,185,129,0.25)" if _pnl_live >= 0 else "rgba(239,68,68,0.25)"
         _pnl_color_b = "#10b981" if _pnl_live >= 0 else "#ef4444"
