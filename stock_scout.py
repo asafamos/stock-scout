@@ -931,6 +931,7 @@ st.session_state["force_live_scan_once"] = False
 # These reflect what the VPS pipeline + monitor + IB are doing in real time —
 # unlike the legacy LIVE TRADING BANNER below, which reads stale git-checked-in
 # portfolio_snapshot.json.
+_AUTOMATED_DASHBOARD_RENDERED = False
 try:
     from core.streamlit_components import (
         pipeline_status_widget,
@@ -950,10 +951,24 @@ try:
         with st.expander("🎛️ System Controls", expanded=False):
             emergency_controls_section(st)
         st.divider()
+        _AUTOMATED_DASHBOARD_RENDERED = True
+    else:
+        # state-feed reachable but returned None → broadcaster not pushing yet
+        st.info(
+            "🔄 **State feed not yet populated** — VPS broadcaster may be "
+            "initializing or the state-feed branch is empty. Refresh in 30s. "
+            "For real-time state send `status` to @stockscout_asaf_bot."
+        )
 except Exception as _ssc_err:
-    # Fall through to legacy banner if state-feed not yet available
+    # Make the failure VISIBLE so we can diagnose Streamlit Cloud issues
+    # instead of silently falling back to the legacy banner.
+    st.error(
+        f"⚠️ **State feed unavailable:** `{type(_ssc_err).__name__}: {_ssc_err}` — "
+        f"falling back to legacy snapshot below. Check Telegram (@stockscout_asaf_bot) "
+        f"by sending `status` for real-time state."
+    )
     import logging as _lg
-    _lg.getLogger(__name__).debug("state-feed unavailable: %s", _ssc_err)
+    _lg.getLogger(__name__).warning("state-feed render failed: %s", _ssc_err)
 
 
 # ==================== LIVE TRADING BANNER (LEGACY — disabled when state-feed available) ====================
@@ -1099,21 +1114,25 @@ else:
     # Darker base colors for better contrast — the older shades washed out
     # in light mode (e.g. amber on white background → text barely visible).
     # These have AA-level contrast against white text.
-    _regime_color = {"bullish": "#15803d", "neutral": "#b45309", "bearish": "#b91c1c"}.get(
-        market_regime_data.get("regime", "neutral"), "#b45309"
+    _regime_color = {"bullish": "#0f5132", "neutral": "#7c2d12", "bearish": "#7f1d1d"}.get(
+        market_regime_data.get("regime", "neutral"), "#7c2d12"
     )
     _regime_details = market_regime_data.get("details", "")
 
 # Prefer Wyckoff-specific confidence when available; fallback to simple regime confidence
 regime_confidence = st.session_state.get("wyckoff_confidence", market_regime_data.get("confidence", 50))
 
-st.markdown(
-    f"""<div style='background:{_regime_color};color:#ffffff;padding:14px 18px;border-radius:8px;margin:12px 0;font-size:0.95rem;box-shadow:0 1px 3px rgba(0,0,0,0.12);'>
-    <strong style='color:#ffffff;font-size:1.05rem;'>{_regime_emoji} Market Regime: {_regime_label.upper()}</strong> <span style='color:#ffffff;opacity:0.92;'>(confidence: {regime_confidence}%)</span><br>
-    <small style="color:#ffffff;opacity:0.88;">{_regime_details}</small>
-    </div>""",
-    unsafe_allow_html=True
-)
+# Use Streamlit's native components (st.info/st.success) which respect
+# the app's color theme and dark/light mode automatically. Custom CSS
+# divs were getting stripped/overridden by Streamlit's theme on cloud.
+_regime_emoji_label = f"{_regime_emoji} Market Regime: {_regime_label.upper()} (confidence: {regime_confidence}%)"
+_regime_kind = market_regime_data.get("regime", "neutral")
+if _regime_kind == "bullish":
+    st.success(_regime_emoji_label + (f" — {_regime_details}" if _regime_details else ""))
+elif _regime_kind == "bearish":
+    st.error(_regime_emoji_label + (f" — {_regime_details}" if _regime_details else ""))
+else:  # neutral / unknown
+    st.warning(_regime_emoji_label + (f" — {_regime_details}" if _regime_details else ""))
 
 if skip_pipeline:
     # Use precomputed results from full pipeline
