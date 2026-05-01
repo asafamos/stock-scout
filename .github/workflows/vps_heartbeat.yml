@@ -29,6 +29,12 @@ permissions:
 
 jobs:
   ping:
+    # Defensive guard: only execute on the actual schedule/manual-dispatch
+    # events. Without this, GitHub emits "ghost" runs on pushes to the
+    # default branch when the workflow file is added/modified, producing
+    # "Run failed: No jobs were run" emails. Same pattern as
+    # command_dispatch.yml (also guarded for the same reason).
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
