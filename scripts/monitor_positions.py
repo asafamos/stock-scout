@@ -94,6 +94,25 @@ def _is_account_restriction_error(msg: str) -> bool:
     return any(frag in low for frag in _ACCOUNT_RESTRICTION_ERRORS)
 
 
+# ── Consecutive-miss counter for sync_positions() ─────────────────
+# `client.sync_positions()` sometimes returns a PARTIAL result —
+# 2 of 3 tracked positions, missing one of them, even though IB
+# actually holds all three (verified on 2026-05-01 with ORCL: a
+# /status call ran 2 minutes apart showed ORCL fully tracked AND
+# a DRIFT alert claiming the tracker didn't know about it. The
+# tracker was correct; sync_positions() had silently dropped ORCL
+# from its return on one cycle, so reconcile_drop ran and removed
+# it, then drift_check on the very next cycle re-detected it).
+#
+# Existing guard `if not ibkr_positions: skip` only catches
+# zero-result sync. This counter requires N consecutive misses
+# before we treat a position as genuinely closed. One transient
+# missing cycle is now invisible to the user; two in a row trips
+# the close path.
+_MISSING_COUNT: dict = {}
+_MISS_THRESHOLD = 2  # Need 2 consecutive missing cycles to close
+
+
 def run_check():
     """Single monitoring cycle."""
     from core.trading.config import CONFIG
@@ -120,6 +139,11 @@ def run_check():
         ibkr_positions = {p.ticker: p for p in client.sync_positions()}
         ibkr_orders = client.get_open_orders()
 
+        # Reset miss counter for tickers that ARE in this sync
+        # (so a transient miss followed by a hit clears the count).
+        for ticker_seen in ibkr_positions:
+            _MISSING_COUNT.pop(ticker_seen, None)
+
         for pos in positions:
             ticker = pos["ticker"]
 
@@ -142,8 +166,25 @@ def run_check():
                 if not other_positions_exist and len(positions) > 1:
                     logger.warning("Only %s missing but no other IB positions seen — skipping (possible sync issue)", ticker)
                     continue
-                # Position was closed (stop or target hit)
-                logger.info("Position %s no longer in IBKR — marking closed", ticker)
+
+                # Consecutive-miss guard: require N cycles of missing
+                # before treating as closed. Defends against partial
+                # sync_positions() results where IB returned some
+                # tracked positions but not all (the ORCL adopt/drop
+                # loop on 2026-05-01).
+                _MISSING_COUNT[ticker] = _MISSING_COUNT.get(ticker, 0) + 1
+                if _MISSING_COUNT[ticker] < _MISS_THRESHOLD:
+                    logger.warning(
+                        "%s missing from IB sync (%d/%d cycles) — "
+                        "waiting for confirmation before close",
+                        ticker, _MISSING_COUNT[ticker], _MISS_THRESHOLD,
+                    )
+                    continue
+                # Confirmed missing for N cycles — proceed with close
+                logger.info(
+                    "%s confirmed missing for %d cycles — marking closed",
+                    ticker, _MISSING_COUNT[ticker],
+                )
 
                 # Try to determine exit price and reason from filled orders.
                 # IB's fills can be sparse right after a close — try twice with
