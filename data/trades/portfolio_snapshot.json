@@ -1,19 +1,19 @@
 {
-  "updated_at": "2026-05-04T14:26:16.191164+00:00",
+  "updated_at": "2026-05-04T14:41:23.849014+00:00",
   "positions": [
     {
       "ticker": "ORCL",
       "quantity": 2,
       "avg_cost": 167.32,
-      "market_price": 181.37,
-      "market_value": 362.74,
-      "unrealized_pnl": 28.09,
-      "pnl_pct": 8.39,
+      "market_price": 181.7,
+      "market_value": 363.4,
+      "unrealized_pnl": 28.75,
+      "pnl_pct": 8.59,
       "entry_price": 167.325,
       "target_price": 216.72,
       "stop_loss": 159.63,
       "target_date": "None",
-      "peak_price": 181.37158205,
+      "peak_price": 181.9700012,
       "stop_floor": null,
       "trailing_stop_pct": 4.6,
       "score": 0.0
@@ -22,10 +22,10 @@
       "ticker": "RDDT",
       "quantity": 1,
       "avg_cost": 159.27,
-      "market_price": 170.69,
-      "market_value": 170.69,
-      "unrealized_pnl": 11.41,
-      "pnl_pct": 7.17,
+      "market_price": 170.58,
+      "market_value": 170.58,
+      "unrealized_pnl": 11.31,
+      "pnl_pct": 7.1,
       "entry_price": 159.273503,
       "target_price": 212.29,
       "stop_loss": 151.15,
@@ -58,7 +58,7 @@
       "oca_group": "SS_ORCL_6315c0dd1a",
       "status": "PreSubmitted",
       "trail_pct": 4.6,
-      "stop_price": 173.68
+      "stop_price": 173.96
     },
     {
       "order_id": 1195,
@@ -85,8 +85,8 @@
     }
   ],
   "cash": 484.07,
-  "net_liquidation": 1017.5,
-  "total_unrealized_pnl": 39.5,
+  "net_liquidation": 1018.05,
+  "total_unrealized_pnl": 40.06,
   "position_count": 2,
   "vps_status": "connected"
 }
