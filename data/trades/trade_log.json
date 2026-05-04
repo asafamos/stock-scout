@@ -126,5 +126,74 @@
     "pnl": 23.93,
     "reason": "stop_or_target_filled",
     "held_since": "2026-04-21T13:35:04"
+  },
+  {
+    "timestamp": "2026-05-01T14:52:00",
+    "action": "CLOSE",
+    "ticker": "SVM",
+    "quantity": 15,
+    "price": 12.0747,
+    "pnl": -3.68,
+    "reason": "trail_filled",
+    "note": "reconstructed manually 2026-05-01 \u2014 original lost in git pull"
+  },
+  {
+    "action": "RECONCILE_ADOPT",
+    "ticker": "ORCL",
+    "quantity": 2,
+    "price": 167.325,
+    "timestamp": "2026-05-01T19:25:22.947456",
+    "stop_loss": 159.63,
+    "target_price": 216.72,
+    "trailing_stop_pct": 4.6,
+    "oca_group": "SS_ORCL_6315c0dd1a",
+    "reason": "ib_only_drift",
+    "pnl": null
+  },
+  {
+    "action": "RECONCILE_ADOPT",
+    "ticker": "RDDT",
+    "quantity": 1,
+    "price": 159.273503,
+    "timestamp": "2026-05-01T19:25:23.299315",
+    "stop_loss": 151.15,
+    "target_price": 212.29,
+    "trailing_stop_pct": 5.1,
+    "oca_group": "SS_RDDT_97f102a274",
+    "reason": "ib_only_drift",
+    "pnl": null
+  },
+  {
+    "action": "CLOSE",
+    "ticker": "CF",
+    "quantity": 2,
+    "price": 122.45,
+    "timestamp": "2026-05-01T19:30:26.594702",
+    "entry_price": 111.33,
+    "pnl": 22.24,
+    "reason": "stop_or_target_filled",
+    "held_since": "2026-04-17T13:35:00"
+  },
+  {
+    "action": "RECONCILE_DROP",
+    "ticker": "TDW",
+    "quantity": 2,
+    "price": 0.0,
+    "timestamp": "2026-05-01T19:30:28.927867",
+    "entry_price": 85.83,
+    "pnl": null,
+    "reason": "closed_externally_no_fill_data",
+    "held_since": "2026-04-22T13:35:18.049598"
+  },
+  {
+    "action": "CLOSE",
+    "ticker": "RDDT",
+    "quantity": 1,
+    "price": 166.16,
+    "timestamp": "2026-05-04T15:46:55.696890",
+    "entry_price": 159.273503,
+    "pnl": 6.89,
+    "reason": "stop_or_target_filled",
+    "held_since": "2026-05-01T19:25:23.297035"
   }
 ]

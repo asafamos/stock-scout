@@ -1,44 +1,21 @@
 [
   {
-    "ticker": "CF",
+    "ticker": "ORCL",
     "quantity": 2,
-    "entry_price": 111.33,
-    "stop_loss": 110.75,
-    "target_price": 145.46,
-    "target_date": "2026-05-04 00:00:00",
-    "trailing_stop_pct": 5.3,
-    "score": 79.8,
-    "opened_at": "2026-04-17T13:35:00",
+    "entry_price": 167.325,
+    "stop_loss": 159.63,
+    "target_price": 216.72,
+    "target_date": null,
+    "trailing_stop_pct": 4.6,
+    "score": 0.0,
+    "opened_at": "2026-05-01T19:25:22.944807",
     "order_ids": {
-      "buy": 35,
-      "trailing_stop": 1031,
-      "limit_sell": 37,
-      "oca_group": "SS_CF_1776792064",
-      "stop_type": "STP"
+      "trailing_stop": 1172,
+      "limit_sell": 1173,
+      "oca_group": "SS_ORCL_6315c0dd1a"
     },
-    "peak_price": 127.013649,
-    "stop_floor": 114.6699,
-    "sector": "Basic Materials"
-  },
-  {
-    "ticker": "TDW",
-    "quantity": 2,
-    "entry_price": 85.83,
-    "stop_loss": 80.29000091552734,
-    "target_price": 93.95000610351562,
-    "target_date": "2026-05-07 00:00:00",
-    "trailing_stop_pct": 3.0,
-    "score": 77.4997532309146,
-    "opened_at": "2026-04-22T13:35:18.049598",
-    "order_ids": {
-      "buy": 739,
-      "trailing_stop": 740,
-      "limit_sell": 741,
-      "oca_group": "SS_TDW_1776864914"
-    },
-    "sector": "Energy",
-    "entry_ml_prob": 0.38112579013380077,
-    "entry_atr_pct": 0.04292358508419825,
-    "peak_price": 93.007576
+    "adopted": true,
+    "adopt_reason": "ib_only_drift",
+    "peak_price": 183.07302855
   }
 ]
