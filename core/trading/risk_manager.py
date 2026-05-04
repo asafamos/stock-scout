@@ -62,14 +62,16 @@ class RiskManager:
     def check_performance_throttle(self) -> Tuple[bool, str, float]:
         """Rolling-window safety brake. Returns (allowed, reason, size_multiplier).
 
-        Reads the last N closed trades from trade_log. If win rate drops
-        below thresholds:
-          - >= 30% → no throttle (mult=1.0)
-          - 20-30% → halve position size (mult=0.5)
-          - < 20%  → halt all new buys (allowed=False)
+        Two modes (cfg.throttle_mode):
+          - "winrate" (default, backward-compat): WR < halt → halt;
+            WR < warn → halve. WR thresholds default 0.20 / 0.30.
+          - "expectancy" (audit H2, 2026-05-01): avg_pnl_pct < halt
+            → halt; avg_pnl_pct < warn → halve. Better for 2.0+ R:R
+            strategies where 30% WR is normal. Defaults: warn=0,
+            halt=-1.5%.
 
         Skips throttle when there are fewer than `throttle_min_trades`
-        closed trades — avoid early-sample false alarms.
+        closed trades (avoid early-sample false alarms).
 
         This is a SAFETY brake against regime change / model drift —
         it doesn't replace risk gates, it adds a portfolio-level circuit
@@ -89,6 +91,46 @@ class RiskManager:
             n = len(recent)
             if n < self.cfg.throttle_min_trades:
                 return True, "", 1.0
+
+            mode = str(getattr(self.cfg, "throttle_mode", "winrate")).lower()
+
+            if mode == "expectancy":
+                # Average pnl % per trade. Computed against entry_price
+                # × qty when those are available; falls back to absolute
+                # pnl when not (older trade_log rows pre-feature-engineering).
+                pnl_pcts = []
+                for t in recent:
+                    entry = float(t.get("entry_price") or 0)
+                    qty = float(t.get("quantity") or 0)
+                    pnl = float(t.get("pnl") or 0)
+                    if entry > 0 and qty > 0:
+                        pct = (pnl / (entry * qty)) * 100
+                    else:
+                        # Absolute fallback: use $300 base as "expected"
+                        # cost basis. Less precise but never wildly off.
+                        pct = (pnl / 300.0) * 100
+                    pnl_pcts.append(pct)
+                avg_pct = sum(pnl_pcts) / max(len(pnl_pcts), 1)
+                halt_thr = float(self.cfg.throttle_halt_expectancy_pct)
+                warn_thr = float(self.cfg.throttle_warn_expectancy_pct)
+                if avg_pct <= halt_thr:
+                    return (
+                        False,
+                        f"Performance throttle HALT (expectancy): "
+                        f"avg {avg_pct:+.2f}% per trade <= {halt_thr:+.2f}% "
+                        f"({n} trades) — strategy is bleeding",
+                        0.0,
+                    )
+                if avg_pct < warn_thr:
+                    logger.warning(
+                        "Performance throttle WARN (expectancy): avg %+.2f%% "
+                        "per trade < %+.2f%% (%d trades) — halving sizes",
+                        avg_pct, warn_thr, n,
+                    )
+                    return True, "", 0.5
+                return True, "", 1.0
+
+            # Default: winrate mode (legacy, backward compatible)
             wins = sum(1 for t in recent if (t.get("pnl") or 0) > 0)
             win_rate = wins / n
             if win_rate < self.cfg.throttle_halt_winrate:
@@ -112,25 +154,49 @@ class RiskManager:
             return True, "", 1.0
 
     def check_cash_after_buy(self, cost: float) -> Tuple[bool, str]:
-        """Block buys that would drop cash below IB's $2,000 minimum.
+        """Block buys that would leave cash below the level needed for
+        IB's protective-order resubmit logic to function.
 
-        Without this gate, IB rejects post-buy resubmits with "minimum
-        of 2000" (the cash-account rule). Detected reactively today, but
-        the position is then unprotected until the user adds cash.
-        Proactive check is cheaper and clearer. (Audit finding #10.)
+        Audit M3 (2026-05-01): previously this gate ONLY fired when a
+        $2k+ account would drop below $2k. For the user's actual
+        sub-$2k account it was a no-op — yet IB STILL rejects resubmits
+        in the sub-$2k tier when there's not enough cash buffer for
+        commission + slippage on the protective leg. Now the gate has
+        TWO branches:
+
+          1. Crossing the $2k boundary (existing behavior).
+          2. Sub-$2k tier: ensure post-buy cash >= 1.5× cost-of-one-share
+             buffer for commission + slippage when IB resubmits the
+             protective LMT. Roughly: leave at least $25 of free cash.
         """
         try:
             cash = float(self.client.get_cash_balance() or 0)
         except Exception:
-            return True, ""  # can't check — let it through (fall back to IB-side reject)
-        # Only enforce when this buy WOULD cross the $2k boundary.
-        # Above $2k post-buy, the rule doesn't bite.
-        if cash - cost < 2000 and cash >= 2000:
+            return True, ""  # can't check — let it through (IB will reject)
+
+        post_buy_cash = cash - cost
+
+        # Branch 1: $2k boundary crossing
+        if post_buy_cash < 2000 and cash >= 2000:
             return False, (
-                f"Cash post-buy ${cash - cost:.0f} would fall below IB's $2,000 "
+                f"Cash post-buy ${post_buy_cash:.0f} would fall below IB's $2,000 "
                 f"minimum (cash now ${cash:.0f}, buy ${cost:.0f}). "
                 f"Buy would succeed but resubmits/protective orders would fail."
             )
+
+        # Branch 2: sub-$2k tier — leave commission/slippage buffer.
+        # IB charges $1 commission per leg; protective LMT resubmits can
+        # need a few cents of slippage budget on the limit price. $25 is a
+        # generous buffer that prevents "insufficient funds" rejects on
+        # the protective resubmit path.
+        SUB_2K_MIN_BUFFER = 25.0
+        if cash < 2000 and post_buy_cash < SUB_2K_MIN_BUFFER:
+            return False, (
+                f"Cash post-buy ${post_buy_cash:.0f} below sub-$2k buffer "
+                f"${SUB_2K_MIN_BUFFER:.0f} (cash ${cash:.0f}, cost ${cost:.0f}). "
+                f"Risk of failed protective-order resubmit."
+            )
+
         return True, ""
 
     def check_daily_loss_breaker(self) -> Tuple[bool, str]:
@@ -211,13 +277,136 @@ class RiskManager:
                 )
             return True, ""
         except Exception as e:
-            logger.warning("Daily loss breaker check failed: %s — failing OPEN", e)
-            return True, ""  # genuine exception path: still fail-open (rare)
+            # FAIL-CLOSED on exception path when realized losses today already
+            # breached the threshold. Audit 2026-05-01 (C3): the previous
+            # behavior fell through to "True, ''" on ANY exception — a swallowed
+            # IB error during the loss-breaker check silently disabled the
+            # breaker exactly when you most need it. Now: realized-only check
+            # FIRST, fall back to fail-OPEN only when realized is also clean.
+            try:
+                today_iso = date.today().isoformat()
+                realized_only = sum(
+                    float(t.get("pnl") or 0)
+                    for t in self.tracker.get_trade_log()
+                    if t.get("action") == "CLOSE"
+                    and str(t.get("timestamp", "")).startswith(today_iso)
+                )
+                est_net = self.cfg.max_position_size * self.cfg.max_open_positions
+                est_pct = (realized_only / max(est_net, 1)) * 100
+                if est_pct <= -self.cfg.max_daily_loss_pct:
+                    logger.warning(
+                        "Daily loss breaker: outer-exception path FAIL-CLOSED "
+                        "(realized %+.2f%% <= -%.1f%%, exception=%s)",
+                        est_pct, self.cfg.max_daily_loss_pct, e,
+                    )
+                    return False, (
+                        f"Daily loss breaker (outer-exception fail-CLOSED): "
+                        f"realized ${realized_only:.0f} = {est_pct:+.2f}% "
+                        f"<= -{self.cfg.max_daily_loss_pct}%"
+                    )
+            except Exception:
+                pass
+            logger.warning("Daily loss breaker check failed: %s — failing OPEN (no realized loss today)", e)
+            return True, ""
+
+    def check_drawdown_breaker(self) -> Tuple[bool, str]:
+        """Block new buys when account is down >max_drawdown_pct from peak.
+
+        Audit 2026-05-01 (C1): cfg.max_drawdown_pct is documented as
+        "Pause trading if portfolio is down >X% from peak" but had ZERO
+        readers in production code. With $1000 capital, a portfolio-level
+        circuit breaker is essential — the daily-loss breaker only catches
+        single-session drops, not cumulative bleeding over many days.
+
+        Uses analytics.compute_drawdown over the realized equity curve
+        (closed trades only). Open positions are EXCLUDED — drawdown is
+        a confirmed loss, not an unrealized fluctuation. Threshold compares
+        current_dd_pct (from peak to last close) against the configured cap.
+
+        Fails OPEN if the curve can't be built (insufficient history); the
+        daily-loss breaker still covers fresh damage in that window.
+        """
+        try:
+            cap = float(getattr(self.cfg, "max_drawdown_pct", 10.0))
+            if cap <= 0:
+                return True, ""  # disabled
+
+            from core.trading.analytics import (
+                build_equity_curve,
+                compute_drawdown,
+                pair_buy_sell_events,
+            )
+            log = self.tracker.get_trade_log()
+            pairs = pair_buy_sell_events(log)
+            if not pairs or len(pairs) < 2:
+                return True, ""  # not enough history to compute peak
+
+            # Use net liquidation as starting equity; falls back to a sane
+            # default if IB is unreachable.
+            try:
+                start_eq = float(self.client.get_net_liquidation() or 0)
+            except Exception:
+                start_eq = 0.0
+            if start_eq <= 0:
+                start_eq = self.cfg.max_position_size * self.cfg.max_open_positions
+
+            curve = build_equity_curve(pairs, starting_balance=start_eq)
+            dd = compute_drawdown(curve)
+            current_dd = float(dd.get("current_dd_pct", 0) or 0)
+
+            if current_dd >= cap:
+                return False, (
+                    f"Drawdown breaker: current DD {current_dd:.1f}% "
+                    f">= cap {cap:.1f}% (peak ${start_eq + dd.get('max_dd_abs',0):.0f})"
+                )
+            return True, ""
+        except Exception as e:
+            logger.debug("check_drawdown_breaker skipped: %s", e)
+            return True, ""  # fail-OPEN — daily-loss breaker is the safety net
 
     # Module-level earnings cache (populated lazily, persists for one day).
     # Keeps yfinance API hits to <50/day even with 10+ scan runs.
     _EARNINGS_CACHE: dict = {}
     _EARNINGS_CACHE_DATE: Optional[date] = None
+
+    # yfinance health: a single 60s-ttl health check that all yfinance-
+    # dependent gates consult. Audit Cross-cut #2 (2026-05-01): five gates
+    # rely on yfinance (earnings, sector momentum, sector boost, correlation,
+    # analyst PT) — and all of them fail-OPEN on errors. A yfinance outage
+    # silently disables five protective layers simultaneously. The health
+    # check probes once per minute with a tiny request (SPY 1d) and lets
+    # any caller short-circuit fast when yfinance is down.
+    _YF_HEALTH_CACHE: Dict[str, float] = {"ok": 0.0, "checked_at": 0.0}
+
+    @classmethod
+    def yfinance_healthy(cls) -> bool:
+        """Return True if yfinance is reachable. 60s TTL cache.
+
+        Used as a soft signal — gates still fail-OPEN, but they can log
+        the un-healthy state once instead of failing silently 5 times.
+        Also surfaces a single Telegram alert from monitor when health
+        flips False so the operator knows multiple gates are degraded.
+        """
+        import time as _time
+        now_ts = _time.time()
+        if now_ts - cls._YF_HEALTH_CACHE["checked_at"] < 60.0:
+            return cls._YF_HEALTH_CACHE["ok"] >= 1.0
+        try:
+            import yfinance as yf
+            # Tiny probe: SPY most recent day. Cheap and always-cached upstream.
+            hist = yf.Ticker("SPY").history(period="1d", interval="1d")
+            ok = hist is not None and len(hist) > 0
+        except Exception:
+            ok = False
+        cls._YF_HEALTH_CACHE["ok"] = 1.0 if ok else 0.0
+        cls._YF_HEALTH_CACHE["checked_at"] = now_ts
+        if not ok:
+            logger.warning(
+                "yfinance health check FAILED — earnings, sector momentum, "
+                "correlation, and analyst-PT gates will all fail-OPEN this "
+                "cycle. Trades may proceed with degraded protection."
+            )
+        return ok
 
     def check_earnings_window(self, ticker: str) -> Tuple[bool, str]:
         """Block buys if next earnings announcement is within
@@ -480,6 +669,8 @@ class RiskManager:
         target_price: float = 0.0,
         market_regime: str = "",
         ml_prob: float = 0.0,
+        signal_quality: str = "",
+        reliability_score: float = 100.0,
     ) -> Tuple[bool, str]:
         """Return (allowed, reason). Reason is empty string if allowed.
 
@@ -488,7 +679,62 @@ class RiskManager:
         buffer). Without this, a static threshold of 73 was blocking
         ALL SIDEWAYS-day trades because the scan's regime-adjusted
         scores top out around 70 in those markets.
+
+        signal_quality / reliability_score: forwarded to
+        policy.evaluate_static_gates as defense-in-depth. If
+        order_manager._filter_candidates is bypassed (manual call,
+        future refactor), the static gates still re-apply here.
         """
+
+        # Audit Cross-cut #3 (2026-05-01): runner-level parity with
+        # the dashboard preview. Both paths now invoke the SAME
+        # `policy.evaluate_static_gates` — not just the same helpers.
+        # Any future bug in static-gate logic shows up identically in
+        # the UI and in the trader, eliminating "preview ≠ production"
+        # drift even when `_filter_candidates` is bypassed.
+        try:
+            from core.trading.policy import evaluate_static_gates
+            synthetic_row = {
+                "Ticker": ticker,
+                "FinalScore_20d": score,
+                "RewardRisk": rr,
+                "ML_20d_Prob": ml_prob,
+                "Sector": sector,
+                "SignalQuality": signal_quality or "High",  # filtered upstream
+                "Market_Regime": market_regime,
+                "Reliability_Score": reliability_score,
+                "Entry_Price": price,
+                "Stop_Loss": stop_loss,
+                "Target_Price": target_price,
+            }
+            # Build a state dict from local sources (no state-feed needed
+            # in production — risk_manager uses authoritative tracker +
+            # command_bus directly).
+            try:
+                from core.control.command_bus import _is_paused as _ipd
+                paused_now = bool(_ipd())
+            except Exception:
+                paused_now = False
+            held_set = {
+                p.get("ticker", "").upper()
+                for p in self.tracker.get_open_positions()
+            }
+            state_for_gates = {
+                "paused": paused_now,
+                "positions": [{"ticker": t} for t in held_set],
+            }
+            gate_result = evaluate_static_gates(
+                synthetic_row, cfg=self.cfg, state=state_for_gates,
+                held_tickers=held_set,
+            )
+            if not gate_result.would_buy:
+                return False, gate_result.primary_reason
+        except Exception as _gate_err:
+            # NEVER let the unification call break a trade decision.
+            # If evaluate_static_gates errors, fall through to the
+            # legacy in-line gates below. Worst case: pre-this-commit
+            # behavior.
+            logger.debug("policy.evaluate_static_gates skipped: %s", _gate_err)
 
         # 0. Trade levels sanity — refuse buys with missing/absurd stops or targets.
         # Protects against scan rows where stop_loss/target_price are missing,
@@ -559,6 +805,15 @@ class RiskManager:
         if not allowed:
             return False, reason
 
+        # 1.5. Drawdown circuit breaker — pause trading when account is
+        # down more than max_drawdown_pct from peak. The daily-loss
+        # breaker only catches single-session drops; this catches
+        # cumulative bleeding over many days. (Audit C1 — was configured
+        # but not enforced for ~12 months.)
+        allowed, reason = self.check_drawdown_breaker()
+        if not allowed:
+            return False, reason
+
         # 1a. Performance throttle — halt buys when rolling win rate
         # drops below 20%. Returns size_multiplier for sizing path.
         allowed, reason, _throttle_mult = self.check_performance_throttle()
@@ -575,8 +830,11 @@ class RiskManager:
         # OR already below it (the user is past that boundary).
         # See risk_manager.check_cash_after_buy.
         try:
-            est_cost = price * self.cfg.max_position_size / max(price, 1)  # placeholder
-            # Use config max_position_size directly as the upper bound on cost
+            # Use the smaller of (max_position_size, price) as the cost
+            # estimate — for shares priced above max_position_size we'd
+            # only buy 1 share so cost == price; otherwise cost is bounded
+            # by max_position_size. (Audit M2: removed a redundant
+            # placeholder calculation that was immediately overwritten.)
             est_cost = min(self.cfg.max_position_size, price)
             allowed, reason = self.check_cash_after_buy(est_cost)
             if not allowed:
@@ -586,21 +844,58 @@ class RiskManager:
 
         # 0a. Day-trade prevention — applies in TIER_SUB_2K and TIER_2K_TO_25K
         # (cash accounts). In TIER_25K_PLUS with margin, T+0 settlement makes
-        # this a non-issue; we still keep the tracker check as a sanity guard.
-        # The check uses the trade_log for same-day CLOSE/PARTIAL entries —
-        # see audit finding for the gap where IB-side same-day sells aren't
-        # caught if monitor hasn't reconciled yet (low risk in practice
-        # because the monitor reconciles every 30s).
+        # this a non-issue; we still keep the check as a sanity guard.
+        # Audit C2 (2026-05-01): prior version checked only the tracker, which
+        # is updated every 5 min by the monitor. Between a TRAIL fill and the
+        # next monitor cycle there was a 5-min window where re-buying the same
+        # ticker was possible — that's a Good Faith Violation in a cash
+        # account (3 GFVs in 12 months → 90-day freeze). NOW: check the
+        # tracker FIRST (cheap), then check IB's executions API for today
+        # (authoritative, ~50ms). Either path tripping → block.
         try:
-            today = date.today().isoformat()
+            today_iso = date.today().isoformat()
+            # 1. Cheap path: trade_log
             for t in self.tracker.get_trade_log():
                 if (t.get("ticker") == ticker
                         and t.get("action") in ("CLOSE", "PARTIAL")
-                        and str(t.get("timestamp", "")).startswith(today)):
+                        and str(t.get("timestamp", "")).startswith(today_iso)):
                     return False, (
                         f"Day-trade block: {ticker} was sold today "
-                        f"(cash account can't re-buy same day)"
+                        f"(cash account can't re-buy same day) [tracker]"
                     )
+            # 2. Authoritative path: IB executions today. Catches the
+            # window where a TRAIL filled but the monitor hasn't reconciled
+            # the close into the tracker yet.
+            try:
+                ib = getattr(self.client, "_ib", None)
+                if ib is not None:
+                    from datetime import datetime as _dt, timezone as _tz
+                    # `executions()` returns recent fills (typically last
+                    # 7 days). Filter to today UTC + this ticker + SELL side.
+                    today_dt_start = _dt.combine(
+                        date.today(), _dt.min.time(), tzinfo=_tz.utc
+                    )
+                    for ex in ib.executions():
+                        try:
+                            sym = getattr(ex.contract, "symbol", "") or ""
+                            side = getattr(ex.execution, "side", "") or ""
+                            t_ex = getattr(ex, "time", None) or getattr(ex.execution, "time", None)
+                            if sym.upper() != ticker.upper():
+                                continue
+                            if side not in ("SLD", "SELL"):
+                                continue
+                            if t_ex is not None and t_ex < today_dt_start:
+                                continue
+                            return False, (
+                                f"Day-trade block: {ticker} was sold today "
+                                f"(cash account can't re-buy same day) [IB executions]"
+                            )
+                        except Exception:
+                            continue
+            except Exception as _ib_err:
+                # IB unreachable → fall back to tracker-only (already done above).
+                # Don't fail the whole gate.
+                logger.debug("IB executions day-trade check skipped: %s", _ib_err)
         except Exception:
             pass
 

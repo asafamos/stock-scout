@@ -14,6 +14,24 @@ REPORTS_DIR = Path("reports")
 
 
 def _latest_model_path() -> Path:
+    """Return the path to the bundle currently in production.
+
+    Audit C4 (2026-05-01): the drift report was producing all-null PSI/KS
+    values with the message "model bundle is missing feature_bins and
+    training_bin_pct" — because this function only looked at the legacy
+    v3 path under `models/`. Production has been on `ml/bundles/latest/`
+    (CalibratedClassifierCV bundle, feature_v3.6) for months.
+
+    Now: prefer the active bundle, fall back to legacy paths so the
+    legacy backtest scripts still work.
+    """
+    # Prefer the active production bundle directory
+    active_dir = Path("ml/bundles/latest")
+    active_model = active_dir / "model.joblib"
+    if active_model.exists():
+        return active_model
+
+    # Legacy fallback (used by historical backtest scripts)
     candidates = sorted(MODELS_DIR.glob("model_20d_v3_*.pkl"), key=lambda p: p.stat().st_mtime, reverse=True)
     if candidates:
         return candidates[0]
@@ -45,12 +63,87 @@ def _psi(base_pct: List[float], cur_pct: List[float]) -> float:
     return float(s)
 
 
+def _load_bundle_metadata(model_path: Path) -> Dict:
+    """Load bundle metadata across both legacy dict-bundles and the
+    active CalibratedClassifierCV-on-disk format used since v3.6.
+
+    Legacy: joblib.load returns a dict with keys feature_names,
+    feature_bins, training_bin_pct directly.
+
+    v3.6+: model.joblib is just the CalibratedClassifierCV; metadata
+    lives in a sibling metadata.json. The drift bins (when available)
+    live under metadata['drift']['feature_bins'] /
+    metadata['drift']['training_bin_pct'].
+    """
+    # Sibling metadata.json (v3.6+)
+    meta_path = model_path.parent / "metadata.json"
+    if meta_path.exists():
+        try:
+            with open(meta_path, "r", encoding="utf-8") as f:
+                meta = json.load(f)
+            drift_meta = meta.get("drift", {}) or {}
+            return {
+                "feature_names": meta.get("feature_list", []),
+                "feature_bins": drift_meta.get("feature_bins", {}),
+                "training_bin_pct": drift_meta.get("training_bin_pct", {}),
+                "_source": "metadata.json",
+                "_bundle_version": meta.get("feature_version", "unknown"),
+            }
+        except Exception:
+            pass
+
+    # Legacy dict-bundle (pre-v3.6)
+    try:
+        bundle = joblib.load(model_path)
+        if hasattr(bundle, "get"):
+            return {
+                "feature_names": bundle.get("feature_names", []),
+                "feature_bins": bundle.get("feature_bins", {}),
+                "training_bin_pct": bundle.get("training_bin_pct", {}),
+                "_source": "legacy_dict_bundle",
+                "_bundle_version": "legacy",
+            }
+    except Exception:
+        pass
+
+    return {
+        "feature_names": [],
+        "feature_bins": {},
+        "training_bin_pct": {},
+        "_source": "none",
+        "_bundle_version": "unknown",
+    }
+
+
 def run_drift_monitor():
     model_path = _latest_model_path()
-    bundle = joblib.load(model_path)
-    feats = bundle.get("feature_names", [])
-    feature_bins: Dict[str, List[float]] = bundle.get("feature_bins", {})
-    training_bin_pct: Dict[str, List[float]] = bundle.get("training_bin_pct", {})
+    meta = _load_bundle_metadata(model_path)
+    feats = meta["feature_names"]
+    feature_bins: Dict[str, List[float]] = meta["feature_bins"]
+    training_bin_pct: Dict[str, List[float]] = meta["training_bin_pct"]
+
+    # Diagnostic: if bundle structurally lacks the bins, write a clear
+    # status report and exit cleanly. Avoids the silent "all PSI = null"
+    # output that hid this problem until the 2026-05-01 audit.
+    if not feature_bins or not training_bin_pct:
+        REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+        status = {
+            "status": "OFFLINE",
+            "reason": (
+                f"bundle '{meta['_bundle_version']}' (source={meta['_source']}) "
+                f"is missing feature_bins and/or training_bin_pct. The active "
+                f"v3.6 bundle export pipeline does not write these fields yet. "
+                f"To re-enable drift monitoring, update the training script to "
+                f"persist drift_meta.feature_bins and drift_meta.training_bin_pct "
+                f"into metadata.json."
+            ),
+            "bundle_path": str(model_path),
+            "feature_names_count": len(feats),
+        }
+        with open(REPORTS_DIR / "drift_report.json", "w", encoding="utf-8") as f:
+            json.dump(status, f, indent=2)
+        print(f"⚠️ drift monitor OFFLINE: {status['reason']}")
+        return
 
     # Load live data
     live_csv = _latest_live_csv()

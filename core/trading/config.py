@@ -51,17 +51,27 @@ class TradingConfig:
     ibkr_timeout: int = 30  # seconds
 
     # ── Position Sizing ────────────────────────────────────────
+    # Audit H1 (2026-05-01): defaults rebalanced for the ~$1k account.
+    # Old defaults (3 × $300 = $900 exposure) committed 90% of capital
+    # and paid $1 commission per trade = 0.67% structural drag at $300.
+    # New defaults (2 × $400 = $800 exposure) keep the same total
+    # exposure ratio (80% vs 90%), commit to fewer concurrent bets so
+    # entries can stagger by a day (decorrelating timing risk on
+    # volatile open-prints), and reduce commission drag to 0.50% at
+    # $400. Production VPS uses .env.trading which overrides these
+    # defaults — to apply the new sizing on production, update
+    # /home/stockscout/stock-scout-2/.env.trading explicitly.
     max_position_size: float = field(
-        default_factory=lambda: _env_float("MAX_POSITION_SIZE", 300.0)
+        default_factory=lambda: _env_float("MAX_POSITION_SIZE", 400.0)
     )
     max_open_positions: int = field(
-        default_factory=lambda: _env_int("MAX_OPEN_POSITIONS", 3)
+        default_factory=lambda: _env_int("MAX_OPEN_POSITIONS", 2)
     )
     max_daily_buys: int = field(
-        default_factory=lambda: _env_int("MAX_DAILY_BUYS", 3)
+        default_factory=lambda: _env_int("MAX_DAILY_BUYS", 2)
     )
     max_portfolio_exposure: float = field(
-        default_factory=lambda: _env_float("MAX_PORTFOLIO_EXPOSURE", 900.0)
+        default_factory=lambda: _env_float("MAX_PORTFOLIO_EXPOSURE", 800.0)
     )
     cash_reserve: float = field(
         default_factory=lambda: _env_float("CASH_RESERVE", 20.0)
@@ -135,8 +145,11 @@ class TradingConfig:
         default_factory=lambda: _env_bool("EARNINGS_GATE_ENABLED", True)
     )
     earnings_block_days: int = field(
-        default_factory=lambda: _env_int("EARNINGS_BLOCK_DAYS", 3)
-    )
+        default_factory=lambda: _env_int("EARNINGS_BLOCK_DAYS", 5)
+    )  # Audit H3 (2026-05-01): widened from 3 to 5 days. Options-implied
+       # gap risk prices in at T-5; intraday volatility lifts at T-1; the
+       # report itself can produce 15-25% gap-down on miss. 3-day window
+       # only covered the report itself, not the lead-in elevated-vol period.
 
     # ── Performance throttle (safety brake on losing streaks) ─────
     # Tracks the rolling win rate of the last N closed trades. When the
@@ -160,6 +173,30 @@ class TradingConfig:
     throttle_min_trades: int = field(
         default_factory=lambda: _env_int("THROTTLE_MIN_TRADES", 5)
     )   # Need at least N trades before throttle kicks in (avoid early-noise)
+
+    # ── EXPECTANCY-BASED THROTTLE (audit H2, 2026-05-01) ──
+    # Win-rate alone misjudges a 2.0+ R:R strategy. A 30% WR strategy
+    # with avg_win = $30 and avg_loss = $10 has expectancy
+    #   = 0.3 × $30 − 0.7 × $10 = $9 − $7 = +$2/trade
+    # which is profitable. The WR-based throttle (default 30% WARN)
+    # punishes this strategy for behaving normally.
+    #
+    # When THROTTLE_MODE=expectancy, the throttle uses average per-trade
+    # P&L instead of WR:
+    #   - avg_pnl_pct >= warn → no throttle
+    #   - 0 < avg_pnl_pct < warn (default 0%) → halve sizes
+    #   - avg_pnl_pct <= halt (default -1.5%) → halt all new buys
+    # When THROTTLE_MODE=winrate (default — backward-compat), uses the
+    # legacy WR thresholds above.
+    throttle_mode: str = field(
+        default_factory=lambda: _env("THROTTLE_MODE", "winrate")
+    )   # "winrate" (default) or "expectancy"
+    throttle_warn_expectancy_pct: float = field(
+        default_factory=lambda: _env_float("THROTTLE_WARN_EXPECTANCY_PCT", 0.0)
+    )   # avg pnl% under this → halve sizes (0 = unprofitable on average)
+    throttle_halt_expectancy_pct: float = field(
+        default_factory=lambda: _env_float("THROTTLE_HALT_EXPECTANCY_PCT", -1.5)
+    )   # avg pnl% under this → halt buys (losing >1.5% per trade is severe)
 
     # ── Dynamic position sizing (by ML probability) ──────────────
     # Scale base position size by ML conviction. Higher-prob picks get
@@ -263,24 +300,34 @@ class TradingConfig:
     # Lower tier % = tighter stop (closer to current price).
     # The starting trail is 3–8% (scan-derived). Ratchet only TIGHTENS,
     # never loosens, so a stock that started with TRAIL 3% never widens.
+    # Ratchet thresholds STAGGERED 2pp ABOVE ladder thresholds.
+    # Audit H8 (2026-05-01): when ladder and ratchet shared the same
+    # gain trigger (e.g. both at +10%), a stock that peaked at +10%
+    # then retraced 4% with normal noise would BOTH partial-exit AND
+    # get stopped out of the rest. Now ladder fires first (lock in a
+    # quarter), then ratchet fires later (tighten what's left).
+    # Order on a +12% peak that retraces 4%:
+    #     +10% → ladder partial 25%  (locked)
+    #     +12% → ratchet to 4%       (tightens trail on remaining 75%)
+    #     -4%  from peak → trail fires on remaining 75%
     ratchet_tier1_gain: float = field(
-        default_factory=lambda: _env_float("RATCHET_T1_GAIN", 10.0)
+        default_factory=lambda: _env_float("RATCHET_T1_GAIN", 12.0)
     )
     ratchet_tier1_trail_pct: float = field(
         default_factory=lambda: _env_float("RATCHET_T1_TRAIL_PCT", 4.0)
-    )   # Peak +10% → trail tightens to 4%
+    )   # Peak +12% → trail tightens to 4% (was +10% — now staggered after ladder T1)
     ratchet_tier2_gain: float = field(
-        default_factory=lambda: _env_float("RATCHET_T2_GAIN", 18.0)
+        default_factory=lambda: _env_float("RATCHET_T2_GAIN", 20.0)
     )
     ratchet_tier2_trail_pct: float = field(
         default_factory=lambda: _env_float("RATCHET_T2_TRAIL_PCT", 3.0)
-    )   # Peak +18% → trail tightens to 3%
+    )   # Peak +20% → trail tightens to 3% (was +18% — now staggered after ladder T2)
     ratchet_tier3_gain: float = field(
-        default_factory=lambda: _env_float("RATCHET_T3_GAIN", 28.0)
+        default_factory=lambda: _env_float("RATCHET_T3_GAIN", 30.0)
     )
     ratchet_tier3_trail_pct: float = field(
         default_factory=lambda: _env_float("RATCHET_T3_TRAIL_PCT", 2.0)
-    )   # Peak +28% → trail tightens to 2%
+    )   # Peak +30% → trail tightens to 2% (was +28% — now staggered after ladder T3)
 
     # ── Paths ──────────────────────────────────────────────────
     scan_results_path: str = "data/scans/latest_scan_live.json"

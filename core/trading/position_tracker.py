@@ -77,7 +77,22 @@ class PositionTracker:
         self.cfg = config or CONFIG
         self._positions_path = Path(self.cfg.open_positions_path)
         self._log_path = Path(self.cfg.trade_log_path)
+        # Trade-log read cache. Cleared on any write (add_position,
+        # remove_position, reconcile_drop, _log_trade) so callers always
+        # see fresh data after a state change. Audit M4: can_open_position
+        # was reading the log up to 4× per gate evaluation
+        # (check_daily_loss_breaker + check_drawdown_breaker + day-trade
+        # prevention + daily_buy_count) — each a JSON parse over potentially
+        # thousands of rows. Cache lifetime is bounded to a single
+        # can_open_position run by the explicit invalidations.
+        self._log_cache: Optional[List[dict]] = None
+        self._log_cache_mtime: float = -1.0
         self._ensure_files()
+
+    def _invalidate_log_cache(self) -> None:
+        """Drop the in-memory trade-log cache. Called on every write."""
+        self._log_cache = None
+        self._log_cache_mtime = -1.0
 
     def _ensure_files(self):
         for p in (self._positions_path, self._log_path):
@@ -109,9 +124,26 @@ class PositionTracker:
             return []
 
     def get_trade_log(self) -> List[dict]:
+        # mtime-aware cache: re-read if file changed, else return cached.
+        # Invalidated explicitly on every write (_log_trade, etc.) so the
+        # cache never serves stale state to callers in the same process.
+        try:
+            current_mtime = self._log_path.stat().st_mtime
+        except Exception:
+            current_mtime = -1.0
+        if (
+            self._log_cache is not None
+            and self._log_cache_mtime == current_mtime
+            and current_mtime >= 0
+        ):
+            return self._log_cache
+
         try:
             text = self._log_path.read_text() or "[]"
-            return json.loads(text)
+            data = json.loads(text)
+            self._log_cache = data
+            self._log_cache_mtime = current_mtime
+            return data
         except FileNotFoundError:
             return []
         except json.JSONDecodeError as e:
@@ -190,6 +222,54 @@ class PositionTracker:
 
     def remove_position(self, ticker: str, exit_price: float = 0.0,
                         reason: str = "closed"):
+        # ── Duplicate-CLOSE guard ──────────────────────────────────
+        # If a CLOSE row for this ticker was already written today,
+        # refuse to write a second one. This prevents the exact
+        # scenario from 2026-05-01:
+        #   1. CF was sold at 14:02 UTC, monitor wrote a clean CLOSE row.
+        #   2. Operator ran `git pull` on VPS at 19:25 UTC — this
+        #      overwrote `open_positions.json` with a stale committed
+        #      snapshot that had CF as still-open.
+        #   3. Monitor's next cycles saw CF "missing from IB" → after
+        #      the consecutive-miss threshold, called remove_position
+        #      again → wrote a SECOND CLOSE row with the same +$22.24
+        #      P&L (re-derived from IB's still-cached fill data).
+        #   4. /pnl double-counted — reported +$44.48 instead of +$22.24.
+        #
+        # Cheap defensive write — same-day same-ticker CLOSE never makes
+        # sense in a long-only swing system (we don't open and close the
+        # same name twice in one day; the day-trade gate refuses re-buys).
+        try:
+            today_iso = date.today().isoformat()
+            log = self.get_trade_log()
+            for entry in log:
+                if (
+                    entry.get("ticker") == ticker
+                    and entry.get("action") == "CLOSE"
+                    and str(entry.get("timestamp", "")).startswith(today_iso)
+                ):
+                    logger.warning(
+                        "remove_position(%s): refusing duplicate CLOSE — "
+                        "already logged at %s with P&L $%.2f. Tracker entry "
+                        "will still be removed but no second CLOSE row written.",
+                        ticker,
+                        entry.get("timestamp", "")[:19],
+                        entry.get("pnl") or 0,
+                    )
+                    # Still need to remove the (probably-stale) tracker entry
+                    # so subsequent cycles don't keep firing this guard.
+                    with _file_lock(self._positions_path):
+                        positions = self._read_positions_unlocked()
+                        remaining = [p for p in positions if p["ticker"] != ticker]
+                        if len(remaining) != len(positions):
+                            _atomic_write_json(self._positions_path, remaining)
+                    return
+        except Exception as _dup_err:
+            # Never let the guard break a real close — if dedup fails,
+            # fall through to the normal close path. Worst case: we get
+            # the duplicate row, which is exactly the pre-guard behavior.
+            logger.debug("duplicate-CLOSE guard skipped: %s", _dup_err)
+
         # Read-modify-write under exclusive lock
         with _file_lock(self._positions_path):
             positions = self._read_positions_unlocked()
@@ -365,6 +445,11 @@ class PositionTracker:
                 **extra,
             })
             _atomic_write_json(self._log_path, log)
+        # Invalidate cache so subsequent get_trade_log() reads see the
+        # new row (the mtime check would normally handle this, but on
+        # filesystems with 1s mtime resolution two writes in the same
+        # second can falsely return the cached pre-write data).
+        self._invalidate_log_cache()
 
     def summary(self) -> str:
         positions = self.get_open_positions()

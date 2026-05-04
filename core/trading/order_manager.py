@@ -127,6 +127,24 @@ class OrderManager:
 
         logger.info("Candidates after filtering: %d", len(candidates))
 
+        # Audit M5+H6 (2026-05-01): pre-warm analyst-PT cache for top-N
+        # candidates BEFORE entering the trade loop. Each
+        # `_cap_target_with_analysts` call inside `_execute_single` would
+        # otherwise hit yfinance during the time-sensitive trade window.
+        # If yfinance is rate-limiting at scan-end (fairly common), trades
+        # would skip with no analyst data — silently bypassing the
+        # analyst-veto gate. Pre-fetching outside the trade loop also
+        # lets us short-circuit when yfinance is fully down (we know
+        # before placing any orders that the analyst gate is degraded).
+        try:
+            n_to_prefetch = min(len(candidates), int(self.cfg.max_daily_buys * 2))
+            top_tickers = candidates.head(n_to_prefetch).get("Ticker", pd.Series([])).tolist()
+            for _t in top_tickers:
+                _fetch_analyst_target(_t)  # populates module-level cache
+            logger.info("Pre-warmed analyst-PT cache for %d candidates", n_to_prefetch)
+        except Exception as _pw_err:
+            logger.debug("Analyst pre-warm skipped: %s", _pw_err)
+
         results = []
         try:
             # 4. Execute trades
@@ -512,11 +530,26 @@ class OrderManager:
 
         logger.info("Smart filter: %d → %d candidates", initial_count, len(result))
 
-        # Sort by combined rank: 50% score + 30% R:R + 20% ML probability.
-        # Including ML in the ranking lets high-conviction model picks
-        # surface above marginally-higher-scoring noise — backtests show
-        # ML adds independent signal especially in MODERATE_UP / SIDEWAYS
-        # regimes where pure score is noisy.
+        # ── Combined rank — SINGLE-PASS WEIGHTED SUM ──
+        # Audit H5 (2026-05-01): the previous version applied multipliers
+        # SEQUENTIALLY:
+        #     rank = base(45/25/20) → rank * 0.9 + sector * 0.1
+        #            → rank * 0.9 + insider * 0.1
+        # That produced an effective weighting of:
+        #     score   = 0.45 * 0.9 * 0.9 = 0.3645  (advertised: 0.45)
+        #     RR      = 0.25 * 0.9 * 0.9 = 0.2025  (advertised: 0.25)
+        #     ML      = 0.20 * 0.9 * 0.9 = 0.1620  (advertised: 0.20)
+        #     sector  = 0.10 * 0.9       = 0.0900  (advertised: 0.10)
+        #     insider = 0.10             = 0.1000  (advertised: 0.10)
+        #     ─────────────────────────────────────
+        #     total                    = 0.9190 ≠ 1.0
+        # The headline weights AND the total were both wrong.
+        #
+        # Now: collect every available signal as a (weight, normalized series)
+        # pair, then compute the weighted sum in ONE pass at the end.
+        # Weights are renormalized to sum to exactly 1.0 across whatever
+        # signals are present this run (so missing data degrades gracefully
+        # without silently re-distributing weight).
         def _norm(series):
             s = pd.to_numeric(series, errors="coerce")
             rng = s.max() - s.min()
@@ -524,45 +557,98 @@ class OrderManager:
                 return s * 0.0 + 0.5  # all-equal → neutral 0.5
             return (s - s.min()) / rng
 
-        scores_norm = _norm(result[score_col])
-        rank = 1.0 * scores_norm  # default if no other signals
-        weight = 1.0
-        if rr_col and rr_col in result.columns:
-            rr_norm = _norm(result[rr_col])
-            rank = 0.6 * scores_norm + 0.4 * rr_norm
-            weight = 1.0
-        if ml_col and ml_col in result.columns:
-            ml_norm = _norm(result[ml_col])
-            # Re-weight: 45% score + 25% RR + 20% ML + 10% sector momentum
-            if rr_col and rr_col in result.columns:
-                rank = 0.45 * scores_norm + 0.25 * _norm(result[rr_col]) + 0.20 * ml_norm
-            else:
-                rank = 0.65 * scores_norm + 0.25 * ml_norm
+        # Documented-intent weights (must sum to 1.0 when all signals present).
+        WEIGHT_SCORE = 0.45
+        WEIGHT_RR = 0.25
+        WEIGHT_ML = 0.20
+        WEIGHT_SECTOR = 0.05
+        WEIGHT_INSIDER = 0.05
 
-        # Sector momentum BOOST (positive ranking signal, not just block).
-        # Stocks in strong sectors get a bonus; weak sectors get a penalty
-        # (above the existing block at -5%). This expresses the
-        # rotation-following insight: even mediocre stocks in a hot
-        # sector outperform stars in a cold sector. (Recommendation #6
-        # from 2026-04-30 audit.)
+        signals = [(WEIGHT_SCORE, _norm(result[score_col]))]
+
+        if rr_col and rr_col in result.columns:
+            signals.append((WEIGHT_RR, _norm(result[rr_col])))
+
+        if ml_col and ml_col in result.columns:
+            signals.append((WEIGHT_ML, _norm(result[ml_col])))
+
+        # Sector momentum signal (positive ranking input, not just block).
         if sector_col and sector_col in result.columns:
             try:
                 sector_boost = self._compute_sector_momentum_boost(result[sector_col])
-                # Add 10% of normalized boost to the rank
-                rank = rank * 0.9 + sector_boost * 0.1
+                signals.append((WEIGHT_SECTOR, sector_boost))
             except Exception as _e:
                 logger.debug("sector momentum boost skipped: %s", _e)
 
-        # INSIDER BUYING BOOST — Form 4 from SEC EDGAR.
-        # Stocks with >$50K of CEO/CFO/Director open-market purchases in the
-        # last 30 days get an additional +10% rank weight. One of the most
-        # robust alpha signals in academic literature (4-7% annualized
-        # outperformance). Only computed for the TOP 20 candidates to avoid
-        # spamming SEC API. (Recommendation #1 from 2026-04-30 audit.)
+        # ── LIVE-WR SECTOR AWARENESS (Audit H7, 2026-05-01) ──
+        # Adjust rank by historical performance OF THE SAME SECTOR in
+        # this strategy's live trade log. Idea: if we've lost 5/5 in
+        # Energy lately, rank Energy candidates LOWER even when their
+        # forward-looking signals (score, RR, ML) are strong — the live
+        # data is telling us this strategy isn't capturing those wins.
+        #
+        # Implementation: compute per-sector P&L over the last
+        # `live_wr_window` closed trades, normalize to [0..1] across
+        # all sectors present, give it a small (default 5%) weight in
+        # the rank. New sectors with no trade history get 0.5 (neutral).
+        # Disabled when there are <5 closed trades total (premature).
+        if sector_col and sector_col in result.columns:
+            try:
+                LIVE_WR_WINDOW = 30
+                LIVE_WR_WEIGHT = 0.05
+                trade_log = self.tracker.get_trade_log()
+                closes = [
+                    t for t in trade_log
+                    if t.get("action") == "CLOSE"
+                    and t.get("pnl") is not None
+                ]
+                if len(closes) >= 5:
+                    recent_closes = closes[-LIVE_WR_WINDOW:]
+                    sector_pnls: Dict[str, list] = {}
+                    for c in recent_closes:
+                        sec_c = str(c.get("sector", "") or "")
+                        if not sec_c:
+                            # Look up from open_positions history if tracker
+                            # didn't persist sector on the CLOSE row.
+                            continue
+                        sector_pnls.setdefault(sec_c, []).append(
+                            float(c.get("pnl") or 0)
+                        )
+                    # Average pnl per sector → normalize to [0..1]
+                    if sector_pnls:
+                        avg_by_sector = {s: sum(v) / len(v) for s, v in sector_pnls.items()}
+                        vals = list(avg_by_sector.values())
+                        rng = max(vals) - min(vals)
+                        if rng > 1e-9:
+                            sector_live_wr = {
+                                s: (v - min(vals)) / rng
+                                for s, v in avg_by_sector.items()
+                            }
+                        else:
+                            sector_live_wr = {s: 0.5 for s in avg_by_sector}
+                        # Map per-row; unknown sectors → 0.5 (neutral)
+                        live_wr_series = result[sector_col].astype(str).map(
+                            lambda s: sector_live_wr.get(s, 0.5)
+                        ).astype(float)
+                        signals.append((LIVE_WR_WEIGHT, live_wr_series))
+                        logger.info(
+                            "LIVE-WR sector boost: %s",
+                            ", ".join(
+                                f"{s}={sector_live_wr.get(s, 0.5):.2f}"
+                                for s in avg_by_sector
+                            ),
+                        )
+            except Exception as _e:
+                logger.debug("live-WR sector ranking skipped: %s", _e)
+
+        # Insider buying signal (Form 4 from SEC EDGAR). Only computed
+        # for the top-20 candidates by base rank to cap API spend; the
+        # rest get 0, which is the unbiased neutral for an additive signal.
         if self.cfg.insider_signal_enabled:
             try:
-                # Compute insider scores ONLY for top 20 (cap API spend)
-                top_idx = rank.sort_values(ascending=False).head(20).index
+                # Compute a provisional rank (score-only) to pick the top 20
+                provisional_rank = _norm(result[score_col])
+                top_idx = provisional_rank.sort_values(ascending=False).head(20).index
                 from core.data.insider_signal import insider_score as _ins_score
                 insider_vals = []
                 for idx in result.index:
@@ -570,15 +656,39 @@ class OrderManager:
                         ticker = str(result.loc[idx, ticker_col])
                         insider_vals.append(_ins_score(ticker))
                     else:
-                        insider_vals.append(0.0)  # not checked
+                        insider_vals.append(0.0)
                 ins_series = pd.Series(insider_vals, index=result.index)
-                # Add 10% weight: rank = 90% existing + 10% insider
-                rank = rank * 0.9 + ins_series * 0.1
+                signals.append((WEIGHT_INSIDER, ins_series))
                 if (ins_series > 0).any():
                     boosted = result[ins_series > 0][ticker_col].tolist()
                     logger.info("INSIDER BOOST: %s have insider buying", boosted)
             except Exception as _e:
                 logger.debug("insider signal skipped: %s", _e)
+
+        # Renormalize weights so they sum to 1.0 across whatever signals
+        # are actually present (graceful degradation: a yfinance outage
+        # disabling sector momentum won't silently shift weight to insider).
+        total_weight = sum(w for w, _ in signals)
+        if total_weight <= 0:
+            rank = _norm(result[score_col])  # fallback
+        else:
+            rank = sum((w / total_weight) * series for w, series in signals)
+
+        # Log the effective weights for observability — invisible weight
+        # drift bugs (like the previous compounded multipliers) will show
+        # up immediately in the logs after this commit.
+        try:
+            effective = ", ".join(
+                f"{name}={w/total_weight:.2f}"
+                for name, (w, _) in zip(
+                    ["score", "rr", "ml", "sector", "insider"][:len(signals)],
+                    signals,
+                )
+            )
+            logger.info("RANK WEIGHTS (effective): %s (total signals: %d)",
+                        effective, len(signals))
+        except Exception:
+            pass
 
         result["_rank_score"] = rank
         result = result.sort_values("_rank_score", ascending=False)
@@ -769,10 +879,13 @@ class OrderManager:
         # using the static 73 that blocked all SIDEWAYS-day trades.
         _row_regime = str(row.get("Market_Regime", "") or "").upper()
         _row_ml = float(row.get("ML_20d_Prob", row.get("ml_prob", 0)) or 0)
+        _row_sq = str(row.get("SignalQuality", row.get("Confidence_Level", "")))
+        _row_rel = float(row.get("Reliability_Score", row.get("Reliability", 100)) or 100)
         allowed, reason = self.risk.can_open_position(
             ticker, price, score, rr, sector=sector, atr_pct=atr_pct,
             stop_loss=stop, target_price=target, market_regime=_row_regime,
             ml_prob=_row_ml,
+            signal_quality=_row_sq, reliability_score=_row_rel,
         )
         if not allowed:
             logger.info("SKIP %s: %s", ticker, reason)

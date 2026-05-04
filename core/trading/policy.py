@@ -58,6 +58,33 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 
+# ────────────────────────────────────────────────────────────────────
+# CANONICAL TABLES — owned here, re-exported by scoring_config for
+# backward compatibility. Both the trading layer (this file) and the
+# scoring layer (core.scoring_config / core.pipeline.runner) need
+# these floors. Originally defined in scoring_config and imported by
+# trading; the trading layer ended up owning the semantics (it picks
+# the +5 buffer, it has the dashboard preview, it has the runtime
+# enforcement) so the audit (Cross-cut #1, 2026-05-01) recommended
+# inverting the dependency. scoring_config now imports FROM here.
+# ────────────────────────────────────────────────────────────────────
+
+# Regime-aware minimum FinalScore_20d for inclusion in scan output.
+# In weaker regimes, demand higher quality — prevents recommending
+# stocks that merely "survived" a regime penalty multiplier.
+REGIME_MIN_SCORE: Dict[str, float] = {
+    "TREND_UP": 55.0,
+    "BULLISH": 55.0,
+    "MODERATE_UP": 60.0,
+    "SIDEWAYS": 70.0,   # raised from 65 — in neutral markets demand higher quality
+    "NEUTRAL": 70.0,    # raised from 65
+    "DISTRIBUTION": 75.0,
+    "CORRECTION": 80.0,
+    "BEARISH": 80.0,
+    "PANIC": 100.0,     # effectively blocks all recommendations
+}
+
+
 @dataclass
 class GateResult:
     """Outcome of running buy-eligibility gates against one row."""
@@ -112,20 +139,16 @@ def _row_get_first(row: Any, keys: List[str], default: Any = None) -> Any:
 def regime_score_floor(regime: str, cfg) -> float:
     """Regime-aware minimum FinalScore_20d to trade.
 
-    Reads `REGIME_MIN_SCORE` from `core.scoring_config` and adds a +5
-    buffer over the scan's inclusion threshold (so trades demand higher
-    conviction than mere recommendation). Falls back to
+    Uses `REGIME_MIN_SCORE` (defined in this module) plus a +5 buffer
+    over the scan's inclusion threshold — trades demand higher
+    conviction than mere recommendation. Falls back to
     `cfg.min_score_to_trade` when the regime is unknown.
     """
     base = float(getattr(cfg, "min_score_to_trade", 73.0))
     if not regime:
         return base
-    try:
-        from core.scoring_config import REGIME_MIN_SCORE
-        scan_min = float(REGIME_MIN_SCORE.get(regime.upper(), base - 5.0))
-        return scan_min + 5.0
-    except Exception:
-        return base
+    scan_min = float(REGIME_MIN_SCORE.get(regime.upper(), base - 5.0))
+    return scan_min + 5.0
 
 
 def confidence_floor(regime: str, cfg) -> int:
@@ -141,30 +164,87 @@ def confidence_floor(regime: str, cfg) -> int:
     return base
 
 
+_BLOCKED_TICKERS_CACHE: Dict[str, Any] = {
+    "tickers": set(),  # last-known-good
+    "fetched_at": 0.0,
+    "mtime": 0.0,
+}
+_BLOCKED_TICKERS_TTL = 30.0  # seconds — matches dashboard polling cadence
+
+
 def _load_blocked_tickers() -> Set[str]:
-    """Tickers blocked via command_bus /block. Cached read — file is small."""
+    """Tickers blocked via command_bus /block.
+
+    Audit C5 (2026-05-01): the previous version read the JSON from disk
+    on EVERY gate evaluation. With Streamlit polling state-feed every 30s
+    over 2000 scan rows, that was 4000 disk reads/min during dashboard
+    render — and worse, if the file was mid-write while command_bus was
+    updating it, the JSON parse failed silently and the gate let through
+    blocked tickers.
+
+    Now: TTL cache (default 30s) + last-known-good fallback on parse
+    failure so the gate never silently regresses to "no blocks" because
+    of a transient read-during-write race.
+    """
+    import time as _time
+    now_ts = _time.time()
+
     try:
         from core.control.command_bus import BLOCK_FILE
         import json as _json
         from datetime import datetime as _dt, timezone as _tz
+
         if not BLOCK_FILE.exists():
+            _BLOCKED_TICKERS_CACHE["tickers"] = set()
+            _BLOCKED_TICKERS_CACHE["fetched_at"] = now_ts
             return set()
-        blocks = _json.loads(BLOCK_FILE.read_text())
+
+        # mtime-aware refresh: re-read immediately if file has changed
+        # (operator just ran /block) even within TTL window.
+        try:
+            current_mtime = BLOCK_FILE.stat().st_mtime
+        except Exception:
+            current_mtime = 0.0
+
+        cache_age = now_ts - _BLOCKED_TICKERS_CACHE["fetched_at"]
+        cache_mtime = _BLOCKED_TICKERS_CACHE["mtime"]
+        if (
+            cache_age < _BLOCKED_TICKERS_TTL
+            and current_mtime == cache_mtime
+            and _BLOCKED_TICKERS_CACHE["fetched_at"] > 0
+        ):
+            return _BLOCKED_TICKERS_CACHE["tickers"]
+
+        # Read + parse. On parse failure, return last-known-good set
+        # rather than silently degrading to "no blocks".
+        try:
+            text = BLOCK_FILE.read_text()
+            blocks = _json.loads(text)
+        except Exception as parse_err:
+            # File mid-write or corrupt — keep the last-known set.
+            # Don't update fetched_at, so we'll retry on next call.
+            return _BLOCKED_TICKERS_CACHE["tickers"]
+
         active = set()
-        now = _dt.now(_tz.utc)
+        now_dt = _dt.now(_tz.utc)
         for tkr, rec in blocks.items():
             until = rec.get("until")
             if until:
                 try:
-                    if _dt.fromisoformat(until) > now:
+                    if _dt.fromisoformat(until) > now_dt:
                         active.add(tkr.upper())
                 except Exception:
                     active.add(tkr.upper())  # malformed date → block defensively
             else:
                 active.add(tkr.upper())
+
+        _BLOCKED_TICKERS_CACHE["tickers"] = active
+        _BLOCKED_TICKERS_CACHE["fetched_at"] = now_ts
+        _BLOCKED_TICKERS_CACHE["mtime"] = current_mtime
         return active
     except Exception:
-        return set()
+        # Any other error (import, file system) → return cached or empty.
+        return _BLOCKED_TICKERS_CACHE.get("tickers", set())
 
 
 def evaluate_static_gates(

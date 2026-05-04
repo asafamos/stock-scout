@@ -668,7 +668,26 @@ class IBKRClient:
             else:
                 limit_trade = None
 
-            self._ib.sleep(2)
+            # Audit H4 (2026-05-01): wait up to 5s for protective orders to
+            # transition out of "PendingSubmit" so the caller sees their true
+            # status. Previously a 2s sleep was sometimes insufficient on
+            # slow connections — caller would see status=PendingSubmit and
+            # assume success, then the order errored 30s later when nobody
+            # was listening. Native IB bracket (transmit=False/True) is NOT
+            # safe for our market-buy + potential-partial-fill flow because
+            # IB sizes child legs from the parent's `totalQuantity` rather
+            # than `filledQuantity` — that would over-sell on partials. The
+            # existing place-buy → wait-fill → place-protective flow is the
+            # correct pattern for this design; this commit just tightens the
+            # status-confirmation window so we don't return false-success.
+            for _wait_i in range(10):  # up to 5s in 0.5s increments
+                self._ib.sleep(0.5)
+                trail_status = trail_trade.orderStatus.status
+                limit_status = limit_trade.orderStatus.status if limit_trade else "n/a"
+                # Both legs settled into a known state (good or bad)?
+                if trail_status not in ("PendingSubmit", "ApiPending", ""):
+                    if limit_trade is None or limit_status not in ("PendingSubmit", "ApiPending", ""):
+                        break
 
             return {
                 "buy": TradeResult(

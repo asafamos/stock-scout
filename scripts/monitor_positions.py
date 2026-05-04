@@ -1292,10 +1292,19 @@ def _ratchet_stops(tracker, client, ibkr_orders, notify):
         order_type = active_protective.get("order_type")
         order_id = active_protective.get("order_id")
 
-        # Only TIGHTEN — never loosen
+        # ── INVARIANT: Ratchet only TIGHTENS, never loosens. ──
+        # `config.py` documents this guarantee; THIS LINE enforces it.
+        # If you remove the guard below, a stock that started with a 3%
+        # trail and then ran to +12% (tier 1 = 4%) would have its trail
+        # WIDENED to 4%, giving up 1pp of locked-in gain. Always verify
+        # this condition before any code that calls modify_trailing_pct.
+        # (Audit N4 documentation 2026-05-01.)
         current_trail = float(pos.get("trailing_stop_pct", 0) or 0)
         if order_type == "TRAIL" and current_trail > 0 and target_trail_pct >= current_trail:
-            continue  # Already tighter or equal
+            # target_trail_pct >= current_trail means the candidate would
+            # NOT be tighter — skip. (>= covers the equal case so we don't
+            # pay an IB modify roundtrip for no behavioral change.)
+            continue
 
         # Safety: skip ONLY when the projected stop would be ABOVE
         # current price (and would fire immediately). The old check used

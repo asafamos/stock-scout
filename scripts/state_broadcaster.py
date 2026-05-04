@@ -45,6 +45,10 @@ ROOT = Path("/home/stockscout/stock-scout-2") if Path("/home/stockscout").exists
 
 STATE_DIR = ROOT / "data" / "state"
 STATE_FILE = STATE_DIR / "system_state.json"
+# Counter file — incremented on each successful build_state. Survives
+# reboots so the dashboard can show "you're seeing snapshot N" even
+# across daemon restarts. (Audit Cross-cut #4, 2026-05-01.)
+SEQ_FILE = STATE_DIR / "broadcast_seq"
 OPEN_POSITIONS = ROOT / "data" / "trades" / "open_positions.json"
 TRADE_LOG = ROOT / "data" / "trades" / "trade_log.json"
 PORTFOLIO_SNAPSHOT = ROOT / "data" / "trades" / "portfolio_snapshot.json"
@@ -378,10 +382,40 @@ def _build_account() -> Dict:
     }
 
 
+def _next_sequence() -> int:
+    """Monotonic broadcast counter (per-VPS-instance).
+
+    Audit Cross-cut #4 (2026-05-01): the dashboard previously showed
+    only `last_updated` — fine for "is the state fresh", but useless
+    for "did this snapshot include the buy that just fired". A
+    monotonic counter lets the dashboard reason about ordering across
+    reads (e.g. "client cached snapshot N=4117; current is N=4119; we
+    missed 2 cycles").
+
+    Survives broadcaster restarts via a small file on disk.
+    """
+    try:
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        if SEQ_FILE.exists():
+            try:
+                cur = int(SEQ_FILE.read_text().strip() or "0")
+            except Exception:
+                cur = 0
+        else:
+            cur = 0
+        nxt = cur + 1
+        SEQ_FILE.write_text(str(nxt))
+        return nxt
+    except Exception as e:
+        logger.warning("broadcast sequence counter unavailable: %s", e)
+        return 0  # 0 signals "unknown" to readers
+
+
 def build_state() -> Dict:
     return {
         "schema_version": 1,
         "last_updated": datetime.now(timezone.utc).isoformat(),
+        "broadcast_seq": _next_sequence(),  # CC#4 monotonic counter
         "pipeline": _build_pipeline_state(),
         "positions": _build_positions_with_earnings(),
         "trade_log_today": _build_today_log(),

@@ -512,11 +512,22 @@ RISK_LEVEL_THRESHOLDS = {
     "label_thresholds": [(75, "VERY HIGH"), (60, "HIGH"), (45, "MODERATE-HIGH"), (30, "MODERATE"), (20, "LOW"), (0, "VERY LOW")],
 }
 
-# Reliability score weights (used by calculate_reliability_score)
+# Reliability score weights (used by calculate_reliability_score).
+# Audit M8 (2026-05-01): re-weighted from 40/30/20/10 to 25/50/15/10 so
+# price-variance dominates. For a 20-day swing strategy the signal
+# we most need from "reliability" is "do prices agree across providers"
+# — that's price_variance. Data completeness (whether all 23 features
+# are present) is necessary but cheap to verify and binary; gives
+# little signal beyond a floor. Fundamental coverage lags real-time
+# events (analyst PT updates take days) — limited use for a 20-day
+# horizon. Source count is informational. Net effect: stocks with
+# clean cross-provider price agreement get a real reliability boost
+# even when fundamental data is sparse, and stocks with disputed
+# prices get filtered earlier.
 RELIABILITY_WEIGHTS = {
-    "data_completeness": 0.40,
-    "price_variance": 0.30,
-    "fundamental_coverage": 0.20,
+    "data_completeness": 0.25,
+    "price_variance": 0.50,
+    "fundamental_coverage": 0.15,
     "source_count": 0.10,
 }
 
@@ -538,19 +549,15 @@ BIG_WINNER_THRESHOLDS = {
 # --- Signal Engine (Allocation-Free) Thresholds ---
 # Minimum final score (0-100 scale) to consider as a signal candidate
 SIGNAL_MIN_SCORE: float = 55.0
-# Regime-aware minimum scores: in weaker regimes, demand higher quality.
-# Prevents recommending stocks that merely "survived" a penalty multiplier.
-REGIME_MIN_SCORE: Dict[str, float] = {
-    "TREND_UP": 55.0,
-    "BULLISH": 55.0,
-    "MODERATE_UP": 60.0,
-    "SIDEWAYS": 70.0,   # raised from 65 — in neutral markets demand higher quality
-    "NEUTRAL": 70.0,    # raised from 65
-    "DISTRIBUTION": 75.0,
-    "CORRECTION": 80.0,
-    "BEARISH": 80.0,
-    "PANIC": 100.0,  # effectively blocks all recommendations
-}
+# Regime-aware minimum scores: re-exported from core.trading.policy
+# which is the canonical owner. (Audit Cross-cut #1, 2026-05-01: the
+# trading layer enforces these floors at runtime + in the dashboard
+# preview — it owns the semantics. The scoring/recommendation layer
+# uses them only to filter scan output. Inverting the dependency
+# clarifies ownership.) Backward-compatible: any code that imports
+# `from core.scoring_config import REGIME_MIN_SCORE` continues to
+# work unchanged.
+from core.trading.policy import REGIME_MIN_SCORE  # noqa: E402
 # Minimum FinalScore_20d for pattern-only signal bypass.
 # Prevents low-score stocks from passing solely due to marginal pattern matches.
 PATTERN_MIN_SCORE: float = 35.0

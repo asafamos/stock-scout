@@ -35,6 +35,42 @@ from core.ensemble import EnsembleClassifier
 
 # --- CONFIG ---
 # API key is lazily loaded when needed (not at import time) to allow tests to import this module
+def _drift_serialize_bins(feature_bins):
+    """Convert per-feature bin-edge arrays (numpy float arrays from
+    pd.cut/qcut) into JSON-friendly nested lists. Audit follow-up
+    2026-05-01: enables monitor_drift to load drift bins from
+    metadata.json without needing to load the .pkl bundle."""
+    out = {}
+    if not feature_bins:
+        return out
+    try:
+        for feat, bins in feature_bins.items():
+            try:
+                out[feat] = [float(b) for b in bins]
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return out
+
+
+def _drift_serialize_bin_pct(training_bin_pct):
+    """Convert per-feature [bin_pct,...] arrays into JSON-friendly
+    nested lists (companion to _drift_serialize_bins)."""
+    out = {}
+    if not training_bin_pct:
+        return out
+    try:
+        for feat, pcts in training_bin_pct.items():
+            try:
+                out[feat] = [float(p) for p in pcts]
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return out
+
+
 def _get_polygon_key() -> str:
     """Get Polygon API key - raises if not set."""
     return get_api_key("POLYGON_API_KEY", required=True)
@@ -1555,6 +1591,14 @@ def train_and_save_bundle():
         "drift": {
             "features_binned": len(feature_bins),
             "binning_method": "pd.cut(10 equal-width bins)",
+            # Audit (2026-05-01): scripts/monitor_drift.py needs the
+            # actual bin edges + training distribution to compute PSI/KS
+            # against live data. Previously these lived in the legacy
+            # dict-bundle but didn't survive the move to metadata.json.
+            # We persist them here as JSON-friendly structures so
+            # monitor_drift can run without re-loading the .pkl.
+            "feature_bins": _drift_serialize_bins(feature_bins),
+            "training_bin_pct": _drift_serialize_bin_pct(training_bin_pct),
         },
     }
     try:
