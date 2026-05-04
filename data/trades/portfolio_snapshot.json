@@ -1,14 +1,14 @@
 {
-  "updated_at": "2026-05-04T19:43:56.304289+00:00",
+  "updated_at": "2026-05-04T19:59:03.965027+00:00",
   "positions": [
     {
       "ticker": "ORCL",
       "quantity": 2,
       "avg_cost": 167.32,
-      "market_price": 180.81,
-      "market_value": 361.61,
-      "unrealized_pnl": 26.96,
-      "pnl_pct": 8.06,
+      "market_price": 180.38,
+      "market_value": 360.76,
+      "unrealized_pnl": 26.11,
+      "pnl_pct": 7.8,
       "entry_price": 167.325,
       "target_price": 216.72,
       "stop_loss": 159.63,
@@ -45,8 +45,8 @@
     }
   ],
   "cash": 649.23,
-  "net_liquidation": 1010.84,
-  "total_unrealized_pnl": 26.96,
+  "net_liquidation": 1009.99,
+  "total_unrealized_pnl": 26.11,
   "position_count": 1,
   "vps_status": "connected"
 }
