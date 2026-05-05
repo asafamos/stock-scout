@@ -572,6 +572,62 @@ class IBKRClient:
                     f"filled_qty={filled_qty}, avg_price={filled}"
                 )
                 logger.error("BRACKET buy unfilled for %s: %s", ticker, err)
+
+                # AUTO-BLOCK on IB-side restrictions (added 2026-05-05).
+                # Some tickers fail at IB's gate regardless of our gates:
+                # Error 201 with messages like "verify with the token we
+                # emailed you" (foreign-listed stocks needing extra
+                # verification — VFS/VinFast hit this 2026-05-05 14:03).
+                # Without auto-block, the same ticker re-ranks #1 in the
+                # next pipeline, the evaluator burns ~6s setting it up,
+                # IB rejects, position-size budget is held momentarily,
+                # logs spam. Auto-block for 90 days surfaces a clean
+                # Telegram alert ONCE and skips the ticker thereafter.
+                try:
+                    err_codes = [
+                        getattr(le, "errorCode", 0) or 0
+                        for le in (buy_trade.log or [])
+                    ]
+                    err_msgs = " | ".join(
+                        getattr(le, "message", "") or ""
+                        for le in (buy_trade.log or [])
+                        if getattr(le, "errorCode", 0)
+                    )
+                    # IB Error 201 = "Order rejected" (account-side reasons).
+                    # Combined with phrases like "verify" or "Not allowed"
+                    # this is a permanent restriction, not a transient one.
+                    is_permanent_reject = (
+                        201 in err_codes and (
+                            "verify" in err_msgs.lower()
+                            or "not allowed to open" in err_msgs.lower()
+                            or "minimum of 2000" in err_msgs.lower()
+                        )
+                    )
+                    if is_permanent_reject:
+                        from core.control.command_bus import cmd_block
+                        block_result = cmd_block(
+                            ticker, days=90, source="auto-error-201"
+                        )
+                        logger.warning(
+                            "AUTO-BLOCKED %s for 90d (IB Error 201): %s",
+                            ticker, block_result,
+                        )
+                        # Telegram alert via the existing notifications path
+                        try:
+                            from core.trading import notifications as _nf
+                            _nf.notify_error(
+                                f"Auto-blocked {ticker}",
+                                f"⛔ <b>{ticker} auto-blocked 90d</b>\n"
+                                f"IB Error 201 (permanent reject — "
+                                f"requires manual Client Portal action).\n"
+                                f"<pre>{err_msgs[:200]}</pre>\n"
+                                f"Unblock when ready: <code>/unblock {ticker}</code>"
+                            )
+                        except Exception as _ne:
+                            logger.debug("auto-block notify failed: %s", _ne)
+                except Exception as _be:
+                    logger.warning("auto-block check failed: %s", _be)
+
                 # Best-effort cancel the buy so it doesn't fill late
                 try:
                     self._ib.cancelOrder(buy_trade.order)
@@ -1033,20 +1089,107 @@ class IBKRClient:
             # the modify (103 = duplicate id, 161 = no order to modify,
             # 201 = rejected, 202 = cancelled).
             try:
+                rejection_code = 0
+                rejection_msg = ""
                 for log_entry in (modify_trade.log or []):
                     ec = getattr(log_entry, "errorCode", 0) or 0
                     if ec and ec > 0:
-                        msg = getattr(log_entry, "message", "") or "(no msg)"
-                        logger.error(
-                            "MODIFY TRAIL %s #%d REJECTED by IB: errorCode=%d %s",
-                            target_trade.contract.symbol, order_id, ec, msg,
+                        rejection_code = ec
+                        rejection_msg = getattr(log_entry, "message", "") or "(no msg)"
+                        break
+
+                if rejection_code:
+                    # FALLBACK on Error 103 "Duplicate order id" (added 2026-05-05).
+                    # This happens when the order belongs to a clientId that
+                    # the current connection doesn't own (e.g. ORCL #1172 was
+                    # placed under clientId=1 but monitor connects as clientId=2).
+                    # Modify will keep failing forever. Cancel + place a fresh
+                    # order under the current clientId to take ownership.
+                    # Brief unprotected window (~5s) — acceptable because the
+                    # alternative is permanent ratchet failure on this position.
+                    if rejection_code == 103:
+                        logger.warning(
+                            "MODIFY TRAIL %s #%d hit Error 103 — falling back to cancel+replace",
+                            target_trade.contract.symbol, order_id,
                         )
-                        return TradeResult(
-                            ticker=target_trade.contract.symbol, action="SELL",
-                            order_type="TRAIL", quantity=int(target_trade.order.totalQuantity),
-                            filled_price=0.0, status="Error", order_id=order_id,
-                            error=f"IB error {ec}: {msg}",
-                        )
+                        try:
+                            from ib_insync import Order as _Order
+                            _ticker = target_trade.contract.symbol
+                            _qty = int(target_trade.order.totalQuantity)
+                            _oca = target_trade.order.ocaGroup
+                            _contract = target_trade.contract
+                            # Restore original target_order spec before cancel
+                            target_trade.order.trailingPercent = old_pct
+
+                            # Cancel old (it's owned by another clientId, but
+                            # cancelOrder is broadcast and IB cancels
+                            # asynchronously)
+                            self._ib.cancelOrder(target_trade.order)
+                            self._ib.sleep(4)
+
+                            # Place fresh TRAIL with new percent — owned by
+                            # OUR clientId now, future modifies will work.
+                            new_trail = _Order()
+                            new_trail.action = "SELL"
+                            new_trail.totalQuantity = _qty
+                            new_trail.orderType = "TRAIL"
+                            new_trail.trailingPercent = float(new_trail_pct)
+                            new_trail.tif = "GTC"
+                            new_trail.ocaGroup = _oca
+                            new_trail.ocaType = 1
+                            new_trail.transmit = True
+                            replacement = self._ib.placeOrder(_contract, new_trail)
+                            self._ib.sleep(3)
+
+                            # Verify replacement is alive
+                            rep_status = replacement.orderStatus.status
+                            rep_errors = [
+                                (le.errorCode, le.message)
+                                for le in (replacement.log or [])
+                                if (le.errorCode or 0) > 0
+                            ]
+                            if (rep_status in ("PreSubmitted", "Submitted",
+                                                "PendingSubmit")
+                                    and not rep_errors):
+                                logger.info(
+                                    "✓ FALLBACK SUCCESS %s: cancelled #%d, "
+                                    "placed new TRAIL #%d at %.1f%% (was %.1f%%)",
+                                    _ticker, order_id,
+                                    replacement.order.orderId,
+                                    new_trail_pct, old_pct,
+                                )
+                                return TradeResult(
+                                    ticker=_ticker, action="SELL",
+                                    order_type="TRAIL", quantity=_qty,
+                                    filled_price=0.0,
+                                    status=rep_status,
+                                    order_id=replacement.order.orderId,
+                                )
+                            else:
+                                logger.error(
+                                    "FALLBACK FAILED %s: replacement status=%s errors=%s",
+                                    _ticker, rep_status, rep_errors,
+                                )
+                                # Fall through to the original error return
+                        except Exception as _fe:
+                            logger.error(
+                                "FALLBACK exception for %s: %s",
+                                target_trade.contract.symbol, _fe,
+                            )
+
+                    # Original rejection-return path (non-103 errors or
+                    # fallback also failed).
+                    logger.error(
+                        "MODIFY TRAIL %s #%d REJECTED by IB: errorCode=%d %s",
+                        target_trade.contract.symbol, order_id,
+                        rejection_code, rejection_msg,
+                    )
+                    return TradeResult(
+                        ticker=target_trade.contract.symbol, action="SELL",
+                        order_type="TRAIL", quantity=int(target_trade.order.totalQuantity),
+                        filled_price=0.0, status="Error", order_id=order_id,
+                        error=f"IB error {rejection_code}: {rejection_msg}",
+                    )
             except Exception as _le:
                 logger.debug("modify log inspection failed (non-fatal): %s", _le)
             # Authoritative check #2: orderStatus on the modify-trade.
