@@ -346,6 +346,37 @@ class OrderManager:
         import time as _time
         age_sec = _time.time() - best_mtime
         MAX_SCAN_AGE_HOURS = 4
+
+        # FALLBACK (2026-05-05 incident): if the file mtime says >4h but
+        # git knows about a recent commit on this path, trust the git
+        # commit time. `git checkout` sometimes preserves the blob's
+        # original mtime when content hashes match, which made fresh
+        # scans look 66h old to the previous staleness check.
+        if age_sec > MAX_SCAN_AGE_HOURS * 3600:
+            try:
+                import subprocess as _sp
+                # %ct = committer date (UNIX timestamp). Most recent commit
+                # touching this exact path on the local repo.
+                rel = str(best_path).replace(str(scans_dir.parent.parent) + "/", "")
+                result = _sp.run(
+                    ["git", "log", "-1", "--format=%ct", "--", rel],
+                    capture_output=True, text=True, timeout=5,
+                    cwd=scans_dir.parent.parent,
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    commit_ts = int(result.stdout.strip())
+                    git_age_sec = _time.time() - commit_ts
+                    if git_age_sec < MAX_SCAN_AGE_HOURS * 3600:
+                        logger.warning(
+                            "File mtime says %.1fh old but git commit was "
+                            "%.1fh ago — trusting git (likely git-checkout "
+                            "preserved blob mtime).",
+                            age_sec / 3600, git_age_sec / 3600,
+                        )
+                        age_sec = git_age_sec
+            except Exception as _e:
+                logger.debug("git commit-time fallback failed: %s", _e)
+
         if age_sec > MAX_SCAN_AGE_HOURS * 3600:
             hours = age_sec / 3600
             logger.error(

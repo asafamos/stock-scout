@@ -221,6 +221,31 @@ class TradingConfig:
         default_factory=lambda: _env_float("ML_SIZING_MIN_MULT", 0.70)
     )   # Hard floor — even ML 0.0 won't shrink below this
 
+    # ── Opportunistic Trading (audit followup, 2026-05-05) ──
+    # When a position closes intraday (TRAIL/LIMIT fires), the freed
+    # cash sits idle until the next scheduled trade pipeline run
+    # (13:30 or 17:30 UTC). On a 4h gap, that's potentially missing
+    # the best opportunity of the day. Opportunistic trading watches
+    # the monitor's close events and immediately re-evaluates the
+    # most recent scan against the new account state — if there's
+    # a candidate that NOW fits (cash freed, slot freed), buy it.
+    #
+    # Safety preserved:
+    #   - Uses the same `evaluate_static_gates` + `risk_manager` that
+    #     the scheduled pipeline uses (same gates, same throttle).
+    #   - Only fires during regular trading hours (9:30-16:00 ET).
+    #   - Only if the latest scan is < scan_max_age_hours old.
+    #   - Respects max_open_positions and max_daily_buys (those count
+    #     opportunistic buys too).
+    #   - Cooldown: at most one opportunistic check per N seconds
+    #     after a close, to prevent thrash on choppy intraday closes.
+    opportunistic_buy_enabled: bool = field(
+        default_factory=lambda: _env_bool("OPPORTUNISTIC_BUY_ENABLED", True)
+    )
+    opportunistic_buy_cooldown_sec: int = field(
+        default_factory=lambda: _env_int("OPPORTUNISTIC_BUY_COOLDOWN_SEC", 300)
+    )   # 5 min minimum between opportunistic triggers
+
     # ── Insider buying signal (SEC EDGAR Form 4) ─────────────────
     # Boost ranking for stocks where insiders (CEO/CFO/Director) bought
     # ≥$50K worth of stock on the open market in the last 30 days. One

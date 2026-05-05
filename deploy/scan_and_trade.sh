@@ -146,6 +146,19 @@ git checkout origin/main -- data/scans/latest_scan.parquet data/scans/latest_sca
 # Also pull any code changes (excluding data/trades/* which we keep local)
 git checkout origin/main -- core/ scripts/ deploy/ ml/ models/ 2>/dev/null || true
 
+# CRITICAL FIX (2026-05-05): refresh the scan file mtime to NOW.
+# `git checkout` preserves the BLOB's original mtime when the file content
+# is identical to the working-tree version (and sometimes even when it
+# differs — see git's smudge filter behavior). On 2026-05-04 this caused
+# both the 13:30 UTC and 17:30 UTC trade pipelines to abort with
+# "Scan file is 66.8h old" even though the parquet hash had just changed.
+# `_load_scan_results` reads file mtime to decide staleness, so the
+# trade fired with a 4h staleness gate, then refused to execute. Touch
+# the files after checkout so mtime reflects "this VPS just received it".
+for f in data/scans/latest_scan.parquet data/scans/latest_scan.json data/scans/latest_scan.meta.json; do
+    [ -f "$f" ] && touch "$f"
+done
+
 # Verify.
 SCAN_FILE="$ROOT/data/scans/latest_scan.parquet"
 if [ ! -f "$SCAN_FILE" ]; then

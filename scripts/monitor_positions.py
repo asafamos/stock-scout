@@ -94,6 +94,123 @@ def _is_account_restriction_error(msg: str) -> bool:
     return any(frag in low for frag in _ACCOUNT_RESTRICTION_ERRORS)
 
 
+# ── Opportunistic trade trigger (audit followup 2026-05-05) ──
+# Module-level cooldown so we don't re-fire on every monitor cycle if
+# multiple positions close in quick succession. Persists per-process.
+_OPPORTUNISTIC_LAST_FIRED: float = 0.0
+
+
+def _try_opportunistic_buy(client, tracker, notify, reason: str = "manual"):
+    """Re-evaluate the latest scan against current state and buy if eligible.
+
+    Triggered after a position closes intraday — the freed cash + slot
+    might be the best opportunity of the day, and waiting for the next
+    scheduled pipeline run (up to 4h away) wastes that window.
+
+    Safety: uses the SAME order_manager.execute_recommendations path as
+    the scheduled pipeline. All risk gates apply identically. The only
+    difference is the trigger source (close event instead of timer).
+
+    Skips when:
+      - Feature disabled (cfg.opportunistic_buy_enabled)
+      - Cooldown not elapsed (cfg.opportunistic_buy_cooldown_sec)
+      - Market closed (no buys outside RTH)
+      - Latest scan stale (handled by _load_scan_results staleness check)
+      - max_open_positions or max_daily_buys already reached
+        (handled by risk_manager.can_open_position)
+    """
+    import time as _time
+    global _OPPORTUNISTIC_LAST_FIRED
+
+    from core.trading.config import CONFIG
+    from core.trading import notifications as _n
+
+    if not getattr(CONFIG, "opportunistic_buy_enabled", True):
+        logger.debug("opportunistic_buy disabled in cfg")
+        return
+
+    cooldown = float(getattr(CONFIG, "opportunistic_buy_cooldown_sec", 300))
+    elapsed = _time.time() - _OPPORTUNISTIC_LAST_FIRED
+    if elapsed < cooldown:
+        logger.info(
+            "opportunistic_buy cooldown: %.0fs elapsed, need %.0fs — skipping",
+            elapsed, cooldown,
+        )
+        return
+
+    # Market-hours guard. Outside RTH no protective orders fill reliably,
+    # so we shouldn't open new positions either.
+    if not client.is_market_open():
+        logger.info("opportunistic_buy: market closed — skipping")
+        return
+
+    # Capacity guard: do we have room for another buy?
+    open_count = tracker.open_count
+    if open_count >= CONFIG.max_open_positions:
+        logger.info(
+            "opportunistic_buy: at max_open_positions (%d) — skipping",
+            open_count,
+        )
+        return
+
+    daily_count = tracker.daily_buy_count()
+    if daily_count >= CONFIG.max_daily_buys:
+        logger.info(
+            "opportunistic_buy: daily buy limit reached (%d/%d) — skipping",
+            daily_count, CONFIG.max_daily_buys,
+        )
+        return
+
+    logger.info(
+        "🎯 OPPORTUNISTIC TRADE TRIGGER (reason=%s, open=%d/%d, "
+        "daily=%d/%d) — re-evaluating latest scan...",
+        reason, open_count, CONFIG.max_open_positions,
+        daily_count, CONFIG.max_daily_buys,
+    )
+
+    try:
+        from core.trading.risk_manager import RiskManager
+        from core.trading.order_manager import OrderManager
+        risk = RiskManager(client, tracker, CONFIG)
+        mgr = OrderManager(client, risk, tracker, CONFIG)
+
+        # IMPORTANT: order_manager.execute_recommendations() will:
+        #   1. Re-load the latest scan (with our fresh staleness check)
+        #   2. Re-filter candidates (live IB held positions are deduped)
+        #   3. For each top candidate: re-fetch live price, re-rank,
+        #      run can_open_position (all 12+ gates), execute
+        #   4. Stop on max_daily_buys
+        # No special "opportunistic" code path — same logic as scheduled run.
+        results = mgr.execute_recommendations()
+
+        bought = [r for r in results if r.get("status") == "success"]
+        skipped = [r for r in results if r.get("status") == "skipped"]
+        if bought:
+            _OPPORTUNISTIC_LAST_FIRED = _time.time()
+            logger.info(
+                "🎯 OPPORTUNISTIC TRADE: bought %d position(s) %s",
+                len(bought), [r.get("ticker") for r in bought],
+            )
+            try:
+                tickers = ", ".join(r.get("ticker", "?") for r in bought)
+                _n._send(
+                    f"🎯 <b>OPPORTUNISTIC BUY</b>\n"
+                    f"After {reason}, found {len(bought)} eligible: <code>{tickers}</code>"
+                )
+            except Exception:
+                pass
+        else:
+            # Don't burn the cooldown if we found nothing — the next
+            # close may be more relevant. But log so we can see what
+            # blocked.
+            logger.info(
+                "opportunistic_buy: 0 buys (top skip: %s)",
+                skipped[0].get("reason", "?") if skipped else "no candidates",
+            )
+    except Exception as e:
+        logger.error("opportunistic_buy raised: %s", e, exc_info=True)
+
+
 # ── Consecutive-miss counter for sync_positions() ─────────────────
 # `client.sync_positions()` sometimes returns a PARTIAL result —
 # 2 of 3 tracked positions, missing one of them, even though IB
@@ -258,6 +375,13 @@ def run_check():
                     tracker.remove_position(ticker, exit_price, reason)
                     pnl = (exit_price - pos["entry_price"]) * pos["quantity"]
                     notify.notify_sell(ticker, pos["quantity"], exit_price, reason, pnl)
+                    # OPPORTUNISTIC TRADE TRIGGER (audit followup 2026-05-05).
+                    # A position just closed → cash freed → check if there's
+                    # something good in the latest scan. Fires only during
+                    # market hours, with cooldown, and uses the same
+                    # risk_manager + policy gates as the scheduled pipeline.
+                    _try_opportunistic_buy(client, tracker, notify,
+                                           reason=f"after_close_{ticker}")
                 else:
                     # Genuinely couldn't find an exit price. Drop it from
                     # the tracker silently for accounting; alert the user
