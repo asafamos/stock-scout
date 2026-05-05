@@ -12,8 +12,16 @@ name: Pre-Pipeline Health Check
 
 on:
   schedule:
-    # 13:00 UTC + 17:00 UTC Mon-Fri → 30 min before each pipeline fire
-    - cron: '0 13,17 * * 1-5'
+    # Fires 30 min before each pipeline. Schedule reworked 2026-05-05 from
+    # the original 13:30 + 17:30 UTC slots to three high-edge windows:
+    #   13:30 UTC = 09:30 ET = market open      (pre-check at 13:00)
+    #   15:00 UTC = 11:00 ET = ORB window       (pre-check at 14:30)
+    #   19:15 UTC = 15:15 ET = power hour       (pre-check at 18:45)
+    # The old 17:30 UTC slot fired at 13:30 ET (lunch dead zone) and
+    # finished too late for a multi-day swing entry.
+    - cron: '0 13 * * 1-5'
+    - cron: '30 14 * * 1-5'
+    - cron: '45 18 * * 1-5'
   workflow_dispatch: {}
 
 permissions:
