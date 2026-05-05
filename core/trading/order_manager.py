@@ -837,6 +837,57 @@ class OrderManager:
         else:
             target_date = ""
 
+        # EARNINGS-AWARE TARGET DATE (added 2026-05-05).
+        # Real-world failure today: ELVN bought with target_date 2026-05-20
+        # but earnings 2026-05-13 — earnings block-gate (5 days) wasn't
+        # triggered since 8 > 5, but we'd still hold THROUGH earnings,
+        # exposing the position to overnight gap risk on a $543 trade
+        # (a -10% gap = $54 loss, ~10% of the position). Solution: cap
+        # target_date at earnings_date - 1 day if earnings falls within
+        # the planned hold horizon. The position auto-exits day-before
+        # earnings; if we want to ride through, operator can /resubmit
+        # with explicit override.
+        if target_date:
+            try:
+                from datetime import datetime as _dt, date as _date, timedelta as _td
+                _t = _dt.strptime(target_date, "%Y-%m-%d").date()
+                # Try yfinance for next earnings date — wrapped in same
+                # ThreadPoolExecutor timeout pattern as analyst PT fetch
+                # so a slow/hung yfinance doesn't block the trade.
+                from concurrent.futures import ThreadPoolExecutor, TimeoutError as _ETO
+                def _fetch_earn(_t=ticker):
+                    import yfinance as yf
+                    cal = yf.Ticker(_t).calendar or {}
+                    eds = cal.get("Earnings Date") if isinstance(cal, dict) else None
+                    if eds and isinstance(eds, list) and eds:
+                        return eds[0]
+                    return None
+                try:
+                    with ThreadPoolExecutor(max_workers=1) as _ex:
+                        ed = _ex.submit(_fetch_earn).result(timeout=5.0)
+                except _ETO:
+                    ed = None
+                except Exception:
+                    ed = None
+                if ed and isinstance(ed, _date) and ed <= _t:
+                    safe_t = ed - _td(days=1)
+                    today = _date.today()
+                    # Only apply if the safer date is still in the future
+                    # (i.e. earnings is more than 1 day away). Otherwise
+                    # we'd set target_date in the past — let the buy
+                    # itself be re-evaluated by the earnings_block gate.
+                    if safe_t > today:
+                        original_td = target_date
+                        target_date = safe_t.strftime("%Y-%m-%d")
+                        logger.info(
+                            "Earnings-aware target_date for %s: %s → %s "
+                            "(earnings on %s, exit 1 day prior)",
+                            ticker, original_td, target_date, ed.isoformat(),
+                        )
+            except Exception as _ee:
+                logger.debug("Earnings-date check failed for %s (non-fatal): %s",
+                             ticker, _ee)
+
         # Use current price as entry estimate if Entry_Price not available
         price = entry if entry > 0 else float(row.get("Close", row.get("close", 0)))
         scan_price = price  # remember scan-time price for gap_guard/slippage compare
