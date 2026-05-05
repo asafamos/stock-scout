@@ -263,6 +263,16 @@ class TradingConfig:
         default_factory=lambda: _env_bool("USE_PIPELINE_STOP", False)
     )  # If True, use StopLoss from scan instead of trailing %
 
+    # Minimum INITIAL trail % at buy time. Prevents trades from being
+    # stopped out by intraday noise on day 1. Trade history (2026-04-15
+    # → 2026-05-05) showed 3/6 trades closed within 0-2 days at -0.7%
+    # to -3.0% — pure noise on a 20-day-swing thesis. The ratchet still
+    # tightens BELOW this floor later (tier 1 = 4%, tier 2 = 3%, tier 3
+    # = 2%) once peak gains earn that protection.
+    min_initial_trail_pct: float = field(
+        default_factory=lambda: _env_float("MIN_INITIAL_TRAIL_PCT", 4.0)
+    )
+
     # ── Partial Profit-Taking (sell half at intermediate target) ─
     partial_profit_enabled: bool = field(
         default_factory=lambda: _env_bool("PARTIAL_PROFIT_ENABLED", True)

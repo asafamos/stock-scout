@@ -645,7 +645,31 @@ class IBKRClient:
             trail_order.orderType = "TRAIL"
             trail_order.trailingPercent = trail_pct
             trail_order.tif = "GTC"
-            # NO goodAfterTime — stop-loss must be active from the moment we hold the position.
+            # NO goodAfterTime by default — stop-loss must be active from the
+            # moment we hold the position (flash-crash / news protection).
+            #
+            # Optional: TRAIL activation delay for sub-2k tier ONLY. Reads
+            # TRADE_TRAIL_DELAY_HOURS_SUB_2K (default 0 = immediate). When >0,
+            # the TRAIL goes live N hours after placement — protects against
+            # intraday-noise stopouts and Good-Faith-Violation risk on cash
+            # accounts that round-trip same-day. TRADEOFF: loses flash-crash
+            # protection during the delay window. Use only if the trail-floor
+            # widening (#1) is insufficient.
+            try:
+                import os as _os
+                _delay_hours = float(_os.getenv("TRADE_TRAIL_DELAY_HOURS_SUB_2K", "0") or 0)
+            except Exception:
+                _delay_hours = 0.0
+            if _delay_hours > 0 and account_tier == "sub_2k":
+                from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+                _activate_at = _dt.now(_tz.utc) + _td(hours=_delay_hours)
+                # IB goodAfterTime format: "YYYYMMDD HH:MM:SS UTC"
+                trail_order.goodAfterTime = _activate_at.strftime("%Y%m%d %H:%M:%S UTC")
+                logger.info(
+                    "TRAIL goodAfterTime=%s (sub_2k tier, delay %.1fh) — "
+                    "stop-loss inactive during cushion window",
+                    trail_order.goodAfterTime, _delay_hours,
+                )
             trail_order.ocaGroup = oca_group
             trail_order.ocaType = 1  # Cancel remaining on fill
             trail_order.transmit = True

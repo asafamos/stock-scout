@@ -303,12 +303,61 @@ def run_check():
                     ticker, _MISSING_COUNT[ticker],
                 )
 
-                # Try to determine exit price and reason from filled orders.
+                # Try to determine exit price + PRECISE reason from filled orders.
                 # IB's fills can be sparse right after a close — try twice with
                 # a short gap to give the API time to propagate the execution.
+                #
+                # Reason precision matters for post-mortem: "trail_fired" tells
+                # us the trail was too tight (or the move reversed); "target_hit"
+                # tells us the thesis worked. Old generic "stop_or_target_filled"
+                # blurred these together so we couldn't tune the trail floor
+                # against actual data. (Audit 2026-05-05 — 6 closes, all logged
+                # as "closed_externally" because fills() ran before trades().)
                 exit_price = 0.0
                 reason = "closed_externally"
+                target_price_for_reason = float(pos.get("target_price", 0) or 0)
+                entry_price_for_reason = float(pos.get("entry_price", 0) or 0)
 
+                def _classify_reason(price: float) -> str:
+                    """Map an exit price to trail_fired / target_hit / partial."""
+                    if price <= 0:
+                        return "fill_detected"
+                    # Target hit: within 1% of LMT target (IB may fill a few
+                    # cents through). Robust to rounding.
+                    if (target_price_for_reason > 0
+                            and price >= target_price_for_reason * 0.99):
+                        return "target_hit"
+                    # Below entry → trail fired (or stop)
+                    if (entry_price_for_reason > 0
+                            and price < entry_price_for_reason):
+                        return "trail_fired"
+                    # Above entry but well below target → trail fired in profit
+                    if entry_price_for_reason > 0:
+                        return "trail_fired_in_profit"
+                    return "fill_detected"
+
+                # PRIMARY: check trades() — gives us orderType directly so we
+                # know whether it was the TRAIL or the LMT that filled.
+                def _try_trades():
+                    try:
+                        for trade in client._ib.trades():
+                            if (trade.contract.symbol == ticker
+                                    and trade.order.action == "SELL"
+                                    and trade.orderStatus.status == "Filled"):
+                                fp = float(trade.orderStatus.avgFillPrice or 0)
+                                if fp > 0:
+                                    ot = trade.order.orderType or ""
+                                    if "TRAIL" in ot.upper():
+                                        return fp, "trail_fired"
+                                    if ot.upper() in ("LMT", "LIMIT"):
+                                        return fp, "target_hit"
+                                    return fp, _classify_reason(fp)
+                    except Exception as _e:
+                        logger.debug("Trades check failed: %s", _e)
+                    return 0.0, ""
+
+                # SECONDARY: fills() gives price but not orderType — classify
+                # by price-vs-target/entry distance.
                 def _try_fills():
                     try:
                         for f in client._ib.fills():
@@ -316,39 +365,39 @@ def run_check():
                                     and f.execution.side in ("SLD", "SELL")):
                                 fp = float(f.execution.price or 0)
                                 if fp > 0:
-                                    return fp
+                                    return fp, _classify_reason(fp)
                     except Exception as _e:
                         logger.debug("Fills check failed: %s", _e)
-                    return 0.0
+                    return 0.0, ""
 
-                exit_price = _try_fills()
+                exit_price, reason_detected = _try_trades()
+                if exit_price == 0.0:
+                    exit_price, reason_detected = _try_fills()
                 if exit_price == 0.0:
                     # Wait briefly and try once more — fills may still be landing
                     try:
                         client._ib.sleep(2)
                     except Exception:
                         pass
-                    exit_price = _try_fills()
-                if exit_price > 0:
-                    reason = "stop_or_target_filled"
+                    exit_price, reason_detected = _try_trades()
+                    if exit_price == 0.0:
+                        exit_price, reason_detected = _try_fills()
+                if reason_detected:
+                    reason = reason_detected
 
-                # Secondary: check completed trades for fill info
-                if exit_price == 0.0:
-                    for trade in client._ib.trades():
-                        if (trade.contract.symbol == ticker
-                                and trade.order.action == "SELL"
-                                and trade.orderStatus.status == "Filled"):
-                            exit_price = trade.orderStatus.avgFillPrice or 0.0
-                            reason = f"{trade.order.orderType}_filled"
-                            break
-
-                # Fallback: check OCA orders
+                # Fallback: check OCA orders for order_type
                 if exit_price == 0.0:
                     oca = pos.get("order_ids", {}).get("oca_group", "")
                     if oca:
                         for order in ibkr_orders:
                             if order.get("oca_group") == oca and order.get("filled", 0) > 0:
-                                reason = f"{order.get('order_type', 'unknown')}_filled"
+                                ot = (order.get("order_type") or "").upper()
+                                if "TRAIL" in ot:
+                                    reason = "trail_fired"
+                                elif ot in ("LMT", "LIMIT"):
+                                    reason = "target_hit"
+                                else:
+                                    reason = f"{order.get('order_type', 'unknown')}_filled"
                                 break
 
                 # Last resort: use executions() which has recent fills
@@ -359,7 +408,7 @@ def run_check():
                                     and e.execution.side in ("SLD", "SELL")):
                                 exit_price = float(e.execution.price or 0)
                                 if exit_price > 0:
-                                    reason = "fill_detected"
+                                    reason = _classify_reason(exit_price)
                                     break
                     except Exception:
                         pass

@@ -983,10 +983,15 @@ class OrderManager:
         # SIDEWAYS / NEUTRAL / unknown → 1.0 baseline
 
         trail_pct = base_trail_pct * regime_mult
-        # Floor/cap for safety — even in panic, 2% is the floor; even in
-        # raging bull, 9% is the cap (positions worth $200 don't need
-        # 12% trails — that's $24 of paper loss before the stop fires).
-        trail_pct = max(2.0, min(trail_pct, 9.0))
+        # Floor/cap for safety. Floor is configurable via
+        # TRADE_MIN_INITIAL_TRAIL_PCT (default 4.0) — protects against
+        # day-1 noise stopouts on a 20-day swing thesis. The ratchet in
+        # monitor_positions can still tighten BELOW this floor later
+        # (tier 1=4%, tier 2=3%, tier 3=2%) once peak gains earn that
+        # protection. Cap stays at 9% — even in raging bull, $300
+        # positions don't need 12% trails ($36 of paper loss).
+        initial_floor = float(getattr(self.cfg, "min_initial_trail_pct", 4.0))
+        trail_pct = max(initial_floor, min(trail_pct, 9.0))
         logger.info(
             "  Trail %.1f%% (base %.1f%% × regime %.2f, ATR %.1f%%, scan stop %.1f%%, regime=%s)",
             trail_pct, base_trail_pct, regime_mult,
