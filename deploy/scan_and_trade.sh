@@ -56,6 +56,20 @@ set -a
 source .env.trading 2>/dev/null || true
 set +a
 
+# Telegram helper — defined early so the pre-flight IB check (and any
+# other early failure path) can use it. Body is plain text; HTML allowed.
+TG_SEND() {
+    local emoji="$1"; local title="$2"; local body="$3"
+    [ -z "${TRADE_TELEGRAM_TOKEN:-}" ] && return 0
+    [ -z "${TRADE_TELEGRAM_CHAT_ID:-}" ] && return 0
+    curl -fsS -X POST \
+        "https://api.telegram.org/bot${TRADE_TELEGRAM_TOKEN}/sendMessage" \
+        -d "chat_id=${TRADE_TELEGRAM_CHAT_ID}" \
+        -d "parse_mode=HTML" \
+        --data-urlencode "$(printf 'text=%s <b>%s</b>\n%s' "$emoji" "$title" "$body")" \
+        >/dev/null 2>&1 || true
+}
+
 echo "═══════════════════════════════════════════════════════"
 echo "Starting $LABEL pipeline (event-driven scan→trade)"
 echo "═══════════════════════════════════════════════════════"
@@ -218,6 +232,60 @@ if [ -n "${TRADE_TELEGRAM_TOKEN:-}" ] && [ -n "${TRADE_TELEGRAM_CHAT_ID:-}" ]; t
         >/dev/null 2>&1 || true
 fi
 
+# ── PRE-FLIGHT IB CONNECTIVITY CHECK (added 2026-05-05) ──
+# healthcheck.timer runs every 15 min; if the IB session dies between its
+# last check and this pipeline fire, the trade evaluator wastes ~30s
+# setting up before failing with cryptic IB errors that only sometimes
+# match the FATAL grep below. Catch it here, attempt one auto-restart,
+# and abort cleanly with a Telegram alert if recovery fails. This closes
+# the worst-case 15-min window between healthcheck cycles.
+echo "Pre-flight IB connectivity check..."
+_ib_check_handshake() {
+    $PY -c "
+from ib_insync import IB
+import random
+ib = IB()
+try:
+    ib.connect('127.0.0.1', 7496, clientId=200+random.randint(1,500), timeout=10)
+    print('OK' if ib.isConnected() else 'NOCONN')
+    ib.disconnect()
+except Exception as e:
+    print(f'ERR:{type(e).__name__}')
+" 2>/dev/null
+}
+# Layer 1 — TCP port. Fast (sub-second).
+if ! timeout 5 nc -z 127.0.0.1 7496 2>/dev/null; then
+    echo "  ⚠ TCP port 7496 not responding — restarting ibgateway container..."
+    TG_SEND "⚠️" "Pipeline pre-flight: IB port DOWN" "Auto-restarting ibgateway container..."
+    docker restart ibgateway >/dev/null 2>&1 || true
+    sleep 45
+    if ! timeout 5 nc -z 127.0.0.1 7496 2>/dev/null; then
+        TG_SEND "🚨" "PIPELINE ABORTED — IB unreachable" "Port 7496 still down after auto-restart. Manual: <a href=\"http://87.99.142.12:5800/vnc.html\">VNC</a>"
+        echo "FATAL: IB port still down after restart — aborting"
+        exit 6
+    fi
+    TG_SEND "✅" "IB Gateway recovered (port)" "Auto-restart succeeded — pipeline continuing"
+    echo "  ✓ TCP recovered"
+fi
+# Layer 2 — actual ib_insync handshake. TCP open ≠ session authenticated.
+PRE_HANDSHAKE=$(_ib_check_handshake)
+if [ "$PRE_HANDSHAKE" != "OK" ]; then
+    echo "  ⚠ IB handshake failed ($PRE_HANDSHAKE) — restarting ibgateway container..."
+    TG_SEND "⚠️" "Pipeline pre-flight: IB session DOWN" "Handshake: ${PRE_HANDSHAKE}. Auto-restarting..."
+    docker restart ibgateway >/dev/null 2>&1 || true
+    sleep 45
+    PRE_HANDSHAKE2=$(_ib_check_handshake)
+    if [ "$PRE_HANDSHAKE2" != "OK" ]; then
+        TG_SEND "🚨" "PIPELINE ABORTED — IB session dead" "Handshake: ${PRE_HANDSHAKE2}. Likely needs IB Key 2FA approval. <a href=\"http://87.99.142.12:5800/vnc.html\">VNC</a>"
+        echo "FATAL: handshake still failing — aborting"
+        exit 6
+    fi
+    TG_SEND "✅" "IB Gateway recovered (session)" "Auto-restart succeeded — pipeline continuing"
+    echo "  ✓ Handshake recovered"
+else
+    echo "  ✓ IB connectivity OK"
+fi
+
 # Fire the trade evaluator. Live price refresh + 8 risk gates inside.
 # TRADE_LIVE_CONFIRMED=1 is the systemd-pipeline authorization to run live;
 # manual ssh runs (without this env var and without --live flag) default to
@@ -241,17 +309,8 @@ tail -25 "$TRADE_OUT"
 #   1. Stale-scan / FATAL / TIMEOUT abort  →  loud 🚨 alert
 #   2. Filter chain returned 0 candidates  →  ⏭ alert with REAL skip reasons
 #   3. Trade ran but bought 0 (all gates rejected at exec time)  →  ⏭ alert
-TG_SEND() {
-    local emoji="$1"; local title="$2"; local body="$3"
-    [ -z "${TRADE_TELEGRAM_TOKEN:-}" ] && return 0
-    [ -z "${TRADE_TELEGRAM_CHAT_ID:-}" ] && return 0
-    curl -fsS -X POST \
-        "https://api.telegram.org/bot${TRADE_TELEGRAM_TOKEN}/sendMessage" \
-        -d "chat_id=${TRADE_TELEGRAM_CHAT_ID}" \
-        -d "parse_mode=HTML" \
-        --data-urlencode "$(printf 'text=%s <b>%s</b>\n%s' "$emoji" "$title" "$body")" \
-        >/dev/null 2>&1 || true
-}
+# (TG_SEND is defined near the top of the file so the pre-flight IB check
+# can also use it.)
 
 # Path 1: hard abort (stale scan, FATAL, no scan results, IBKR fail)
 if grep -qE "stale data|No scan results available|FATAL|Failed to connect to IBKR" "$TRADE_OUT"; then
