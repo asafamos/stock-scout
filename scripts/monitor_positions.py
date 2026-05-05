@@ -1109,11 +1109,29 @@ def _take_partial_profit(tracker, client, notify):
 
     Prevents giving back gains on stocks that spike then pull back.
     Flag stored in position.partial_taken to avoid double-execution.
+    Also dispatches the profit-LADDER (tiered fractional sells) for
+    eligible tiers — same place because both are partial sells with
+    the same day-trade and account-tier safety constraints.
     """
     from core.trading.config import CONFIG
 
     positions = tracker.get_open_positions()
     if not positions:
+        return
+
+    # SUB-2K MARKET-CLOSED GUARD (added 2026-05-05).
+    # Sub-$2k cash accounts get rejected by IB Error 201 on partial-sell
+    # MarketOrders submitted pre-market or after-hours: "MINIMUM OF $2000
+    # REQUIRED IN ORDER TO PURCHASE ON MARGIN, SELL SHORT, TRADE CURRENCY
+    # OR FUTURE." A regular sell of an existing long should not need
+    # margin, but IB's pre-market routing flags it that way. Net effect:
+    # the order is auto-cancelled, monitor logs error spam, and on the
+    # NEXT cycle (5 min later, still pre-market) it tries again. Guard:
+    # only attempt partials when the market is actually open.
+    # Ratchet (TRAIL modify) is unaffected — IB allows order MODIFICATION
+    # outside RTH, only NEW MarketOrders trip Error 201.
+    if not client.is_market_open():
+        logger.debug("Partial profit / ladder skipped: market closed")
         return
 
     try:
