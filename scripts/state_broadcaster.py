@@ -94,6 +94,27 @@ def _is_strictly_running(unit: str) -> bool:
         return False
 
 
+def _is_docker_running(container_name: str) -> bool:
+    """Return True if a Docker container is currently up.
+
+    Used for IB Gateway, which runs in Docker (not systemd) on this VPS.
+    The earlier `_is_active("ibgateway")` check was inspecting an orphaned
+    systemd unit (masked + disabled 2026-05-05) and reporting False — which
+    flipped `system_health.all_active` to False, triggering the
+    pre_pipeline_health workflow's noisy alert path even though the
+    gateway was perfectly healthy in Docker.
+    """
+    try:
+        r = subprocess.run(
+            ["docker", "ps", "--filter", f"name={container_name}",
+             "--filter", "status=running", "--format", "{{.Names}}"],
+            capture_output=True, text=True, timeout=4,
+        )
+        return container_name in r.stdout.strip().split()
+    except Exception:
+        return False
+
+
 def _list_timer(unit: str) -> Optional[str]:
     """Return next-fire timestamp for a systemd timer (ISO format) or None."""
     try:
@@ -319,16 +340,22 @@ def _build_throttle_state() -> Dict:
 
 
 def _build_health() -> Dict:
+    # Systemd-managed services — checked via `systemctl is-active`.
     services = ["stockscout-monitor", "stockscout-pipeline.timer",
                 "stockscout-statusbot", "stockscout-healthcheck.timer",
                 "stockscout-daily-summary.timer",
                 # command-poller is what makes Streamlit dispatch buttons
                 # actually execute (consumes commands branch queue).
                 # Without it, buttons silently queue and never run.
-                "stockscout-command-poller",
-                "ibgateway"]
+                "stockscout-command-poller"]
     health = {s: _is_active(s) for s in services}
-    health["all_active"] = all(health.values())
+    # IB Gateway lives in Docker (not systemd) — check the container.
+    # The old systemd `ibgateway.service` is an orphan from initial setup
+    # that was masked 2026-05-05; including it here was flipping
+    # all_active=False on a healthy system.
+    health["ibgateway"] = _is_docker_running("ibgateway")
+    health["all_active"] = all(v for v in health.values()
+                               if isinstance(v, bool))
 
     # Scan freshness
     scan_age_hours = None

@@ -1385,10 +1385,14 @@ def _ratchet_stops(tracker, client, ibkr_orders, notify):
         if t and o.get("status") in ("Submitted", "PreSubmitted"):
             orders_by_ticker.setdefault(t, []).append(o)
 
+    # Ordered HIGHEST-gain first so the highest-applicable tier wins
+    # (a stock at +25% peak should get tier 2's tighter trail, not
+    # tier 0's wider one). Tier 0 added 2026-05-05 — early lock at +5%.
     tiers = [
         (CONFIG.ratchet_tier3_gain, CONFIG.ratchet_tier3_trail_pct),
         (CONFIG.ratchet_tier2_gain, CONFIG.ratchet_tier2_trail_pct),
         (CONFIG.ratchet_tier1_gain, CONFIG.ratchet_tier1_trail_pct),
+        (CONFIG.ratchet_tier0_gain, CONFIG.ratchet_tier0_trail_pct),
     ]
 
     changed = False

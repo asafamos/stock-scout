@@ -345,24 +345,38 @@ class TradingConfig:
     #     +10% → ladder partial 25%  (locked)
     #     +12% → ratchet to 4%       (tightens trail on remaining 75%)
     #     -4%  from peak → trail fires on remaining 75%
+    # Tier 0 — EARLY LOCK (added 2026-05-05).
+    # Trade history showed ORCL hit peak +9.4% with NO ratchet engagement
+    # because tier 1 was at +12%. The original rationale was "let winners
+    # breathe" — but on a $300 position, a swing back from +9% to break-even
+    # is a $27 unrealized→zero loss. This tier locks that profit at +5%
+    # peak while still leaving room for normal intraday ATR (set trail to
+    # 3.5%, well above the typical 1.5-2.5% noise band of large-cap names).
+    ratchet_tier0_gain: float = field(
+        default_factory=lambda: _env_float("RATCHET_T0_GAIN", 5.0)
+    )
+    ratchet_tier0_trail_pct: float = field(
+        default_factory=lambda: _env_float("RATCHET_T0_TRAIL_PCT", 3.5)
+    )   # Peak +5% → trail tightens to 3.5% (early lock, intraday-noise-safe)
+
     ratchet_tier1_gain: float = field(
-        default_factory=lambda: _env_float("RATCHET_T1_GAIN", 12.0)
+        default_factory=lambda: _env_float("RATCHET_T1_GAIN", 10.0)
     )
     ratchet_tier1_trail_pct: float = field(
-        default_factory=lambda: _env_float("RATCHET_T1_TRAIL_PCT", 4.0)
-    )   # Peak +12% → trail tightens to 4% (was +10% — now staggered after ladder T1)
+        default_factory=lambda: _env_float("RATCHET_T1_TRAIL_PCT", 3.0)
+    )   # Peak +10% → trail 3.0% (was +12% → 4% — tightened 2026-05-05)
     ratchet_tier2_gain: float = field(
-        default_factory=lambda: _env_float("RATCHET_T2_GAIN", 20.0)
+        default_factory=lambda: _env_float("RATCHET_T2_GAIN", 18.0)
     )
     ratchet_tier2_trail_pct: float = field(
-        default_factory=lambda: _env_float("RATCHET_T2_TRAIL_PCT", 3.0)
-    )   # Peak +20% → trail tightens to 3% (was +18% — now staggered after ladder T2)
+        default_factory=lambda: _env_float("RATCHET_T2_TRAIL_PCT", 2.5)
+    )   # Peak +18% → trail 2.5% (was +20% → 3% — tightened 2026-05-05)
     ratchet_tier3_gain: float = field(
-        default_factory=lambda: _env_float("RATCHET_T3_GAIN", 30.0)
+        default_factory=lambda: _env_float("RATCHET_T3_GAIN", 28.0)
     )
     ratchet_tier3_trail_pct: float = field(
         default_factory=lambda: _env_float("RATCHET_T3_TRAIL_PCT", 2.0)
-    )   # Peak +30% → trail tightens to 2% (was +28% — now staggered after ladder T3)
+    )   # Peak +28% → trail 2.0% (was +30% — tightened 2026-05-05)
 
     # ── Paths ──────────────────────────────────────────────────
     scan_results_path: str = "data/scans/latest_scan_live.json"
