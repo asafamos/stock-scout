@@ -1013,8 +1013,58 @@ class IBKRClient:
             target_trade.order.trailingPercent = float(new_trail_pct)
             target_trade.order.transmit = True  # explicit — don't inherit
             # Re-submit with same orderId — IB treats this as a modification.
-            self._ib.placeOrder(target_trade.contract, target_trade.order)
+            # Capture the returned Trade — its log/orderStatus reflects the
+            # ACTUAL IB response (success vs Error 103 / 161 / 202 / etc.).
+            # The previous code threw away the return value, then queried
+            # openTrades() — which returns the same in-memory object with
+            # the LOCALLY-MUTATED trailingPercent (we just set it 2 lines
+            # above), masking IB-side rejection. Real-world failure: ORCL
+            # 2026-05-05 12:06 + 12:14 — Error 103 "Duplicate order id"
+            # cancelled the modify, the cache showed trailingPercent=3.0,
+            # the verify said "✓ MODIFIED ... verified live", and IB still
+            # had 4.6%. By inspecting the returned Trade.log for any
+            # errorCode > 0 in the seconds after placeOrder, we catch
+            # rejections that the cached spec hides.
+            modify_trade = self._ib.placeOrder(target_trade.contract,
+                                               target_trade.order)
             self._ib.sleep(3)
+            # Authoritative check #1: did the returned Trade collect any
+            # errorCode in its log? Any non-zero errorCode means IB rejected
+            # the modify (103 = duplicate id, 161 = no order to modify,
+            # 201 = rejected, 202 = cancelled).
+            try:
+                for log_entry in (modify_trade.log or []):
+                    ec = getattr(log_entry, "errorCode", 0) or 0
+                    if ec and ec > 0:
+                        msg = getattr(log_entry, "message", "") or "(no msg)"
+                        logger.error(
+                            "MODIFY TRAIL %s #%d REJECTED by IB: errorCode=%d %s",
+                            target_trade.contract.symbol, order_id, ec, msg,
+                        )
+                        return TradeResult(
+                            ticker=target_trade.contract.symbol, action="SELL",
+                            order_type="TRAIL", quantity=int(target_trade.order.totalQuantity),
+                            filled_price=0.0, status="Error", order_id=order_id,
+                            error=f"IB error {ec}: {msg}",
+                        )
+            except Exception as _le:
+                logger.debug("modify log inspection failed (non-fatal): %s", _le)
+            # Authoritative check #2: orderStatus on the modify-trade.
+            try:
+                ms = modify_trade.orderStatus.status
+                if ms in ("Cancelled", "ApiCancelled", "Inactive", "Rejected"):
+                    logger.error(
+                        "MODIFY TRAIL %s #%d REJECTED: modify-trade status=%s",
+                        target_trade.contract.symbol, order_id, ms,
+                    )
+                    return TradeResult(
+                        ticker=target_trade.contract.symbol, action="SELL",
+                        order_type="TRAIL", quantity=int(target_trade.order.totalQuantity),
+                        filled_price=0.0, status="Error", order_id=order_id,
+                        error=f"modify-trade status={ms}",
+                    )
+            except Exception:
+                pass
 
             ticker = target_trade.contract.symbol
             qty = int(target_trade.order.totalQuantity)
