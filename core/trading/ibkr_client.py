@@ -1113,7 +1113,7 @@ class IBKRClient:
                             target_trade.contract.symbol, order_id,
                         )
                         try:
-                            from ib_insync import Order as _Order
+                            from ib_insync import Order as _Order, IB as _IB
                             _ticker = target_trade.contract.symbol
                             _qty = int(target_trade.order.totalQuantity)
                             _oca = target_trade.order.ocaGroup
@@ -1121,11 +1121,52 @@ class IBKRClient:
                             # Restore original target_order spec before cancel
                             target_trade.order.trailingPercent = old_pct
 
-                            # Cancel old (it's owned by another clientId, but
-                            # cancelOrder is broadcast and IB cancels
-                            # asynchronously)
-                            self._ib.cancelOrder(target_trade.order)
-                            self._ib.sleep(4)
+                            # OWNERSHIP-AWARE CANCEL (added 2026-05-05):
+                            # The 103 means our current clientId doesn't own
+                            # the order. cancelOrder from a non-owning client
+                            # is silently ignored — leaves the order ALIVE
+                            # while we place the replacement → 2 active TRAILs
+                            # (real-world failure: ORCL #1172 + #1700 both
+                            # alive 2026-05-05 17:18). Fix: open a TEMPORARY
+                            # connection as the OWNING clientId, cancel from
+                            # there, then disconnect. Read the owning clientId
+                            # off the target order itself.
+                            owner_cid = int(getattr(target_trade.order, "clientId", 0) or 0)
+                            self_cid = int(getattr(self._ib.client, "clientId", 0) or 0)
+                            if owner_cid and owner_cid != self_cid:
+                                logger.info(
+                                    "TRAIL #%d owned by clientId=%d (we are %d) — "
+                                    "opening secondary connection to cancel",
+                                    order_id, owner_cid, self_cid,
+                                )
+                                try:
+                                    _aux = _IB()
+                                    _aux.connect("127.0.0.1", 7496,
+                                                 clientId=owner_cid, timeout=8)
+                                    _aux.reqAllOpenOrders()
+                                    _aux.sleep(2)
+                                    for _t in _aux.openTrades():
+                                        if _t.order.orderId == order_id:
+                                            _aux.cancelOrder(_t.order)
+                                            _aux.sleep(3)
+                                            logger.info(
+                                                "Secondary cancel of #%d: status=%s",
+                                                order_id, _t.orderStatus.status,
+                                            )
+                                            break
+                                    _aux.disconnect()
+                                except Exception as _ce:
+                                    logger.warning(
+                                        "Secondary cancel for #%d failed: %s — "
+                                        "falling back to broadcast cancel",
+                                        order_id, _ce,
+                                    )
+                                    self._ib.cancelOrder(target_trade.order)
+                                    self._ib.sleep(4)
+                            else:
+                                # Same clientId — direct cancel works
+                                self._ib.cancelOrder(target_trade.order)
+                                self._ib.sleep(4)
 
                             # Place fresh TRAIL with new percent — owned by
                             # OUR clientId now, future modifies will work.
