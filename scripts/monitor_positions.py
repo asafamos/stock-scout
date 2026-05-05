@@ -1119,20 +1119,37 @@ def _take_partial_profit(tracker, client, notify):
     if not positions:
         return
 
-    # SUB-2K MARKET-CLOSED GUARD (added 2026-05-05).
+    # ACCOUNT-TIER-AWARE PRE-MARKET GUARD (added 2026-05-05).
     # Sub-$2k cash accounts get rejected by IB Error 201 on partial-sell
     # MarketOrders submitted pre-market or after-hours: "MINIMUM OF $2000
     # REQUIRED IN ORDER TO PURCHASE ON MARGIN, SELL SHORT, TRADE CURRENCY
-    # OR FUTURE." A regular sell of an existing long should not need
-    # margin, but IB's pre-market routing flags it that way. Net effect:
-    # the order is auto-cancelled, monitor logs error spam, and on the
-    # NEXT cycle (5 min later, still pre-market) it tries again. Guard:
-    # only attempt partials when the market is actually open.
-    # Ratchet (TRAIL modify) is unaffected — IB allows order MODIFICATION
-    # outside RTH, only NEW MarketOrders trip Error 201.
+    # OR FUTURE." Selling a long shouldn't need margin, but IB's pre-market
+    # routing flags it that way for sub-2k accounts.
+    #
+    # Above-$2k accounts (cash or margin_pdt) DON'T have this restriction
+    # and CAN partial-sell pre-market normally — so this guard auto-detects
+    # tier and only blocks the sub-2k case. The system gracefully upgrades
+    # itself when the account crosses $2k without code changes.
+    #
+    # Ratchet (TRAIL modify) is unaffected at any tier — IB allows order
+    # MODIFICATION outside RTH; only NEW MarketOrders trip Error 201.
     if not client.is_market_open():
-        logger.debug("Partial profit / ladder skipped: market closed")
-        return
+        try:
+            net_liq = float(client.get_net_liquidation() or 0)
+        except Exception:
+            net_liq = 0.0  # fail-closed: treat as sub-2k
+        if net_liq < 2000:
+            logger.debug(
+                "Partial / ladder skipped: market closed AND account "
+                "sub-$2k (net=$%.0f). Will retry on next cycle after open.",
+                net_liq,
+            )
+            return
+        # >=$2k account: pre-market partials allowed, fall through.
+        logger.debug(
+            "Pre-market partial allowed (account $%.0f >= $2k tier)",
+            net_liq,
+        )
 
     try:
         portfolio = {p.contract.symbol: p for p in client._ib.portfolio()
