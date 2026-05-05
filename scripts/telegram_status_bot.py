@@ -333,6 +333,135 @@ def _panic_scan(execute: bool) -> tuple:
         ib.disconnect()
 
 
+def get_diagnostic() -> str:
+    """Diagnose why the latest scan would or wouldn't produce buys.
+
+    Loads the most recent scan parquet, runs the top-15 candidates
+    through `policy.evaluate_static_gates`, shows verdict per ticker
+    plus aggregate skip-reason histogram. When the user asks "why
+    didn't it buy?" this is the answer in one Telegram message.
+
+    Cheap and read-only — no IB calls, no order flow.
+    """
+    try:
+        from pathlib import Path
+        import pandas as pd
+        from core.trading.config import CONFIG
+        from core.trading.policy import evaluate_static_gates
+        from core.trading.position_tracker import PositionTracker
+    except Exception as e:
+        return f"⚠️ /diag import failed: {e}"
+
+    # Load latest scan from disk (the trader's actual source of truth)
+    candidates = [
+        Path("data/scans/latest_scan.parquet"),
+        Path("data/scans/latest_scan_live.parquet"),
+        Path("data/scans/latest_scan_live.json"),
+    ]
+    scan_path = None
+    for p in candidates:
+        if p.exists() and (scan_path is None or p.stat().st_mtime > scan_path.stat().st_mtime):
+            scan_path = p
+    if scan_path is None:
+        return "⚠️ No scan file found on disk."
+
+    try:
+        if scan_path.suffix == ".parquet":
+            df = pd.read_parquet(scan_path)
+        else:
+            df = pd.read_json(scan_path)
+    except Exception as e:
+        return f"⚠️ Failed to load scan: {e}"
+
+    import time as _time
+    age_min = (_time.time() - scan_path.stat().st_mtime) / 60
+
+    # Pull current state for the gate evaluator (paused, throttle, held)
+    try:
+        tracker = PositionTracker()
+        held = {p.get("ticker", "").upper() for p in tracker.get_open_positions()}
+    except Exception:
+        held = set()
+
+    state = {
+        "paused": False,
+        "throttle": {},
+        "positions": [{"ticker": t} for t in held],
+    }
+
+    # Evaluate top 15 by score
+    score_col = "FinalScore_20d" if "FinalScore_20d" in df.columns else "Score"
+    top = df.nlargest(15, score_col)
+
+    eligible = []
+    skipped = []
+    skip_reasons: dict = {}
+
+    for _, row in top.iterrows():
+        result = evaluate_static_gates(row, cfg=CONFIG, state=state)
+        ticker = str(row.get("Ticker", "?"))
+        score = float(row.get(score_col, 0) or 0)
+        rr = float(row.get("RewardRisk", 0) or 0)
+        sector = str(row.get("Sector", ""))[:14]
+        if result.would_buy:
+            eligible.append((ticker, score, rr, sector))
+        else:
+            primary = result.primary_reason or "unknown"
+            skipped.append((ticker, primary[:48]))
+            # Categorize for histogram
+            for cat in ("Score", "R:R", "ML", "Confidence", "Blocked sector",
+                        "Reliability", "regime", "Already holding", "Stop", "Target"):
+                if cat.lower() in primary.lower():
+                    skip_reasons[cat] = skip_reasons.get(cat, 0) + 1
+                    break
+            else:
+                skip_reasons["Other"] = skip_reasons.get("Other", 0) + 1
+
+    # Whole-scan aggregate (not just top 15)
+    all_evals = []
+    for _, row in df.iterrows():
+        all_evals.append(evaluate_static_gates(row, cfg=CONFIG, state=state))
+    total_eligible = sum(1 for r in all_evals if r.would_buy)
+
+    # Build the response
+    lines = [
+        f"<b>🎯 /diag — top scan candidates</b>",
+        f"<i>Source: {scan_path.name}, {len(df)} rows, {age_min:.0f}m old</i>",
+        f"<i>Held: {', '.join(sorted(held)) or 'none'}</i>",
+        f"<i>Cap: {CONFIG.max_open_positions} open / {CONFIG.max_daily_buys} daily</i>",
+        "",
+    ]
+
+    if eligible:
+        lines.append(f"<b>🚀 Eligible (top 15): {len(eligible)}</b>")
+        for tk, sc, rr, sec in eligible[:8]:
+            lines.append(f"  ✓ <code>{tk}</code> score={sc:.1f} R:R={rr:.1f} {sec}")
+        if len(eligible) > 8:
+            lines.append(f"  ... +{len(eligible) - 8} more")
+    else:
+        lines.append("<b>⏭ Top 15: 0 eligible</b>")
+
+    if skipped:
+        lines.append("")
+        lines.append(f"<b>⏭ Skipped ({len(skipped)}/15):</b>")
+        for tk, reason in skipped[:6]:
+            lines.append(f"  • <code>{tk}</code>: {reason}")
+
+    if skip_reasons:
+        lines.append("")
+        lines.append("<b>Skip reason histogram (top 15):</b>")
+        for cat, cnt in sorted(skip_reasons.items(), key=lambda x: -x[1]):
+            lines.append(f"  {cnt:2d}× {cat}")
+
+    lines.append("")
+    lines.append(f"<i>Whole scan ({len(df)} rows): {total_eligible} pass static gates</i>")
+    lines.append("<i>Note: only static gates checked. Runtime gates "
+                 "(earnings, sector momentum, correlation, IB-side) "
+                 "may still reject during execution.</i>")
+
+    return "\n".join(lines)
+
+
 def panic_preview() -> str:
     try:
         summary, _, _ = _panic_scan(execute=False)
@@ -513,6 +642,12 @@ def main():
                             send_message(f"❌ {r.get('error', 'resubmit failed')}")
                     except Exception as _e:
                         send_message(f"⚠️ {_e}")
+                elif text in ("/diag", "diag", "דיאג", "/debug"):
+                    logger.info("Diag requested")
+                    try:
+                        send_message(get_diagnostic())
+                    except Exception as _e:
+                        send_message(f"⚠️ /diag failed: {_e}")
                 elif text in ("help", "עזרה", "/help"):
                     send_message(
                         "<b>📋 Available commands:</b>\n\n"
@@ -520,7 +655,8 @@ def main():
                         "• <b>status</b> — portfolio + orders\n"
                         "• <b>/today</b> — today's actions\n"
                         "• <b>/pnl</b> — P&L summary\n"
-                        "• <b>/history</b> — recent closed trades\n\n"
+                        "• <b>/history</b> — recent closed trades\n"
+                        "• <b>/diag</b> — debug top scan candidates\n\n"
                         "<b>CONTROL</b>\n"
                         "• <b>/pause [N]</b> — pause auto-trading [N days]\n"
                         "• <b>/resume</b> — resume auto-trading\n"
