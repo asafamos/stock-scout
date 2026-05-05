@@ -92,13 +92,22 @@ except Exception as e:
 " "${cid}" 2>/dev/null
 }
 
-# Skip outside market hours (Mon-Fri 13:30-20:30 UTC / 9:30 AM - 4:30 PM ET)
+# Adaptive scope (changed 2026-05-05): outside market hours we still
+# run a MINIMAL check so an overnight container death is caught before
+# market open, instead of going undetected for 12-16h. The full deep
+# check (handshake, drift, scan-outcomes) only runs during market
+# hours to avoid noise alerts when IB is intentionally down for
+# nightly maintenance.
 DOW=$(date -u +%u)  # 1=Mon, 7=Sun
 HOUR=$(date -u +%H)
-if [ "$DOW" -gt 5 ] || [ "$HOUR" -lt 13 ] || [ "$HOUR" -gt 20 ]; then
-    # Weekly IB Key reminder — Sunday 15:00 UTC (before market opens Monday)
-    if [ "$DOW" -eq 7 ] && [ "$HOUR" -eq 15 ]; then
-        send_alert "$(echo -e '\xF0\x9F\x94\x91') <b>Weekly IB Key Reminder</b>
+MARKET_HOURS=0
+if [ "$DOW" -le 5 ] && [ "$HOUR" -ge 13 ] && [ "$HOUR" -le 20 ]; then
+    MARKET_HOURS=1
+fi
+
+# Weekly IB Key reminder — Sunday 15:00 UTC (before market opens Monday)
+if [ "$DOW" -eq 7 ] && [ "$HOUR" -eq 15 ]; then
+    send_alert "$(echo -e '\xF0\x9F\x94\x91') <b>Weekly IB Key Reminder</b>
 
 IB Gateway needs re-authentication before market opens Monday.
 
@@ -108,8 +117,39 @@ IB Gateway needs re-authentication before market opens Monday.
 4. Approve on IBKR Mobile app
 
 Takes 10 seconds!"
+fi
+
+# Off-hours: minimal check — Docker container alive? Monitor daemon alive?
+# Anything else (handshake to a possibly-dead-on-purpose session, drift
+# vs IB) would be noise. We just want to know if the container itself
+# crashed overnight so we can investigate before market open.
+if [ "$MARKET_HOURS" -eq 0 ]; then
+    OFF_HOURS_ISSUES=0
+    if ! docker ps --format '{{.Names}}' | grep -q ibgateway; then
+        send_alert_dedup "offhours_container_down" \
+            "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') <b>OFF-HOURS</b> IB Gateway container DOWN — attempting restart" \
+            14400  # 4h dedup so we don't spam overnight
+        docker start ibgateway 2>/dev/null || docker restart ibgateway 2>/dev/null
+        sleep 30
+        if docker ps --format '{{.Names}}' | grep -q ibgateway; then
+            send_alert "$(echo -e '\xe2\x9c\x85') Off-hours: ibgateway container restarted"
+            clear_alert_dedup "offhours_container_down"
+        else
+            OFF_HOURS_ISSUES=1
+            send_alert_dedup "offhours_container_restart_failed" \
+                "$(echo -e '\xf0\x9f\x9a\xa8') OFF-HOURS CRITICAL: ibgateway restart FAILED" \
+                3600
+        fi
     fi
-    echo "Outside market hours — skipping healthcheck"
+    if ! systemctl is-active --quiet stockscout-monitor; then
+        send_alert_dedup "offhours_monitor_down" \
+            "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') OFF-HOURS: monitor daemon DOWN — restarting" \
+            7200
+        sudo systemctl restart stockscout-monitor 2>/dev/null
+    fi
+    if [ "$OFF_HOURS_ISSUES" -eq 0 ]; then
+        echo "Off-hours minimal check OK"
+    fi
     exit 0
 fi
 

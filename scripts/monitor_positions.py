@@ -1594,11 +1594,49 @@ def _ratchet_stops(tracker, client, ibkr_orders, notify):
 
 
 def daemon_loop():
-    """Run monitoring loop during market hours."""
+    """Run monitoring loop. Adaptive sleep so we don't lag at market open.
+
+    Pre-market we poll `is_market_open()` every 60s — when the market
+    transitions open, the FIRST cycle runs within ~60s of the open bell
+    instead of "current sleep finishes + market check". With CHECK_INTERVAL=300
+    that previously meant up to 5 min of lag at open, during which the
+    ratchet didn't fire and trail tightening lagged behind first-30-min
+    moves. The 60s pre-market poll is cheap (single is_market_open() call,
+    no IB queries) and lets us hit the bell within the first minute.
+    """
     from core.trading.ibkr_client import IBKRClient
 
-    logger.info("Position monitor daemon started (checking every %ds)", CHECK_INTERVAL)
+    logger.info(
+        "Position monitor daemon started "
+        "(market-hours interval %ds, pre-market poll 60s)",
+        CHECK_INTERVAL,
+    )
     client = IBKRClient()
+    PRE_MARKET_POLL_SEC = 60
+
+    # ── Startup reconcile (added 2026-05-05) ──
+    # Runs ONCE before the main loop, regardless of market state, so
+    # orphan IB positions from a prior crash/SIGTERM mid-trade are
+    # detected immediately instead of waiting for market open.
+    # The kill-mid-execution scenario: SIGTERM hits between
+    # broker.buy_with_bracket() (which placed the order on IB) and
+    # tracker.add_position() (which records it locally) — IB is now
+    # holding a position the tracker doesn't know about. The existing
+    # _try_adopt_ib_only logic handles this on the FIRST cycle that
+    # runs run_check(), but daemon_loop's market_open gate previously
+    # delayed that recovery up to ~16 hours overnight. Now we always
+    # reconcile at startup. Tolerates IB connection failure (e.g. the
+    # IB session needed 2FA) — just logs and continues to the loop
+    # which will retry.
+    logger.info("Startup reconcile — checking for orphan IB positions...")
+    try:
+        with _cycle_timeout(CYCLE_TIMEOUT_SECONDS):
+            run_check()
+        logger.info("Startup reconcile complete")
+    except MonitorTimeout:
+        logger.warning("Startup reconcile timed out — continuing to loop")
+    except Exception as e:
+        logger.warning("Startup reconcile failed: %s — continuing to loop", e)
 
     while True:
         if client.is_market_open():
@@ -1617,10 +1655,11 @@ def daemon_loop():
                     pass
             except Exception as e:
                 logger.error("Monitor cycle failed: %s", e)
+            time.sleep(CHECK_INTERVAL)
         else:
-            logger.debug("Market closed — sleeping")
-
-        time.sleep(CHECK_INTERVAL)
+            # Closed — short poll so we catch the open bell within ~60s.
+            logger.debug("Market closed — short-polling for open transition")
+            time.sleep(PRE_MARKET_POLL_SEC)
 
 
 def main():
