@@ -1027,6 +1027,8 @@ class IBKRClient:
             # would record success while IB still has the old %. (Audit
             # finding #8.)
             actual_pct = None
+            actual_status = None
+            actual_log_tail = ""
             try:
                 # Re-pull fresh state via reqAllOpenOrders to get current values
                 self._ib.reqAllOpenOrders()
@@ -1034,6 +1036,29 @@ class IBKRClient:
                 for t in self._ib.openTrades():
                     if t.order.orderId == order_id:
                         actual_pct = float(getattr(t.order, "trailingPercent", -1) or -1)
+                        # CRITICAL (added 2026-05-05): also capture orderStatus
+                        # and the most-recent log entry. The previous version
+                        # only checked trailingPercent — so a Cancelled trade
+                        # whose in-memory order spec still showed the requested
+                        # percent (because the placeOrder sent that spec)
+                        # would falsely report "verified". Real-world failure:
+                        # ORCL 2026-05-05 12:06:03 — Error 103 "Duplicate
+                        # order id" cancelled the modify, but trailingPercent
+                        # in openTrades reflected the SENT spec (3.0%), not
+                        # IB's accepted spec (still 4.6%). Tracker recorded
+                        # "modify success" → drift between tracker and IB.
+                        try:
+                            actual_status = t.orderStatus.status
+                        except Exception:
+                            actual_status = None
+                        try:
+                            if t.log:
+                                last = t.log[-1]
+                                actual_log_tail = (
+                                    f"{last.status}: {last.message or '(no msg)'}"
+                                )
+                        except Exception:
+                            pass
                         break
             except Exception as _verr:
                 logger.warning("Post-verify of TRAIL #%d failed: %s", order_id, _verr)
@@ -1048,6 +1073,20 @@ class IBKRClient:
                     ticker=ticker, action="SELL", order_type="TRAIL",
                     quantity=qty, filled_price=0.0, status="Error",
                     order_id=order_id, error="order disappeared after modify",
+                )
+
+            # Status check — Cancelled / Inactive / Rejected means the modify
+            # didn't take effect even if trailingPercent looks right in cache.
+            if actual_status in ("Cancelled", "Inactive", "Rejected", "ApiCancelled"):
+                logger.error(
+                    "MODIFY TRAIL %s #%d REJECTED: orderStatus=%s, last log: %s",
+                    ticker, order_id, actual_status, actual_log_tail,
+                )
+                return TradeResult(
+                    ticker=ticker, action="SELL", order_type="TRAIL",
+                    quantity=qty, filled_price=0.0, status="Error",
+                    order_id=order_id,
+                    error=f"modify rejected: status={actual_status} ({actual_log_tail})",
                 )
 
             # Allow tiny float jitter — but the modification was rejected
