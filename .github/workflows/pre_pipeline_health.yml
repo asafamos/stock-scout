@@ -20,6 +20,17 @@ permissions:
   contents: read
 
 jobs:
+  # Validation noop — always runs and succeeds.
+  # Without this, pushes that touch this workflow file create a "ghost
+  # run" with no jobs (because the real `check` job is `if`-guarded to
+  # only fire on schedule/dispatch). GitHub reports those ghost runs as
+  # "failure" → email spam. This noop runs in under 2 seconds and makes
+  # the ghost run register as "success", suppressing the email.
+  noop:
+    runs-on: ubuntu-latest
+    steps:
+      - run: 'echo "ghost-trigger noop (event=${{ github.event_name }})"'
+
   check:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest

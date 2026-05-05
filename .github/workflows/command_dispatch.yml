@@ -13,14 +13,17 @@ permissions:
   contents: write
 
 jobs:
+  # Noop that always succeeds — absorbs push-triggered ghost runs so
+  # the workflow doesn't show as "failed" in the email log when the
+  # only real job is `if`-guarded out. The if-guard alone produced
+  # "No jobs were run: failure" emails on every workflow-file push.
+  noop:
+    runs-on: ubuntu-latest
+    steps:
+      - run: 'echo "ghost-trigger noop (event=${{ github.event_name }})"'
+
   enqueue:
-    # Defensive guard: only execute on the actual repository_dispatch
-    # event. Without this, GitHub still occasionally emits "ghost" runs
-    # on push events to non-default branches (observed 2026-05-01:
-    # multiple "Run failed: No jobs were run" emails when the
-    # claude/new-session-* branch was pushed). The job-level `if`
-    # neutralizes those false alarms while keeping the real dispatch
-    # path unchanged.
+    # Defensive guard: only execute on the actual repository_dispatch event.
     if: github.event_name == 'repository_dispatch'
     runs-on: ubuntu-latest
     steps:
