@@ -28,21 +28,52 @@ logger = logging.getLogger(__name__)
 _ANALYST_CACHE: dict = {}
 _ANALYST_CACHE_TTL = 6 * 3600  # 6 hours — analyst PTs change slowly
 
+# Hard wall-clock timeout for yfinance .info calls. Real-world failure
+# 2026-05-05: a manual evaluator run blocked for 11+ min on per-candidate
+# `yf.Ticker(...).info` because yfinance has NO native timeout — its
+# urllib session uses Python's default (= forever). With 17 candidates,
+# even a 60s soft hang per call burns 17 min before the trade window
+# even closes. We wrap the call in a thread with .result(timeout=N) so
+# a slow yfinance just returns the (0,0,0) "no data" path instead of
+# stalling the whole pipeline.
+_YFINANCE_INFO_TIMEOUT_SEC = 6.0
+
 
 def _fetch_analyst_target(ticker: str) -> tuple:
-    """Fetch (mean_pt, high_pt, n_analysts) from yfinance. Returns (0,0,0) on any failure."""
+    """Fetch (mean_pt, high_pt, n_analysts) from yfinance. Returns (0,0,0) on
+    any failure or timeout. The timeout (default 6s) prevents the trade
+    evaluator from stalling indefinitely when yfinance is rate-limiting or
+    just slow (their CDN occasionally takes 30-60s for .info responses)."""
     import time as _time
     cached = _ANALYST_CACHE.get(ticker)
     if cached and (_time.time() - cached[3] < _ANALYST_CACHE_TTL):
         return cached[:3]
-    try:
+
+    def _do_fetch():
         import yfinance as yf
         info = yf.Ticker(ticker).info or {}
-        mean_pt = float(info.get("targetMeanPrice", 0) or 0)
-        high_pt = float(info.get("targetHighPrice", 0) or 0)
-        n = int(info.get("numberOfAnalystOpinions", 0) or 0)
+        return (
+            float(info.get("targetMeanPrice", 0) or 0),
+            float(info.get("targetHighPrice", 0) or 0),
+            int(info.get("numberOfAnalystOpinions", 0) or 0),
+        )
+
+    try:
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as _TO
+        with ThreadPoolExecutor(max_workers=1) as ex:
+            mean_pt, high_pt, n = ex.submit(_do_fetch).result(
+                timeout=_YFINANCE_INFO_TIMEOUT_SEC
+            )
         _ANALYST_CACHE[ticker] = (mean_pt, high_pt, n, _time.time())
         return mean_pt, high_pt, n
+    except _TO:
+        logger.warning(
+            "Analyst fetch TIMED OUT (%.0fs) for %s — proceeding without consensus",
+            _YFINANCE_INFO_TIMEOUT_SEC, ticker,
+        )
+        # Cache empty result for 5min so we don't retry every call site
+        _ANALYST_CACHE[ticker] = (0.0, 0.0, 0, _time.time() - _ANALYST_CACHE_TTL + 300)
+        return 0.0, 0.0, 0
     except Exception as e:
         logger.debug("Analyst fetch failed for %s: %s", ticker, e)
         return 0.0, 0.0, 0
@@ -755,7 +786,21 @@ class OrderManager:
                     etf_momentum[sec] = 0.5  # unknown sector
                     continue
                 try:
-                    hist = yf.Ticker(etf).history(period="35d", interval="1d")
+                    # Same timeout pattern as _fetch_analyst_target — yfinance
+                    # .history() can also hang on slow CDN responses.
+                    def _fetch_etf_hist(_etf=etf):
+                        return yf.Ticker(_etf).history(period="35d", interval="1d")
+                    from concurrent.futures import ThreadPoolExecutor, TimeoutError as _ETO
+                    try:
+                        with ThreadPoolExecutor(max_workers=1) as _ex:
+                            hist = _ex.submit(_fetch_etf_hist).result(timeout=8.0)
+                    except _ETO:
+                        logger.warning(
+                            "Sector ETF %s history fetch TIMED OUT — using neutral 0.5",
+                            etf,
+                        )
+                        etf_momentum[sec] = 0.5
+                        continue
                     if hist is None or len(hist) < 25:
                         etf_momentum[sec] = 0.5
                         continue
