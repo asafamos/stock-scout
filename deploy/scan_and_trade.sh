@@ -224,23 +224,99 @@ fi
 # DRY mode for safety. See run_auto_trade.py for the full policy.
 echo "Triggering auto-trade..."
 TRADE_T0=$(date +%s)
-# Capture stdout to grep for "No candidates" later — used to push a
-# meaningful "why no buy" message to Telegram.
 TRADE_OUT=/tmp/trade-output-$$.log
 TRADE_LIVE_CONFIRMED=1 $PY -m scripts.run_auto_trade > "$TRADE_OUT" 2>&1 || true
 TRADE_EXIT=$?
 tail -25 "$TRADE_OUT"
-# Detect "no candidates" path and notify with reason
-if grep -q "No candidates passed filters" "$TRADE_OUT"; then
-    SKIP_REASONS=$(grep -E "^\s*SKIP " "$TRADE_OUT" | head -5 | sed 's/^\s*//' || true)
-    if [ -n "${TRADE_TELEGRAM_TOKEN:-}" ] && [ -n "${TRADE_TELEGRAM_CHAT_ID:-}" ]; then
-        curl -fsS -X POST \
-            "https://api.telegram.org/bot${TRADE_TELEGRAM_TOKEN}/sendMessage" \
-            -d "chat_id=${TRADE_TELEGRAM_CHAT_ID}" \
-            -d "parse_mode=HTML" \
-            --data-urlencode "$(printf 'text=⏭ <b>Scan: 0 buys</b>\nTop skips:\n<pre>%s</pre>' "${SKIP_REASONS:-No candidates entered evaluation}")" \
-            >/dev/null 2>&1 || true
+
+# ── Telegram diagnostic alerts (rewritten 2026-05-05) ──
+# Yesterday's "0 buys" went silent because (a) the trade aborted on
+# stale-scan BEFORE entering filters, so "No candidates passed filters"
+# never appeared in the log, and (b) the SKIP grep pattern `^\s*SKIP `
+# only matched lines starting with "SKIP", but the real log format is
+# `2026-05-04 14:13:57,560 [INFO] core.trading.order_manager: SKIP ...`
+# (timestamp prefix). The user got NO Telegram alert about the failure.
+#
+# New logic — three exclusive paths in priority order:
+#   1. Stale-scan / FATAL / TIMEOUT abort  →  loud 🚨 alert
+#   2. Filter chain returned 0 candidates  →  ⏭ alert with REAL skip reasons
+#   3. Trade ran but bought 0 (all gates rejected at exec time)  →  ⏭ alert
+TG_SEND() {
+    local emoji="$1"; local title="$2"; local body="$3"
+    [ -z "${TRADE_TELEGRAM_TOKEN:-}" ] && return 0
+    [ -z "${TRADE_TELEGRAM_CHAT_ID:-}" ] && return 0
+    curl -fsS -X POST \
+        "https://api.telegram.org/bot${TRADE_TELEGRAM_TOKEN}/sendMessage" \
+        -d "chat_id=${TRADE_TELEGRAM_CHAT_ID}" \
+        -d "parse_mode=HTML" \
+        --data-urlencode "$(printf 'text=%s <b>%s</b>\n%s' "$emoji" "$title" "$body")" \
+        >/dev/null 2>&1 || true
+}
+
+# Path 1: hard abort (stale scan, FATAL, no scan results, IBKR fail)
+if grep -qE "stale data|No scan results available|FATAL|Failed to connect to IBKR" "$TRADE_OUT"; then
+
+    # ── RETRY-ON-STALE (added 2026-05-05) ──
+    # If the abort was scan-staleness, the most likely cause is a race:
+    # GH Actions just committed a new parquet but the local touch+pull
+    # didn't propagate fast enough. Wait 60s, refresh the local files,
+    # and retry the trade ONCE before alerting. Catches the common case
+    # where the next scheduled fire (3-4h away) would otherwise be the
+    # earliest retry.
+    if grep -qE "stale data|No scan results available" "$TRADE_OUT"; then
+        echo "STALE-SCAN abort detected — refreshing scan + retrying once after 60s..."
+        sleep 60
+        git fetch origin main --quiet 2>/dev/null || true
+        git checkout origin/main -- data/scans/latest_scan.parquet data/scans/latest_scan.json data/scans/latest_scan.meta.json 2>/dev/null || true
+        for f in data/scans/latest_scan.parquet data/scans/latest_scan.json data/scans/latest_scan.meta.json; do
+            [ -f "$f" ] && touch "$f"
+        done
+        echo "Retrying auto-trade..."
+        TRADE_RETRY_OUT=/tmp/trade-retry-$$.log
+        TRADE_LIVE_CONFIRMED=1 $PY -m scripts.run_auto_trade > "$TRADE_RETRY_OUT" 2>&1 || true
+        tail -25 "$TRADE_RETRY_OUT"
+        if ! grep -qE "stale data|No scan results available|FATAL" "$TRADE_RETRY_OUT"; then
+            echo "✓ Retry succeeded — replacing original output"
+            mv "$TRADE_RETRY_OUT" "$TRADE_OUT"
+            # Re-run the path detection on the retry's output
+            if ! grep -qE "stale data|No scan results available|FATAL|Failed to connect to IBKR" "$TRADE_OUT"; then
+                # Retry was clean — fall through to the elif paths below
+                if grep -q "No candidates passed filters" "$TRADE_OUT"; then
+                    FILTER_SUMMARY=$(grep -E "filter dropped|No stocks pass|Smart filter|MARKET REGIME BLOCK" "$TRADE_OUT" | tail -8 | sed 's/^.*\] //g' || true)
+                    TG_SEND "⏭" "Scan: 0 candidates (after retry)" "<pre>${FILTER_SUMMARY:-Filter chain produced 0}</pre>"
+                fi
+                rm -f "$TRADE_OUT"
+                TRADE_DUR=$(( $(date +%s) - TRADE_T0 ))
+                echo "Trade finished after retry (duration=${TRADE_DUR}s)"
+                echo "═══════════════════════════════════════════════════════"
+                echo "Pipeline complete WITH retry"
+                echo "═══════════════════════════════════════════════════════"
+                exit 0
+            fi
+        else
+            rm -f "$TRADE_RETRY_OUT"
+        fi
     fi
+
+    ABORT_REASON=$(grep -E "stale data|No scan results available|FATAL|Failed to connect" "$TRADE_OUT" | head -3 | sed 's/^.*\] //g' || true)
+    TG_SEND "🚨" "PIPELINE ABORTED" "<pre>${ABORT_REASON:-(no detail)}</pre>"
+
+# Path 2: filter chain dropped everything (Score/RR/ML/Confidence/etc)
+elif grep -q "No candidates passed filters" "$TRADE_OUT"; then
+    # Capture the filter-stage breakdown that order_manager logs.
+    # Pull the LAST line of each "filter dropped N stocks" + the regime line.
+    FILTER_SUMMARY=$(grep -E "filter dropped|No stocks pass|Smart filter|MARKET REGIME BLOCK" "$TRADE_OUT" | tail -8 | sed 's/^.*\] //g' || true)
+    TG_SEND "⏭" "Scan: 0 candidates after filters" "<pre>${FILTER_SUMMARY:-Filter chain produced 0}</pre>"
+
+# Path 3: candidates entered execution but all rejected by risk gates
+elif grep -qE "core\.trading\.order_manager: SKIP " "$TRADE_OUT" && \
+     ! grep -qE "BUY filled|notify_buy" "$TRADE_OUT"; then
+    # Real SKIP log lines (from order_manager._execute_single)
+    SKIP_REASONS=$(grep -E "core\.trading\.order_manager: SKIP " "$TRADE_OUT" \
+        | head -5 \
+        | sed -E 's/^.*SKIP /SKIP /' \
+        | sed 's/SKIP \([A-Z]*\): /\1: /' || true)
+    TG_SEND "⏭" "Scan: 0 buys (all rejected by risk gates)" "<pre>${SKIP_REASONS:-(no detail)}</pre>"
 fi
 rm -f "$TRADE_OUT"
 TRADE_DUR=$(( $(date +%s) - TRADE_T0 ))

@@ -1,0 +1,103 @@
+name: Pre-Pipeline Health Check
+
+# Fires 30 min before each scheduled pipeline run (13:30 + 17:30 UTC).
+# Verifies the system is ready to trade — alerts if anything will block
+# the pipeline so the operator has 30 min to fix it.
+#
+# Why this matters: yesterday (2026-05-04) both pipelines silently
+# aborted with "stale scan" 43 min into a 50 min poll cycle. The
+# operator had ZERO Telegram visibility into the failure until they
+# noticed by checking /pnl manually 6h later. This workflow catches
+# the same class of issue 30 min EARLIER.
+
+on:
+  schedule:
+    # 13:00 UTC + 17:00 UTC Mon-Fri → 30 min before each pipeline fire
+    - cron: '0 13,17 * * 1-5'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify state-feed health + scan readiness
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TRADE_TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TRADE_TELEGRAM_CHAT_ID }}
+        run: |
+          set -euo pipefail
+
+          STATE_URL='https://api.github.com/repos/asafamos/stock-scout/contents/data/state/system_state.json?ref=state-feed'
+          SCAN_URL='https://api.github.com/repos/asafamos/stock-scout/commits?path=data/scans/latest_scan.parquet&per_page=1'
+
+          echo "→ Pre-pipeline health check"
+
+          # 1. State-feed freshness
+          STATE_RAW=$(curl -fsS -H 'Accept: application/vnd.github+json' "$STATE_URL")
+          STATE_B64=$(echo "$STATE_RAW" | jq -r '.content' | tr -d '\n')
+          if [ -z "$STATE_B64" ] || [ "$STATE_B64" = "null" ]; then
+              MSG="🚨 PRE-PIPELINE FAIL — state-feed empty (broadcaster down?)"
+              curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
+                -d "chat_id=${TELEGRAM_CHAT_ID}" -d "parse_mode=Markdown" -d "text=${MSG}" >/dev/null
+              exit 1
+          fi
+          STATE=$(echo "$STATE_B64" | base64 -d)
+          LAST_UPDATED=$(echo "$STATE" | jq -r '.last_updated // empty')
+          NOW_EPOCH=$(date -u +%s)
+          STATE_EPOCH=$(date -u -d "$LAST_UPDATED" +%s 2>/dev/null || echo 0)
+          STATE_AGE_MIN=$(( (NOW_EPOCH - STATE_EPOCH) / 60 ))
+          echo "state-feed age: ${STATE_AGE_MIN}m"
+
+          # 2. Latest scan commit age
+          SCAN_RAW=$(curl -fsS -H 'Accept: application/vnd.github+json' "$SCAN_URL")
+          SCAN_DATE=$(echo "$SCAN_RAW" | jq -r '.[0].commit.committer.date // empty')
+          SCAN_EPOCH=$(date -u -d "$SCAN_DATE" +%s 2>/dev/null || echo 0)
+          SCAN_AGE_MIN=$(( (NOW_EPOCH - SCAN_EPOCH) / 60 ))
+          echo "scan commit age: ${SCAN_AGE_MIN}m"
+
+          # 3. System health flags
+          ALL_ACTIVE=$(echo "$STATE" | jq -r '.system_health.all_active // "?"')
+          PAUSED=$(echo "$STATE" | jq -r '.paused // false')
+          PIPELINE_STATE=$(echo "$STATE" | jq -r '.pipeline.state // "?"')
+          NET_LIQ=$(echo "$STATE" | jq -r '.account.net_liquidation // 0')
+          CASH=$(echo "$STATE" | jq -r '.account.cash // 0')
+          POS_COUNT=$(echo "$STATE" | jq -r '.positions | length // 0')
+          THROTTLE_LEVEL=$(echo "$STATE" | jq -r '.throttle.level // "none"')
+
+          # 4. Compose status. Alert if anything looks wrong; otherwise stay
+          # silent (no notification spam every 30 min when system is healthy).
+          PROBLEMS=()
+          [ "$STATE_AGE_MIN" -gt 5 ] && PROBLEMS+=("state-feed ${STATE_AGE_MIN}m old")
+          [ "$SCAN_AGE_MIN" -gt 240 ] && PROBLEMS+=("scan ${SCAN_AGE_MIN}m old (>4h)")
+          [ "$ALL_ACTIVE" != "true" ] && PROBLEMS+=("services not all_active")
+          [ "$PAUSED" = "true" ] && PROBLEMS+=("auto-trade PAUSED")
+          [ "$PIPELINE_STATE" != "idle" ] && PROBLEMS+=("pipeline.state=$PIPELINE_STATE (expected idle)")
+          # Cash check — need at least $50 free to open a position with buffer
+          if [ "$(echo "$CASH < 50" | bc -l 2>/dev/null || echo 0)" = "1" ]; then
+              PROBLEMS+=("cash \$$CASH below \$50 buffer")
+          fi
+
+          if [ ${#PROBLEMS[@]} -gt 0 ]; then
+              # Loud alert — operator has 30 min to fix
+              PROB_STR=$(printf '• %s\n' "${PROBLEMS[@]}")
+              MSG=$(cat <<EOF
+⚠️ <b>PRE-PIPELINE WARNINGS</b> (next fire in 30 min)
+${PROB_STR}
+state-age: ${STATE_AGE_MIN}m | scan-age: ${SCAN_AGE_MIN}m
+positions: ${POS_COUNT} | cash: \$${CASH} | net: \$${NET_LIQ}
+throttle: ${THROTTLE_LEVEL}
+EOF
+)
+              curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
+                -d "chat_id=${TELEGRAM_CHAT_ID}" \
+                -d "parse_mode=HTML" \
+                --data-urlencode "text=${MSG}" >/dev/null
+              echo "::warning::sent pre-pipeline warning"
+          else
+              echo "✓ all pre-pipeline checks pass"
+          fi
