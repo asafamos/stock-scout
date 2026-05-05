@@ -1544,6 +1544,21 @@ def _ratchet_stops(tracker, client, ibkr_orders, notify):
             if result.status in ("Submitted", "PreSubmitted", "PendingSubmit", "DRY_RUN"):
                 pos["trailing_stop_pct"] = target_trail_pct
                 pos["stop_floor"] = projected_stop
+                # If the modify went through the cancel+replace fallback
+                # (Error 103 path), result.order_id is the NEW order. Update
+                # tracker so the next ratchet cycle finds the right order.
+                # Without this, tracker points to a cancelled stale ID and
+                # while monitor's order-by-ticker map (built from IB) still
+                # works for finding the current order, anything reading
+                # order_ids directly (e.g. /resubmit, manual cancel) breaks.
+                new_oid = getattr(result, "order_id", 0) or 0
+                if new_oid and new_oid != order_id:
+                    logger.info(
+                        "Ratchet fallback created new TRAIL #%d for %s "
+                        "(was #%d) — updating tracker order_ids",
+                        new_oid, ticker, order_id,
+                    )
+                    pos.setdefault("order_ids", {})["trailing_stop"] = new_oid
                 changed = True
                 # Telegram notification
                 lock_pct = (projected_stop - entry) / entry * 100
