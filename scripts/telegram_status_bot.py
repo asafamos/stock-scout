@@ -95,41 +95,83 @@ def get_portfolio_status() -> str:
 
         if orders:
             lines.append("\n<b>🛡 Protective Orders</b>")
-            # Build per-ticker coverage map (stop-side + limit-sell)
-            coverage: dict = {}  # ticker -> {"stop": bool, "limit": bool}
+            # Build per-ticker coverage map. Track BOTH "any" coverage and
+            # "active right now" coverage so we can flag positions whose
+            # only protection is a PreSubmitted order waiting on
+            # goodAfterTime — those don't catch a flash crash before
+            # their activation window.
+            coverage: dict = {}
             for t in orders:
                 o = t.order
                 sym = t.contract.symbol
-                c = coverage.setdefault(sym, {"stop": False, "limit": False})
+                c = coverage.setdefault(
+                    sym,
+                    {"stop": False, "limit": False,
+                     "stop_active": False, "limit_active": False},
+                )
+                is_active = t.orderStatus.status == "Submitted"
                 if o.orderType in ("TRAIL", "STP", "STP LMT", "STOP_LIMIT"):
                     c["stop"] = True
+                    if is_active:
+                        c["stop_active"] = True
                 elif o.orderType == "LMT":
                     c["limit"] = True
+                    if is_active:
+                        c["limit_active"] = True
+
+            def _badge(t) -> tuple:
+                """Return (emoji, suffix) describing the order's true state.
+
+                Submitted        → ✅ (working at the exchange)
+                PreSubmitted     → ⏳ (held by IB, waiting for goodAfterTime
+                                       or a contingent trigger; will NOT fire
+                                       on price moves until activated)
+                """
+                st = t.orderStatus.status
+                if st == "Submitted":
+                    return ("✅", "")
+                # PreSubmitted: surface the goodAfterTime so the user knows
+                # exactly when this order will start protecting them.
+                gat = getattr(t.order, "goodAfterTime", "") or ""
+                # IB format: "YYYYMMDD HH:MM:SS UTC" → trim to a friendly
+                # short form. If the field is empty, just say PreSubmitted.
+                if gat:
+                    short = gat.replace(" UTC", "").strip()
+                    return ("⏳", f" (PreSubmitted, activates {short})")
+                return ("⏳", " (PreSubmitted)")
 
             for t in orders:
                 o = t.order
+                emoji, suffix = _badge(t)
                 if o.orderType == "TRAIL":
                     lines.append(
-                        f"  {t.contract.symbol}: TRAIL {o.trailingPercent}% GTC ✅"
+                        f"  {t.contract.symbol}: TRAIL {o.trailingPercent}% GTC {emoji}{suffix}"
                     )
                 elif o.orderType == "STP":
                     # Hard stop (from ratcheting — locks profit at fixed price)
                     lines.append(
-                        f"  {t.contract.symbol}: STOP ${o.auxPrice:.2f} GTC ✅"
+                        f"  {t.contract.symbol}: STOP ${o.auxPrice:.2f} GTC {emoji}{suffix}"
                     )
                 elif o.orderType == "LMT":
                     lines.append(
-                        f"  {t.contract.symbol}: LIMIT ${o.lmtPrice:.2f} GTC ✅"
+                        f"  {t.contract.symbol}: LIMIT ${o.lmtPrice:.2f} GTC {emoji}{suffix}"
                     )
                 elif o.orderType in ("STP LMT", "STOP_LIMIT"):
                     lines.append(
-                        f"  {t.contract.symbol}: STP-LMT ${o.auxPrice:.2f}/${o.lmtPrice:.2f} GTC ✅"
+                        f"  {t.contract.symbol}: STP-LMT ${o.auxPrice:.2f}/${o.lmtPrice:.2f} GTC {emoji}{suffix}"
                     )
 
-            # Coverage check: every held ticker should have BOTH stop and limit
+            # Coverage check: every held ticker should have BOTH stop and limit.
+            # Additionally flag a "soft" gap: if the only stop is PreSubmitted,
+            # the position has no flash-crash protection until it activates —
+            # the user should know that. Same for limit.
             held_tickers = {p.contract.symbol for p in ib.positions() if p.position > 0}
             for tk in sorted(held_tickers):
-                c = coverage.get(tk, {"stop": False, "limit": False})
+                c = coverage.get(
+                    tk,
+                    {"stop": False, "limit": False,
+                     "stop_active": False, "limit_active": False},
+                )
                 if not c["stop"] or not c["limit"]:
                     missing = []
                     if not c["stop"]:
@@ -137,6 +179,17 @@ def get_portfolio_status() -> str:
                     if not c["limit"]:
                         missing.append("LIMIT")
                     lines.append(f"  ⚠️ {tk}: MISSING {'+'.join(missing)}")
+                    continue
+                pending = []
+                if c["stop"] and not c["stop_active"]:
+                    pending.append("STOP")
+                if c["limit"] and not c["limit_active"]:
+                    pending.append("LIMIT")
+                if pending:
+                    lines.append(
+                        f"  ⏳ {tk}: {'+'.join(pending)} PreSubmitted "
+                        f"(not actively protecting yet)"
+                    )
         else:
             lines.append("\n⚠️ No protective orders!")
 
