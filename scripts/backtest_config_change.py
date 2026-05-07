@@ -42,16 +42,39 @@ logger = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parents[1]
 TRADE_LOG = ROOT / "data" / "trades" / "trade_log.json"
 
-# NEW CONFIG (today's changes — what we want to test)
-NEW_INITIAL_TRAIL_FLOOR = 4.0  # %  (was 2.0%)
-RATCHET_TIERS_NEW = [
-    # (peak_gain_threshold_%, new_trail_%, min_hold_days)  — highest first
-    (28.0, 2.0, 0),
-    (18.0, 2.5, 0),
-    (10.0, 3.0, 0),
-    (8.0, 3.5, 2),  # T0 — RAISED 5→8 + 2-day gate (2026-05-07 fix)
-]
+# Config — env-overridable so we can compare scenarios without editing code.
+# Format for each tier: (peak_gain_threshold, trail_pct, min_hold_days)
+import os
+NEW_INITIAL_TRAIL_FLOOR = float(os.getenv("BT_INITIAL_FLOOR", "4.0"))
 EARNINGS_BUFFER_DAYS = 1  # exit 1 day before earnings
+
+
+def _build_tiers() -> list:
+    """Tiers from env, sorted high→low gain. Set BT_T0_GAIN=999 to disable T0."""
+    t3 = (
+        float(os.getenv("BT_T3_GAIN", "28.0")),
+        float(os.getenv("BT_T3_TRAIL", "2.0")),
+        int(os.getenv("BT_T3_HOLD", "0")),
+    )
+    t2 = (
+        float(os.getenv("BT_T2_GAIN", "18.0")),
+        float(os.getenv("BT_T2_TRAIL", "2.5")),
+        int(os.getenv("BT_T2_HOLD", "0")),
+    )
+    t1 = (
+        float(os.getenv("BT_T1_GAIN", "10.0")),
+        float(os.getenv("BT_T1_TRAIL", "3.0")),
+        int(os.getenv("BT_T1_HOLD", "0")),
+    )
+    t0 = (
+        float(os.getenv("BT_T0_GAIN", "8.0")),
+        float(os.getenv("BT_T0_TRAIL", "3.5")),
+        int(os.getenv("BT_T0_HOLD", "2")),
+    )
+    return [t3, t2, t1, t0]
+
+
+RATCHET_TIERS_NEW = _build_tiers()
 
 
 def _load_trades() -> list:
