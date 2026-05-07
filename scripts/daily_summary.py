@@ -163,8 +163,50 @@ def build_summary(for_date: str = None) -> str:
             )
         lines.append(f"  {un_emoji} <b>Total Unrealized: ${unrealized_total:+.2f}</b>")
 
+    # Strategic metrics (added 2026-05-07): profit factor, hold time,
+    # close-reason ratio. These are the three numbers that tell us if
+    # the strategy has edge — separate from the headline P&L which can
+    # be dominated by a single trade.
+    gross_wins = sum(float(t.get("pnl", 0)) for t in all_closes if float(t.get("pnl", 0) or 0) > 0)
+    gross_losses = abs(sum(float(t.get("pnl", 0)) for t in all_closes if float(t.get("pnl", 0) or 0) < 0))
+    profit_factor = (gross_wins / gross_losses) if gross_losses > 0 else (999.0 if gross_wins > 0 else 0.0)
+
+    # Hold time analysis (paired OPEN+CLOSE)
+    from collections import defaultdict
+    opens_by_ticker = defaultdict(list)
+    for t in log:
+        if t.get("action") == "OPEN":
+            opens_by_ticker[t.get("ticker")].append(t)
+    hold_days_list = []
+    for c in all_closes:
+        opens = opens_by_ticker.get(c.get("ticker"), [])
+        if opens:
+            o = opens.pop(0)
+            try:
+                ts_o = datetime.fromisoformat(str(o.get("timestamp", ""))[:19])
+                ts_c = datetime.fromisoformat(str(c.get("timestamp", ""))[:19])
+                hold_days_list.append((ts_c - ts_o).days)
+            except Exception:
+                pass
+    avg_hold = sum(hold_days_list) / len(hold_days_list) if hold_days_list else 0.0
+
+    # Close reason breakdown — proves whether trail-too-tight is killing us
+    close_reasons = defaultdict(int)
+    for t in all_closes:
+        r = str(t.get("reason", "unknown"))
+        # Normalize reasons into buckets
+        if "trail" in r.lower():
+            close_reasons["trail_fired"] += 1
+        elif "target" in r.lower():
+            close_reasons["target_hit"] += 1
+        elif "ladder" in r.lower():
+            close_reasons["ladder_partial"] += 1
+        else:
+            close_reasons[r[:20] or "unknown"] += 1
+
     # Lifetime
     lifetime_emoji = "🟢" if realized_total >= 0 else "🔴"
+    pf_emoji = "🟢" if profit_factor >= 1.5 else ("🟡" if profit_factor >= 1.0 else "🔴")
     lines.append(
         f"\n<b>📈 Lifetime</b>\n"
         f"  {lifetime_emoji} Realized: ${realized_total:+.2f}\n"
@@ -172,6 +214,20 @@ def build_summary(for_date: str = None) -> str:
         f"  Expectancy: ${expectancy:+.2f}/trade"
         + (f"\n  Avg win: ${avg_win:+.2f}  |  Avg loss: ${avg_loss:+.2f}" if life_n else "")
     )
+
+    # Strategic Edge Indicators
+    if life_n >= 3:
+        lines.append(
+            f"\n<b>🎯 Edge Indicators</b>\n"
+            f"  {pf_emoji} Profit Factor: <b>{profit_factor:.2f}</b> "
+            f"(target ≥1.5 for &quot;has edge&quot;)\n"
+            f"  Avg hold: <b>{avg_hold:.1f}d</b> (target 5-15d for swing)"
+        )
+        if close_reasons:
+            reason_str = " | ".join(
+                f"{k}:{v}" for k, v in sorted(close_reasons.items(), key=lambda x: -x[1])
+            )
+            lines.append(f"  Close reasons: <code>{reason_str}</code>")
 
     return "\n".join(lines)
 

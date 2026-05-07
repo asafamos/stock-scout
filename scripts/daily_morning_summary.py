@@ -201,7 +201,7 @@ def build_summary() -> str:
         elif net_liq >= 2000:
             tier = "🟡 cash $2k+ (T+1 settlement, day-trade rules apply)"
         else:
-            tier = "🟠 cash <$2k (IB strict — no shorts, goodAfterTime on LMT)"
+            tier = "🟠 cash &lt;$2k (IB strict — no shorts, goodAfterTime on LMT)"
         lines.append(f"\n💰 Net: ${net_liq:,.2f}  |  Cash: ${cash:,.2f}")
         lines.append(f"   Tier: {tier}")
 
