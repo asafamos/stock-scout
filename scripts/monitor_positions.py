@@ -1102,30 +1102,57 @@ def _verify_protections(tracker, client, ibkr_orders, notify):
             err_trail = getattr(result["trailing_stop"], "error", "") or ""
             err_limit = getattr(result["limit_sell"], "error", "") or ""
             account_block = _is_account_restriction_error(err_trail + " " + err_limit)
+            existing_intact = bool(result.get("existing_protection_intact"))
 
             logger.error(
-                "✗ Failed to resubmit protections for %s: trail=%s, limit=%s (account_rule=%s)",
+                "✗ Failed to resubmit protections for %s: trail=%s, limit=%s "
+                "(account_rule=%s, existing_intact=%s)",
                 ticker,
                 result["trailing_stop"].status,
                 result["limit_sell"].status,
                 account_block,
+                existing_intact,
             )
 
-            # Only alert once per hour for the same ticker — prevents spam
-            # when IB's cash-account rule is the persistent cause.
-            if _cooldown_ok(("protection", ticker), _ALERT_COOLDOWN, _ALERT_COOLDOWN_SECONDS):
-                extra = ""
-                if account_block:
-                    extra = (
-                        "\n\n⚠️ IBKR rejected the order: cash account < $2000 "
-                        "blocks new protective orders. Existing orders (if any) "
-                        "may still be active — check the Portfolio Status."
+            # Place-then-cancel: if the resubmit failed but the prior
+            # protective orders survived (place-then-cancel never touched
+            # them), the position is still covered. Downgrade the alert
+            # so we don't cry CRITICAL when there's actually no exposure —
+            # but still notify (cooldowned) so the user knows the new
+            # bracket couldn't be placed.
+            if existing_intact:
+                if _cooldown_ok(("protection_warn", ticker),
+                                _ALERT_COOLDOWN, _ALERT_COOLDOWN_SECONDS):
+                    extra = ""
+                    if account_block:
+                        extra = (
+                            " IBKR rejected it (cash account < $2000 rule). "
+                            "Will keep using the prior bracket."
+                        )
+                    notify.notify_error("Protection",
+                        f"⚠️ {ticker}: resubmit blocked "
+                        f"(trail={result['trailing_stop'].status}, "
+                        f"limit={result['limit_sell'].status}) — "
+                        f"existing protective orders are still active, "
+                        f"position remains covered.{extra}"
                     )
-                notify.notify_error("Protection",
-                    f"CRITICAL: {ticker} has NO protective orders! "
-                    f"Trail: {result['trailing_stop'].status}, "
-                    f"Limit: {result['limit_sell'].status}{extra}"
-                )
+            else:
+                # Only alert once per hour for the same ticker — prevents spam
+                # when IB's cash-account rule is the persistent cause.
+                if _cooldown_ok(("protection", ticker),
+                                _ALERT_COOLDOWN, _ALERT_COOLDOWN_SECONDS):
+                    extra = ""
+                    if account_block:
+                        extra = (
+                            "\n\n⚠️ IBKR rejected the order: cash account < $2000 "
+                            "blocks new protective orders. Existing orders (if any) "
+                            "may still be active — check the Portfolio Status."
+                        )
+                    notify.notify_error("Protection",
+                        f"CRITICAL: {ticker} has NO protective orders! "
+                        f"Trail: {result['trailing_stop'].status}, "
+                        f"Limit: {result['limit_sell'].status}{extra}"
+                    )
 
 
 def _take_partial_profit(tracker, client, notify):

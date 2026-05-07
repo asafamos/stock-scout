@@ -814,6 +814,19 @@ class IBKRClient:
     ) -> dict:
         """Re-submit trailing stop + limit sell as OCA for an existing position.
 
+        Place-then-cancel: places NEW protective orders in a fresh OCA group
+        FIRST, waits for them to settle out of PendingSubmit, and only cancels
+        the existing live SELL orders if the new ones come back healthy. If
+        the new orders go Inactive/Cancelled/Rejected (e.g. IB account-tier
+        rule rejects same-day goodAfterTime orders on sub-$2k cash accounts),
+        the new orders are cancelled and the existing protection stays in
+        place — the position is never left unprotected by a failed resubmit.
+
+        The result dict carries `existing_protection_intact: bool` so the
+        caller can distinguish "resubmit failed and position is exposed" from
+        "resubmit failed but prior orders still cover it" — only the former
+        deserves a CRITICAL alert.
+
         If same_day_guard=True, adds goodAfterTime=next market open to prevent
         day-trade violations (for positions opened today).
         """
@@ -829,40 +842,34 @@ class IBKRClient:
                 "limit_sell": TradeResult(ticker=ticker, action="SELL",
                                           order_type="LMT", quantity=qty,
                                           filled_price=0.0, status="DRY_RUN"),
+                "existing_protection_intact": False,
             }
         try:
             from ib_insync import Stock, Order
-            import time as _time
 
             contract = Stock(_ib_symbol(ticker), "SMART", "USD")
             self._ib.qualifyContracts(contract)
 
-            # Cancel any existing live protective orders for this ticker
-            # BEFORE placing new ones. Prevents duplicate OCA groups that
-            # could double-sell when stops trigger. Especially important
-            # during reconnect scenarios where the monitor's stored OCA
-            # may not match IB's active OCA.
+            # Snapshot existing live protective SELL orders BEFORE placing
+            # new ones. We will only cancel these once the new orders are
+            # confirmed healthy — so a rejected resubmit can never strip a
+            # working position of its protection.
             try:
                 self._ib.reqAllOpenOrders()
                 self._ib.sleep(1)
-                cancelled = 0
+            except Exception as _re:
+                logger.debug("reqAllOpenOrders failed pre-resubmit %s: %s",
+                             ticker, _re)
+            existing_live = []
+            try:
                 for tr in list(self._ib.openTrades()):
                     if (tr.contract.symbol == ticker
                             and tr.order.action == "SELL"
                             and tr.orderStatus.status in ("Submitted", "PreSubmitted")):
-                        try:
-                            self._ib.cancelOrder(tr.order)
-                            cancelled += 1
-                        except Exception as _ce:
-                            logger.debug("Cancel skipped for %s order %d: %s",
-                                         ticker, tr.order.orderId, _ce)
-                if cancelled:
-                    logger.info("Cancelled %d live %s protective orders before resubmit",
-                                cancelled, ticker)
-                    self._ib.sleep(2)  # let cancellations propagate
-            except Exception as _pre_e:
-                logger.warning("Pre-resubmit cancel pass failed for %s: %s",
-                               ticker, _pre_e)
+                        existing_live.append(tr)
+            except Exception as _se:
+                logger.warning("Existing-order snapshot failed for %s: %s",
+                               ticker, _se)
 
             oca_group = _make_oca_group(ticker)
 
@@ -899,22 +906,112 @@ class IBKRClient:
                 limit_order.transmit = True
                 limit_trade = self._ib.placeOrder(contract, limit_order)
 
-            self._ib.sleep(2)
+            # Wait up to 5s for new orders to settle out of PendingSubmit so
+            # we can decide if they're healthy before touching the existing
+            # orders. IB resolves to a definitive status (Submitted /
+            # PreSubmitted / Inactive / Rejected) within ~1-3s typically.
+            for _ in range(10):
+                self._ib.sleep(0.5)
+                ts = trail_trade.orderStatus.status
+                ls = limit_trade.orderStatus.status if limit_trade else "n/a"
+                if ts not in ("PendingSubmit", "ApiPending", ""):
+                    if limit_trade is None or ls not in ("PendingSubmit", "ApiPending", ""):
+                        break
+
+            trail_status = trail_trade.orderStatus.status
+            limit_status = limit_trade.orderStatus.status if limit_trade else "N/A"
+
+            _bad = ("Error", "Cancelled", "Inactive", "ApiCancelled", "Rejected")
+            new_healthy = (
+                trail_status not in _bad
+                and (limit_trade is None or limit_status not in _bad)
+            )
+
+            if new_healthy:
+                # New orders confirmed healthy — safe to cancel old ones.
+                # Both old and new were briefly live in different OCA groups;
+                # if the old TRAIL had fired in this window it would zero the
+                # position, so the new TRAIL would just be rejected by IB on
+                # trigger ("no position") rather than double-selling.
+                cancelled = 0
+                for tr in existing_live:
+                    try:
+                        self._ib.cancelOrder(tr.order)
+                        cancelled += 1
+                    except Exception as _ce:
+                        logger.debug("Cancel skipped for %s order %d: %s",
+                                     ticker, tr.order.orderId, _ce)
+                if cancelled:
+                    logger.info(
+                        "Resubmit %s: replaced %d old order(s) with new OCA %s",
+                        ticker, cancelled, oca_group,
+                    )
+                    self._ib.sleep(2)  # let cancellations propagate
+
+                return {
+                    "trailing_stop": TradeResult(
+                        ticker=ticker, action="SELL", order_type="TRAIL",
+                        quantity=qty, filled_price=0.0,
+                        status=trail_status,
+                        order_id=trail_trade.order.orderId,
+                    ),
+                    "limit_sell": TradeResult(
+                        ticker=ticker, action="SELL", order_type="LMT",
+                        quantity=qty, filled_price=0.0,
+                        status=limit_status,
+                        order_id=limit_trade.order.orderId if limit_trade else 0,
+                    ),
+                    "oca_group": oca_group,
+                    "existing_protection_intact": False,
+                }
+
+            # New orders unhealthy — cancel them so we don't accumulate
+            # rejected/inactive shells, and leave the existing orders alone.
+            logger.warning(
+                "Resubmit %s: new orders unhealthy (trail=%s, limit=%s) — "
+                "cancelling new, keeping %d existing order(s)",
+                ticker, trail_status, limit_status, len(existing_live),
+            )
+            for tr in (trail_trade, limit_trade):
+                if tr is None:
+                    continue
+                try:
+                    self._ib.cancelOrder(tr.order)
+                except Exception as _ce:
+                    logger.debug("Cleanup-cancel skipped for %s: %s", ticker, _ce)
+            self._ib.sleep(1)
+
+            # Verify the prior orders survived (we never cancelled them, but
+            # confirm by requery so the caller sees the truth, not a guess).
+            existing_still_alive = 0
+            try:
+                self._ib.reqAllOpenOrders()
+                self._ib.sleep(1)
+                for tr in list(self._ib.openTrades()):
+                    if (tr.contract.symbol == ticker
+                            and tr.order.action == "SELL"
+                            and tr.orderStatus.status in ("Submitted", "PreSubmitted")):
+                        existing_still_alive += 1
+            except Exception:
+                existing_still_alive = len(existing_live)  # best-effort
+
+            # ≥2 live SELL orders means TRAIL+LMT are still covering us.
+            intact = existing_still_alive >= 2
 
             return {
                 "trailing_stop": TradeResult(
                     ticker=ticker, action="SELL", order_type="TRAIL",
                     quantity=qty, filled_price=0.0,
-                    status=trail_trade.orderStatus.status,
-                    order_id=trail_trade.order.orderId,
+                    status=trail_status,
+                    error=f"new TRAIL {trail_status}; {existing_still_alive} existing order(s) kept",
                 ),
                 "limit_sell": TradeResult(
                     ticker=ticker, action="SELL", order_type="LMT",
                     quantity=qty, filled_price=0.0,
-                    status=limit_trade.orderStatus.status if limit_trade else "N/A",
-                    order_id=limit_trade.order.orderId if limit_trade else 0,
+                    status=limit_status,
                 ),
-                "oca_group": oca_group,
+                "oca_group": "",
+                "existing_protection_intact": intact,
             }
         except Exception as e:
             logger.error("RESUBMIT protective orders failed for %s: %s", ticker, e)
@@ -926,6 +1023,7 @@ class IBKRClient:
                 "limit_sell": TradeResult(ticker=ticker, action="SELL",
                                           order_type="LMT", quantity=qty,
                                           filled_price=0.0, status="Error"),
+                "existing_protection_intact": False,
             }
 
     def resubmit_protective_orders_retry(
@@ -943,6 +1041,32 @@ class IBKRClient:
             trail_ok = result["trailing_stop"].status not in ("Error", "Cancelled", "Inactive")
             limit_ok = result["limit_sell"].status not in ("Error", "Cancelled", "Inactive")
             if trail_ok and limit_ok:
+                result["attempts"] = attempt
+                return result
+            # Place-then-cancel: if the new orders failed but the prior
+            # protective orders are still active, the position remains
+            # covered. Retrying the same call would just produce another
+            # Inactive shell — bail out and let the caller fall through to
+            # OCA adoption on the next monitor cycle.
+            if result.get("existing_protection_intact"):
+                logger.info(
+                    "Resubmit %s: new orders %s/%s but existing protection "
+                    "intact — no retry",
+                    ticker, result["trailing_stop"].status,
+                    result["limit_sell"].status,
+                )
+                result["attempts"] = attempt
+                return result
+            # Inactive = IB accepted but won't activate (account-tier rule,
+            # contract restriction, etc). The next attempt will land in the
+            # same Inactive state — retrying is wasted work.
+            if "Inactive" in (result["trailing_stop"].status, result["limit_sell"].status):
+                logger.warning(
+                    "Resubmit %s: orders Inactive (trail=%s, limit=%s) — no retry",
+                    ticker,
+                    result["trailing_stop"].status,
+                    result["limit_sell"].status,
+                )
                 result["attempts"] = attempt
                 return result
             # Check for permanent rejections — don't retry if IB will reject again
