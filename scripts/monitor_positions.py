@@ -1477,9 +1477,38 @@ def _ratchet_stops(tracker, client, ibkr_orders, notify):
         peak_gain_pct = (peak_price - entry) / entry * 100
 
         # Find applicable tier (highest first)
+        # T0 hold-days gate (added 2026-05-07 after backtest revealed T0
+        # killed winners by triggering on day-1 FOMO spikes). T0 is the
+        # LOWEST tier (lowest gain threshold) — stocks that move +5-8% on
+        # day 1 are typically momentum chasers that fade. Letting them
+        # mature for 2+ days before tightening filters that noise.
+        # T1/T2/T3 still fire at any age; their thresholds (10/18/28%)
+        # are high enough that "already a real run" is implicit.
+        try:
+            from datetime import datetime as _dt
+            opened_at_str = str(pos.get("opened_at", "") or "")[:19]
+            opened_dt = _dt.fromisoformat(opened_at_str) if opened_at_str else None
+            hold_days = (_dt.utcnow() - opened_dt).days if opened_dt else 0
+        except Exception:
+            hold_days = 0
+        t0_min_days = int(getattr(CONFIG, "min_hold_days_for_t0", 2))
+        t0_gain_threshold = float(getattr(CONFIG, "ratchet_tier0_gain", 8.0))
+
         target_trail_pct = None
         for threshold, trail_pct in tiers:
             if peak_gain_pct >= threshold:
+                # T0-specific time gate: skip if too young.
+                # (The tiers list has T0 as the lowest threshold — we detect
+                # by matching the configured T0 gain, not by position in
+                # the list, so a future config rewrite stays safe.)
+                if abs(threshold - t0_gain_threshold) < 0.01 and hold_days < t0_min_days:
+                    logger.debug(
+                        "Ratchet T0 skip %s: peak +%.1f%% qualifies but "
+                        "hold_days=%d < min %d (giving early move time to "
+                        "prove itself)",
+                        ticker, peak_gain_pct, hold_days, t0_min_days,
+                    )
+                    continue
                 target_trail_pct = trail_pct
                 break
 

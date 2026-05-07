@@ -45,11 +45,11 @@ TRADE_LOG = ROOT / "data" / "trades" / "trade_log.json"
 # NEW CONFIG (today's changes — what we want to test)
 NEW_INITIAL_TRAIL_FLOOR = 4.0  # %  (was 2.0%)
 RATCHET_TIERS_NEW = [
-    # (peak_gain_threshold_%, new_trail_%)  — highest first
-    (28.0, 2.0),
-    (18.0, 2.5),
-    (10.0, 3.0),
-    (5.0, 3.5),  # T0 — added today
+    # (peak_gain_threshold_%, new_trail_%, min_hold_days)  — highest first
+    (28.0, 2.0, 0),
+    (18.0, 2.5, 0),
+    (10.0, 3.0, 0),
+    (8.0, 3.5, 2),  # T0 — RAISED 5→8 + 2-day gate (2026-05-07 fix)
 ]
 EARNINGS_BUFFER_DAYS = 1  # exit 1 day before earnings
 
@@ -159,16 +159,23 @@ def simulate_trade(open_event, close_event, ohlc) -> dict:
         if row_date > close_ts.date() + timedelta(days=2):
             break
 
+        # How many days have we held this position by `row_date`?
+        hold_days = (row_date - open_ts.date()).days
+
         high = float(row["High"])
         low = float(row["Low"])
 
         # Update peak (intraday high)
         if high > peak:
             peak = high
-            # Apply ratchet — tighten if new tier crossed
+            # Apply ratchet — tighten if new tier crossed AND hold-days
+            # gate satisfied for that tier. (T0 has min_hold=2 in the
+            # new config; T1/T2/T3 fire at any age.)
             peak_gain_pct = (peak / entry - 1.0) * 100
-            for thresh, new_trail in RATCHET_TIERS_NEW:
-                if peak_gain_pct >= thresh and new_trail < current_trail_pct:
+            for thresh, new_trail, min_hold in RATCHET_TIERS_NEW:
+                if (peak_gain_pct >= thresh
+                        and new_trail < current_trail_pct
+                        and hold_days >= min_hold):
                     current_trail_pct = new_trail
                     break
 

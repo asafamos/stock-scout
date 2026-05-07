@@ -345,19 +345,31 @@ class TradingConfig:
     #     +10% → ladder partial 25%  (locked)
     #     +12% → ratchet to 4%       (tightens trail on remaining 75%)
     #     -4%  from peak → trail fires on remaining 75%
-    # Tier 0 — EARLY LOCK (added 2026-05-05).
-    # Trade history showed ORCL hit peak +9.4% with NO ratchet engagement
-    # because tier 1 was at +12%. The original rationale was "let winners
-    # breathe" — but on a $300 position, a swing back from +9% to break-even
-    # is a $27 unrealized→zero loss. This tier locks that profit at +5%
-    # peak while still leaving room for normal intraday ATR (set trail to
-    # 3.5%, well above the typical 1.5-2.5% noise band of large-cap names).
+    # Tier 0 — EARLY LOCK (added 2026-05-05, REVISED 2026-05-07 after
+    # backtest revealed it was killing winners).
+    #
+    # Backtest 2026-05-07 on 6 closed trades showed the original T0
+    # (+5% → 3.5%) cut profit factor from 2.22 → 1.00 because it triggered
+    # on first-day FOMO spikes, then exited on normal pullback. CF (+22.24
+    # actual, 14-day hold) would have been stopped out at -2.24 on day 0.
+    #
+    # Two changes:
+    #   1. Threshold raised +5% → +8% — places it above typical day-1
+    #      volatility band (~3-5% intraday range for $400-priced names).
+    #   2. Hold-days gate: T0 ONLY fires after the position has been held
+    #      for `min_hold_days_for_t0` days. Lets early momentum prove
+    #      itself before the ratchet engages. T1/T2/T3 still fire
+    #      immediately at any age — those tiers are at peaks (10/18/28%)
+    #      that already imply a meaningful run.
     ratchet_tier0_gain: float = field(
-        default_factory=lambda: _env_float("RATCHET_T0_GAIN", 5.0)
+        default_factory=lambda: _env_float("RATCHET_T0_GAIN", 8.0)
     )
     ratchet_tier0_trail_pct: float = field(
         default_factory=lambda: _env_float("RATCHET_T0_TRAIL_PCT", 3.5)
-    )   # Peak +5% → trail tightens to 3.5% (early lock, intraday-noise-safe)
+    )   # Peak +8% → trail 3.5% (early lock above noise band)
+    min_hold_days_for_t0: int = field(
+        default_factory=lambda: _env_int("RATCHET_T0_MIN_HOLD_DAYS", 2)
+    )   # T0 ratchet only engages after position has aged ≥N days
 
     ratchet_tier1_gain: float = field(
         default_factory=lambda: _env_float("RATCHET_T1_GAIN", 10.0)
