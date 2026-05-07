@@ -162,8 +162,20 @@ def simulate_trade(open_event, close_event, ohlc) -> dict:
         # How many days have we held this position by `row_date`?
         hold_days = (row_date - open_ts.date()).days
 
-        high = float(row["High"])
-        low = float(row["Low"])
+        # DAY-0 BUG GUARD (added 2026-05-07): the entry day's daily LOW
+        # in yfinance includes the part of the day BEFORE we filled.
+        # If we bought mid-day at $X and the morning low was 5% below
+        # $X, the simulation would falsely fire our stop at the open.
+        # Real fills don't see those earlier lows. Solution: on the
+        # entry day, treat the LOW as the entry price (= no triggering)
+        # and use only the HIGH for peak update. From day 1 onwards,
+        # use full HIGH/LOW.
+        if hold_days == 0:
+            high = float(row["High"])
+            low = entry  # don't trigger stop on pre-fill lows
+        else:
+            high = float(row["High"])
+            low = float(row["Low"])
 
         # Update peak (intraday high)
         if high > peak:
