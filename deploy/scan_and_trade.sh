@@ -286,6 +286,37 @@ else
     echo "  ✓ IB connectivity OK"
 fi
 
+# CAPACITY PRE-CHECK (added 2026-05-07).
+# If we're already at max_open_positions, the trade evaluator will run
+# 30-60s of price refresh + risk gates only to reject every candidate
+# with "Max open positions reached". Skip the eval entirely in that
+# case — saves API calls (yfinance rate-limit budget) and ~5 min per
+# pipeline. We still need a position-close to free a slot; that path
+# is handled by the monitor's _try_opportunistic_buy on the LATEST
+# scan, not by this pipeline's eval.
+#
+# Stays conservative: only skips when current open count strictly
+# matches the cap. If something changed mid-pipeline (e.g., a stop
+# fired during the scan poll), we still run the eval — better safe.
+CAPACITY_SKIP=0
+if [ -f "$ROOT/data/trades/open_positions.json" ]; then
+    OPEN_COUNT=$($PY -c "
+import json, os
+try:
+    with open('$ROOT/data/trades/open_positions.json') as f:
+        print(len(json.load(f)))
+except Exception:
+    print(-1)
+" 2>/dev/null || echo "-1")
+    MAX_OPEN=${TRADE_MAX_OPEN_POSITIONS:-2}
+    if [ "$OPEN_COUNT" -ge "$MAX_OPEN" ] 2>/dev/null; then
+        echo "Pre-eval: already at $OPEN_COUNT/$MAX_OPEN open — skipping trade evaluator (would reject all)"
+        TG_SEND "⏭" "Scan: capacity full ($OPEN_COUNT/$MAX_OPEN)" "Trade eval skipped — no slot for new positions until one closes."
+        CAPACITY_SKIP=1
+    fi
+fi
+
+if [ "$CAPACITY_SKIP" -eq 0 ]; then
 # Fire the trade evaluator. Live price refresh + 8 risk gates inside.
 # TRADE_LIVE_CONFIRMED=1 is the systemd-pipeline authorization to run live;
 # manual ssh runs (without this env var and without --live flag) default to
@@ -380,8 +411,9 @@ fi
 rm -f "$TRADE_OUT"
 TRADE_DUR=$(( $(date +%s) - TRADE_T0 ))
 echo "Trade finished (exit=$TRADE_EXIT, duration=${TRADE_DUR}s)"
+fi  # end CAPACITY_SKIP guard
 
 echo "═══════════════════════════════════════════════════════"
-echo "Pipeline complete: wait=${WAIT_DUR}s + trade=${TRADE_DUR}s"
+echo "Pipeline complete: wait=${WAIT_DUR}s${CAPACITY_SKIP:+ (capacity-skip)}"
 echo "═══════════════════════════════════════════════════════"
 exit 0

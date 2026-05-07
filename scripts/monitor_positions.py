@@ -478,14 +478,38 @@ def run_check():
         except Exception as e:
             logger.debug("Snapshot push failed: %s", e)
 
-        # 3. Check target date exits — sell at market if date passed
+        # 3. Check target date exits — but only execute in the last 30 min
+        # before close (19:30-20:00 UTC = 15:30-16:00 ET). Earlier in the
+        # day, let the TRAIL and LIMIT orders work — they might catch a
+        # late-day rally we'd miss with an early-morning forced exit.
+        # The MOST common reason a position has target_date == today is
+        # earnings the next day (earnings-aware target_date capping
+        # added 2026-05-05 sets target_date = earnings_date - 1). For
+        # those, we MUST exit before close — but we want maximum time
+        # for the position to hit target_price first.
         expired = tracker.check_target_date_exits()
+        now_utc = datetime.utcnow()
+        # Close window: 19:30-20:00 UTC (last 30 min of regular session)
+        in_close_window = (
+            now_utc.hour == 19 and now_utc.minute >= 30
+        ) or now_utc.hour >= 20
+        if expired and not in_close_window:
+            logger.info(
+                "Target-date exit pending for %s but NOT in close window yet "
+                "(now %02d:%02d UTC, window 19:30-20:00) — waiting for trail/target to work",
+                expired, now_utc.hour, now_utc.minute,
+            )
+            expired = []  # skip this cycle, will retry in 5 min
+
         for ticker in expired:
             pos = tracker.get_position(ticker)
             if not pos:
                 continue
             if ticker in ibkr_positions:
-                logger.info("Target date reached for %s — selling at market", ticker)
+                logger.info(
+                    "Target date EXITING %s at MKT (in last-30-min close window)",
+                    ticker,
+                )
                 # Cancel existing protective orders first
                 oca = pos.get("order_ids", {}).get("oca_group", "")
                 if oca:
