@@ -78,7 +78,17 @@ def _load_log() -> list:
 
 
 def _pair_trades(log: list) -> list:
-    """FIFO-pair OPEN/CLOSE events per ticker. Returns (open, close, pnl, hold_days)."""
+    """FIFO-pair OPEN/CLOSE events per ticker. Returns (open, close, pnl, hold_days).
+
+    CRITICAL (added 2026-05-09): also returns CLOSE entries that have NO
+    matching OPEN — they could be for adopted positions (no OPEN ever
+    written, see ORCL adopted from IB) or trades opened in a prior week
+    not in our window. Without this fallback the weekly retro silently
+    drops these trades and reports "INSUFFICIENT DATA" while a real
+    +$55 winner sits unaccounted-for. (Real-world: weekly retro on
+    2026-05-08 reported only ELVN -$19.56 and missed ORCL +$55.24
+    + RDDT +$6.89, both adopted/cross-week.)
+    """
     opens = defaultdict(list)
     pairs = []
     for e in sorted(log, key=lambda e: str(e.get("timestamp", ""))):
@@ -88,9 +98,9 @@ def _pair_trades(log: list) -> list:
             opens[t].append(e)
         elif a == "CLOSE":
             o_list = opens.get(t, [])
+            pnl = float(e.get("pnl", 0) or 0)
             if o_list:
                 o = o_list.pop(0)
-                pnl = float(e.get("pnl", 0) or 0)
                 try:
                     ts_o = datetime.fromisoformat(str(o.get("timestamp", ""))[:19])
                     ts_c = datetime.fromisoformat(str(e.get("timestamp", ""))[:19])
@@ -98,6 +108,12 @@ def _pair_trades(log: list) -> list:
                 except Exception:
                     hd = 0
                 pairs.append((o, e, pnl, hd))
+            else:
+                # Unpaired CLOSE — adopted position or pre-window OPEN.
+                # Synthesize a placeholder open with hold_days=0 so it
+                # still gets counted in P&L / win-rate / PF aggregates.
+                # avg_hold loses precision but no other metric does.
+                pairs.append(({"ticker": t, "timestamp": e.get("timestamp", "")}, e, pnl, 0))
     return pairs
 
 
