@@ -26,6 +26,7 @@ Commands:
   resubmit TICKER — re-place protective orders for a position
   block TICKER N  — add ticker to do-not-buy list for N days
   today           — return today's trade log + skips
+  login           — restart ibgateway container to trigger a fresh 2FA push to IBKR Mobile
 """
 from __future__ import annotations
 
@@ -364,6 +365,46 @@ def cmd_scan(source: str = "cli", **_) -> Dict[str, Any]:
         return {"ok": False, "error": str(e)}
 
 
+def cmd_login(source: str = "cli", **_) -> Dict[str, Any]:
+    """Restart the ibgateway container to trigger a fresh 2FA push.
+
+    The Gateway's IBC autologin re-submits the stored credentials on boot,
+    which causes IB to send a new push notification to IBKR Mobile that
+    the user can approve from their phone. Used when the existing session
+    died (or never authenticated) and the user wants a new push to approve
+    without ssh'ing to the VPS.
+    """
+    try:
+        proc = subprocess.run(
+            ["docker", "restart", "ibgateway"],
+            capture_output=True, text=True, timeout=30,
+        )
+        if proc.returncode != 0:
+            err = (proc.stderr or proc.stdout or "").strip() or f"exit {proc.returncode}"
+            ret = {"ok": False, "error": f"docker restart failed: {err}"}
+            _audit("login", source, {}, ret, False)
+            return ret
+        ret = {
+            "ok": True,
+            "message": "ibgateway restarted — IBC autologin will trigger a fresh push to IBKR Mobile within ~30-60s",
+        }
+        _audit("login", source, {}, ret, True)
+        return ret
+    except FileNotFoundError:
+        ret = {"ok": False, "error": "docker not available (not on VPS?)"}
+        _audit("login", source, {}, ret, False)
+        return ret
+    except subprocess.TimeoutExpired:
+        ret = {"ok": False, "error": "docker restart timed out after 30s"}
+        _audit("login", source, {}, ret, False)
+        return ret
+    except Exception as e:
+        logger.exception("cmd_login failed")
+        ret = {"ok": False, "error": str(e)}
+        _audit("login", source, {}, ret, False)
+        return ret
+
+
 # ─────────────────────────────────────────────────────────────────────
 # DISPATCH
 # ─────────────────────────────────────────────────────────────────────
@@ -379,6 +420,7 @@ COMMANDS = {
     "block": cmd_block,
     "unblock": cmd_unblock,
     "scan": cmd_scan,
+    "login": cmd_login,
 }
 
 

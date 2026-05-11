@@ -642,6 +642,23 @@ def main():
                             send_message(f"❌ {r.get('error', 'resubmit failed')}")
                     except Exception as _e:
                         send_message(f"⚠️ {_e}")
+                elif text in ("/login", "login", "/relogin", "relogin",
+                              "התחבר", "כניסה", "/ib", "ib"):
+                    logger.info("IB Gateway relogin requested")
+                    try:
+                        from core.control.command_bus import execute as _exec
+                        send_message("🔄 Restarting IB Gateway — approve the push on IBKR Mobile when it arrives...")
+                        r = _exec("login", source="telegram")
+                        if r.get("ok"):
+                            send_message(
+                                "✅ IB Gateway restarted.\n"
+                                "📱 Open IBKR Mobile and approve the push notification.\n"
+                                "Send <b>status</b> in ~60s to verify the session is back."
+                            )
+                        else:
+                            send_message(f"❌ {r.get('error', 'login failed')}")
+                    except Exception as _e:
+                        send_message(f"⚠️ login failed: {_e}")
                 elif text in ("/diag", "diag", "דיאג", "/debug"):
                     logger.info("Diag requested")
                     try:
@@ -660,7 +677,8 @@ def main():
                         "<b>CONTROL</b>\n"
                         "• <b>/pause [N]</b> — pause auto-trading [N days]\n"
                         "• <b>/resume</b> — resume auto-trading\n"
-                        "• <b>/scan</b> — trigger manual scan\n\n"
+                        "• <b>/scan</b> — trigger manual scan\n"
+                        "• <b>/login</b> — restart IB Gateway → fresh push to IBKR Mobile\n\n"
                         "<b>POSITIONS</b>\n"
                         "• <b>/sell TICKER</b> — close one position\n"
                         "• <b>/resubmit TICKER</b> — re-place protective orders\n"
