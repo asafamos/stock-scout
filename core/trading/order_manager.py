@@ -447,6 +447,36 @@ class OrderManager:
         # Confidence_Level is always "medium" for most scans, less useful
         confidence_col = self._find_col(df, ["SignalQuality", "Signal_Quality", "Confidence_Level", "Confidence"])
         reliability_col = self._find_col(df, ["Reliability_Score", "Reliability", "reliability"])
+        entry_col = self._find_col(df, ["Entry_Price", "entry_price"])
+        stop_col = self._find_col(df, ["Stop_Loss", "stop_loss"])
+
+        # ── R:R NORMALIZATION (revised 2026-05-14) ──
+        # Forensic analysis on 8 system-bought closes showed losers had
+        # AVG R:R 4.12 vs winners 2.50 — lottery-ticket pattern. Root cause:
+        # scan emits artificially tight stop_loss values (ELVN: stop 1.6%
+        # below entry → R:R inflates to 12.28). The 25% ranking weight on
+        # R:R then promotes these "lottery" candidates over realistic ones.
+        #
+        # Fix: compute and inject an `effective_rr` column. Uses raw target
+        # but FLOORS stop distance at 3% before computing R:R. Removes the
+        # numerator inflation without rejecting the trade outright — the
+        # min_rr_to_trade=2.0 floor still gates. CF (winner) had a scan
+        # data corruption (stop > entry); for those rows we fall back to
+        # raw RR if available (so CF isn't double-penalized by our fix).
+        if entry_col and stop_col and entry_col in df.columns and stop_col in df.columns:
+            e_vals = pd.to_numeric(df[entry_col], errors="coerce")
+            s_vals = pd.to_numeric(df[stop_col], errors="coerce")
+            t_vals_col = self._find_col(df, ["Target_Price", "target_price"])
+            if t_vals_col:
+                t_vals = pd.to_numeric(df[t_vals_col], errors="coerce")
+                # Effective stop pct floored at 3%
+                raw_stop_pct = (e_vals - s_vals) / e_vals * 100
+                eff_stop_pct = raw_stop_pct.clip(lower=3.0)  # floor 3%
+                eff_stop = e_vals * (1 - eff_stop_pct / 100)
+                # R:R using floored stop
+                eff_rr = (t_vals - e_vals) / (e_vals - eff_stop)
+                df = df.copy()
+                df["_effective_rr"] = eff_rr
 
         if not score_col or not ticker_col:
             logger.error("Missing required columns (Score/Ticker) in %s",
@@ -519,8 +549,25 @@ class OrderManager:
                 logger.info("Sector filter dropped %d stocks (blocked: %s)",
                             dropped, blocked)
 
-        # RR filter
-        if rr_col and rr_col in result.columns:
+        # RR filter — uses _effective_rr if available (computed above with
+        # stop_distance floor 3%), otherwise raw rr_col. Forensic analysis
+        # 2026-05-14 showed scan-tight stops produce R:R 10+ that
+        # over-promotes lottery-ticket candidates.
+        if "_effective_rr" in result.columns:
+            rr_vals = pd.to_numeric(result["_effective_rr"], errors="coerce")
+            # Fall back to raw rr_col when effective is NaN (e.g., CF
+            # had stop > entry, effective math goes weird)
+            if rr_col and rr_col in result.columns:
+                raw_rr = pd.to_numeric(result[rr_col], errors="coerce")
+                rr_vals = rr_vals.fillna(raw_rr)
+            result = result[rr_vals >= self.cfg.min_rr_to_trade]
+            if result.empty:
+                logger.info(
+                    "No stocks pass effective-RR filter (>= %.1f)",
+                    self.cfg.min_rr_to_trade,
+                )
+                return result
+        elif rr_col and rr_col in result.columns:
             rr_vals = pd.to_numeric(result[rr_col], errors="coerce")
             result = result[rr_vals >= self.cfg.min_rr_to_trade]
             if result.empty:
@@ -628,8 +675,20 @@ class OrderManager:
 
         signals = [(WEIGHT_SCORE, _norm(result[score_col]))]
 
-        if rr_col and rr_col in result.columns:
-            signals.append((WEIGHT_RR, _norm(result[rr_col])))
+        # RANKING: prefer effective_rr (stop-distance floored at 3%) over
+        # raw rr_col. Then ALSO cap at 5 — even if a ticker has wide stop
+        # but absurdly high target (target $200 from $30 entry = 5x+ raw R:R
+        # but no stop inflation), prevent one extreme from compressing
+        # everyone else into the bottom half. Filter (min_rr_to_trade=2)
+        # is unaffected — it uses the same normalized value.
+        rr_for_ranking_src = None
+        if "_effective_rr" in result.columns:
+            rr_for_ranking_src = result["_effective_rr"]
+        elif rr_col and rr_col in result.columns:
+            rr_for_ranking_src = result[rr_col]
+        if rr_for_ranking_src is not None:
+            rr_for_ranking = pd.to_numeric(rr_for_ranking_src, errors="coerce").clip(upper=5.0)
+            signals.append((WEIGHT_RR, _norm(rr_for_ranking)))
 
         if ml_col and ml_col in result.columns:
             signals.append((WEIGHT_ML, _norm(result[ml_col])))
