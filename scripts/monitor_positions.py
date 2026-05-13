@@ -182,8 +182,16 @@ def _try_opportunistic_buy(client, tracker, notify, reason: str = "manual"):
     try:
         from core.trading.risk_manager import RiskManager
         from core.trading.order_manager import OrderManager
-        risk = RiskManager(client, tracker, CONFIG)
-        mgr = OrderManager(client, risk, tracker, CONFIG)
+        # CRITICAL BUG FIX (2026-05-14): OrderManager.__init__ accepts only
+        # `config`, but old code passed (client, risk, tracker, CONFIG) — 4
+        # positional args. Result: every opportunistic_buy crashed silently
+        # with "takes from 1 to 2 positional arguments but 5 were given".
+        # This means after every position close, the system attempted to
+        # find a replacement candidate but the call CRASHED — so we never
+        # actually bought replacements organically.
+        # Fix: pass only CONFIG. OrderManager builds its own client/risk/
+        # tracker internally (see __init__ in order_manager.py).
+        mgr = OrderManager(CONFIG)
 
         # IMPORTANT: order_manager.execute_recommendations() will:
         #   1. Re-load the latest scan (with our fresh staleness check)

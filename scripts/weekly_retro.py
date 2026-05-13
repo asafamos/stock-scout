@@ -240,14 +240,18 @@ def _cohort_breakdown(pairs: list) -> list:
     """
     lines = []
 
+    # NOTE: bucket labels use "lt" (less-than) instead of "<" because
+    # Telegram parses bot messages with parse_mode=HTML, and `<2.5` looks
+    # like an HTML tag start to its parser → error 400 "Unsupported start
+    # tag '2.5' at byte offset N". Discovered 2026-05-14.
     def _score_bucket(s):
-        if s < 75: return "<75"
+        if s < 75: return "lt75"
         if s < 80: return "75-80"
         if s < 85: return "80-85"
         return "85+"
 
     def _rr_bucket(rr):
-        if rr < 2.5: return "<2.5"
+        if rr < 2.5: return "lt2.5"
         if rr < 4.0: return "2.5-4"
         return "4+"
 
