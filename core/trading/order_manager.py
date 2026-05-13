@@ -1079,17 +1079,14 @@ class OrderManager:
         # SIDEWAYS / NEUTRAL / unknown → 1.0 baseline
 
         trail_pct = base_trail_pct * regime_mult
-        # TIME-AWARE INITIAL FLOOR (revised 2026-05-13 from cohort data).
-        # Day-1 floor = 5.0% (wider) — survives intraday noise that has
-        # historically killed 5/11 trades before they could prove out.
-        # Monitor's step-down logic re-baselines to day2plus (4.0%) on
-        # the second hold-day, before ratchet kicks in. Cap stays at 9%.
-        # Legacy `min_initial_trail_pct` is used as fallback if the new
-        # day0 floor isn't configured (backwards-compat).
-        initial_floor = float(getattr(
-            self.cfg, "trail_floor_day0",
-            getattr(self.cfg, "min_initial_trail_pct", 4.0),
-        ))
+        # Floor/cap for safety. Floor is configurable via
+        # TRADE_MIN_INITIAL_TRAIL_PCT (default 4.0) — protects against
+        # day-1 noise stopouts on a 20-day swing thesis. The ratchet in
+        # monitor_positions can still tighten BELOW this floor later
+        # (tier 1=4%, tier 2=3%, tier 3=2%) once peak gains earn that
+        # protection. Cap stays at 9% — even in raging bull, $300
+        # positions don't need 12% trails ($36 of paper loss).
+        initial_floor = float(getattr(self.cfg, "min_initial_trail_pct", 4.0))
         trail_pct = max(initial_floor, min(trail_pct, 9.0))
         logger.info(
             "  Trail %.1f%% (base %.1f%% × regime %.2f, ATR %.1f%%, scan stop %.1f%%, regime=%s)",

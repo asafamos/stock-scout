@@ -263,30 +263,15 @@ class TradingConfig:
         default_factory=lambda: _env_bool("USE_PIPELINE_STOP", False)
     )  # If True, use StopLoss from scan instead of trailing %
 
-    # Time-aware trail floors (REVISED 2026-05-13 from cohort analysis).
-    #
-    # Cohort breakdown of 11 lifetime trades showed:
-    #   By close reason: target_hit 2W/0L ($+46) | trail_fired 0W/5L ($-39)
-    #   By hold days:    8+d 1W/0L | 0-3d 1W/4L ($-11)
-    # Every winner was a target_hit. Every trail_fired was a loss. The
-    # data is screaming: the trail shakes us out of trades that would
-    # otherwise reach target. Asymmetric fix:
-    #   - Day 0-1: WIDER trail (5%) — survives intraday noise that
-    #              kills good trades before they prove themselves.
-    #   - Day 2+:  step down to NORMAL (4%) — the position has had time
-    #              to either move favorably or fail outright.
-    # `min_initial_trail_pct` kept for backwards compat but ignored if
-    # the day0/day2 floors are configured. Ratchet T0/T1/T2/T3 unchanged
-    # — they fire on top of whichever floor is active.
+    # Minimum INITIAL trail % at buy time. Prevents trades from being
+    # stopped out by intraday noise on day 1. Trade history (2026-04-15
+    # → 2026-05-05) showed 3/6 trades closed within 0-2 days at -0.7%
+    # to -3.0% — pure noise on a 20-day-swing thesis. The ratchet still
+    # tightens BELOW this floor later (tier 1 = 4%, tier 2 = 3%, tier 3
+    # = 2%) once peak gains earn that protection.
     min_initial_trail_pct: float = field(
         default_factory=lambda: _env_float("MIN_INITIAL_TRAIL_PCT", 4.0)
-    )   # legacy / fallback if day-floors unavailable
-    trail_floor_day0: float = field(
-        default_factory=lambda: _env_float("TRAIL_FLOOR_DAY0", 5.0)
-    )   # Day-1 (hold_days 0-1): wide trail, survive intraday noise
-    trail_floor_day2plus: float = field(
-        default_factory=lambda: _env_float("TRAIL_FLOOR_DAY2PLUS", 4.0)
-    )   # Day-2 onwards: tighter, normal swing-trade trail
+    )
 
     # ── Partial Profit-Taking (sell half at intermediate target) ─
     partial_profit_enabled: bool = field(

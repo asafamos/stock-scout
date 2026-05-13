@@ -1543,21 +1543,6 @@ def _ratchet_stops(tracker, client, ibkr_orders, notify):
         t0_min_days = int(getattr(CONFIG, "min_hold_days_for_t0", 2))
         t0_gain_threshold = float(getattr(CONFIG, "ratchet_tier0_gain", 8.0))
 
-        # TIME-AWARE TRAIL STEP-DOWN (added 2026-05-13).
-        # Initial buy uses trail_floor_day0 (5%). On day 2 the floor
-        # re-baselines to trail_floor_day2plus (4%). Implemented as a
-        # virtual "tier minus-1" added below the existing T0-T3 tiers,
-        # so the existing "ratchet only tightens" invariant holds: this
-        # candidate only fires when current_trail > day2plus AND no
-        # higher tier qualifies.
-        day0_floor = float(getattr(CONFIG, "trail_floor_day0", 5.0))
-        day2_floor = float(getattr(CONFIG, "trail_floor_day2plus", 4.0))
-        # Append step-down candidate AFTER T0 in priority — it's the
-        # widest target and should only fire when nothing tighter has.
-        # (gain_threshold=0 means "always qualifies", but only if
-        # current_trail > day2_floor AND hold_days >= 2.)
-        STEPDOWN_GAIN_MARKER = -1.0  # sentinel, won't naturally match any peak
-
         target_trail_pct = None
         for threshold, trail_pct in tiers:
             if peak_gain_pct >= threshold:
@@ -1575,21 +1560,6 @@ def _ratchet_stops(tracker, client, ibkr_orders, notify):
                     continue
                 target_trail_pct = trail_pct
                 break
-
-        # Step-down fallback: if no ratchet tier fired AND we're past
-        # day 1 AND current trail still wider than day2plus floor → step
-        # down to day2plus. This is the "time-aware re-baseline" that
-        # transitions us from the wide day-0-1 floor to the normal
-        # swing-trade floor.
-        if target_trail_pct is None and hold_days >= 2:
-            current_trail_for_check = float(pos.get("trailing_stop_pct", 0) or 0)
-            if current_trail_for_check > day2_floor + 0.05:
-                target_trail_pct = day2_floor
-                logger.info(
-                    "Step-down %s: hold_days=%d >= 2, current trail %.1f%% → "
-                    "day2-floor %.1f%% (no ratchet tier qualified yet)",
-                    ticker, hold_days, current_trail_for_check, day2_floor,
-                )
 
         if target_trail_pct is None:
             continue  # Not profitable enough yet
