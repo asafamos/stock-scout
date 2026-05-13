@@ -190,6 +190,7 @@ class PositionTracker:
         trailing_stop_pct: float = 0.0,
         score: float = 0.0,
         order_ids: Optional[Dict[str, int]] = None,
+        scan_price: Optional[float] = None,
     ):
         # Read-modify-write under exclusive lock to prevent race with monitor
         with _file_lock(self._positions_path):
@@ -198,6 +199,11 @@ class PositionTracker:
             if any(p["ticker"] == ticker for p in positions):
                 logger.warning("Already holding %s — skipping add", ticker)
                 return
+            # Slippage = actual entry vs scan-time expectation. Negative %
+            # means filled BELOW scan price (better for us on a buy).
+            slippage_pct = None
+            if scan_price and scan_price > 0 and entry_price > 0:
+                slippage_pct = (entry_price - scan_price) / scan_price * 100
             positions.append({
                 "ticker": ticker,
                 "quantity": quantity,
@@ -212,12 +218,17 @@ class PositionTracker:
             })
             _atomic_write_json(self._positions_path, positions)
 
-        self._log_trade("OPEN", ticker, quantity, entry_price, {
+        log_extra = {
             "stop_loss": stop_loss,
             "target_price": target_price,
             "target_date": target_date,
             "score": score,
-        })
+        }
+        if scan_price is not None:
+            log_extra["scan_price"] = scan_price
+        if slippage_pct is not None:
+            log_extra["slippage_pct"] = round(slippage_pct, 3)
+        self._log_trade("OPEN", ticker, quantity, entry_price, log_extra)
         logger.info("Position added: %s x%d @ $%.2f", ticker, quantity, entry_price)
 
     def remove_position(self, ticker: str, exit_price: float = 0.0,

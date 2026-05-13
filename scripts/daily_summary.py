@@ -163,6 +163,26 @@ def build_summary(for_date: str = None) -> str:
             )
         lines.append(f"  {un_emoji} <b>Total Unrealized: ${unrealized_total:+.2f}</b>")
 
+    # Slippage tracking (added 2026-05-13): average slippage on buys
+    # over the last 7 days vs lifetime. Negative slippage means we
+    # filled BELOW scan-time expectation (better for us on buys).
+    # Sustained negative → MKT order is fine. Sustained positive >0.5%
+    # → consider switching to LIMIT to control entry price.
+    from datetime import timedelta as _td
+    cutoff_7d = (datetime.utcnow() - _td(days=7)).isoformat()
+    slip_7d = [
+        float(t.get("slippage_pct"))
+        for t in log
+        if t.get("action") == "OPEN"
+        and t.get("slippage_pct") is not None
+        and str(t.get("timestamp", "")) >= cutoff_7d
+    ]
+    slip_life = [
+        float(t.get("slippage_pct"))
+        for t in log
+        if t.get("action") == "OPEN" and t.get("slippage_pct") is not None
+    ]
+
     # Strategic metrics (added 2026-05-07): profit factor, hold time,
     # close-reason ratio. These are the three numbers that tell us if
     # the strategy has edge — separate from the headline P&L which can
@@ -228,6 +248,24 @@ def build_summary(for_date: str = None) -> str:
                 f"{k}:{v}" for k, v in sorted(close_reasons.items(), key=lambda x: -x[1])
             )
             lines.append(f"  Close reasons: <code>{reason_str}</code>")
+
+        # Slippage analytics
+        if slip_life:
+            avg_slip_life = sum(slip_life) / len(slip_life)
+            avg_slip_7d = sum(slip_7d) / len(slip_7d) if slip_7d else None
+            slip_emoji = "🟢" if avg_slip_life < 0 else ("🟡" if avg_slip_life < 0.3 else "🔴")
+            slip_line = (
+                f"  {slip_emoji} Slippage lifetime: <b>{avg_slip_life:+.2f}%</b> "
+                f"({len(slip_life)} buys)"
+            )
+            if avg_slip_7d is not None:
+                slip_line += f" | 7d: {avg_slip_7d:+.2f}% ({len(slip_7d)})"
+            lines.append(slip_line)
+            # Recommendation
+            if avg_slip_life > 0.5 and len(slip_life) >= 5:
+                lines.append(
+                    "  <i>Slippage &gt;0.5% sustained — consider LIMIT orders on $50+ stocks.</i>"
+                )
 
     return "\n".join(lines)
 

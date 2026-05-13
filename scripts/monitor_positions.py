@@ -71,6 +71,17 @@ _ALERT_COOLDOWN: dict[tuple, float] = {}
 _ALERT_COOLDOWN_SECONDS = 3600  # 1 hour between the same alert
 _RESUBMIT_COOLDOWN: dict[str, float] = {}  # per-ticker
 _RESUBMIT_COOLDOWN_SECONDS = 1800  # 30 min between resubmit attempts
+
+# Transient-miss buffer for protective-order alerts (added 2026-05-13).
+# Counts consecutive monitor cycles where a position had NO protective
+# orders. Only fires the CRITICAL Telegram alert after the count reaches
+# _PROTECTION_MISS_THRESHOLD, suppressing single-cycle artifacts caused
+# by deploys, restarts, or temporary IB API hiccups (which auto-resubmit
+# normally fixes on the same cycle). The 2026-05-07 user-visible 21:48
+# CRITICAL alerts on LYB+RSI were exactly this class — protections were
+# fully restored within 5 minutes but the alarms were already sent.
+_PROTECTION_MISS_COUNT: dict[str, int] = {}
+_PROTECTION_MISS_THRESHOLD = 2  # 2 cycles = ~10 minutes
 # IBKR error fragments that mean "no point retrying — the account rule blocks it"
 _ACCOUNT_RESTRICTION_ERRORS = (
     "minimum of 2000",
@@ -968,6 +979,8 @@ def _verify_protections(tracker, client, ibkr_orders, notify):
             )
             if live_count >= 2:
                 logger.info("✓ %s protected (%d orders in OCA %s)", ticker, live_count, oca)
+                # Clear miss counter — protections confirmed healthy.
+                _PROTECTION_MISS_COUNT.pop(ticker, None)
                 continue
             else:
                 logger.warning("⚠ %s has only %d protective order(s) — resubmitting", ticker, live_count)
@@ -1112,8 +1125,20 @@ def _verify_protections(tracker, client, ibkr_orders, notify):
             )
 
             # Only alert once per hour for the same ticker — prevents spam
-            # when IB's cash-account rule is the persistent cause.
-            if _cooldown_ok(("protection", ticker), _ALERT_COOLDOWN, _ALERT_COOLDOWN_SECONDS):
+            # Transient-miss buffer: only alert if the same ticker hit
+            # this code path on TWO consecutive cycles. First miss is
+            # logged but silent — auto-resubmit usually fixes it within
+            # the same cycle. Only persistent failure (account rule,
+            # IBKR backend hiccup) deserves a Telegram CRITICAL.
+            _PROTECTION_MISS_COUNT[ticker] = _PROTECTION_MISS_COUNT.get(ticker, 0) + 1
+            miss_n = _PROTECTION_MISS_COUNT[ticker]
+            if miss_n < _PROTECTION_MISS_THRESHOLD:
+                logger.warning(
+                    "%s: protective orders missing (miss %d/%d) — "
+                    "deferring alert, will retry next cycle",
+                    ticker, miss_n, _PROTECTION_MISS_THRESHOLD,
+                )
+            elif _cooldown_ok(("protection", ticker), _ALERT_COOLDOWN, _ALERT_COOLDOWN_SECONDS):
                 extra = ""
                 if account_block:
                     extra = (
@@ -1122,7 +1147,7 @@ def _verify_protections(tracker, client, ibkr_orders, notify):
                         "may still be active — check the Portfolio Status."
                     )
                 notify.notify_error("Protection",
-                    f"CRITICAL: {ticker} has NO protective orders! "
+                    f"CRITICAL: {ticker} has NO protective orders ({miss_n} cycles)! "
                     f"Trail: {result['trailing_stop'].status}, "
                     f"Limit: {result['limit_sell'].status}{extra}"
                 )

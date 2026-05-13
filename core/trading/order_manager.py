@@ -1224,6 +1224,7 @@ class OrderManager:
                 trailing_stop_pct=trail_pct,
                 score=score,
                 order_ids=order_ids,
+                scan_price=scan_price,
             )
             _tracker_ok = True
         except Exception as _tracker_err:

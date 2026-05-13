@@ -224,6 +224,111 @@ def _verdict(this_week: dict, last_week: dict) -> str:
     )
 
 
+def _cohort_breakdown(pairs: list) -> list:
+    """Group lifetime pairs into cohorts by entry signal. Surfaces WHICH
+    types of trades win (vs lose). Once we have ≥20 trades, cohort win-rates
+    inform which gates to tighten or loosen.
+
+    Cohorts:
+      - Score bucket:  <75 / 75-80 / 80-85 / 85+
+      - R:R bucket:    <2.5 / 2.5-4 / 4+
+      - Hold bucket:   0-1d / 2-3d / 4-7d / 8+d
+      - Close reason:  trail_fired / target_hit / other
+
+    Skips adopted positions (hold=0 because no real OPEN, would skew Hold
+    bucket).
+    """
+    lines = []
+
+    def _score_bucket(s):
+        if s < 75: return "<75"
+        if s < 80: return "75-80"
+        if s < 85: return "80-85"
+        return "85+"
+
+    def _rr_bucket(rr):
+        if rr < 2.5: return "<2.5"
+        if rr < 4.0: return "2.5-4"
+        return "4+"
+
+    def _hold_bucket(d):
+        if d <= 1: return "0-1d"
+        if d <= 3: return "2-3d"
+        if d <= 7: return "4-7d"
+        return "8+d"
+
+    def _bucket_metric(bucket_key_fn, pairs_subset, label):
+        from collections import defaultdict
+        bins = defaultdict(lambda: {"wins": 0, "losses": 0, "pnl": 0.0})
+        for o, c, pnl, hd in pairs_subset:
+            key = bucket_key_fn(o, c, pnl, hd)
+            if key is None:
+                continue
+            bins[key]["pnl"] += pnl
+            if pnl > 0:
+                bins[key]["wins"] += 1
+            else:
+                bins[key]["losses"] += 1
+        rows = []
+        for k, v in sorted(bins.items()):
+            n = v["wins"] + v["losses"]
+            if n == 0:
+                continue
+            wr = v["wins"] / n * 100
+            rows.append(f"    {k:<8} {v['wins']}W/{v['losses']}L (WR {wr:>3.0f}%)  P&L ${v['pnl']:+.2f}")
+        if rows:
+            lines.append(f"  <b>by {label}:</b>")
+            lines.extend(rows)
+
+    # Filter out adopted (open ticker is dict with no score field) — adopted
+    # placeholders have only ticker+timestamp.
+    real_pairs = [(o, c, pnl, hd) for o, c, pnl, hd in pairs
+                  if "score" in o]
+
+    if len(real_pairs) < 3:
+        return []
+
+    # Score cohort
+    def _score_key(o, c, pnl, hd):
+        s = o.get("score")
+        return _score_bucket(s) if s else None
+    _bucket_metric(_score_key, real_pairs, "Score")
+
+    # R:R cohort (derived from stop_loss / target_price / entry)
+    def _rr_key(o, c, pnl, hd):
+        e = o.get("price", 0)
+        s = o.get("stop_loss", 0)
+        t = o.get("target_price", 0)
+        if e <= 0 or s <= 0 or t <= 0 or e <= s:
+            return None
+        reward = t - e
+        risk = e - s
+        if risk <= 0:
+            return None
+        rr = reward / risk
+        return _rr_bucket(rr)
+    _bucket_metric(_rr_key, real_pairs, "R:R")
+
+    # Hold cohort
+    def _hold_key(o, c, pnl, hd):
+        return _hold_bucket(hd)
+    _bucket_metric(_hold_key, real_pairs, "Hold days")
+
+    # Close reason cohort
+    def _reason_key(o, c, pnl, hd):
+        r = str(c.get("reason", "")).lower()
+        if "trail" in r:
+            return "trail"
+        if "target" in r or "limit" in r:
+            return "target"
+        if "ladder" in r:
+            return "ladder"
+        return "other"
+    _bucket_metric(_reason_key, real_pairs, "Close reason")
+
+    return lines
+
+
 def _suggestions(metrics: dict, ops: dict) -> list:
     """Specific, actionable suggestions based on observed data."""
     s = []
@@ -341,16 +446,23 @@ def build_retro(today: date = None) -> str:
             f"(WR {m_life['win_rate']:.0f}%, PF {m_life['profit_factor']:.2f})"
         )
 
-    # 4. Verdict
+    # 4. Cohort breakdown (lifetime — needs sample to be useful)
+    cohort_lines = _cohort_breakdown(lifetime)
+    if cohort_lines:
+        lines.append("")
+        lines.append("<b>4️⃣ COHORTS (lifetime — which setups win?)</b>")
+        lines.extend(cohort_lines)
+
+    # 5. Verdict
     lines.append("")
-    lines.append("<b>4️⃣ VERDICT</b>")
+    lines.append("<b>5️⃣ VERDICT</b>")
     lines.append("  " + _verdict(m_now, m_prev))
 
-    # 5. Suggestions
+    # 6. Suggestions
     suggs = _suggestions(m_now, ops)
     if suggs:
         lines.append("")
-        lines.append("<b>5️⃣ SUGGESTIONS</b>")
+        lines.append("<b>6️⃣ SUGGESTIONS</b>")
         for s in suggs:
             lines.append(f"  {s}")
 
