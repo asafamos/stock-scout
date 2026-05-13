@@ -45,7 +45,15 @@ TRADE_LOG = ROOT / "data" / "trades" / "trade_log.json"
 # Config — env-overridable so we can compare scenarios without editing code.
 # Format for each tier: (peak_gain_threshold, trail_pct, min_hold_days)
 import os
-NEW_INITIAL_TRAIL_FLOOR = float(os.getenv("BT_INITIAL_FLOOR", "4.0"))
+# Time-aware floor (added 2026-05-13): widerday-1, narrows day-2+
+NEW_INITIAL_TRAIL_FLOOR_DAY0 = float(os.getenv("BT_FLOOR_DAY0", "5.0"))
+NEW_INITIAL_TRAIL_FLOOR_DAY2 = float(os.getenv("BT_FLOOR_DAY2", "4.0"))
+# Backwards compat (single-floor mode): override both with same value
+_legacy = os.getenv("BT_INITIAL_FLOOR")
+if _legacy is not None:
+    NEW_INITIAL_TRAIL_FLOOR_DAY0 = float(_legacy)
+    NEW_INITIAL_TRAIL_FLOOR_DAY2 = float(_legacy)
+NEW_INITIAL_TRAIL_FLOOR = NEW_INITIAL_TRAIL_FLOOR_DAY0  # legacy alias
 EARNINGS_BUFFER_DAYS = 1  # exit 1 day before earnings
 
 
@@ -163,7 +171,9 @@ def simulate_trade(open_event, close_event, ohlc) -> dict:
 
     # Walk candles from entry day forward
     peak = entry
-    current_trail_pct = max(NEW_INITIAL_TRAIL_FLOOR, 4.0)  # day-1 floor
+    # Time-aware initial trail: day-0 wider, day-2+ narrows
+    current_trail_pct = NEW_INITIAL_TRAIL_FLOOR_DAY0
+    stepped_down = False
     sim_exit = None
     sim_reason = None
     sim_exit_date = None
@@ -184,6 +194,13 @@ def simulate_trade(open_event, close_event, ohlc) -> dict:
 
         # How many days have we held this position by `row_date`?
         hold_days = (row_date - open_ts.date()).days
+
+        # Time-aware step-down: on day 2, re-baseline to narrower floor
+        # (if no ratchet tier has already tightened below it).
+        if (not stepped_down and hold_days >= 2
+                and current_trail_pct > NEW_INITIAL_TRAIL_FLOOR_DAY2):
+            current_trail_pct = NEW_INITIAL_TRAIL_FLOOR_DAY2
+            stepped_down = True
 
         # DAY-0 BUG GUARD (added 2026-05-07): the entry day's daily LOW
         # in yfinance includes the part of the day BEFORE we filled.
