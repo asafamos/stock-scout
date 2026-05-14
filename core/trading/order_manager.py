@@ -28,6 +28,47 @@ logger = logging.getLogger(__name__)
 _ANALYST_CACHE: dict = {}
 _ANALYST_CACHE_TTL = 6 * 3600  # 6 hours — analyst PTs change slowly
 
+# SPY 5-day return cache — fetched once per scan run to enable
+# momentum-vs-market filter. Critical insight from 31-day forensic
+# comparison (2026-05-14): StockScout underperformed SPY by -1.41pp
+# largely because our ranking favored high-R:R Energy/value names while
+# SPY's gains were driven by mega-cap tech. A candidate that LAGS SPY
+# in the recent 5 days is statistically unlikely to outperform over a
+# 20-day swing — the rising tide isn't lifting their boat.
+_SPY_5D_CACHE: dict = {"return": None, "fetched_at": 0.0}
+_SPY_CACHE_TTL = 6 * 3600  # 6 hours — daily-bar precision is fine
+
+
+def _fetch_spy_5d_return() -> float:
+    """SPY's 5-day return %, cached. Returns 0.0 on any failure (filter
+    becomes a no-op rather than rejecting all candidates)."""
+    import time as _time
+    if _SPY_5D_CACHE["return"] is not None:
+        if _time.time() - _SPY_5D_CACHE["fetched_at"] < _SPY_CACHE_TTL:
+            return _SPY_5D_CACHE["return"]
+
+    def _do_fetch():
+        import yfinance as yf
+        hist = yf.Ticker("SPY").history(period="10d", interval="1d")
+        if hist is None or len(hist) < 6:
+            return 0.0
+        closes = hist["Close"].dropna()
+        if len(closes) < 6:
+            return 0.0
+        # 5-day return = (latest_close / close_5_days_ago - 1) * 100
+        return (closes.iloc[-1] / closes.iloc[-6] - 1.0) * 100.0
+
+    try:
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as _TO
+        with ThreadPoolExecutor(max_workers=1) as ex:
+            r = ex.submit(_do_fetch).result(timeout=10.0)
+        _SPY_5D_CACHE["return"] = r
+        _SPY_5D_CACHE["fetched_at"] = _time.time()
+        return r
+    except Exception as e:
+        logger.warning("SPY 5d return fetch failed: %s — filter disabled this run", e)
+        return 0.0
+
 # Hard wall-clock timeout for yfinance .info calls. Real-world failure
 # 2026-05-05: a manual evaluator run blocked for 11+ min on per-candidate
 # `yf.Ticker(...).info` because yfinance has NO native timeout — its
@@ -172,9 +213,16 @@ class OrderManager:
             top_tickers = candidates.head(n_to_prefetch).get("Ticker", pd.Series([])).tolist()
             for _t in top_tickers:
                 _fetch_analyst_target(_t)  # populates module-level cache
-            logger.info("Pre-warmed analyst-PT cache for %d candidates", n_to_prefetch)
+            # Also pre-warm SPY for the momentum-vs-SPY filter — same
+            # network round-trip pattern, so do it now rather than during
+            # the time-sensitive trade window.
+            _spy = _fetch_spy_5d_return()
+            logger.info(
+                "Pre-warmed: %d analyst-PT entries + SPY 5d=%+.2f%%",
+                n_to_prefetch, _spy,
+            )
         except Exception as _pw_err:
-            logger.debug("Analyst pre-warm skipped: %s", _pw_err)
+            logger.debug("Pre-warm skipped: %s", _pw_err)
 
         results = []
         try:
@@ -549,6 +597,46 @@ class OrderManager:
                 logger.info("Sector filter dropped %d stocks (blocked: %s)",
                             dropped, blocked)
 
+        # ── MOMENTUM-vs-SPY FILTER (added 2026-05-14 from SPY comparison) ──
+        # 31-day forensic showed StockScout underperformed SPY by -1.41pp
+        # despite a healthy PF 2.42. Root cause: our ranking favored
+        # high-R:R Energy/value names while SPY's gains were dominated
+        # by mega-cap tech (which has low R:R but persistent momentum).
+        # New filter: reject candidates whose recent 5-day return LAGS
+        # SPY's 5-day return by more than threshold pp. Idea: "if the
+        # rising tide isn't lifting this boat, why bet on it now?"
+        # Toggle: TRADE_MOMENTUM_VS_SPY_ENABLED (default true).
+        # Threshold: TRADE_MOMENTUM_VS_SPY_MAX_LAG (default 1.0pp).
+        # SPY fetch fails open — filter becomes a no-op.
+        import os as _os
+        mom_enabled = _os.getenv("TRADE_MOMENTUM_VS_SPY_ENABLED", "true").lower() in ("1", "true", "yes")
+        mom_lag_max = float(_os.getenv("TRADE_MOMENTUM_VS_SPY_MAX_LAG", "1.0"))
+        ret5d_col = self._find_col(result, ["Return_5d", "Returns_5d", "5d_Return"])
+        if mom_enabled and ret5d_col and ret5d_col in result.columns:
+            spy_5d = _fetch_spy_5d_return()
+            if spy_5d != 0.0:  # successful fetch (0.0 means failure)
+                # Allow within `mom_lag_max` pp under SPY (small underperformance OK)
+                # but reject anything more
+                threshold = spy_5d - mom_lag_max
+                ret_vals = pd.to_numeric(result[ret5d_col], errors="coerce")
+                # NaN rows pass (don't penalize missing data)
+                mom_ok = ret_vals.isna() | (ret_vals >= threshold)
+                before = len(result)
+                result = result[mom_ok]
+                dropped = before - len(result)
+                if dropped:
+                    logger.info(
+                        "Momentum-vs-SPY filter: SPY 5d=%+.2f%%, threshold=%+.2f%%, "
+                        "dropped %d candidate(s) lagging market",
+                        spy_5d, threshold, dropped,
+                    )
+                if result.empty:
+                    logger.info(
+                        "No candidates pass momentum-vs-SPY filter (SPY 5d=%+.2f%%)",
+                        spy_5d,
+                    )
+                    return result
+
         # RR filter — uses _effective_rr if available (computed above with
         # stop_distance floor 3%), otherwise raw rr_col. Forensic analysis
         # 2026-05-14 showed scan-tight stops produce R:R 10+ that
@@ -689,6 +777,22 @@ class OrderManager:
         if rr_for_ranking_src is not None:
             rr_for_ranking = pd.to_numeric(rr_for_ranking_src, errors="coerce").clip(upper=5.0)
             signals.append((WEIGHT_RR, _norm(rr_for_ranking)))
+
+        # MOMENTUM-vs-SPY ranking BOOST (added 2026-05-14).
+        # In addition to the hard filter above, give a small ranking weight
+        # to candidates that BEAT SPY in the recent 5d. Helps prefer
+        # market-leaders within the surviving pool. Weight kept modest
+        # (5%) so it doesn't dominate fundamental signals. Disabled if
+        # the SPY fetch failed (filter would also be disabled).
+        if (mom_enabled and ret5d_col and ret5d_col in result.columns
+                and _SPY_5D_CACHE.get("return") is not None):
+            spy_5d_val = _SPY_5D_CACHE["return"]
+            # Per-candidate "momentum surplus" vs SPY (+ = outperform)
+            surplus = pd.to_numeric(result[ret5d_col], errors="coerce") - spy_5d_val
+            # Cap so one super-strong outlier doesn't compress the rest
+            surplus_capped = surplus.clip(-10.0, 10.0)
+            WEIGHT_MOM = 0.05
+            signals.append((WEIGHT_MOM, _norm(surplus_capped)))
 
         if ml_col and ml_col in result.columns:
             signals.append((WEIGHT_ML, _norm(result[ml_col])))
