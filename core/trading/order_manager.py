@@ -602,15 +602,19 @@ class OrderManager:
         # despite a healthy PF 2.42. Root cause: our ranking favored
         # high-R:R Energy/value names while SPY's gains were dominated
         # by mega-cap tech (which has low R:R but persistent momentum).
-        # New filter: reject candidates whose recent 5-day return LAGS
-        # SPY's 5-day return by more than threshold pp. Idea: "if the
-        # rising tide isn't lifting this boat, why bet on it now?"
+        #
+        # CAVEAT: our scan deliberately selects mean-reversion / pullback
+        # setups, so scan-avg Return_5d ≈ 0% (below SPY). A strict filter
+        # (e.g., SPY - 1pp) rejected 100% of candidates in initial test.
+        # Solution: very loose default threshold (5pp lag) — only blocks
+        # CATASTROPHIC relative weakness. The 5% ranking boost (below)
+        # provides the real bias toward market-leaders.
         # Toggle: TRADE_MOMENTUM_VS_SPY_ENABLED (default true).
-        # Threshold: TRADE_MOMENTUM_VS_SPY_MAX_LAG (default 1.0pp).
+        # Threshold: TRADE_MOMENTUM_VS_SPY_MAX_LAG (default 5.0pp).
         # SPY fetch fails open — filter becomes a no-op.
         import os as _os
         mom_enabled = _os.getenv("TRADE_MOMENTUM_VS_SPY_ENABLED", "true").lower() in ("1", "true", "yes")
-        mom_lag_max = float(_os.getenv("TRADE_MOMENTUM_VS_SPY_MAX_LAG", "1.0"))
+        mom_lag_max = float(_os.getenv("TRADE_MOMENTUM_VS_SPY_MAX_LAG", "5.0"))
         ret5d_col = self._find_col(result, ["Return_5d", "Returns_5d", "5d_Return"])
         if mom_enabled and ret5d_col and ret5d_col in result.columns:
             spy_5d = _fetch_spy_5d_return()
