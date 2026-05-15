@@ -971,6 +971,25 @@ class RiskManager:
 
         actual_cost = qty_est * price
 
+        # ── Runtime invariant (2026-05-15) ──
+        # Single-position cap: max_position_size × 1.5 (the conviction cap).
+        # If sizing logic ever produces a qty that violates this, we catch
+        # it HERE rather than discovering it in trade_log after the fact.
+        # This is a logic-error tripwire — under normal sizing this never
+        # fires; if it does, calculate_qty has a bug.
+        single_cap = self.cfg.max_position_size * 1.5
+        if actual_cost > single_cap + 1.0:  # +$1 fuzz for rounding
+            logger.error(
+                "INVARIANT: single-position cap violated for %s: "
+                "qty %d × $%.2f = $%.2f > cap $%.2f. "
+                "REFUSING TRADE — bug in calculate_qty.",
+                row.get("Ticker", "?"), qty_est, price, actual_cost, single_cap,
+            )
+            return False, (
+                f"Internal: position size ${actual_cost:.0f} exceeds 1.5× cap ${single_cap:.0f} "
+                f"(qty {qty_est} × ${price:.2f}). Logic error blocked."
+            )
+
         # 5. Portfolio exposure
         new_exposure = self.tracker.total_exposure + actual_cost
         if new_exposure > self.cfg.max_portfolio_exposure:

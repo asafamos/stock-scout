@@ -192,6 +192,31 @@ class PositionTracker:
         order_ids: Optional[Dict[str, int]] = None,
         scan_price: Optional[float] = None,
     ):
+        # ── Runtime invariants (2026-05-15) ──
+        # Catch silently-corrupt positions BEFORE they enter the tracker.
+        # Each assert traps a class of bug we'd otherwise debug from logs:
+        #   - quantity ≤ 0: empty fills creating phantom positions
+        #   - entry_price ≤ 0: division-by-zero downstream in P&L math
+        #   - stop_loss ≥ entry_price: stop above entry → instant trigger
+        #   - target_price ≤ entry_price: target below entry → instant target hit
+        #   - ticker truthy / str: prevent None/blank ticker spam
+        if not ticker or not isinstance(ticker, str):
+            raise ValueError(f"add_position: invalid ticker {ticker!r}")
+        if quantity <= 0:
+            raise ValueError(f"add_position: quantity must be > 0 (got {quantity} for {ticker})")
+        if entry_price <= 0:
+            raise ValueError(f"add_position: entry_price must be > 0 (got {entry_price} for {ticker})")
+        if stop_loss > 0 and stop_loss >= entry_price:
+            raise ValueError(
+                f"add_position: stop_loss ${stop_loss:.2f} >= entry ${entry_price:.2f} for {ticker} "
+                f"— would trigger immediately"
+            )
+        if target_price > 0 and target_price <= entry_price:
+            raise ValueError(
+                f"add_position: target_price ${target_price:.2f} <= entry ${entry_price:.2f} for {ticker} "
+                f"— would trigger immediately"
+            )
+
         # Read-modify-write under exclusive lock to prevent race with monitor
         with _file_lock(self._positions_path):
             positions = self._read_positions_unlocked()

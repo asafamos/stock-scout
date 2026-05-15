@@ -1694,6 +1694,19 @@ def _ratchet_stops(tracker, client, ibkr_orders, notify):
             )
             continue
 
+        # ── Runtime invariant (2026-05-15) ──
+        # The "only-tighten" guard above should have rejected any widening
+        # candidate. Belt-and-suspenders assert: if we got here with a
+        # trail >= current, that's a logic bug somewhere.
+        if current_trail > 0 and target_trail_pct >= current_trail:
+            logger.error(
+                "INVARIANT: ratchet tried to LOOSEN %s trail %.2f%% → %.2f%% "
+                "(source=%s). REFUSING. The only-tighten gate above should "
+                "have caught this — there is a bug.",
+                ticker, current_trail, target_trail_pct, _trail_source,
+            )
+            continue
+
         # ── Path A: Order is already a TRAIL → modify the % in place
         if order_type == "TRAIL":
             result = client.modify_trailing_pct(order_id, target_trail_pct)

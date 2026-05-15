@@ -1031,6 +1031,18 @@ class IBKRClient:
         lose the OCA link, momentarily expose the position, and create
         log clutter).
         """
+        # ── Runtime invariants (2026-05-15) ──
+        # The caller (ratchet / break-even / earnings) should only EVER
+        # call this with a tighter trail %. A bug that loosens trail
+        # would silently un-protect the position. The 0.5-9.0 range
+        # matches MIN/MAX_INITIAL_TRAIL_PCT in order_manager.py and the
+        # config clamps; anything outside is a logic error.
+        if not (0.5 <= new_trail_pct <= 9.0):
+            raise ValueError(
+                f"modify_trailing_pct: new_trail_pct {new_trail_pct:.2f}% out of [0.5, 9.0] "
+                f"safety band (order #{order_id}). This is a logic error in the caller."
+            )
+
         if self.cfg.dry_run:
             logger.info("[DRY RUN] MODIFY TRAIL #%d → %.1f%%",
                         order_id, new_trail_pct)
