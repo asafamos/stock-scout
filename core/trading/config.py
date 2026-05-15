@@ -151,6 +151,37 @@ class TradingConfig:
        # report itself can produce 15-25% gap-down on miss. 3-day window
        # only covered the report itself, not the lead-in elevated-vol period.
 
+    # Graduated earnings-proximity tightening (added 2026-05-15).
+    # The block-days gate prevents NEW buys near earnings, but positions
+    # opened weeks earlier need defensive tightening as the event nears.
+    # Tighter trail as the binary-risk window approaches:
+    #   T-4..-5 days: trail floor 3.0% (defensive warning)
+    #   T-2..-3 days: trail floor 2.5% (mid-zone)
+    #   T-0..-1 days: trail floor 2.0% (final-zone)
+    # Each level is a MAX trail (we'll only tighten, never loosen) — so if
+    # ratchet already set tighter (e.g., 2.0% at +28% peak), no change.
+    earnings_proximity_enabled: bool = field(
+        default_factory=lambda: _env_bool("EARNINGS_PROXIMITY_ENABLED", True)
+    )
+    earnings_proximity_warn_days: int = field(
+        default_factory=lambda: _env_int("EARNINGS_PROXIMITY_WARN_DAYS", 5)
+    )   # Warn band — trail floor 3.0%
+    earnings_proximity_warn_trail_pct: float = field(
+        default_factory=lambda: _env_float("EARNINGS_PROXIMITY_WARN_TRAIL_PCT", 3.0)
+    )
+    earnings_proximity_mid_days: int = field(
+        default_factory=lambda: _env_int("EARNINGS_PROXIMITY_MID_DAYS", 3)
+    )   # Mid band — trail floor 2.5%
+    earnings_proximity_mid_trail_pct: float = field(
+        default_factory=lambda: _env_float("EARNINGS_PROXIMITY_MID_TRAIL_PCT", 2.5)
+    )
+    earnings_proximity_final_days: int = field(
+        default_factory=lambda: _env_int("EARNINGS_PROXIMITY_FINAL_DAYS", 1)
+    )   # Final band — trail floor 2.0%
+    earnings_proximity_final_trail_pct: float = field(
+        default_factory=lambda: _env_float("EARNINGS_PROXIMITY_FINAL_TRAIL_PCT", 2.0)
+    )
+
     # ── Performance throttle (safety brake on losing streaks) ─────
     # Tracks the rolling win rate of the last N closed trades. When the
     # rate drops below thresholds, the system reduces exposure or halts

@@ -572,12 +572,19 @@ def run_check():
 
 
 def _earnings_exit_pass(tracker, client, ibkr_orders, notify):
-    """Defensive trail tightening for positions approaching earnings.
+    """Graduated trail tightening for positions approaching earnings.
 
     The entry gate refuses new buys near earnings, but doesn't help
     positions already held when their earnings date approaches. This
-    function tightens the active TRAIL to 2% on any position whose
-    earnings date is within 2 trading days, then alerts the user.
+    function progressively tightens the TRAIL as earnings nears:
+
+      T-4..-5 days: trail ≤ 3.0%   (warn band — defensive)
+      T-2..-3 days: trail ≤ 2.5%   (mid band)
+      T-0..-1 days: trail ≤ 2.0%   (final band — near-exit posture)
+
+    Configurable via EARNINGS_PROXIMITY_* env vars. The "only tighten"
+    rule still applies: ratchet-tightened positions (e.g., 2.0% at +28%
+    peak) are preserved if already tighter than the earnings band.
 
     Why not auto-close: a sudden close could trigger day-trade rules
     on a same-day-opened position, and forcing market-sell on a
@@ -592,6 +599,17 @@ def _earnings_exit_pass(tracker, client, ibkr_orders, notify):
     positions = tracker.get_open_positions()
     if not positions:
         return
+
+    # Read graduated config (with safe defaults for legacy systems)
+    proximity_enabled = bool(getattr(CONFIG, "earnings_proximity_enabled", True))
+    if not proximity_enabled:
+        return
+    warn_days = int(getattr(CONFIG, "earnings_proximity_warn_days", 5))
+    warn_trail = float(getattr(CONFIG, "earnings_proximity_warn_trail_pct", 3.0))
+    mid_days = int(getattr(CONFIG, "earnings_proximity_mid_days", 3))
+    mid_trail = float(getattr(CONFIG, "earnings_proximity_mid_trail_pct", 2.5))
+    final_days = int(getattr(CONFIG, "earnings_proximity_final_days", 1))
+    final_trail = float(getattr(CONFIG, "earnings_proximity_final_trail_pct", 2.0))
 
     # Reuse RiskManager's earnings cache (cheap)
     rm = RiskManager(client, tracker)
@@ -617,9 +635,18 @@ def _earnings_exit_pass(tracker, client, ibkr_orders, notify):
         except Exception:
             continue
 
-        # Only act when earnings is 0–2 calendar days away (not past)
-        if days_until < 0 or days_until > 2:
+        # Determine target trail % based on graduated bands (tightest first)
+        if days_until < 0 or days_until > warn_days:
             continue
+        if days_until <= final_days:
+            target_pct = final_trail
+            band = "FINAL"
+        elif days_until <= mid_days:
+            target_pct = mid_trail
+            band = "MID"
+        else:
+            target_pct = warn_trail
+            band = "WARN"
 
         # Find the active TRAIL order for this position
         trail_order = None
@@ -631,28 +658,34 @@ def _earnings_exit_pass(tracker, client, ibkr_orders, notify):
             continue
 
         current_pct = pos.get("trailing_stop_pct", 0) or 0
-        target_pct = 2.0  # tighten to 2% pre-earnings
         if current_pct > 0 and current_pct <= target_pct + 0.05:
-            continue  # already at or below target
+            continue  # already at or below target — preserve ratchet's tighter trail
+
+        # Track whether we've already alerted at this band (avoid spam)
+        already_at_band = pos.get("earnings_band") == band
+        if already_at_band:
+            continue
 
         result = client.modify_trailing_pct(trail_order["order_id"], target_pct)
         if result.status in ("Submitted", "PreSubmitted", "PendingSubmit", "DRY_RUN"):
             pos["trailing_stop_pct"] = target_pct
             pos["earnings_tightened"] = True
+            pos["earnings_band"] = band
             try:
+                # Emoji escalates with band severity
+                emoji = {"WARN": "📅", "MID": "⚠️", "FINAL": "🚨"}.get(band, "⚠️")
                 notify._send(
-                    f"⚠️ <b>EARNINGS TIGHTEN {ticker}</b>\n"
+                    f"{emoji} <b>EARNINGS-{band} {ticker}</b>\n"
                     f"  Earnings in {days_until}d ({ed.isoformat()})\n"
                     f"  Trail: {current_pct:.1f}% → <b>{target_pct:.1f}%</b>\n"
-                    f"  Consider closing manually if you don't want to hold "
-                    f"through the announcement."
+                    f"  {'Consider closing manually if you do not want to hold through earnings.' if band == 'FINAL' else 'Defensive tightening — binary risk window approaching.'}"
                 )
             except Exception:
                 pass
         else:
             logger.warning(
-                "Earnings tighten %s FAILED: %s",
-                ticker, getattr(result, "error", "")
+                "Earnings tighten %s (band=%s) FAILED: %s",
+                ticker, band, getattr(result, "error", "")
             )
 
 
