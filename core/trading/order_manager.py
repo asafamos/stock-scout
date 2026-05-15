@@ -1235,9 +1235,16 @@ class OrderManager:
             base_trail_pct = self.cfg.trailing_stop_pct
 
         # Regime adjustment
+        # 2026-05-15 PARITY FIX: STRONG_UPTREND and UPTREND were missing
+        # from the bullish list, defaulting to 1.0 instead of 1.20. ILMN
+        # (bought today in STRONG_UPTREND) got a tighter trail (4.0%
+        # instead of 4.8%) — exactly the trail-too-tight whipsaw setup.
+        # policy.py already had these regimes in its bullish list at
+        # line 537 — this brings order_manager into parity.
         regime_mult = 1.0
         _row_regime = str(row.get("Market_Regime", "") or "").upper()
-        if _row_regime in ("TREND_UP", "MODERATE_UP", "BULLISH"):
+        if _row_regime in ("TREND_UP", "MODERATE_UP", "BULLISH",
+                           "STRONG_UPTREND", "UPTREND"):
             regime_mult = 1.20
         elif _row_regime in ("DISTRIBUTION",):
             regime_mult = 0.85
@@ -1254,12 +1261,20 @@ class OrderManager:
         # protection. Cap stays at 9% — even in raging bull, $300
         # positions don't need 12% trails ($36 of paper loss).
         initial_floor = float(getattr(self.cfg, "min_initial_trail_pct", 4.0))
-        trail_pct = max(initial_floor, min(trail_pct, 9.0))
+        # ATR-based floor (added 2026-05-15) — prevents trail tighter than
+        # the stock's normal daily volatility. Without this, ILMN (ATR 4.49%)
+        # could get a 4.0% trail = guaranteed whipsaw on a single 1σ day.
+        atr_floor_mult = float(getattr(self.cfg, "initial_trail_atr_floor_mult", 0.0))
+        atr_floor = atr_pct * atr_floor_mult if (atr_pct > 0 and atr_floor_mult > 0) else 0
+        effective_floor = max(initial_floor, atr_floor)
+        trail_pct = max(effective_floor, min(trail_pct, 9.0))
         logger.info(
-            "  Trail %.1f%% (base %.1f%% × regime %.2f, ATR %.1f%%, scan stop %.1f%%, regime=%s)",
+            "  Trail %.1f%% (base %.1f%% × regime %.2f, ATR %.1f%%, scan stop %.1f%%, "
+            "atr_floor %.1f%%, regime=%s)",
             trail_pct, base_trail_pct, regime_mult,
             atr_pct if atr_pct > 0 else 0,
             (price - stop) / price * 100 if stop > 0 else 0,
+            atr_floor,
             _row_regime or "default",
         )
 

@@ -534,7 +534,10 @@ def compute_execution_preview(
     else:
         base_trail_pct = float(getattr(cfg, "trailing_stop_pct", 5.0))
 
-    if regime in ("TREND_UP", "MODERATE_UP", "BULLISH", "STRONG_UPTREND"):
+    # 2026-05-15: "UPTREND" added for parity with _MEDIUM_OK_REGIMES (line 111)
+    # and order_manager.py — all three sites must agree on which regimes
+    # are "bullish" to keep dashboard preview ↔ live execution in sync.
+    if regime in ("TREND_UP", "MODERATE_UP", "BULLISH", "STRONG_UPTREND", "UPTREND"):
         regime_mult = 1.20
     elif regime in ("DISTRIBUTION",):
         regime_mult = 0.85
@@ -544,6 +547,11 @@ def compute_execution_preview(
         regime_mult = 1.0
 
     trail_pct = base_trail_pct * regime_mult
+    # ATR floor (added 2026-05-15) — match order_manager.py behavior so the
+    # dashboard preview shows the same trail % that production will use.
+    _atr_floor_mult = float(getattr(cfg, "initial_trail_atr_floor_mult", 0.0))
+    if atr_pct > 0 and _atr_floor_mult > 0:
+        trail_pct = max(trail_pct, atr_pct * _atr_floor_mult)
     trail_pct = max(2.0, min(trail_pct, 9.0))  # safety clamp
 
     # ── Quantity estimate (matches risk_manager.calculate_qty conviction tiers) ──

@@ -390,6 +390,57 @@ class TradingConfig:
         default_factory=lambda: _env_float("RATCHET_T3_TRAIL_PCT", 2.0)
     )   # Peak +28% → trail 2.0% (was +30% — tightened 2026-05-05)
 
+    # ── Break-Even Protection ──────────────────────────────────
+    # Closes the gap between entry and the ratchet's lowest tier (T0 = +8%)
+    # where a base trail of ~4% would still fire at a loss.
+    #
+    # Mechanism: when peak_gain ≥ break_even_threshold, dynamically
+    # tighten the TRAIL % so the resulting stop floors at
+    #   entry × break_even_floor_mult   (default 1.002 = +0.2% to cover commissions)
+    # Once base trail naturally floors above break-even (roughly when
+    # peak_gain ≥ base_trail_pct + 0.2pp), this becomes a no-op because
+    # the "only-tighten" guard rejects the wider candidate.
+    #
+    # Forensic justification (2026-05-15): in last 7 trades, ELVN peaked
+    # at +0.41% then closed at -3.60%; RSI peaked at +1.17% then closed
+    # at -2.88%. Both were "winners turned losers". Break-even at +2%
+    # threshold would have saved RSI (~$3.95 saved). ELVN's peak was
+    # below threshold and can't be saved by any trail mechanism — that's
+    # a pick-quality issue, not a trail issue.
+    break_even_enabled: bool = field(
+        default_factory=lambda: _env_bool("BREAK_EVEN_ENABLED", True)
+    )
+    break_even_threshold_pct: float = field(
+        default_factory=lambda: _env_float("BREAK_EVEN_THRESHOLD_PCT", 1.5)
+    )   # Activate dynamic break-even trail when peak_gain ≥ this %.
+        # 2026-05-15: set to 1.5% (≈ 0.5R for our typical 3% stop). Backtest
+        # on 5 trail_fired trades showed +2.0% missed both ELVN (+0.41% peak)
+        # and RSI (+1.17% peak) without saving any of the wider-peak trades
+        # (ORCL/LION/MEOH base trail already locked above break-even). +1.5%
+        # is the forward-looking default — saves any future trade that
+        # peaks above +1.5% and then retraces past the base-trail stop.
+    break_even_floor_mult: float = field(
+        default_factory=lambda: _env_float("BREAK_EVEN_FLOOR_MULT", 1.002)
+    )   # Floor stop at entry × this multiplier (1.002 = +0.2% above entry)
+    break_even_min_trail_pct: float = field(
+        default_factory=lambda: _env_float("BREAK_EVEN_MIN_TRAIL_PCT", 0.5)
+    )   # Refuse to set trail tighter than this (noise floor — avoid whipsaw)
+
+    # ── ATR floor on initial trail ─────────────────────────────
+    # The trail formula avg(scan_stop, 1.5×ATR) can produce a trail TIGHTER
+    # than the stock's normal daily volatility, leading to whipsaw exits.
+    # Example: ILMN had ATR 4.49% but trail 4.0% — one standard-deviation
+    # day = guaranteed stopout.
+    #
+    # When > 0, the initial trail is also floored at: this_mult × ATR%.
+    # Default 0.9 means trail ≥ 90% of ATR. For ILMN: trail floored at
+    # 0.9 × 4.49 = 4.04% (barely different from 4.0). For a low-ATR
+    # stock with ATR 2%, this is moot (trail of 4% already exceeds 1.8%).
+    # Conservatively starts at 0.9 — easy to nudge up to 1.0 or 1.2 later.
+    initial_trail_atr_floor_mult: float = field(
+        default_factory=lambda: _env_float("INITIAL_TRAIL_ATR_FLOOR_MULT", 0.9)
+    )
+
     # ── Paths ──────────────────────────────────────────────────
     scan_results_path: str = "data/scans/latest_scan_live.json"
     open_positions_path: str = "data/trades/open_positions.json"

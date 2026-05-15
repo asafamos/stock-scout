@@ -1552,6 +1552,7 @@ def _ratchet_stops(tracker, client, ibkr_orders, notify):
         t0_gain_threshold = float(getattr(CONFIG, "ratchet_tier0_gain", 8.0))
 
         target_trail_pct = None
+        _trail_source = None  # for logging / notification differentiation
         for threshold, trail_pct in tiers:
             if peak_gain_pct >= threshold:
                 # T0-specific time gate: skip if too young.
@@ -1567,7 +1568,43 @@ def _ratchet_stops(tracker, client, ibkr_orders, notify):
                     )
                     continue
                 target_trail_pct = trail_pct
+                _trail_source = "ratchet"
                 break
+
+        # ── BREAK-EVEN PROTECTION (added 2026-05-15) ──
+        # Closes the gap between entry and the lowest ratchet tier (T0 = +8%)
+        # where the base trail (~4%) could still exit at a loss.
+        #
+        # Dynamic: compute the exact trail % needed so the stop floors at
+        # entry × break_even_floor_mult (default 1.002 = +0.2% above entry,
+        # covers IBKR commissions). As peak rises, this becomes a wider
+        # trail; once it widens past the current trail OR past a ratchet
+        # tier's tighter trail, the existing "only-tighten" guard naturally
+        # ignores it. So it only fires in the narrow window where the base
+        # trail's stop is below break-even but the position is in profit.
+        #
+        # Forensic justification: in the last 7 trades, RSI peaked +1.17%
+        # then closed at -2.88% (4% trail × +1.17% peak = stop at -2.83%).
+        # Break-even @ +2% threshold would have moved the stop to entry +0.2%
+        # at the moment peak crossed +2%, locking in scratch instead of loss.
+        be_cfg_enabled = bool(getattr(CONFIG, "break_even_enabled", True))
+        if be_cfg_enabled:
+            be_threshold = float(getattr(CONFIG, "break_even_threshold_pct", 2.0))
+            be_floor_mult = float(getattr(CONFIG, "break_even_floor_mult", 1.002))
+            be_min_trail = float(getattr(CONFIG, "break_even_min_trail_pct", 0.5))
+            if peak_gain_pct >= be_threshold:
+                target_floor_be = entry * be_floor_mult
+                if peak_price > target_floor_be:
+                    be_trail_pct = (peak_price - target_floor_be) / peak_price * 100
+                    # Only use if it's a TIGHTER candidate than any ratchet
+                    # tier already chosen, AND not so tight it would fire on
+                    # noise. The downstream "only-tighten vs current_trail"
+                    # guard then makes the final apply/skip decision.
+                    if be_trail_pct >= be_min_trail and (
+                        target_trail_pct is None or be_trail_pct < target_trail_pct
+                    ):
+                        target_trail_pct = be_trail_pct
+                        _trail_source = "break_even"
 
         if target_trail_pct is None:
             continue  # Not profitable enough yet
@@ -1646,16 +1683,25 @@ def _ratchet_stops(tracker, client, ibkr_orders, notify):
                     )
                     pos.setdefault("order_ids", {})["trailing_stop"] = new_oid
                 changed = True
-                # Telegram notification
+                # Telegram notification — distinguish break-even from ratchet
                 lock_pct = (projected_stop - entry) / entry * 100
                 lock_amt = (projected_stop - entry) * int(pos["quantity"])
-                notify._send(
-                    f"🔒 <b>TIGHTEN {ticker}</b>\n"
-                    f"  Peak: +{peak_gain_pct:.1f}% (${peak_price:.2f})\n"
-                    f"  Trail: {current_trail:.1f}% → <b>{target_trail_pct:.1f}%</b>\n"
-                    f"  Projected stop: ${projected_stop:.2f} "
-                    f"(+{lock_pct:.1f}%, ${lock_amt:+.2f})"
-                )
+                if _trail_source == "break_even":
+                    notify._send(
+                        f"🛡 <b>BREAK-EVEN {ticker}</b>\n"
+                        f"  Peak: +{peak_gain_pct:.1f}% (${peak_price:.2f})\n"
+                        f"  Trail: {current_trail:.1f}% → <b>{target_trail_pct:.2f}%</b>\n"
+                        f"  Projected stop: ${projected_stop:.2f} "
+                        f"(+{lock_pct:.2f}%, ${lock_amt:+.2f}) — scratch lock"
+                    )
+                else:
+                    notify._send(
+                        f"🔒 <b>TIGHTEN {ticker}</b>\n"
+                        f"  Peak: +{peak_gain_pct:.1f}% (${peak_price:.2f})\n"
+                        f"  Trail: {current_trail:.1f}% → <b>{target_trail_pct:.1f}%</b>\n"
+                        f"  Projected stop: ${projected_stop:.2f} "
+                        f"(+{lock_pct:.1f}%, ${lock_amt:+.2f})"
+                    )
             else:
                 logger.error("Ratchet modify FAILED for %s: %s",
                              ticker, getattr(result, "error", ""))
