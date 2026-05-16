@@ -223,30 +223,29 @@ def enter_response_code(code: str):
 
 
 def main():
-    logger.info("IB Key Telegram Bot started")
-    logger.info("Telegram: %s", "configured" if TOKEN else "NOT configured")
-
-    send_telegram("🤖 IB Key bot started on VPS. I'll notify you when authentication is needed.")
-
-    while True:
-        try:
-            status = check_gateway_status()
-
-            if status == "connected":
-                logger.debug("Gateway connected — all good")
-            elif status == "needs_2fa":
-                handle_ibkey_2fa()
-            elif status == "maintenance_disconnected":
-                logger.info("Gateway in maintenance but disconnected — checking...")
-                # May need to wait for restart
-            else:
-                logger.debug("Gateway status: %s", status)
-
-        except Exception as e:
-            logger.error("Bot error: %s", e)
-
-        time.sleep(CHECK_INTERVAL)
+    # DEPRECATED 2026-05-16. The 2FA watchdog (plus all the helpers above)
+    # was merged into scripts.telegram_status_bot so there is exactly one
+    # process calling Telegram's getUpdates. Running this script alongside
+    # telegram_status_bot causes 409 Conflicts that silently drop the
+    # user's "status"/"help" replies.
+    #
+    # If an old systemd unit (e.g. stockscout-ibkey-bot.service) is still
+    # enabled on the VPS, this exit + the message below make the problem
+    # obvious in `journalctl` and on Telegram.
+    msg = (
+        "ibkey_telegram_bot is deprecated — its 2FA watchdog was merged "
+        "into telegram_status_bot on 2026-05-16. Disable any old systemd "
+        "unit: sudo systemctl disable --now stockscout-ibkey-bot.service "
+        "(or whatever it was called)."
+    )
+    logger.error(msg)
+    try:
+        send_telegram(f"⚠️ {msg}")
+    except Exception:
+        pass
+    # Exit cleanly so systemd does not flap-restart this stub forever.
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

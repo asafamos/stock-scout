@@ -446,6 +446,35 @@ KillMode=process
 WantedBy=multi-user.target
 SVCEOF
 
+# --- Telegram status bot (+ merged IB Key 2FA watchdog) ---
+# Single Telegram getUpdates poller. Running this alongside the old
+# stockscout-ibkey-bot.service causes 409 Conflicts and silent message
+# drops — disable that unit if it exists. Restart=always covers
+# crashes; the in-process auto-restart wrapper covers exceptions.
+sudo tee /etc/systemd/system/stockscout-telegram-bot.service > /dev/null << 'SVCEOF'
+[Unit]
+Description=StockScout Telegram status bot (+ IB Key 2FA watchdog)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=stockscout
+Group=stockscout
+WorkingDirectory=/home/stockscout/stock-scout-2
+EnvironmentFile=/home/stockscout/stock-scout-2/.env.trading
+Environment="TRADE_IBKEY_WATCHDOG=1"
+ExecStart=/home/stockscout/stock-scout-2/.venv/bin/python -m scripts.telegram_status_bot
+Restart=always
+RestartSec=10
+KillMode=process
+StandardOutput=append:/home/stockscout/stock-scout-2/logs/telegram_bot.log
+StandardError=append:/home/stockscout/stock-scout-2/logs/telegram_bot.log
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+
 sudo systemctl daemon-reload
 
 echo ""
@@ -464,6 +493,7 @@ echo "                          TRADE_DRY_RUN=1 python -m scripts.run_auto_trade
 echo "  6. Enable automation:   sudo systemctl enable --now stockscout-pipeline.timer"
 echo "                          sudo systemctl enable --now stockscout-monitor"
 echo "                          sudo systemctl enable --now stockscout-healthcheck.timer"
+echo "                          sudo systemctl enable --now stockscout-telegram-bot"
 echo ""
 echo "Monitoring:"
 echo "  journalctl -u stockscout-pipeline -f"

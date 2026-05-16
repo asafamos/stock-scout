@@ -3,13 +3,27 @@
 Runs as a daemon alongside the monitor. Listens for messages
 and replies with current positions, P&L, and order status.
 
+Also includes the IB Gateway 2FA watchdog (merged from
+scripts/ibkey_telegram_bot.py on 2026-05-16) so only one process
+calls Telegram's getUpdates — two competing pollers caused silent
+409 Conflict drops where commands stopped getting replies.
+
 Usage:
     python -m scripts.telegram_status_bot
+
+Optional env vars:
+    TRADE_IBKEY_WATCHDOG=1    enable IB Gateway 2FA watchdog thread
+                              (auto-enabled when the `ibgateway` docker
+                              container is present)
+    TRADE_BOT_HEARTBEAT_SEC=300  heartbeat log interval (default 5min)
 """
 
 import json
 import logging
 import os
+import re
+import subprocess
+import threading
 import time
 import requests
 
@@ -56,8 +70,23 @@ def get_updates(offset: int = 0) -> list:
         )
         if resp.ok:
             return resp.json().get("result", [])
-    except Exception:
-        pass
+        if resp.status_code == 409:
+            # Another instance is polling getUpdates with the same token.
+            # Silently swallowing this caused the May 16 outage where the
+            # bot looked alive but messages went nowhere. Log loudly + back
+            # off so duplicate pollers are obvious in journalctl.
+            logger.error(
+                "Telegram 409 Conflict — another getUpdates poller is "
+                "competing for this token. Check: ps aux | grep telegram"
+            )
+            time.sleep(15)
+        else:
+            logger.warning(
+                "Telegram getUpdates HTTP %s: %s",
+                resp.status_code, resp.text[:200],
+            )
+    except Exception as e:
+        logger.warning("getUpdates exception: %s", e)
     return []
 
 
@@ -481,11 +510,169 @@ def panic_execute() -> str:
         return f"❌ <b>PANIC FAILED — ACTION NEEDED</b>\n\n{e}\n\nCheck IB directly."
 
 
+# ──────────────────────────────────────────────────────────────────────
+# IB Gateway 2FA watchdog (merged from scripts/ibkey_telegram_bot.py
+# on 2026-05-16 to eliminate two-poller getUpdates conflict). Runs in
+# a background thread inside this process. When the Gateway log shows
+# a 2FA challenge, the watchdog selects "IB Key", screenshots the
+# challenge, and pushes it to Telegram. The user's reply (a 6+ digit
+# numeric message) is intercepted by the main message loop while
+# WATCHDOG_STATE["awaiting_2fa_code"] is True, then typed into the
+# Gateway window via xdotool.
+# ──────────────────────────────────────────────────────────────────────
+
+DOCKER_CONTAINER = os.getenv("TRADE_IBGW_CONTAINER", "ibgateway")
+WATCHDOG_CHECK_INTERVAL = 30  # seconds
+WATCHDOG_RESPONSE_TIMEOUT = 300  # 5 min to enter the 2FA code
+
+WATCHDOG_STATE: dict = {
+    "awaiting_2fa_code": False,
+    "deadline_ts": 0.0,
+}
+
+
+def _docker_exec(cmd: str) -> str:
+    try:
+        result = subprocess.run(
+            ["docker", "exec", DOCKER_CONTAINER, "bash", "-c", cmd],
+            capture_output=True, text=True, timeout=15,
+        )
+        return (result.stdout or "") + (result.stderr or "")
+    except Exception as e:
+        return f"Error: {e}"
+
+
+def _docker_available() -> bool:
+    """True iff the ibgateway container exists. Watchdog skips otherwise."""
+    try:
+        r = subprocess.run(
+            ["docker", "ps", "-q", "-f", f"name={DOCKER_CONTAINER}"],
+            capture_output=True, text=True, timeout=5,
+        )
+        return bool((r.stdout or "").strip())
+    except Exception:
+        return False
+
+
+def _gw_take_screenshot() -> str:
+    _docker_exec("DISPLAY=:0 scrot /tmp/ibkey_screen.png")
+    subprocess.run(
+        ["docker", "cp",
+         f"{DOCKER_CONTAINER}:/tmp/ibkey_screen.png",
+         "/tmp/ibkey_screen.png"],
+        capture_output=True, timeout=10,
+    )
+    return "/tmp/ibkey_screen.png"
+
+
+def _send_photo(photo_path: str, caption: str = "") -> bool:
+    if not TOKEN or not CHAT_ID:
+        return False
+    try:
+        url = f"https://api.telegram.org/bot{TOKEN}/sendPhoto"
+        with open(photo_path, "rb") as f:
+            resp = requests.post(
+                url,
+                data={"chat_id": CHAT_ID, "caption": caption},
+                files={"photo": f},
+                timeout=15,
+            )
+        return resp.ok
+    except Exception as e:
+        logger.error("Telegram photo send failed: %s", e)
+        return False
+
+
+def _gw_check_status() -> str:
+    logs = _docker_exec("cat /tmp/ibg-jauto.log 2>/dev/null | tail -5")
+    if "maintenance cycle" in logs:
+        ports = _docker_exec("cat /proc/net/tcp")
+        if "0FA1" in ports or "0FA0" in ports:  # 4001 / 4000 in hex
+            return "connected"
+        return "maintenance_disconnected"
+    lower = logs.lower()
+    if "two-factor" in lower or "2fa" in lower or "second factor" in lower:
+        return "needs_2fa"
+    if "login" in lower:
+        return "logging_in"
+    return "unknown"
+
+
+def _gw_prompt_2fa():
+    """Show the 2FA challenge to the user and arm the code-listener."""
+    logger.info("Watchdog: 2FA detected — prompting user")
+    _gw_take_screenshot()
+    _docker_exec("DISPLAY=:0 xdotool mousemove 655 388 click 1")
+    time.sleep(1)
+    _docker_exec("DISPLAY=:0 xdotool mousemove 546 429 click 1")
+    time.sleep(3)
+    screenshot = _gw_take_screenshot()
+    send_message(
+        "🔐 <b>IB Gateway needs authentication!</b>\n\n"
+        "Open IBKR Mobile → IB Key → Generate Response\n"
+        "Look at the screen below for the challenge number.\n"
+        "Reply with the response code (digits only)."
+    )
+    _send_photo(screenshot, "IB Gateway 2FA screen")
+    WATCHDOG_STATE["awaiting_2fa_code"] = True
+    WATCHDOG_STATE["deadline_ts"] = time.time() + WATCHDOG_RESPONSE_TIMEOUT
+
+
+def _gw_enter_code(code: str):
+    logger.info("Watchdog: entering 2FA code (len=%d)", len(code))
+    _docker_exec(f"DISPLAY=:0 xdotool type '{code}'")
+    time.sleep(1)
+    _docker_exec("DISPLAY=:0 xdotool key Return")
+    time.sleep(10)
+    status = _gw_check_status()
+    if status == "connected":
+        send_message("✅ IB Gateway connected.")
+    else:
+        send_message(f"⚠️ Gateway status after code: {status}")
+
+
+def _watchdog_loop():
+    logger.info("IB Gateway 2FA watchdog started")
+    while True:
+        try:
+            # Clear stale awaiting-flag if user never replied
+            if (WATCHDOG_STATE["awaiting_2fa_code"]
+                    and time.time() > WATCHDOG_STATE["deadline_ts"]):
+                logger.warning("Watchdog: 2FA reply timeout — clearing flag")
+                WATCHDOG_STATE["awaiting_2fa_code"] = False
+
+            if not WATCHDOG_STATE["awaiting_2fa_code"]:
+                status = _gw_check_status()
+                if status == "needs_2fa":
+                    _gw_prompt_2fa()
+        except Exception:
+            logger.exception("Watchdog error")
+        time.sleep(WATCHDOG_CHECK_INTERVAL)
+
+
+def _maybe_start_watchdog():
+    """Start the IB Gateway watchdog thread if env opt-in or container exists."""
+    opt_in = os.getenv("TRADE_IBKEY_WATCHDOG", "").lower() in ("1", "true", "yes")
+    if not (opt_in or _docker_available()):
+        logger.info(
+            "IB Gateway watchdog disabled "
+            "(no '%s' container and TRADE_IBKEY_WATCHDOG not set)",
+            DOCKER_CONTAINER,
+        )
+        return
+    t = threading.Thread(target=_watchdog_loop, name="ibgw-watchdog", daemon=True)
+    t.start()
+
+
 def main():
-    logger.info("Telegram Status Bot started")
+    logger.info("Telegram Status Bot started (PID %d)", os.getpid())
     if not TOKEN:
         logger.error("No Telegram token configured")
         return
+
+    _maybe_start_watchdog()
+    heartbeat_sec = int(os.getenv("TRADE_BOT_HEARTBEAT_SEC", "300"))
+    last_heartbeat = time.time()
 
     send_message("🤖 Status bot started. Send <b>status</b> for portfolio update.")
 
@@ -497,6 +684,14 @@ def main():
 
     while True:
         try:
+            now = time.time()
+            if now - last_heartbeat >= heartbeat_sec:
+                logger.info(
+                    "heartbeat: offset=%d awaiting_2fa=%s",
+                    offset, WATCHDOG_STATE["awaiting_2fa_code"],
+                )
+                last_heartbeat = now
+
             updates = get_updates(offset)
             for update in updates:
                 offset = update["update_id"] + 1
@@ -506,6 +701,20 @@ def main():
 
                 if chat_id != CHAT_ID:
                     continue
+
+                # 2FA reply interception — when the watchdog is awaiting a
+                # response code, a numeric message (≥6 digits) is treated
+                # as the IB Key response and typed into the Gateway window.
+                if WATCHDOG_STATE["awaiting_2fa_code"]:
+                    digits = re.sub(r"\D", "", text)
+                    if len(digits) >= 6:
+                        logger.info("Watchdog: received 2FA code from user")
+                        try:
+                            _gw_enter_code(digits)
+                        except Exception as _e:
+                            send_message(f"⚠️ 2FA entry failed: {_e}")
+                        WATCHDOG_STATE["awaiting_2fa_code"] = False
+                        continue
 
                 if text in ("status", "סטטוס", "s", "/status"):
                     logger.info("Status requested")
@@ -693,5 +902,30 @@ def main():
             time.sleep(10)
 
 
+def _run_forever():
+    """Outer crash-restart wrapper.
+
+    main() is not allowed to silently exit. If it returns or throws,
+    we log the reason and sleep with exponential backoff before
+    restarting. systemd's Restart=always covers process kills; this
+    covers in-process exceptions that would otherwise leave the
+    bot 'alive but mute' (as happened on 2026-05-16).
+    """
+    backoff = 5
+    while True:
+        try:
+            main()
+            logger.error("main() returned cleanly — restarting in %ds", backoff)
+        except KeyboardInterrupt:
+            logger.info("Shutdown via SIGINT")
+            return
+        except SystemExit:
+            raise
+        except Exception:
+            logger.exception("main() crashed — restarting in %ds", backoff)
+        time.sleep(backoff)
+        backoff = min(backoff * 2, 300)
+
+
 if __name__ == "__main__":
-    main()
+    _run_forever()
