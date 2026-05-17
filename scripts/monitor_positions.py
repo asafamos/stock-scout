@@ -594,6 +594,13 @@ def _earnings_exit_pass(tracker, client, ibkr_orders, notify):
     the protective order locks current gains/limits future losses.
     """
     from core.trading.risk_manager import RiskManager
+    from core.trading.config import CONFIG  # 2026-05-17: missing import caused
+        # NameError on every cycle since the graduated-earnings change shipped
+        # on 2026-05-15 19:00 UTC. Monitor stayed alive (systemd) but crashed
+        # on this function, blocking everything downstream — snapshot writes,
+        # target_date exits, etc. Stop_loss / take_profit protected by OCA
+        # orders on IB servers (independent of monitor), so no positions
+        # were at risk, but the in-process tightening features were dead.
     from datetime import date as _date
 
     positions = tracker.get_open_positions()
