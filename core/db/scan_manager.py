@@ -222,25 +222,37 @@ class SupabaseScanManager:
                 "fundamental_sources_count": _safe_int(mapped.get("fundamental_sources_count")),
                 "data_quality": _safe_str(mapped.get("data_quality")),
             }
-            # Store full pipeline row as JSON blob for lossless historical loading
-            try:
-                _row_dict = {}
-                for col in row.index:
-                    val = row[col]
-                    if isinstance(val, (np.integer,)):
-                        val = int(val)
-                    elif isinstance(val, (np.floating,)):
-                        val = float(val) if np.isfinite(val) else None
-                    elif isinstance(val, (np.bool_,)):
-                        val = bool(val)
-                    elif pd.isna(val):
-                        val = None
-                    elif not isinstance(val, (int, float, bool, str, type(None))):
-                        val = str(val)
-                    _row_dict[col] = val
-                rec_row["full_row_json"] = json.dumps(_row_dict, default=str)
-            except Exception as _json_exc:
-                logger.debug("Could not serialize full row for %s: %s", ticker, _json_exc)
+            # ── full_row_json DISABLED 2026-05-17 ──
+            # Storing the entire pipeline row as a JSON blob (~5KB × ~400
+            # rows × 4 scans/day) was the root cause of the 4.05GB Supabase
+            # storage breach (368% over the 1.1GB Free-tier quota). The
+            # blob was for "lossless historical loading" but we never
+            # actually loaded it back — all analytics use the scalar
+            # columns above. Set via env var SUPABASE_STORE_FULL_ROW=1
+            # if you ever genuinely need the blob (e.g., debugging a
+            # specific scan), but leave OFF by default.
+            import os as _os
+            if _os.environ.get("SUPABASE_STORE_FULL_ROW", "0") == "1":
+                try:
+                    _row_dict = {}
+                    for col in row.index:
+                        val = row[col]
+                        if isinstance(val, (np.integer,)):
+                            val = int(val)
+                        elif isinstance(val, (np.floating,)):
+                            val = float(val) if np.isfinite(val) else None
+                        elif isinstance(val, (np.bool_,)):
+                            val = bool(val)
+                        elif pd.isna(val):
+                            val = None
+                        elif not isinstance(val, (int, float, bool, str, type(None))):
+                            val = str(val)
+                        _row_dict[col] = val
+                    rec_row["full_row_json"] = json.dumps(_row_dict, default=str)
+                except Exception as _json_exc:
+                    logger.debug("Could not serialize full row for %s: %s", ticker, _json_exc)
+                    rec_row["full_row_json"] = None
+            else:
                 rec_row["full_row_json"] = None
             try:
                 self._recs_table.upsert(rec_row).execute()

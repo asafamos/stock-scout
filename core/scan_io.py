@@ -77,7 +77,16 @@ def save_scan(
         logger.error(f"Failed to save scan: {e}")
         raise IOError(f"Failed to save scan to {path_latest}: {e}")
 
-    # Opportunistically save to Supabase (non-blocking, best-effort)
+    # Opportunistically save to Supabase (non-blocking, best-effort).
+    # 2026-05-17: detect quota-exhausted errors specifically — they're
+    # expected during quota windows and shouldn't generate alarming logs.
+    # Skip entirely if SUPABASE_SAVE_DISABLED env var is set (manual kill
+    # switch for emergencies).
+    import os as _os
+    if _os.environ.get("SUPABASE_SAVE_DISABLED", "0") == "1":
+        logger.debug("Supabase save skipped (SUPABASE_SAVE_DISABLED=1)")
+        return
+
     try:
         from core.db.scan_manager import get_scan_manager
 
@@ -90,7 +99,18 @@ def save_scan(
         else:
             logger.warning("Supabase not available — scan saved locally only (will be lost on redeploy)")
     except Exception as exc:
-        logger.warning("Supabase scan save FAILED: %s", exc)
+        # Quota-exhausted errors return specific Supabase/PostgREST codes.
+        # Demote those to DEBUG so the log doesn't fill with red during
+        # the 3-week quota window. Real errors stay at WARNING.
+        msg = str(exc).lower()
+        is_quota = any(s in msg for s in (
+            "quota", "rate limit", "too many requests", "429",
+            "restricted", "billing",
+        ))
+        if is_quota:
+            logger.debug("Supabase save skipped (quota exhausted): %s", exc)
+        else:
+            logger.warning("Supabase scan save FAILED: %s", exc)
 
 
 def load_latest_scan(path_latest: Path) -> Tuple[Optional[pd.DataFrame], Optional[Dict[str, Any]]]:
