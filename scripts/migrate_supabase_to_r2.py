@@ -128,9 +128,22 @@ def get_r2_client(cfg: MigrationConfig):
 def list_supabase_files(sb_client, bucket: str) -> List[dict]:
     """List ALL files in the bucket, recursively walking subdirectories.
 
-    Supabase's list() only returns one level at a time. We walk the tree
-    by recursing into folders (items without `metadata`).
+    2026-05-17: bypass supabase-py library entirely. It crashes on Hebrew
+    characters in (probably) the User-Agent header construction. Use direct
+    HTTP POST to the REST API instead — full control over headers/encoding.
     """
+    import requests
+    import os as _os
+    sb_url = _os.environ["SUPABASE_URL"].rstrip("/")
+    sb_key = _os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+    headers = {
+        "apikey": sb_key,
+        "Authorization": f"Bearer {sb_key}",
+        "Content-Type": "application/json",
+        "User-Agent": "stockscout-migrate/1.0",  # ASCII-safe explicit
+    }
+    list_url = f"{sb_url}/storage/v1/object/list/{bucket}"
+
     all_files = []
     queue = [""]  # start at root
     visited_prefixes = set()
@@ -139,13 +152,20 @@ def list_supabase_files(sb_client, bucket: str) -> List[dict]:
         if prefix in visited_prefixes:
             continue
         visited_prefixes.add(prefix)
+        body = {
+            "prefix": prefix,
+            "limit": 10000,
+            "offset": 0,
+            "sortBy": {"column": "name", "order": "asc"},
+        }
         try:
-            items = sb_client.storage.from_(bucket).list(
-                prefix or None,
-                {"limit": 10000, "offset": 0, "sortBy": {"column": "name", "order": "asc"}},
-            )
+            resp = requests.post(list_url, headers=headers, json=body, timeout=30)
+            resp.raise_for_status()
+            items = resp.json()
         except Exception as exc:
             logger.error("List failed at prefix %r: %s", prefix, exc)
+            if hasattr(exc, "response") and exc.response is not None:
+                logger.error("  status=%d body=%s", exc.response.status_code, exc.response.text[:300])
             continue
         for it in items:
             name = it.get("name")
@@ -186,9 +206,24 @@ def migrate_one(cfg: MigrationConfig, sb_client, r2_client, file: dict) -> tuple
     if cfg.dry_run:
         return key, "dry_run", size
 
-    # Download from Supabase
+    # Download from Supabase — direct HTTP to avoid library encoding bugs
+    import requests
+    import os as _os
+    sb_url = _os.environ["SUPABASE_URL"].rstrip("/")
+    sb_key = _os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+    # Use requote_uri to safely URL-encode any non-ASCII path components
+    from urllib.parse import quote
+    safe_key = quote(key, safe="/")
+    download_url = f"{sb_url}/storage/v1/object/authenticated/{cfg.supabase_bucket}/{safe_key}"
+    dl_headers = {
+        "apikey": sb_key,
+        "Authorization": f"Bearer {sb_key}",
+        "User-Agent": "stockscout-migrate/1.0",
+    }
     try:
-        data = sb_client.storage.from_(cfg.supabase_bucket).download(key)
+        resp = requests.get(download_url, headers=dl_headers, timeout=120)
+        resp.raise_for_status()
+        data = resp.content
     except Exception as exc:
         msg = str(exc).lower()
         if any(s in msg for s in ("quota", "restricted", "429", "rate")):
