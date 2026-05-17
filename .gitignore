@@ -122,3 +122,4 @@ ml/bundles/latest/*
 models/*.joblib
 .claude/
 .env.facegreet-migration
+!.env.facegreet-migration.template
