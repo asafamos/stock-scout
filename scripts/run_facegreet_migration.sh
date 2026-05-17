@@ -11,19 +11,27 @@
 #   ✓ supabase + boto3 + requests installed in .venv
 #
 # Usage:
-#   cd ~/StockScout/stock-scout-2
-#   bash scripts/run_facegreet_migration.sh
+#   Interactive:   bash scripts/run_facegreet_migration.sh
+#   Auto (no prompt):  bash scripts/run_facegreet_migration.sh --yes
 #
 # What this does:
 #   1. Loads credentials from .env.facegreet-migration
 #   2. Validates all env vars are clean ASCII
 #   3. Runs a dry-run on 5 files (sanity check)
-#   4. PROMPTS for confirmation before the live migration
+#   4. PROMPTS for confirmation (unless --yes)
 #   5. Runs full migration (734 files, ~3.5 GB, ~10-30 min)
 #   6. Prints SQL to delete from Supabase after spot-check
 # ============================================================
 
 set -e  # exit on any error
+
+# Parse args
+AUTO_YES=0
+for arg in "$@"; do
+    case "$arg" in
+        --yes|-y) AUTO_YES=1 ;;
+    esac
+done
 
 cd "$(dirname "$0")/.."
 
@@ -52,13 +60,17 @@ echo "── 3. Dry-run on 5 files ──"
 .venv/bin/python scripts/migrate_supabase_to_r2.py --dry-run --limit 5
 
 echo ""
-echo "If the dry-run above looks healthy (no QUOTA BLOCK errors, 5 files listed),"
-echo "we're ready for the live migration of 734 files (~3.5 GB, ~10-30 minutes)."
-echo ""
-read -r -p "Proceed with LIVE migration? [yes/no]: " ans
-if [ "$ans" != "yes" ]; then
-    echo "Aborted by user."
-    exit 0
+if [ "$AUTO_YES" -eq 1 ]; then
+    echo "AUTO MODE (--yes): proceeding to live migration without prompt."
+else
+    echo "If the dry-run above looks healthy (no QUOTA BLOCK errors, 5 files listed),"
+    echo "we're ready for the live migration of 734 files (~3.5 GB, ~10-30 minutes)."
+    echo ""
+    read -r -p "Proceed with LIVE migration? [yes/no]: " ans
+    if [ "$ans" != "yes" ]; then
+        echo "Aborted by user."
+        exit 0
+    fi
 fi
 
 echo ""
