@@ -119,12 +119,20 @@ IB Gateway needs re-authentication before market opens Monday.
 Takes 10 seconds!"
 fi
 
-# Off-hours: minimal check — Docker container alive? Monitor daemon alive?
-# Anything else (handshake to a possibly-dead-on-purpose session, drift
-# vs IB) would be noise. We just want to know if the container itself
-# crashed overnight so we can investigate before market open.
+# Off-hours: minimal check — Docker container alive + DEEP handshake.
+#
+# Updated 2026-05-18 after the Monday-morning outage where the Gateway
+# stayed UP for 4 days as a container but its IBKR SESSION died over the
+# Saturday-Sunday maintenance window, leaving us with a "container alive"
+# false-positive 6 hours before market open. The old code only checked
+# `docker ps` and skipped the handshake off-hours — so we'd discover the
+# dead session at 16:00 IL on Monday (way too late). Now we run the same
+# deep handshake + auto-restart logic off-hours, with longer dedup so we
+# don't spam at 3am.
 if [ "$MARKET_HOURS" -eq 0 ]; then
     OFF_HOURS_ISSUES=0
+
+    # 1. Container existence (cheap, fast)
     if ! docker ps --format '{{.Names}}' | grep -q ibgateway; then
         send_alert_dedup "offhours_container_down" \
             "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') <b>OFF-HOURS</b> IB Gateway container DOWN — attempting restart" \
@@ -141,14 +149,82 @@ if [ "$MARKET_HOURS" -eq 0 ]; then
                 3600
         fi
     fi
+
+    # 2. DEEP handshake — session inside the container can be dead while
+    # the container itself is alive (Saturday maintenance window).
+    # On weekdays before market (DoW 1-5, HOUR 0-12 UTC = before US open)
+    # and on Sunday afternoon onwards we definitely want this check to
+    # auto-heal so Monday's market open finds an authenticated session.
+    # On Saturday + Sunday morning we run it too but with longer dedup.
+    if docker ps --format '{{.Names}}' | grep -q ibgateway; then
+        OFFHOURS_API=$(run_handshake_check)
+        if [ "$OFFHOURS_API" != "OK" ]; then
+            # Dedup window: 1h on weekday-pre-market (we WANT to keep
+            # nudging before open), 4h on weekend (less urgent).
+            if [ "$DOW" -le 5 ]; then
+                DEDUP_SEC=3600   # weekday pre-market: 1h cooldown
+            else
+                DEDUP_SEC=14400  # weekend: 4h cooldown
+            fi
+
+            # First attempt: auto-restart the container, give it 45s to
+            # autologin + push 2FA. This usually works AFTER user has
+            # approved a pending push on phone.
+            echo "[OFF-HOURS AUTO-HEAL] handshake failed (${OFFHOURS_API}) — restarting ibgateway"
+            send_alert_dedup "offhours_session_dead" \
+                "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') <b>OFF-HOURS</b> IB session DEAD (handshake=${OFFHOURS_API})
+
+Container is up but the IBKR session expired (weekly maintenance window).
+Auto-restarting now — you should see a fresh 2FA push on IBKR Mobile.
+Approve it to re-authenticate.
+
+VNC if needed: http://87.99.142.12:5800/vnc.html" \
+                ${DEDUP_SEC}
+            docker restart ibgateway >/dev/null 2>&1
+            sleep 45
+            OFFHOURS_API2=$(run_handshake_check)
+            if [ "$OFFHOURS_API2" = "OK" ]; then
+                send_alert "$(echo -e '\xe2\x9c\x85') OFF-HOURS auto-heal SUCCESS: IB session restored"
+                clear_alert_dedup "offhours_session_dead"
+            else
+                # Auto-heal couldn't recover (user hasn't approved push yet).
+                # Send a LOUDER one-tap-recovery alert with full instructions.
+                send_alert_dedup "offhours_2fa_needed" \
+                    "$(echo -e '\xf0\x9f\x9a\xa8') <b>ACTION REQUIRED — IB Gateway needs 2FA</b>
+
+handshake still failing after auto-restart (${OFFHOURS_API2}).
+
+<b>To fix (10 sec on phone):</b>
+1. Open IBKR Mobile app
+2. Should see pending push: 'Approve sign-in'
+3. Tap Approve with Face ID / IB Key
+
+<b>If no push waiting:</b>
+ssh root@87.99.142.12 'docker restart ibgateway'
+(triggers fresh push)
+
+<b>Manual via browser:</b>
+http://87.99.142.12:5800/vnc.html" \
+                    ${DEDUP_SEC}
+                OFF_HOURS_ISSUES=$((OFF_HOURS_ISSUES + 1))
+            fi
+        else
+            # Handshake OK off-hours → all clear; clear any stale alerts
+            clear_alert_dedup "offhours_session_dead"
+            clear_alert_dedup "offhours_2fa_needed"
+        fi
+    fi
+
+    # 3. Monitor daemon
     if ! systemctl is-active --quiet stockscout-monitor; then
         send_alert_dedup "offhours_monitor_down" \
             "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') OFF-HOURS: monitor daemon DOWN — restarting" \
             7200
         sudo systemctl restart stockscout-monitor 2>/dev/null
     fi
+
     if [ "$OFF_HOURS_ISSUES" -eq 0 ]; then
-        echo "Off-hours minimal check OK"
+        echo "Off-hours check OK"
     fi
     exit 0
 fi

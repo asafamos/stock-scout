@@ -349,7 +349,13 @@ sudo tee /etc/systemd/system/stockscout-healthcheck.timer > /dev/null << 'SVCEOF
 Description=StockScout healthcheck timer
 
 [Timer]
-OnCalendar=Mon..Fri *:00/15 UTC
+# 2026-05-18: was Mon..Fri only — left the weekend uncovered, so the
+# Saturday IB Gateway maintenance window's session-expiry sat un-noticed
+# until 16:00 IL Monday (10 minutes before market open). Now runs every
+# day, every 15 min. The script itself differentiates market-hours
+# (deep) vs off-hours (deep too but with longer alert-dedup so it
+# doesn't spam at 3am).
+OnCalendar=*-*-* *:00/15 UTC
 Persistent=true
 
 [Install]
