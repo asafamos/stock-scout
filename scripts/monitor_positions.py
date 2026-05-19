@@ -1564,9 +1564,17 @@ def _ratchet_stops(tracker, client, ibkr_orders, notify):
         if current_price <= 0:
             continue
 
-        # Update peak tracking
+        # Update peak tracking.
+        # 2026-05-19 BUGFIX: the comparison `peak_price != pos.get("peak_price")`
+        # used to fail-closed: when the field was MISSING (e.g. brand-new
+        # position), pos.get returned `entry` as default, and if
+        # current_price <= entry, peak_price was max(entry,current) = entry,
+        # so "entry != entry" = False → field NEVER persisted. Positions
+        # whose first monitor cycle saw current<entry would have peak_price
+        # absent forever, breaking break-even + ratchet permanently for
+        # them. Now we check field existence explicitly.
         peak_price = max(pos.get("peak_price", entry), current_price)
-        if peak_price != pos.get("peak_price"):
+        if "peak_price" not in pos or peak_price != pos["peak_price"]:
             pos["peak_price"] = peak_price
             changed = True
 

@@ -543,6 +543,10 @@ class IBKRClient:
             buy_order.action = "BUY"
             buy_order.totalQuantity = qty
             buy_order.orderType = "MKT"
+            # 2026-05-19: explicit TIF=DAY silences "Error 10349: TIF was
+            # set to DAY based on order preset" warning that polluted logs.
+            # GTC doesn't apply to MKT (fills immediately) — DAY is correct.
+            buy_order.tif = "DAY"
             buy_order.transmit = True
             buy_trade = self._ib.placeOrder(contract, buy_order)
 

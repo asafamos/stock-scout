@@ -86,9 +86,14 @@ class TradingConfig:
     )  # Pause trading if portfolio is down >X% from peak
 
     # ── Sector Concentration ─────────────────────────────────────
+    # 2026-05-19: tightened from 2 → 1 after Monday's run produced
+    # ARWR + ACHC (both Healthcare = 67% of portfolio). With max=2 the
+    # cap allowed concentration; max=1 forces every new buy into a
+    # different sector. Override via MAX_SECTOR_POSITIONS env var if
+    # you want to relax during specific regimes.
     max_sector_positions: int = field(
-        default_factory=lambda: _env_int("MAX_SECTOR_POSITIONS", 2)
-    )  # Max # of positions in same sector (avoid concentration)
+        default_factory=lambda: _env_int("MAX_SECTOR_POSITIONS", 1)
+    )  # Max # of positions in same sector (1 = strict diversification)
 
     # ── Portfolio Correlation ─────────────────────────────────────
     # Block a new entry if adding it would push the portfolio's mean
@@ -136,6 +141,7 @@ class TradingConfig:
     blocked_sectors: str = field(
         default_factory=lambda: _env("BLOCKED_SECTORS", "Consumer Defensive")
     )  # Comma-separated list
+
 
     # ── Earnings calendar gate (binary-risk reduction) ─────────
     # Block buys when an earnings announcement is within the window.
