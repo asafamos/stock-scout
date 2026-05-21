@@ -382,30 +382,41 @@ fi
 # 6b. Portfolio snapshot freshness — alert if monitor daemon's per-cycle
 # snapshot write has stalled. The monitor calls write_snapshot() at the end
 # of each main loop iteration (~once per cycle = ~30-60s). If the file isn't
-# mtime-bumped in >300s during market hours, the daemon is stuck in a loop
-# or hung on an IB call — even though `systemctl is-active` may still report
-# active. This is the silent-failure mode the existing checks miss.
+# mtime-bumped in >300s during ACTIVE market hours, the daemon is stuck.
+#
+# 2026-05-21 FIX: only fire from HOUR>=14 UTC. Reason: MARKET_HOURS in this
+# script starts at HOUR>=13, but the actual US market open is at 13:30 UTC.
+# Before then the monitor is in pre-market sleep and doesn't write snapshots,
+# so a "stale" alert at 13:00-13:30 is a false positive. Same for first 30
+# minutes after open (giving monitor time to do its first cycle).
 SNAPSHOT="/home/stockscout/stock-scout-2/data/trades/portfolio_snapshot.json"
 SNAPSHOT_STALE_SEC=300  # 5 min — generous for slow IB cycles
-if [ -f "${SNAPSHOT}" ]; then
-    SNAPSHOT_AGE=$(( $(date +%s) - $(stat -c %Y "${SNAPSHOT}" 2>/dev/null || echo 0) ))
-    if [ "${SNAPSHOT_AGE}" -gt "${SNAPSHOT_STALE_SEC}" ]; then
-        send_alert_dedup "snapshot_stale" \
-            "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') Portfolio snapshot STALE — last write ${SNAPSHOT_AGE}s ago (>${SNAPSHOT_STALE_SEC}s). Monitor daemon is up but its main loop is stuck.
+if [ "${HOUR}" -ge 14 ] && [ "${HOUR}" -le 20 ]; then
+    if [ -f "${SNAPSHOT}" ]; then
+        SNAPSHOT_AGE=$(( $(date +%s) - $(stat -c %Y "${SNAPSHOT}" 2>/dev/null || echo 0) ))
+        if [ "${SNAPSHOT_AGE}" -gt "${SNAPSHOT_STALE_SEC}" ]; then
+            send_alert_dedup "snapshot_stale" \
+                "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') Portfolio snapshot STALE — last write ${SNAPSHOT_AGE}s ago (>${SNAPSHOT_STALE_SEC}s). Monitor daemon is up but its main loop is stuck.
 
 Likely causes: stuck IB call, file lock, exception swallowed in cycle.
 Action: ssh stockscout@87.99.142.12 'pkill -KILL -u stockscout -f monitor_positions' to force systemd restart." \
-            1800  # 30-min dedup to avoid spam while you investigate
-        ISSUES=$((ISSUES + 1))
+                1800  # 30-min dedup to avoid spam while you investigate
+            ISSUES=$((ISSUES + 1))
+        else
+            clear_alert_dedup "snapshot_stale"
+        fi
     else
-        clear_alert_dedup "snapshot_stale"
+        # Snapshot file missing — separate alert (different root cause)
+        send_alert_dedup "snapshot_missing" \
+            "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') Portfolio snapshot file MISSING (${SNAPSHOT}). Monitor never reached write_snapshot since startup." \
+            7200
+        ISSUES=$((ISSUES + 1))
     fi
 else
-    # Snapshot file missing — separate alert (different root cause)
-    send_alert_dedup "snapshot_missing" \
-        "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') Portfolio snapshot file MISSING (${SNAPSHOT}). Monitor never reached write_snapshot since startup." \
-        7200
-    ISSUES=$((ISSUES + 1))
+    # Outside active market window — snapshot age is expected to grow as
+    # monitor only writes during run_check() (gated on is_market_open).
+    # Clear any stale alert so we don't see a leftover from yesterday.
+    clear_alert_dedup "snapshot_stale"
 fi
 
 # 7. Scan outcomes tracker health — alert if recording has stalled.

@@ -155,17 +155,38 @@ def get_portfolio_status() -> str:
                         f"  {t.contract.symbol}: STP-LMT ${o.auxPrice:.2f}/${o.lmtPrice:.2f} GTC ✅"
                     )
 
-            # Coverage check: every held ticker should have BOTH stop and limit
+            # Coverage check: every held ticker should have BOTH stop and limit.
+            # 2026-05-21: for cash<$2k accounts, LIMIT orders are systematically
+            # rejected by IB (Error 201 — margin requirement of OCA group). The
+            # monitor's _target_hit_pass is the software replacement that fires
+            # a market sell when current_price >= target_price. So a missing
+            # LIMIT in those accounts is EXPECTED, not an alert condition.
+            # We still flag missing STOP loudly because that's never tolerable.
             held_tickers = {p.contract.symbol for p in ib.positions() if p.position > 0}
+            # Detect cash<$2k tier from account summary (we already read it above)
+            try:
+                _net_liq = 0.0
+                for it in ib.accountSummary():
+                    if it.tag == "NetLiquidation":
+                        _net_liq = float(it.value or 0); break
+                cash_under_2k = (0 < _net_liq < 2000)
+            except Exception:
+                cash_under_2k = False
+
             for tk in sorted(held_tickers):
                 c = coverage.get(tk, {"stop": False, "limit": False})
-                if not c["stop"] or not c["limit"]:
-                    missing = []
-                    if not c["stop"]:
-                        missing.append("STOP")
-                    if not c["limit"]:
-                        missing.append("LIMIT")
+                missing = []
+                if not c["stop"]:
+                    missing.append("STOP")  # always critical
+                if not c["limit"] and not cash_under_2k:
+                    missing.append("LIMIT")  # only critical above $2k
+                if missing:
                     lines.append(f"  ⚠️ {tk}: MISSING {'+'.join(missing)}")
+                elif not c["limit"] and cash_under_2k:
+                    # Informational note — software replacement is active
+                    lines.append(
+                        f"  ℹ️ {tk}: target via monitor (LIMIT blocked by IB cash<$2k tier)"
+                    )
         else:
             lines.append("\n⚠️ No protective orders!")
 
