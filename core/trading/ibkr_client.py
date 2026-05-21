@@ -1147,12 +1147,32 @@ class IBKRClient:
                             # connection as the OWNING clientId, cancel from
                             # there, then disconnect. Read the owning clientId
                             # off the target order itself.
+                            # 2026-05-21 REWRITE: the old fallback was cancel-then-place-fresh.
+                            # That fails fatally for sub-$2k cash accounts because IB
+                            # rejects the replacement SELL with Error 201 ("MINIMUM
+                            # 2000 USD REQUIRED") — IB sees a fresh SELL order
+                            # without its bracket context and treats it as a
+                            # potential short. Real-world impact: every ratchet
+                            # and break-even attempt would silently fail; trail
+                            # stayed at 4% forever; portfolio gave back ALL
+                            # ILMN+LYB peak gains 5/15-5/20 because we couldn't
+                            # tighten.
+                            #
+                            # New approach: MODIFY in-place via secondary
+                            # connection (same orderId, just updated trailingPercent).
+                            # IB treats this as a modify of the original bracket
+                            # leg, which is allowed even for cash<$2k. We NEVER
+                            # cancel the live protection until we have a working
+                            # replacement.
                             owner_cid = int(getattr(target_trade.order, "clientId", 0) or 0)
                             self_cid = int(getattr(self._ib.client, "clientId", 0) or 0)
+                            modify_via_secondary_ok = False
+
                             if owner_cid and owner_cid != self_cid:
                                 logger.info(
                                     "TRAIL #%d owned by clientId=%d (we are %d) — "
-                                    "opening secondary connection to cancel",
+                                    "opening secondary to MODIFY in-place (NOT cancel+replace, "
+                                    "which fails for cash<$2k accounts)",
                                     order_id, owner_cid, self_cid,
                                 )
                                 try:
@@ -1163,71 +1183,57 @@ class IBKRClient:
                                     _aux.sleep(2)
                                     for _t in _aux.openTrades():
                                         if _t.order.orderId == order_id:
-                                            _aux.cancelOrder(_t.order)
+                                            # KEY: same orderId + new trailingPercent = MODIFY,
+                                            # not new order. IB accepts even cash<$2k.
+                                            _t.order.trailingPercent = float(new_trail_pct)
+                                            _aux.placeOrder(_t.contract, _t.order)
                                             _aux.sleep(3)
+                                            mod_status = _t.orderStatus.status
                                             logger.info(
-                                                "Secondary cancel of #%d: status=%s",
-                                                order_id, _t.orderStatus.status,
+                                                "Secondary MODIFY of #%d via clientId=%d: status=%s",
+                                                order_id, owner_cid, mod_status,
                                             )
+                                            if mod_status in ("PreSubmitted",
+                                                              "Submitted",
+                                                              "PendingSubmit"):
+                                                modify_via_secondary_ok = True
                                             break
                                     _aux.disconnect()
                                 except Exception as _ce:
                                     logger.warning(
-                                        "Secondary cancel for #%d failed: %s — "
-                                        "falling back to broadcast cancel",
+                                        "Secondary in-place modify for #%d failed: %s",
                                         order_id, _ce,
                                     )
-                                    self._ib.cancelOrder(target_trade.order)
-                                    self._ib.sleep(4)
-                            else:
-                                # Same clientId — direct cancel works
-                                self._ib.cancelOrder(target_trade.order)
-                                self._ib.sleep(4)
 
-                            # Place fresh TRAIL with new percent — owned by
-                            # OUR clientId now, future modifies will work.
-                            new_trail = _Order()
-                            new_trail.action = "SELL"
-                            new_trail.totalQuantity = _qty
-                            new_trail.orderType = "TRAIL"
-                            new_trail.trailingPercent = float(new_trail_pct)
-                            new_trail.tif = "GTC"
-                            new_trail.ocaGroup = _oca
-                            new_trail.ocaType = 1
-                            new_trail.transmit = True
-                            replacement = self._ib.placeOrder(_contract, new_trail)
-                            self._ib.sleep(3)
-
-                            # Verify replacement is alive
-                            rep_status = replacement.orderStatus.status
-                            rep_errors = [
-                                (le.errorCode, le.message)
-                                for le in (replacement.log or [])
-                                if (le.errorCode or 0) > 0
-                            ]
-                            if (rep_status in ("PreSubmitted", "Submitted",
-                                                "PendingSubmit")
-                                    and not rep_errors):
+                            if modify_via_secondary_ok:
                                 logger.info(
-                                    "✓ FALLBACK SUCCESS %s: cancelled #%d, "
-                                    "placed new TRAIL #%d at %.1f%% (was %.1f%%)",
-                                    _ticker, order_id,
-                                    replacement.order.orderId,
-                                    new_trail_pct, old_pct,
+                                    "✓ MODIFY-VIA-SECONDARY SUCCESS %s #%d: "
+                                    "trail %.2f%% → %.2f%% (cash<$2k safe path)",
+                                    _ticker, order_id, old_pct, new_trail_pct,
                                 )
                                 return TradeResult(
                                     ticker=_ticker, action="SELL",
                                     order_type="TRAIL", quantity=_qty,
                                     filled_price=0.0,
-                                    status=rep_status,
-                                    order_id=replacement.order.orderId,
+                                    status="PreSubmitted",
+                                    order_id=order_id,
                                 )
-                            else:
-                                logger.error(
-                                    "FALLBACK FAILED %s: replacement status=%s errors=%s",
-                                    _ticker, rep_status, rep_errors,
-                                )
-                                # Fall through to the original error return
+
+                            # If secondary modify didn't work (no owner clientId,
+                            # or modify rejected), we DO NOT cancel+replace —
+                            # that path is poison for cash<$2k accounts. We
+                            # leave the existing trail in place at the old
+                            # percent and surface a loud error so the user
+                            # knows the tightening attempt failed.
+                            logger.error(
+                                "TRAIL TIGHTEN FAILED %s #%d: "
+                                "self_cid=%d, owner_cid=%d. "
+                                "Leaving existing trail at %.2f%% (NOT cancelling — "
+                                "cancel+replace fails for cash<$2k). "
+                                "Position remains protected at the wider trail.",
+                                _ticker, order_id, self_cid, owner_cid, old_pct,
+                            )
+                            # Fall through to the original error return
                         except Exception as _fe:
                             logger.error(
                                 "FALLBACK exception for %s: %s",

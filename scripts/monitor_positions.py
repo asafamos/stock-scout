@@ -472,6 +472,17 @@ def run_check():
         # 2. Verify protective orders — every position MUST have live orders
         _verify_protections(tracker, client, ibkr_orders, notify)
 
+        # 2a2. TARGET HIT auto-sell — replaces the LMT order for sub_2k
+        # cash accounts where IB rejects OCA LMT (Error 201: margin
+        # insufficient because OCA double-counts margin). Without this,
+        # a position that touches its target_price gets NO automatic
+        # exit — TRAIL alone gives back 4% before firing. Live impact
+        # 2026-05-15 to 5-20: ILMN + LYB peaked above target_price area
+        # but trail captured the descent, leaving meaningful profit on
+        # the table. This pass catches target-touch even WITHOUT the
+        # LMT order being placed on IB.
+        _target_hit_pass(tracker, client, ibkr_orders, notify)
+
         # 2b. Ratchet stops up as positions run up (lock in profits)
         if CONFIG.ratchet_enabled:
             _ratchet_stops(tracker, client, ibkr_orders, notify)
@@ -1471,6 +1482,163 @@ def _take_partial_profit(tracker, client, notify):
 
     if changed:
         tracker._save_positions(positions)
+
+
+def _target_hit_pass(tracker, client, ibkr_orders, notify):
+    """Detect positions whose current price reached the target_price and
+    market-sell them. Software replacement for the OCA LMT order that
+    sub-$2k IB cash accounts cannot reliably place (Error 201 — margin
+    requirement of OCA group exceeds account equity).
+
+    Behavior:
+      For each open position:
+        1. Read current market price from IB portfolio
+        2. If current_price >= target_price × 0.999 (1bp slop for fills):
+           a. Cancel the existing TRAIL (and any sibling OCA orders)
+           b. Place MKT SELL for the full quantity
+           c. Wait up to 10s for fill
+           d. Record the close in tracker + notify Telegram
+      Otherwise: leave alone (TRAIL keeps protecting downside).
+
+    Idempotency: if a previous cycle already initiated the sell but the
+    fill hasn't propagated yet, IB will return the existing trade. The
+    `target_hit_initiated_at` tag on the position guards against double-
+    submit within the same trading minute.
+
+    This runs BEFORE _ratchet_stops so a target-hit position exits
+    cleanly without the ratchet tightening it mid-flight.
+    """
+    from core.trading.config import CONFIG
+    import math as _m
+    from datetime import datetime as _dt, timezone as _tz
+
+    positions = tracker.get_open_positions()
+    if not positions:
+        return
+
+    try:
+        portfolio = {p.contract.symbol: p for p in client._ib.portfolio()
+                     if p.position != 0}
+    except Exception:
+        logger.warning("Target-hit pass: couldn't read portfolio")
+        return
+
+    # Map of ticker -> active TRAIL/LMT orders (for cancel before market sell)
+    orders_by_ticker = {}
+    for o in ibkr_orders:
+        t = o.get("ticker", "")
+        if t and o.get("status") in ("Submitted", "PreSubmitted"):
+            orders_by_ticker.setdefault(t, []).append(o)
+
+    changed = False
+    for pos in positions:
+        ticker = pos["ticker"]
+        entry = float(pos.get("entry_price", 0) or 0)
+        target = float(pos.get("target_price", 0) or 0)
+        qty = int(pos.get("quantity", 0) or 0)
+        if entry <= 0 or target <= 0 or qty <= 0:
+            continue
+
+        port_item = portfolio.get(ticker)
+        if not port_item:
+            continue
+        current_price = float(port_item.marketPrice)
+        if not _m.isfinite(current_price) or current_price <= 0:
+            continue
+
+        # Slop: 0.1% under target counts as "hit" (covers IB rounding +
+        # the gap between marketPrice and actual fill price). Picked to
+        # match the existing _classify_reason logic in run_check (uses 1%).
+        hit_threshold = target * 0.999
+        if current_price < hit_threshold:
+            continue
+
+        # Idempotency — don't re-fire if already sold this cycle
+        last_initiated = pos.get("target_hit_initiated_at")
+        if last_initiated:
+            try:
+                _dt_last = _dt.fromisoformat(last_initiated.replace("Z", "+00:00"))
+                now = _dt.now(_tz.utc)
+                if (now - _dt_last).total_seconds() < 120:
+                    logger.info("Target-hit %s already initiated %.0fs ago — skipping",
+                                ticker, (now - _dt_last).total_seconds())
+                    continue
+            except Exception:
+                pass
+
+        gain_pct = (current_price - entry) / entry * 100
+        logger.info(
+            "🎯 TARGET HIT %s: current $%.2f >= target $%.2f (gain +%.2f%%) — selling",
+            ticker, current_price, target, gain_pct,
+        )
+
+        # Mark intent immediately so we don't re-fire on parallel cycles.
+        pos["target_hit_initiated_at"] = _dt.utcnow().isoformat() + "Z"
+        changed = True
+        try:
+            tracker._save_positions(positions)
+        except Exception:
+            pass
+
+        # Cancel sibling OCA orders first so they don't fire on the
+        # downward tick after our market sell.
+        oca = pos.get("order_ids", {}).get("oca_group", "")
+        cancelled = 0
+        for o in orders_by_ticker.get(ticker, []):
+            if oca and o.get("oca_group") != oca:
+                continue
+            if o.get("order_type") in ("TRAIL", "LMT", "STP"):
+                try:
+                    for t in client._ib.openTrades():
+                        if t.order.orderId == o.get("order_id"):
+                            client._ib.cancelOrder(t.order)
+                            cancelled += 1
+                            break
+                except Exception as _ce:
+                    logger.warning("Cancel %s #%s failed: %s",
+                                   ticker, o.get("order_id"), _ce)
+        if cancelled:
+            client._ib.sleep(2)
+
+        # Market sell
+        try:
+            result = client._sell_market(ticker, qty)
+        except Exception as _se:
+            logger.error("Target-hit market sell FAILED for %s: %s", ticker, _se)
+            notify.notify_error("Monitor", f"Target-hit sell FAILED {ticker}: {_se}")
+            continue
+
+        exit_price = getattr(result, "filled_price", 0.0) or 0.0
+        if exit_price <= 0:
+            logger.warning(
+                "Target-hit %s: sell status=%s, no fill price yet — tracker "
+                "will reconcile on next cycle",
+                ticker, getattr(result, "status", "?"),
+            )
+            continue
+
+        pnl = (exit_price - entry) * qty
+        try:
+            tracker.remove_position(ticker, exit_price, "target_hit")
+        except Exception as _re:
+            logger.warning("remove_position failed for %s: %s", ticker, _re)
+
+        try:
+            notify.notify_sell(ticker, qty, exit_price, "target_hit", pnl)
+        except Exception:
+            pass
+
+        # Explicit alert distinguishing target-hit from trail
+        try:
+            notify._send(
+                f"🎯 <b>TARGET HIT {ticker}</b>\n"
+                f"  Entry: ${entry:.2f} → Exit: ${exit_price:.2f}\n"
+                f"  Target was: ${target:.2f}\n"
+                f"  Gain: +{gain_pct:.2f}% (${pnl:+.2f})\n"
+                f"  Monitor-side fill (LMT was missing due to IB margin cap)"
+            )
+        except Exception:
+            pass
 
 
 def _ratchet_stops(tracker, client, ibkr_orders, notify):
