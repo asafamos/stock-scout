@@ -1164,45 +1164,90 @@ class IBKRClient:
                             # leg, which is allowed even for cash<$2k. We NEVER
                             # cancel the live protection until we have a working
                             # replacement.
-                            owner_cid = int(getattr(target_trade.order, "clientId", 0) or 0)
+                            # 2026-05-21 KEY FIX: read the OWNER clientId from
+                            # orderStatus.clientId, NOT from order.clientId.
+                            # The latter gets overwritten by ib_insync to the
+                            # CURRENT client when we call placeOrder. The
+                            # former preserves the original placing client.
+                            # Real-world confirmed: ORCL #12 was placed by a
+                            # scan_and_trade.sh random-fallback clientId 390;
+                            # target_trade.order.clientId reported 2 (us),
+                            # target_trade.orderStatus.clientId reported 390
+                            # (truth). Manual modify via 390 succeeded
+                            # instantly at 10:46 IL Wed 2026-05-21.
+                            owner_cid_from_order = int(getattr(target_trade.order, "clientId", 0) or 0)
+                            owner_cid_from_status = int(getattr(target_trade.orderStatus, "clientId", 0) or 0)
                             self_cid = int(getattr(self._ib.client, "clientId", 0) or 0)
+                            # Prefer orderStatus.clientId because order.clientId
+                            # gets mutated by our own placeOrder attempt above.
+                            owner_cid = owner_cid_from_status or owner_cid_from_order
+                            # Candidate clientIds to try in order of likelihood:
+                            #   1. The status-reported owner (most accurate)
+                            #   2. 1 (default auto-trade clientId)
+                            #   3. The order-reported clientId (may be stale)
+                            #   4. Any clientId seen in the order's log history
+                            owner_candidates = []
+                            seen = set()
+                            for cid in (owner_cid_from_status, 1, owner_cid_from_order):
+                                if cid and cid != self_cid and cid not in seen:
+                                    owner_candidates.append(cid)
+                                    seen.add(cid)
                             modify_via_secondary_ok = False
 
-                            if owner_cid and owner_cid != self_cid:
+                            for cand_cid in owner_candidates:
+                                if modify_via_secondary_ok:
+                                    break
                                 logger.info(
-                                    "TRAIL #%d owned by clientId=%d (we are %d) — "
-                                    "opening secondary to MODIFY in-place (NOT cancel+replace, "
-                                    "which fails for cash<$2k accounts)",
-                                    order_id, owner_cid, self_cid,
+                                    "TRAIL #%d: trying secondary MODIFY via clientId=%d "
+                                    "(self=%d, status_owner=%d, order_owner=%d)",
+                                    order_id, cand_cid, self_cid,
+                                    owner_cid_from_status, owner_cid_from_order,
                                 )
                                 try:
                                     _aux = _IB()
                                     _aux.connect("127.0.0.1", 7496,
-                                                 clientId=owner_cid, timeout=8)
+                                                 clientId=cand_cid, timeout=8)
                                     _aux.reqAllOpenOrders()
                                     _aux.sleep(2)
+                                    matched = False
                                     for _t in _aux.openTrades():
-                                        if _t.order.orderId == order_id:
+                                        if (_t.order.orderId == order_id
+                                                and _t.contract.symbol == _ticker
+                                                and _t.order.action == "SELL"):
                                             # KEY: same orderId + new trailingPercent = MODIFY,
                                             # not new order. IB accepts even cash<$2k.
                                             _t.order.trailingPercent = float(new_trail_pct)
                                             _aux.placeOrder(_t.contract, _t.order)
                                             _aux.sleep(3)
                                             mod_status = _t.orderStatus.status
+                                            mod_errors = [
+                                                (le.errorCode, le.message[:80])
+                                                for le in (_t.log or [])
+                                                if (le.errorCode or 0) > 0
+                                                   and le.errorCode != 103
+                                            ]
                                             logger.info(
-                                                "Secondary MODIFY of #%d via clientId=%d: status=%s",
-                                                order_id, owner_cid, mod_status,
+                                                "Secondary MODIFY #%d via clientId=%d: "
+                                                "status=%s errors=%s",
+                                                order_id, cand_cid, mod_status, mod_errors,
                                             )
-                                            if mod_status in ("PreSubmitted",
-                                                              "Submitted",
-                                                              "PendingSubmit"):
+                                            matched = True
+                                            if (mod_status in ("PreSubmitted",
+                                                               "Submitted",
+                                                               "PendingSubmit")
+                                                    and not mod_errors):
                                                 modify_via_secondary_ok = True
                                             break
+                                    if not matched:
+                                        logger.debug(
+                                            "clientId=%d doesn't see order #%d — "
+                                            "trying next candidate", cand_cid, order_id,
+                                        )
                                     _aux.disconnect()
                                 except Exception as _ce:
-                                    logger.warning(
-                                        "Secondary in-place modify for #%d failed: %s",
-                                        order_id, _ce,
+                                    logger.debug(
+                                        "Secondary in-place modify via cid=%d failed: %s — "
+                                        "trying next candidate", cand_cid, _ce,
                                     )
 
                             if modify_via_secondary_ok:
@@ -1219,19 +1264,19 @@ class IBKRClient:
                                     order_id=order_id,
                                 )
 
-                            # If secondary modify didn't work (no owner clientId,
-                            # or modify rejected), we DO NOT cancel+replace —
+                            # If secondary modify didn't work (no candidate
+                            # clientId succeeded), we DO NOT cancel+replace —
                             # that path is poison for cash<$2k accounts. We
                             # leave the existing trail in place at the old
                             # percent and surface a loud error so the user
                             # knows the tightening attempt failed.
                             logger.error(
                                 "TRAIL TIGHTEN FAILED %s #%d: "
-                                "self_cid=%d, owner_cid=%d. "
+                                "self_cid=%d candidates_tried=%s. "
                                 "Leaving existing trail at %.2f%% (NOT cancelling — "
                                 "cancel+replace fails for cash<$2k). "
                                 "Position remains protected at the wider trail.",
-                                _ticker, order_id, self_cid, owner_cid, old_pct,
+                                _ticker, order_id, self_cid, owner_candidates, old_pct,
                             )
                             # Fall through to the original error return
                         except Exception as _fe:
