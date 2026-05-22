@@ -965,6 +965,16 @@ def _drift_check(tracker, client, ibkr_orders, notify):
         if t and o.get("status") in ("Submitted", "PreSubmitted"):
             orders_by_ticker.setdefault(t, []).append(o)
 
+    # 2026-05-22: detect cash<$2k tier so we don't flag missing LMT as drift.
+    # IB rejects LMT-in-OCA with Error 201 when AvailableFunds is too low;
+    # _target_hit_pass in the monitor is the software replacement. Flagging
+    # the missing LMT every 30min as DRIFT is noise that obscures real drift.
+    try:
+        _net_liq = float(client.get_net_liquidation() or 0)
+    except Exception:
+        _net_liq = 0.0
+    _cash_under_2k = (0 < _net_liq < 2000)
+
     for sym, pos in tracked.items():
         # Skip if position not in IB yet (just opened, may be pending)
         if sym not in ib_pos_by_ticker:
@@ -975,8 +985,11 @@ def _drift_check(tracker, client, ibkr_orders, notify):
         has_target = "LMT" in order_types
         if not has_stop:
             issues.append(f"{sym}: NO active stop order (TRAIL/STP)")
-        if not has_target:
+        if not has_target and not _cash_under_2k:
+            # Above $2k: missing LMT is real drift
             issues.append(f"{sym}: NO active target order (LMT)")
+        # cash<$2k: missing LMT is EXPECTED (IB Error 201) — software
+        # _target_hit_pass handles target exits; no drift to flag.
         # Detect zombie duplicates: more than one stop OR target in active set
         stop_count = sum(1 for o in orders if o.get("order_type") in ("TRAIL", "STP"))
         target_count = sum(1 for o in orders if o.get("order_type") == "LMT")
