@@ -998,10 +998,31 @@ def _verify_protections(tracker, client, ibkr_orders, notify):
 
     If orders are missing (cancelled, expired, margin issue), resubmit them
     and alert via Telegram.
+
+    2026-05-22 cash<$2k handling: IB rejects LMT in OCA brackets with
+    Error 201 for accounts below $2000. The TRAIL still gets placed
+    successfully. Without this gating, the missing LMT would trigger
+    repeated CRITICAL alerts every cycle even though the position IS
+    protected by TRAIL (and the monitor's _target_hit_pass provides
+    software target-exit). Now: if account is cash<$2k, treat TRAIL-only
+    as fully protected.
     """
     positions = tracker.get_open_positions()
     if not positions:
         return
+
+    # Detect cash<$2k tier — affects "fully protected" definition.
+    try:
+        _net_liq = float(client.get_net_liquidation() or 0)
+    except Exception:
+        _net_liq = 0.0
+    cash_under_2k = (0 < _net_liq < 2000)
+    if cash_under_2k:
+        logger.debug(
+            "_verify_protections: cash<$2k tier (net=$%.0f) — TRAIL-only is acceptable; "
+            "LMT replaced by software _target_hit_pass",
+            _net_liq,
+        )
 
     # Build set of active OCA groups from live orders
     active_ocas = set()
@@ -1030,19 +1051,40 @@ def _verify_protections(tracker, client, ibkr_orders, notify):
 
         # Check if this position's OCA group has live orders
         if oca and oca in active_ocas:
-            # Count how many live orders in this OCA group
-            live_count = sum(
-                1 for o in ibkr_orders
+            # Count + classify live orders in this OCA group
+            oca_orders = [
+                o for o in ibkr_orders
                 if o.get("oca_group") == oca
                 and o.get("status") in ("Submitted", "PreSubmitted")
+            ]
+            live_count = len(oca_orders)
+            has_trail = any(o.get("order_type") in ("TRAIL", "STP") for o in oca_orders)
+            has_limit = any(o.get("order_type") == "LMT" for o in oca_orders)
+
+            # Healthy definition:
+            #   - account >= $2k: both stop-side AND limit-side present (live_count >= 2)
+            #   - account <  $2k: TRAIL is sufficient (LMT is impossible for this tier;
+            #     target-side is handled by monitor's _target_hit_pass)
+            healthy = (
+                (live_count >= 2)
+                or (cash_under_2k and has_trail)
             )
-            if live_count >= 2:
-                logger.info("✓ %s protected (%d orders in OCA %s)", ticker, live_count, oca)
+            if healthy:
+                if cash_under_2k and not has_limit:
+                    logger.info(
+                        "✓ %s protected (TRAIL active in OCA %s; LMT not required at cash<$2k tier)",
+                        ticker, oca,
+                    )
+                else:
+                    logger.info("✓ %s protected (%d orders in OCA %s)", ticker, live_count, oca)
                 # Clear miss counter — protections confirmed healthy.
                 _PROTECTION_MISS_COUNT.pop(ticker, None)
                 continue
             else:
-                logger.warning("⚠ %s has only %d protective order(s) — resubmitting", ticker, live_count)
+                logger.warning(
+                    "⚠ %s OCA %s has %d order(s) — stop=%s limit=%s — resubmitting",
+                    ticker, oca, live_count, has_trail, has_limit,
+                )
         else:
             # FALLBACK: tracker's stored OCA may be stale (e.g. after a manual
             # resubmit or reconnect). Look for ANY live OCA group on this
@@ -1059,13 +1101,15 @@ def _verify_protections(tracker, client, ibkr_orders, notify):
                 g = o.get("oca_group", "")
                 if g:
                     by_oca.setdefault(g, []).append(o)
-            # Find a complete group (TRAIL + LMT or STP + LMT)
+            # Find a complete group:
+            #   - cash >= $2k: need TRAIL/STP AND LMT
+            #   - cash <  $2k: TRAIL/STP alone counts (LMT impossible at this tier)
             adopted_oca = None
             for g, orders in by_oca.items():
                 types = {o.get("order_type") for o in orders}
                 has_stop = bool(types & {"TRAIL", "STP"})
                 has_limit = "LMT" in types
-                if has_stop and has_limit:
+                if has_stop and (has_limit or cash_under_2k):
                     adopted_oca = g
                     break
             if adopted_oca:
