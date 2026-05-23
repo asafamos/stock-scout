@@ -51,12 +51,34 @@ if not TOKEN:
 
 
 def send_message(text: str):
+    """Send a message to Telegram and surface API errors loudly.
+
+    2026-05-23 fix: previously this swallowed Telegram API errors (e.g.
+    HTTP 400 from malformed HTML entities). A literal '<' in the message
+    body would make Telegram's parse_mode=HTML parser fail, return 400,
+    and we'd think the send succeeded. The user would just see no reply.
+
+    Now we check resp.ok and log Telegram's error description so the next
+    silent failure becomes a loud one in journalctl.
+    """
     try:
-        requests.post(
+        resp = requests.post(
             f"https://api.telegram.org/bot{TOKEN}/sendMessage",
             data={"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML"},
             timeout=10,
         )
+        if not resp.ok:
+            # Telegram returns JSON like {"ok":false,"description":"..."}
+            # so we can show why it rejected the message.
+            try:
+                desc = resp.json().get("description", resp.text[:200])
+            except Exception:
+                desc = resp.text[:200]
+            logger.error(
+                "Telegram sendMessage rejected: HTTP %s — %s "
+                "(first 80 chars of text: %r)",
+                resp.status_code, desc, text[:80],
+            )
     except Exception as e:
         logger.error("Send failed: %s", e)
 
@@ -185,7 +207,7 @@ def get_portfolio_status() -> str:
                 elif not c["limit"] and cash_under_2k:
                     # Informational note — software replacement is active
                     lines.append(
-                        f"  ℹ️ {tk}: target via monitor (LIMIT blocked by IB cash<$2k tier)"
+                        f"  ℹ️ {tk}: target via monitor (LIMIT blocked by IB sub-$2k tier)"
                     )
         else:
             lines.append("\n⚠️ No protective orders!")
