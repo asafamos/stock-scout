@@ -23,7 +23,10 @@ SELECT
     'scan_recommendations' AS table_name,
     COUNT(*) AS rows,
     pg_size_pretty(pg_total_relation_size('scan_recommendations')) AS total_size,
-    pg_size_pretty(SUM(LENGTH(COALESCE(full_row_json, '')))::bigint) AS blob_size,
+    -- 2026-05-23: cast JSONB to text before COALESCE — Postgres tries
+    -- to parse the '' default as JSON otherwise and errors out with
+    -- "invalid input syntax for type json: input string ended unexpectedly"
+    pg_size_pretty(SUM(LENGTH(COALESCE(full_row_json::text, '')))::bigint) AS blob_size,
     MIN(scan_timestamp) AS oldest,
     MAX(scan_timestamp) AS newest
 FROM scan_recommendations
