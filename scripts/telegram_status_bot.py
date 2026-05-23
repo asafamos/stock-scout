@@ -695,13 +695,43 @@ def main():
     heartbeat_sec = int(os.getenv("TRADE_BOT_HEARTBEAT_SEC", "300"))
     last_heartbeat = time.time()
 
+    # Record startup time BEFORE announcing — so messages sent IN RESPONSE
+    # to the "Status bot started" announce don't get caught in the
+    # skip-backlog logic below.
+    startup_ts = int(time.time())
+
     send_message("🤖 Status bot started. Send <b>status</b> for portfolio update.")
 
+    # Skip messages sent BEFORE we were alive (avoids re-executing stale
+    # /sell or /panic commands across restarts) — but PROCESS anything
+    # newer than startup_ts (a /status sent right after seeing the
+    # announce above must be honored, not dropped).
+    #
+    # 2026-05-23: previous logic was `offset = updates[-1]["update_id"] + 1`
+    # which unconditionally skipped EVERY pending update including the
+    # /status the user sent in direct response to the announce. With
+    # frequent restarts (4 in 10 minutes during deploy iteration today),
+    # the user fell into this race every time. Now we filter by Telegram's
+    # message `date` (unix epoch) and only skip messages older than startup.
     offset = 0
-    # Get current offset to skip old messages
     updates = get_updates(0)
     if updates:
-        offset = updates[-1]["update_id"] + 1
+        # Walk in order. Advance offset past each OLD message; stop at the
+        # first NEW message so it stays in the queue for the main loop to
+        # pick up on the next getUpdates(offset) call.
+        for u in updates:
+            msg_ts = int(u.get("message", {}).get("date", 0) or 0)
+            if msg_ts < startup_ts - 5:  # 5s grace for clock skew
+                offset = u["update_id"] + 1
+            else:
+                # First new message — leave it (and everything after) in
+                # the queue. Setting offset = u["update_id"] means the next
+                # call returns starting from this update.
+                offset = u["update_id"]
+                break
+        else:
+            # All updates were old — advance offset past the last one
+            offset = updates[-1]["update_id"] + 1
 
     while True:
         try:
