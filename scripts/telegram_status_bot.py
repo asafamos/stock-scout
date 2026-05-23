@@ -138,6 +138,19 @@ def _run_with_timeout(fn, timeout_sec: int = IB_QUERY_TIMEOUT_SEC, name: str = "
 
     def _wrapper():
         try:
+            # ib_insync uses asyncio internally. Python 3.10+ no longer
+            # auto-creates an event loop in non-main threads, so a fresh
+            # thread that calls ib_insync would raise:
+            #   "There is no current event loop in thread 'status'."
+            # We seed the loop here so the IB call has somewhere to run.
+            # (Observed in production 2026-05-23 13:31 after the initial
+            # timeout-wrapper deploy.)
+            import asyncio
+            try:
+                asyncio.get_event_loop()
+            except RuntimeError:
+                asyncio.set_event_loop(asyncio.new_event_loop())
+
             result_box[0] = fn()
         except BaseException as e:
             # Catch EVERYTHING — a daemon thread raising SystemExit or
