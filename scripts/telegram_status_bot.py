@@ -90,87 +90,12 @@ def get_updates(offset: int = 0) -> list:
     return []
 
 
-# 2026-05-23: timeout protection for IB-backed handlers.
-#
-# After IB Gateway's Saturday maintenance window (or any relogin),
-# ib_insync's blocking calls — portfolio(), reqAllOpenOrders(),
-# accountSummary() — can hang indefinitely instead of returning.
-# With no timeout, the bot's single-thread polling loop becomes mute:
-# alive but unresponsive (observed twice: 2026-05-22 19:58 status hang,
-# 2026-05-23 12:48 status hang after Sat maintenance).
-#
-# Fix: wrap each IB-backed handler in _run_with_timeout. If it doesn't
-# return within IB_QUERY_TIMEOUT_SEC, abandon the worker thread (daemon,
-# leaks the socket but doesn't block us) and return an error reply.
-# The next call uses a fresh clientId (via _next_ib_clientid) so the
-# leaked socket doesn't collide with the new session.
-IB_QUERY_TIMEOUT_SEC = int(os.getenv("TRADE_IB_QUERY_TIMEOUT", "25"))
-
-_CLIENTID_LOCK = threading.Lock()
-# Rotates 99..118 (20 IDs). Statusbot/pnl handlers stay in this band;
-# clientId=1 is auto-trade, 2 is the monitor, lower numbers are
-# reserved in core/trading/ibkr_client.py. 96-98 are kept for /panic
-# and /diag which have their own state.
-_CLIENTID_CURSOR = [99]
-
-
-def _next_ib_clientid() -> int:
-    """Rotate through clientIds 99..118 so a previously-leaked socket
-    (from a timed-out call) doesn't block the new connection."""
-    with _CLIENTID_LOCK:
-        cid = _CLIENTID_CURSOR[0]
-        _CLIENTID_CURSOR[0] = 99 + ((cid - 98) % 20)
-        return cid
-
-
-def _run_with_timeout(fn, timeout_sec: int = IB_QUERY_TIMEOUT_SEC, name: str = "ib_query"):
-    """Run blocking `fn` in a daemon thread; return (result, error_str).
-
-    On timeout, returns (None, descriptive_error) and lets the thread
-    leak. The thread is daemon so it dies with the process; in the
-    meantime its IB socket stays open until the Gateway times out the
-    session (~minutes). Subsequent calls dodge collision via
-    _next_ib_clientid() so a leaked socket on clientId=99 doesn't
-    prevent the next call on clientId=100 from connecting.
-    """
-    result_box: list = [None]
-    error_box: list = [None]
-
-    def _wrapper():
-        try:
-            result_box[0] = fn()
-        except BaseException as e:
-            # Catch EVERYTHING — a daemon thread raising SystemExit or
-            # KeyboardInterrupt must not propagate to the main loop.
-            error_box[0] = e
-
-    t = threading.Thread(target=_wrapper, name=name, daemon=True)
-    t.start()
-    t.join(timeout_sec)
-    if t.is_alive():
-        logger.warning(
-            "%s exceeded %ds timeout — abandoning thread "
-            "(IB Gateway may still be settling after maintenance/relogin)",
-            name, timeout_sec,
-        )
-        return None, (
-            f"⏱ <b>IB query timed out</b> after {timeout_sec}s.\n\n"
-            f"The Gateway may still be settling after a relogin or the "
-            f"weekly Saturday maintenance window.\n\n"
-            f"Try again in 30 seconds. If it persists, send <b>/login</b> "
-            f"to force a fresh 2FA push."
-        )
-    if error_box[0] is not None:
-        return None, f"⚠️ IB query error: {error_box[0]}"
-    return result_box[0], ""
-
-
 def get_portfolio_status() -> str:
     """Get live portfolio status from IBKR."""
     try:
         from ib_insync import IB
         ib = IB()
-        ib.connect("127.0.0.1", 7496, clientId=_next_ib_clientid(), timeout=10)
+        ib.connect("127.0.0.1", 7496, clientId=99, timeout=10)
 
         lines = ["<b>📊 Portfolio Status</b>\n"]
 
@@ -312,7 +237,7 @@ def get_pnl_summary() -> str:
     try:
         from ib_insync import IB
         ib = IB()
-        ib.connect("127.0.0.1", 7496, clientId=_next_ib_clientid(), timeout=10)
+        ib.connect("127.0.0.1", 7496, clientId=97, timeout=10)
         for p in ib.portfolio():
             if p.position != 0:
                 unrealized += float(p.unrealizedPNL or 0)
@@ -814,18 +739,11 @@ def main():
 
                 if text in ("status", "סטטוס", "s", "/status"):
                     logger.info("Status requested")
-                    # 2026-05-23: wrap in timeout so a hung IB query
-                    # doesn't freeze the entire bot polling loop.
-                    result, err = _run_with_timeout(
-                        get_portfolio_status, name="status"
-                    )
-                    send_message(result if result else err)
+                    status = get_portfolio_status()
+                    send_message(status)
                 elif text in ("/pnl", "pnl", "רווח"):
                     logger.info("P&L requested")
-                    result, err = _run_with_timeout(
-                        get_pnl_summary, name="pnl"
-                    )
-                    send_message(result if result else err)
+                    send_message(get_pnl_summary())
                 elif text in ("/history", "history", "היסטוריה"):
                     logger.info("History requested")
                     send_message(get_recent_trades(10))
