@@ -155,17 +155,30 @@ def _resolve_supabase_auth_key(cfg: MigrationConfig) -> str:
         logger.error("Install: pip install pyjwt")
         sys.exit(2)
 
+    # Extract project ref from the URL (https://<ref>.supabase.co)
+    # Without `ref` in the JWT payload, Supabase doesn't recognize the
+    # token as scoped to this project and RLS doesn't fall away — Storage
+    # API returns 200 OK but with an EMPTY list because every row is
+    # filtered out (observed 2026-05-24 on facegreet-videos bucket).
+    project_ref = "unknown"
+    try:
+        project_ref = cfg.supabase_url.split("//", 1)[1].split(".", 1)[0]
+    except Exception:
+        pass
+
     import time as _time
     payload = {
         "iss": "supabase",
+        "ref": project_ref,           # critical — scopes the role to this project
         "role": "service_role",
         "iat": int(_time.time()),
         "exp": int(_time.time()) + 3600,  # 1 hour — enough for any migration
     }
     signed = pyjwt.encode(payload, jwt_secret, algorithm="HS256")
     logger.info(
-        "Signed a service_role JWT from SUPABASE_JWT_SECRET (HS256, 1h expiry) — "
-        "this is what we'll send as the Storage API bearer token."
+        "Signed a service_role JWT from SUPABASE_JWT_SECRET "
+        "(HS256, ref=%s, 1h expiry) — Storage API bearer token.",
+        project_ref,
     )
     return signed
 
