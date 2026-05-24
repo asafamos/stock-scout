@@ -99,13 +99,85 @@ def load_config(args) -> MigrationConfig:
     )
 
 
+def _resolve_supabase_auth_key(cfg: MigrationConfig) -> str:
+    """Return a Supabase auth key that Storage API will accept.
+
+    Supabase Storage API requires JWT auth ('Authorization: Bearer eyJ...').
+    Three cases:
+
+    1. SUPABASE_SERVICE_ROLE_KEY is a legacy JWT (starts with 'eyJ')
+       → use it directly. This is the simple case for older projects.
+
+    2. SUPABASE_SERVICE_ROLE_KEY is the new format ('sb_secret_*' or
+       'sb_publishable_*') AND SUPABASE_JWT_SECRET is set
+       → sign a fresh service_role JWT from the JWT secret. Supabase
+       Storage will accept it because it's a valid HS256-signed JWT.
+
+    3. New format key WITHOUT SUPABASE_JWT_SECRET → error with the exact
+       click-path to fetch the secret from the dashboard.
+
+    2026-05-24 — added because Supabase rotated their API key system and
+    Storage API still rejects 'sb_secret_*' as bearer with 'Invalid
+    Compact JWS'. The Legacy JWT secret is still revealed in the dashboard
+    explicitly to support this kind of self-signed token use case.
+    """
+    key = cfg.supabase_key
+    if key.startswith("eyJ"):
+        return key
+
+    jwt_secret = os.environ.get("SUPABASE_JWT_SECRET", "").strip()
+    if not jwt_secret:
+        # Extract project ref from URL for the dashboard link
+        ref = "<your-project>"
+        try:
+            ref = cfg.supabase_url.split("//", 1)[1].split(".", 1)[0]
+        except Exception:
+            pass
+        logger.error(
+            "\n\nSUPABASE_SERVICE_ROLE_KEY is in the new sb_* format, which\n"
+            "Supabase Storage API does NOT accept yet ('Invalid Compact JWS').\n\n"
+            "To proceed, also provide the Legacy JWT secret:\n\n"
+            "  1. Open: https://supabase.com/dashboard/project/%s/settings/jwt-keys\n"
+            "  2. Click the 'Legacy JWT Secret' tab\n"
+            "  3. Click 'Reveal' next to 'Legacy JWT secret (still used)' and copy the value\n"
+            "  4. Add this line to .env.facegreet-migration:\n"
+            "       SUPABASE_JWT_SECRET=<the-revealed-value>\n"
+            "  5. Re-run this script\n\n"
+            "The script will then sign a short-lived service_role JWT and\n"
+            "use it as the Storage API bearer token.",
+            ref,
+        )
+        sys.exit(2)
+
+    try:
+        import jwt as pyjwt
+    except ImportError:
+        logger.error("Install: pip install pyjwt")
+        sys.exit(2)
+
+    import time as _time
+    payload = {
+        "iss": "supabase",
+        "role": "service_role",
+        "iat": int(_time.time()),
+        "exp": int(_time.time()) + 3600,  # 1 hour — enough for any migration
+    }
+    signed = pyjwt.encode(payload, jwt_secret, algorithm="HS256")
+    logger.info(
+        "Signed a service_role JWT from SUPABASE_JWT_SECRET (HS256, 1h expiry) — "
+        "this is what we'll send as the Storage API bearer token."
+    )
+    return signed
+
+
 def get_supabase_client(cfg: MigrationConfig):
     try:
         from supabase import create_client
     except ImportError:
         logger.error("Install: pip install supabase")
         sys.exit(2)
-    return create_client(cfg.supabase_url, cfg.supabase_key)
+    auth_key = _resolve_supabase_auth_key(cfg)
+    return create_client(cfg.supabase_url, auth_key)
 
 
 def get_r2_client(cfg: MigrationConfig):
