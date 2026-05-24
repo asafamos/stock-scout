@@ -128,22 +128,20 @@ def get_r2_client(cfg: MigrationConfig):
 def list_supabase_files(sb_client, bucket: str) -> List[dict]:
     """List ALL files in the bucket, recursively walking subdirectories.
 
-    2026-05-17: bypass supabase-py library entirely. It crashes on Hebrew
-    characters in (probably) the User-Agent header construction. Use direct
-    HTTP POST to the REST API instead — full control over headers/encoding.
-    """
-    import requests
-    import os as _os
-    sb_url = _os.environ["SUPABASE_URL"].rstrip("/")
-    sb_key = _os.environ["SUPABASE_SERVICE_ROLE_KEY"]
-    headers = {
-        "apikey": sb_key,
-        "Authorization": f"Bearer {sb_key}",
-        "Content-Type": "application/json",
-        "User-Agent": "stockscout-migrate/1.0",  # ASCII-safe explicit
-    }
-    list_url = f"{sb_url}/storage/v1/object/list/{bucket}"
+    2026-05-17: tried bypassing supabase-py with direct HTTP. Worked for
+    legacy JWT service_role keys.
 
+    2026-05-24: Supabase rotated their key system — legacy JWT keys are
+    being phased out, new format is `sb_secret_*` / `sb_publishable_*`.
+    Direct HTTP with `Authorization: Bearer sb_secret_*` is rejected with
+    "Invalid Compact JWS" because the endpoint tries to parse the bearer
+    token as a JWT. supabase-py handles the new key format correctly via
+    the `apikey` header without bearer-parsing, so we go back to using it.
+
+    Hebrew-in-User-Agent issue (the original reason for the bypass) appears
+    to have been resolved in newer supabase-py versions, or was specific
+    to a now-fixed environment quirk.
+    """
     all_files = []
     queue = [""]  # start at root
     visited_prefixes = set()
@@ -152,20 +150,17 @@ def list_supabase_files(sb_client, bucket: str) -> List[dict]:
         if prefix in visited_prefixes:
             continue
         visited_prefixes.add(prefix)
-        body = {
-            "prefix": prefix,
-            "limit": 10000,
-            "offset": 0,
-            "sortBy": {"column": "name", "order": "asc"},
-        }
         try:
-            resp = requests.post(list_url, headers=headers, json=body, timeout=30)
-            resp.raise_for_status()
-            items = resp.json()
+            items = sb_client.storage.from_(bucket).list(
+                path=prefix or None,
+                options={
+                    "limit": 10000,
+                    "offset": 0,
+                    "sortBy": {"column": "name", "order": "asc"},
+                },
+            )
         except Exception as exc:
             logger.error("List failed at prefix %r: %s", prefix, exc)
-            if hasattr(exc, "response") and exc.response is not None:
-                logger.error("  status=%d body=%s", exc.response.status_code, exc.response.text[:300])
             continue
         for it in items:
             name = it.get("name")
@@ -206,24 +201,11 @@ def migrate_one(cfg: MigrationConfig, sb_client, r2_client, file: dict) -> tuple
     if cfg.dry_run:
         return key, "dry_run", size
 
-    # Download from Supabase — direct HTTP to avoid library encoding bugs
-    import requests
-    import os as _os
-    sb_url = _os.environ["SUPABASE_URL"].rstrip("/")
-    sb_key = _os.environ["SUPABASE_SERVICE_ROLE_KEY"]
-    # Use requote_uri to safely URL-encode any non-ASCII path components
-    from urllib.parse import quote
-    safe_key = quote(key, safe="/")
-    download_url = f"{sb_url}/storage/v1/object/authenticated/{cfg.supabase_bucket}/{safe_key}"
-    dl_headers = {
-        "apikey": sb_key,
-        "Authorization": f"Bearer {sb_key}",
-        "User-Agent": "stockscout-migrate/1.0",
-    }
+    # Download from Supabase via supabase-py (handles new sb_secret_* keys
+    # correctly — see comment in list_supabase_files for the 2026-05-24
+    # context on why we returned to using the library).
     try:
-        resp = requests.get(download_url, headers=dl_headers, timeout=120)
-        resp.raise_for_status()
-        data = resp.content
+        data = sb_client.storage.from_(cfg.supabase_bucket).download(key)
     except Exception as exc:
         msg = str(exc).lower()
         if any(s in msg for s in ("quota", "restricted", "429", "rate")):
