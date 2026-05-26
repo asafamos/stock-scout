@@ -391,15 +391,40 @@ fi
 # minutes after open (giving monitor time to do its first cycle).
 SNAPSHOT="/home/stockscout/stock-scout-2/data/trades/portfolio_snapshot.json"
 SNAPSHOT_STALE_SEC=300  # 5 min — generous for slow IB cycles
-if [ "${HOUR}" -ge 14 ] && [ "${HOUR}" -le 20 ]; then
+# 2026-05-26: gate this check on weekday too. Previously HOUR 14-20 only,
+# which fired on Sat/Sun/holiday afternoons even though market is closed
+# and (pre-fix monitor) the snapshot was legitimately stale. The Memorial
+# Day weekend (Sat 23/5 → Tue 26/5 open) produced 3 false-positive STALE
+# alerts on Sunday 21:45, 22:30, 23:15 IL because of this. DOW = 1-5
+# means Mon-Fri (date +%u returns 1=Mon..7=Sun). Federal holidays still
+# slip through (e.g., Memorial Day, Independence Day) — TODO add a small
+# US-holiday allowlist. For now, weekend coverage alone eliminates ~95%
+# of the false-positive rate. Pairs with the monitor-side fix that now
+# touches the snapshot file every off-hours poll for liveness.
+DOW=$(date -u +%u)
+if [ "${HOUR}" -ge 14 ] && [ "${HOUR}" -le 20 ] && [ "${DOW}" -le 5 ]; then
     if [ -f "${SNAPSHOT}" ]; then
         SNAPSHOT_AGE=$(( $(date +%s) - $(stat -c %Y "${SNAPSHOT}" 2>/dev/null || echo 0) ))
         if [ "${SNAPSHOT_AGE}" -gt "${SNAPSHOT_STALE_SEC}" ]; then
+            # 2026-05-26: auto-recover instead of just alerting and
+            # waiting for the user to ssh in and pkill. The user got
+            # 3 of these over Sunday night and had to wake up Tue
+            # morning to manually kill the process — by which time
+            # we'd already missed the (correctly-sleeping-but-looked-
+            # stuck) Memorial-Day weekend. A SIGKILL + systemd auto-
+            # restart costs ~10s of downtime and is reversible (the
+            # tracker file is persisted so positions/OCAs aren't lost).
+            # We still send the alert so the user sees what happened.
+            echo "[snapshot-stale auto-recover] killing stuck monitor (age=${SNAPSHOT_AGE}s)"
+            sudo pkill -KILL -u stockscout -f monitor_positions 2>/dev/null || true
+            sleep 2
+            sudo systemctl restart stockscout-monitor 2>/dev/null || true
             send_alert_dedup "snapshot_stale" \
-                "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') Portfolio snapshot STALE — last write ${SNAPSHOT_AGE}s ago (>${SNAPSHOT_STALE_SEC}s). Monitor daemon is up but its main loop is stuck.
+                "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') Portfolio snapshot was STALE — last write ${SNAPSHOT_AGE}s ago (>${SNAPSHOT_STALE_SEC}s). Monitor daemon was up but its main loop was stuck.
 
-Likely causes: stuck IB call, file lock, exception swallowed in cycle.
-Action: ssh stockscout@87.99.142.12 'pkill -KILL -u stockscout -f monitor_positions' to force systemd restart." \
+Auto-recovered: pkill -KILL + systemctl restart stockscout-monitor. Send <b>status</b> in ~30s to verify positions are tracked again.
+
+Likely causes: stuck IB call, file lock, exception swallowed in cycle. If this repeats often, dig into journalctl -u stockscout-monitor around the times listed in the alert dedupe log." \
                 1800  # 30-min dedup to avoid spam while you investigate
             ISSUES=$((ISSUES + 1))
         else

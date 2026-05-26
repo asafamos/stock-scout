@@ -2106,6 +2106,27 @@ def daemon_loop():
     except Exception as e:
         logger.warning("Startup reconcile failed: %s — continuing to loop", e)
 
+    # 2026-05-26: liveness signals during off-hours.
+    #
+    # Background: the previous loop only called run_check() (which writes
+    # the snapshot file) when is_market_open(). During the Memorial Day
+    # weekend the monitor was in the else branch for 62+ hours straight —
+    # silently polling every 60s but never logging (DEBUG level) and
+    # never updating the snapshot file. From the outside it was
+    # indistinguishable from a stuck process, which triggered repeated
+    # false-positive "Portfolio snapshot STALE" alerts on Sunday.
+    #
+    # Fix:
+    #   a) Touch the snapshot file every off-hours cycle so its mtime
+    #      always reflects "monitor is alive and polling". The content
+    #      stays the last-known state from the most recent run_check().
+    #   b) Emit an INFO heartbeat log every N off-hours polls so
+    #      journalctl can confirm liveness without having to enable DEBUG.
+    from pathlib import Path
+    _SNAPSHOT_PATH = Path("data/trades/portfolio_snapshot.json")
+    OFFHOURS_HEARTBEAT_EVERY = 5   # log every N polls = ~5 min
+    _offhours_poll = 0
+
     while True:
         if client.is_market_open():
             try:
@@ -2123,10 +2144,25 @@ def daemon_loop():
                     pass
             except Exception as e:
                 logger.error("Monitor cycle failed: %s", e)
+            _offhours_poll = 0  # reset so first off-hours poll always logs
             time.sleep(CHECK_INTERVAL)
         else:
             # Closed — short poll so we catch the open bell within ~60s.
-            logger.debug("Market closed — short-polling for open transition")
+            _offhours_poll += 1
+            try:
+                _SNAPSHOT_PATH.touch(exist_ok=True)
+            except Exception as _touch_exc:
+                # Don't fail the loop if FS is misbehaving; just log once.
+                if _offhours_poll == 1:
+                    logger.warning(
+                        "Could not touch snapshot for liveness: %s",
+                        _touch_exc,
+                    )
+            if _offhours_poll % OFFHOURS_HEARTBEAT_EVERY == 1:
+                logger.info(
+                    "Heartbeat: market closed, idle (poll #%d, snapshot mtime refreshed)",
+                    _offhours_poll,
+                )
             time.sleep(PRE_MARKET_POLL_SEC)
 
 
