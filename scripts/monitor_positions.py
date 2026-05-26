@@ -1142,6 +1142,52 @@ def _verify_protections(tracker, client, ibkr_orders, notify):
                 continue
             logger.warning("⚠ %s has NO protective orders — resubmitting", ticker)
 
+        # 2026-05-26: in cash<$2k tier, the resubmit path below is POISON.
+        # It does:
+        #   1. cancelOrder(t.order) on each order in the (presumed-dead)
+        #      OCA group — these often fail with Error 10147 "not found"
+        #      because the order isn't actually dead, it's mid-race.
+        #   2. resubmit_protective_orders_retry() places fresh TRAIL+LMT —
+        #      both rejected with Error 201 ("MINIMUM 2000 USD REQUIRED"
+        #      or "Equity insufficient") because IB treats fresh SELLs in
+        #      this tier as potential shorts requiring margin.
+        # Result: brief no-protection window + Telegram spam + zero recovery.
+        # Real-world failure observed 2026-05-22 13:30-15:54 UTC across
+        # ORCL and TGTX. Both positions ended up still protected by the
+        # original TRAIL (which recovered on its own from the race), but
+        # the monitor wasted ~5 attempts and confused itself.
+        #
+        # New behavior in cash<$2k: bail out gracefully. The position is
+        # either (a) still protected by an original TRAIL that's just in
+        # a momentary weird state, OR (b) genuinely unprotected — in
+        # which case the user needs to intervene (send /resubmit TICKER
+        # manually after market settles, or transfer funds to escape
+        # the tier). Either way, doing nothing is strictly better than
+        # cancel+replace here.
+        if cash_under_2k:
+            _PROTECTION_MISS_COUNT[ticker] = _PROTECTION_MISS_COUNT.get(ticker, 0) + 1
+            miss = _PROTECTION_MISS_COUNT[ticker]
+            logger.warning(
+                "⚠ %s appears unprotected (miss #%d) but cash<$2k tier "
+                "blocks cancel+replace (Error 201). Skipping resubmit. "
+                "Will retry next cycle.",
+                ticker, miss,
+            )
+            # Persistent miss = real problem. Page the user after 3 cycles
+            # (~15 min during pre-market poll, or 15 min during market).
+            if miss == 3:
+                try:
+                    notify.notify_error(
+                        "Monitor",
+                        f"⚠ {ticker} unprotected for {miss} cycles. "
+                        f"Cash<$2k tier blocks auto-resubmit (IB Error 201). "
+                        f"Send <code>/resubmit {ticker}</code> manually, or "
+                        f"transfer funds to escape the tier.",
+                    )
+                except Exception:
+                    pass
+            continue
+
         # Resubmit cooldown: avoid hammering IB with retries that will fail
         # for the same reason (account restriction). Prevents Telegram spam.
         if not _cooldown_ok(ticker, _RESUBMIT_COOLDOWN, _RESUBMIT_COOLDOWN_SECONDS):
