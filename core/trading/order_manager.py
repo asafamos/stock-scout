@@ -136,13 +136,31 @@ def _cap_target_with_analysts(ticker: str, current_price: float,
     # No coverage or thin coverage → trust scan-target
     if mean_pt <= 0 or n < 3:
         return scan_target
-    # Overvalued per consensus (with meaningful coverage) → skip entirely
+    # Overvalued per consensus (with meaningful coverage).
+    # 2026-05-29: this is now a configurable lever. A hard veto here
+    # systematically rejects the strongest MOMENTUM names — they often run
+    # ABOVE slow-to-update analyst targets, and we VALIDATED (out-of-time
+    # corr +0.22) that our score predicts returns regardless of analyst PT.
+    # We CAN'T backtest this gate (no historical analyst data), so the
+    # default stays the safe veto; flip TRADE_ANALYST_VETO_OVERVALUED=0 to
+    # A/B test forward — then it trades the name with a modest realistic
+    # target (analyst high if above price, else +6%) instead of skipping.
     if mean_pt < current_price:
+        from core.trading.config import CONFIG as _C
+        if bool(getattr(_C, "analyst_veto_overvalued", True)):
+            logger.info(
+                "Analyst veto for %s: mean PT $%.2f < current $%.2f (n=%d)",
+                ticker, mean_pt, current_price, n,
+            )
+            return None
+        soft_target = max(high_pt if high_pt > current_price else 0.0,
+                          current_price * 1.06)
         logger.info(
-            "Analyst veto for %s: mean PT $%.2f < current $%.2f (n=%d)",
-            ticker, mean_pt, current_price, n,
+            "Analyst 'overvalued' for %s (mean $%.2f < $%.2f, n=%d) but veto OFF "
+            "— trading with capped target $%.2f",
+            ticker, mean_pt, current_price, n, soft_target,
         )
-        return None
+        return round(soft_target, 2)
     # Cap target at midpoint between scan's target and analyst mean.
     # Lean slightly toward scan (0.55) so we don't over-trim — scan has
     # technical momentum data analysts lack.

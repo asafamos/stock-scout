@@ -292,6 +292,15 @@ class TradingConfig:
         default_factory=lambda: _env_bool("INSIDER_SIGNAL_ENABLED", True)
     )
 
+    # 2026-05-29: analyst "overvalued" veto toggle. Default True = current
+    # behavior (skip stocks trading above analyst mean PT with ≥3 analysts).
+    # Set TRADE_ANALYST_VETO_OVERVALUED=0 to instead trade those momentum
+    # names with a capped target — an A/B lever we can't backtest (no
+    # historical analyst data) so it must be measured forward.
+    analyst_veto_overvalued: bool = field(
+        default_factory=lambda: _env_bool("ANALYST_VETO_OVERVALUED", True)
+    )
+
     # Liquidity floor — minimum average daily dollar volume (vol_avg × price)
     # for a candidate to be tradeable. Defense-in-depth for the marketable
     # LIMIT entry: thin names have wide spreads where the limit won't fill at
