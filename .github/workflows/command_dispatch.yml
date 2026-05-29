@@ -4,53 +4,54 @@ name: Command Dispatch
 # Receives a command + payload and pushes it to a queue file in the
 # `commands` branch. The VPS polls this branch and processes new commands
 # (single source of truth — same pipeline regardless of caller).
+#
+# 2026-05-29: rewritten to use `env:` for ${{ }} expressions instead of
+# embedding them inside single-quoted shell strings. The old pattern
+# (--argjson payload '${{ toJSON(github.event.client_payload) }}') made
+# GitHub's workflow parser refuse the entire file — appeared in the API
+# with name = file path (not "Command Dispatch") and silently DROPPED every
+# Streamlit-dispatched command since 2026-05-05. Diagnosed via
+# `gh api .../actions/workflows` — broken workflows show name=path.
 
 on:
   repository_dispatch:
     types: [stockscout-command]
-  # 2026-05-29: the noop job below was meant to suppress "No jobs were run:
-  # failure" emails on push, but it never ran — this workflow didn't list
-  # `push` as a trigger, so GitHub made a ghost run with ZERO jobs and
-  # emailed it as failure. Adding push makes the workflow actually trigger;
-  # the (if-unguarded) noop runs + succeeds → run concludes "success" → no
-  # failure email. The real `enqueue` job stays guarded to repository_dispatch.
-  push:
-    branches: [main]
 
 permissions:
   contents: write
 
 jobs:
-  # Noop that always succeeds — absorbs push-triggered ghost runs so
-  # the workflow doesn't show as "failed" in the email log when the
-  # only real job is `if`-guarded out. The if-guard alone produced
-  # "No jobs were run: failure" emails on every workflow-file push.
-  noop:
-    runs-on: ubuntu-latest
-    steps:
-      - run: 'echo "ghost-trigger noop (event=${{ github.event_name }})"'
-
   enqueue:
-    # Defensive guard: only execute on the actual repository_dispatch event.
+    # Defensive guard — only repository_dispatch reaches steps. Push events
+    # to this file no longer trigger a run at all now that the file parses
+    # cleanly (workflows without a push: trigger don't run on push).
     if: github.event_name == 'repository_dispatch'
     runs-on: ubuntu-latest
+    env:
+      # Pull expressions out of shell-quoted strings — official GitHub
+      # pattern for complex/JSON expressions. Avoids the parser-rejection
+      # trap above.
+      CLIENT_CMD: ${{ github.event.client_payload.command }}
+      CLIENT_PAYLOAD_JSON: ${{ toJSON(github.event.client_payload) }}
     steps:
       - name: Validate payload
         run: |
-          CMD="${{ github.event.client_payload.command }}"
-          if [ -z "$CMD" ]; then
+          if [ -z "$CLIENT_CMD" ]; then
             echo "::error::No command provided in client_payload"
             exit 1
           fi
-          echo "Command: $CMD"
+          echo "Command: $CLIENT_CMD"
 
       - name: Checkout commands branch (or create empty)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         run: |
           git config --global user.email "command-dispatch@stockscout"
           git config --global user.name "stockscout-command-dispatch"
           mkdir command_queue && cd command_queue
           git init -q
-          git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git"
           if git fetch origin commands 2>/dev/null; then
             git checkout -B commands origin/commands
           else
@@ -66,18 +67,14 @@ jobs:
           NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           ID=$(date -u +%s)-$RANDOM
           # CRITICAL: build the entry through jq with --compact-output so the
-          # resulting JSON is a SINGLE LINE. Previous version used
-          # ${{ toJSON(...) }} directly which emits pretty-printed JSON
-          # (multi-line). The poller reads queue.jsonl line-by-line and
-          # logged "malformed queue line: Expecting value" warnings on every
-          # entry — silently dropping ALL Streamlit-dispatched commands.
-          # Diagnosed 2026-05-01: a "pause" click reached the workflow
-          # successfully, the queue was appended, but the poller couldn't
-          # parse the multi-line JSON and skipped it forever.
+          # resulting JSON is a SINGLE LINE. The poller reads queue.jsonl
+          # line-by-line and silently drops multi-line JSON entries.
+          # CLIENT_PAYLOAD_JSON comes from env (not an inline expression in
+          # this run block) so the Actions parser doesn't reject this file.
           jq -nc \
             --arg id "$ID" \
             --arg ts "$NOW" \
-            --argjson payload '${{ toJSON(github.event.client_payload) }}' \
+            --argjson payload "$CLIENT_PAYLOAD_JSON" \
             '{id: $id, ts: $ts, source: "streamlit-dispatch", payload: $payload, status: "pending"}' \
             >> "$QF"
 
@@ -85,5 +82,5 @@ jobs:
         run: |
           cd command_queue
           git add commands/queue.jsonl
-          git commit -q -m "queue: ${{ github.event.client_payload.command }}"
+          git commit -q -m "queue: $CLIENT_CMD"
           git push -q origin commands

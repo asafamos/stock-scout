@@ -28,19 +28,12 @@ permissions:
   contents: read
 
 jobs:
-  # Validation noop — always succeeds. The earlier `if:` guard prevented
-  # the real ping job from running on push events but left the workflow
-  # marked "failed" with "No jobs were run" → email spam. This noop
-  # runs in under 2 seconds and makes the ghost run register as success.
-  noop:
-    runs-on: ubuntu-latest
-    steps:
-      - run: 'echo "ghost-trigger noop (event=${{ github.event_name }})"'
-
+  # 2026-05-29: removed noop band-aid. The real cause of the ghost-failure
+  # emails was the heredoc body below sitting at column 0 — that broke the
+  # YAML block scalar and made GitHub refuse to parse this workflow at all
+  # (registered with name = file path; schedule never fired). Heredoc fixed
+  # via printf below; push events no longer trigger this workflow.
   ping:
-    # Defensive guard: only execute on the actual schedule/manual-dispatch
-    # events. Push triggers are absorbed by the `noop` job above.
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -93,15 +86,17 @@ jobs:
             PIPELINE=$(echo "$STATE" | jq -r '.pipeline.state // "?"')
             ALL_ACTIVE=$(echo "$STATE" | jq -r '.system_health.all_active // "?"')
 
-            MSG=$(cat <<EOF
-🚨 *VPS HEARTBEAT STALE*
-state-feed last updated *${AGE_MIN} min ago* (threshold 5)
-pipeline: \`${PIPELINE}\`
-all_active: \`${ALL_ACTIVE}\`
-Likely VPS down, network partition, or broadcaster crashed.
-Check: \`ssh root@87.99.142.12\` then \`systemctl status stockscout-state-broadcaster.timer\`
-EOF
-)
+            # Build with printf — keeps every line indented inside the YAML
+            # run-block scalar. Previous heredoc body sat at column 0 which
+            # terminated the block scalar mid-string and made GitHub refuse
+            # to parse the workflow (schedule never fired since 2026-05-05).
+            MSG=$(printf '%s\n%s\n%s\n%s\n%s\n%s' \
+              "🚨 *VPS HEARTBEAT STALE*" \
+              "state-feed last updated *${AGE_MIN} min ago* (threshold 5)" \
+              "pipeline: \`${PIPELINE}\`" \
+              "all_active: \`${ALL_ACTIVE}\`" \
+              "Likely VPS down, network partition, or broadcaster crashed." \
+              "Check: \`ssh root@87.99.142.12\` then \`systemctl status stockscout-state-broadcaster.timer\`")
             # Telegram caps text-length at 4096; we're well under
             curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
               -d "chat_id=${TELEGRAM_CHAT_ID}" \
