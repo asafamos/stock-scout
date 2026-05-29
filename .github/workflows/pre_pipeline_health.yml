@@ -23,6 +23,12 @@ on:
     - cron: '30 14 * * 1-5'
     - cron: '45 18 * * 1-5'
   workflow_dispatch: {}
+  # 2026-05-29: add push so the noop job actually runs on push and the run
+  # concludes "success" — previously this workflow didn't trigger on push,
+  # so GitHub emitted a ghost ZERO-job run marked "failure" on every push.
+  # The real `check` job stays guarded to schedule/dispatch (skipped on push).
+  push:
+    branches: [main]
 
 permissions:
   contents: read

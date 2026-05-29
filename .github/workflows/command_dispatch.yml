@@ -8,6 +8,14 @@ name: Command Dispatch
 on:
   repository_dispatch:
     types: [stockscout-command]
+  # 2026-05-29: the noop job below was meant to suppress "No jobs were run:
+  # failure" emails on push, but it never ran — this workflow didn't list
+  # `push` as a trigger, so GitHub made a ghost run with ZERO jobs and
+  # emailed it as failure. Adding push makes the workflow actually trigger;
+  # the (if-unguarded) noop runs + succeeds → run concludes "success" → no
+  # failure email. The real `enqueue` job stays guarded to repository_dispatch.
+  push:
+    branches: [main]
 
 permissions:
   contents: write
