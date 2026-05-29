@@ -48,6 +48,17 @@ import os
 NEW_INITIAL_TRAIL_FLOOR = float(os.getenv("BT_INITIAL_FLOOR", "4.0"))
 EARNINGS_BUFFER_DAYS = 1  # exit 1 day before earnings
 
+# 2026-05-29: hold-to-target mode. The default window truncates at the
+# ACTUAL exit + 2d, which is itself a product of the (tight) trail that was
+# live at the time — so it structurally CANNOT show whether a WIDER trail
+# would have let a winner run longer (it just reuses the actual early exit).
+# That made the tool say "wider trail hurts" while a fixed-width lookahead
+# said "wider helps". The truth depends on holding period. With
+# BT_HOLD_TO_TARGET=1 the sim instead runs each position to its intended
+# target_date (the strategy's 5-15d swing horizon), exiting on a trail fire
+# OR at the target_date close — the fair counterfactual for a trail change.
+HOLD_TO_TARGET = bool(int(os.getenv("BT_HOLD_TO_TARGET", "0")))
+
 
 def _build_tiers() -> list:
     """Tiers from env, sorted high→low gain. Set BT_T0_GAIN=999 to disable T0."""
@@ -161,12 +172,26 @@ def simulate_trade(open_event, close_event, ohlc) -> dict:
     open_ts = datetime.fromisoformat(str(open_event["timestamp"])[:19])
     close_ts = datetime.fromisoformat(str(close_event["timestamp"])[:19])
 
+    # Window end: actual exit + 2d (default), or the intended target_date
+    # when hold-to-target mode is on. target_date lives on the OPEN event.
+    window_end = close_ts.date() + timedelta(days=2)
+    if HOLD_TO_TARGET:
+        _td = str(open_event.get("target_date", "") or "")[:10]
+        try:
+            tgt = datetime.fromisoformat(_td).date() if _td else None
+        except ValueError:
+            tgt = None
+        if tgt:
+            window_end = tgt + timedelta(days=2)
+
     # Walk candles from entry day forward
     peak = entry
-    current_trail_pct = max(NEW_INITIAL_TRAIL_FLOOR, 4.0)  # day-1 floor
+    current_trail_pct = NEW_INITIAL_TRAIL_FLOOR  # day-1 floor (env BT_INITIAL_FLOOR)
     sim_exit = None
     sim_reason = None
     sim_exit_date = None
+    last_close_in_window = entry      # fallback if no candle iterates
+    last_date_in_window = open_ts.date()
 
     # Optionally check earnings (skip for backtest speed if it's slow)
     earnings_date = None  # disable for speed; users can re-enable later
@@ -179,8 +204,10 @@ def simulate_trade(open_event, close_event, ohlc) -> dict:
         # Only consider candles between open and close+buffer
         if row_date < open_ts.date():
             continue
-        if row_date > close_ts.date() + timedelta(days=2):
+        if row_date > window_end:
             break
+        last_close_in_window = float(row["Close"])
+        last_date_in_window = row_date
 
         # How many days have we held this position by `row_date`?
         hold_days = (row_date - open_ts.date()).days
@@ -229,11 +256,20 @@ def simulate_trade(open_event, close_event, ohlc) -> dict:
             sim_exit_date = row_date
             break
 
-    # If no stop fired, close on actual close date
+    # If no stop fired within the window:
+    #  - hold-to-target mode: exit at the target_date close (the natural
+    #    target_date exit the strategy would take) — this is what lets a
+    #    wider trail show its "let the winner run to target" benefit.
+    #  - default mode: fall back to the actual exit price.
     if sim_exit is None:
-        sim_exit = actual_exit
-        sim_reason = "no_trigger_used_actual"
-        sim_exit_date = close_ts.date()
+        if HOLD_TO_TARGET:
+            sim_exit = last_close_in_window
+            sim_reason = "held_to_target"
+            sim_exit_date = last_date_in_window
+        else:
+            sim_exit = actual_exit
+            sim_reason = "no_trigger_used_actual"
+            sim_exit_date = close_ts.date()
 
     sim_pnl = (sim_exit - entry) * qty
     sim_hold_days = (sim_exit_date - open_ts.date()).days
@@ -276,7 +312,18 @@ def main():
         ticker = o["ticker"]
         open_dt = datetime.fromisoformat(str(o["timestamp"])[:19]).date()
         close_dt = datetime.fromisoformat(str(c["timestamp"])[:19]).date()
-        ohlc = _fetch_ohlc(ticker, open_dt, close_dt)
+        # In hold-to-target mode extend the fetch end to cover target_date,
+        # so the sim has candles to run the position to its intended horizon.
+        fetch_end = close_dt
+        if HOLD_TO_TARGET:
+            _td = str(o.get("target_date", "") or "")[:10]
+            try:
+                _tgt = datetime.fromisoformat(_td).date() if _td else None
+            except ValueError:
+                _tgt = None
+            if _tgt and _tgt > fetch_end:
+                fetch_end = _tgt
+        ohlc = _fetch_ohlc(ticker, open_dt, fetch_end)
         sim = simulate_trade(o, c, ohlc)
         results.append(sim)
 
