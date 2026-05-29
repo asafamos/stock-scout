@@ -244,10 +244,70 @@ class OrderManager:
 
         results = []
         try:
-            # 4. Execute trades
+            # 2026-05-29 ROOT-CAUSE FIX (snapshot-stale false positive):
+            # Previously this loop ran _execute_single (a ~15-30s live-price +
+            # analyst fetch) for EVERY candidate, even after cash was
+            # exhausted. Real incident: after an opportunistic re-buy left
+            # $117 cash, the loop evaluated ~160 more candidates one-by-one —
+            # all rejected by the sub-$2k buffer rule (post_buy_cash<$25, i.e.
+            # any cost>$92) — taking 3+ minutes. When this loop runs inside the
+            # monitor's cycle (opportunistic-after-close), it blocked the
+            # snapshot write long enough to trip the stale auto-recover, which
+            # SIGKILLed a perfectly-healthy, actively-trading monitor.
+            #
+            # Fix: track deployable cash and do a CHEAP affordability pre-check
+            # (using the scan price already in the row — no network) before the
+            # expensive _execute_single. Skip unaffordable candidates instantly,
+            # and break entirely once we can't fund even one share of the
+            # cheapest remaining name. Candidates are rank-ordered, so the best
+            # buys are evaluated first; we only short-circuit the tail we could
+            # never afford anyway.
+            SUB_2K_MIN_BUFFER = 25.0
+            try:
+                _running_cash = float(self.client.get_cash_balance() or 0)
+            except Exception:
+                _running_cash = 0.0
+            _is_sub_2k = 0 < _running_cash < 2000
+
             for _, row in candidates.iterrows():
+                # Cheap affordability gate (sub-$2k tier only) — no network.
+                if _is_sub_2k:
+                    _scan_px = float(
+                        row.get("Entry_Price", row.get("Close", row.get("close", 0))) or 0
+                    )
+                    _deployable = _running_cash - SUB_2K_MIN_BUFFER
+                    if _scan_px > 0 and _deployable < _scan_px:
+                        # Can't afford even 1 share of THIS name. Since the
+                        # cheapest position is 1 share, once deployable cash is
+                        # below a typical floor there's nothing left to buy —
+                        # stop the whole loop rather than spin the tail.
+                        if _deployable < float(getattr(self.cfg, "min_viable_position_usd", 30.0)):
+                            logger.info(
+                                "Cash exhausted (deployable $%.0f < min) — stopping "
+                                "candidate loop early (avoids minutes of unaffordable evals)",
+                                _deployable,
+                            )
+                            break
+                        # Otherwise this one's just too pricey; skip cheaply.
+                        results.append({"ticker": str(row.get("Ticker", row.get("ticker", "?"))),
+                                        "status": "skipped",
+                                        "reason": f"Unaffordable: 1 share ${_scan_px:.0f} > deployable ${_deployable:.0f}"})
+                        continue
+
                 result = self._execute_single(row)
                 results.append(result)
+
+                # Decrement running cash on a successful buy so the next
+                # iteration's affordability check is accurate without an IB call.
+                # _execute_single's success dict carries quantity + entry_price.
+                if result.get("status") == "success":
+                    try:
+                        _running_cash -= (
+                            float(result.get("quantity", 0) or 0)
+                            * float(result.get("entry_price", 0) or 0)
+                        )
+                    except Exception:
+                        pass
 
                 # Stop if daily limit reached
                 if self.tracker.daily_buy_count() >= self.cfg.max_daily_buys:

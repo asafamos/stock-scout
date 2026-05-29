@@ -76,6 +76,14 @@ class TradingConfig:
     cash_reserve: float = field(
         default_factory=lambda: _env_float("CASH_RESERVE", 20.0)
     )  # Keep this much cash aside (buffer for fees, slippage)
+    # 2026-05-29: minimum deployable cash (after the sub-$2k buffer) below
+    # which the candidate-evaluation loop stops early. Prevents spending
+    # minutes evaluating 100+ candidates that can't be afforded after cash
+    # is exhausted — that delay was blocking the monitor snapshot write and
+    # tripping the stale auto-recover (which SIGKILLed a healthy monitor).
+    min_viable_position_usd: float = field(
+        default_factory=lambda: _env_float("MIN_VIABLE_POSITION_USD", 30.0)
+    )
 
     # ── Circuit Breakers (stop new buys when losses pile up) ──
     max_daily_loss_pct: float = field(
