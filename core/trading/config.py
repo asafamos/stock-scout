@@ -383,6 +383,14 @@ class TradingConfig:
     profit_ladder_enabled: bool = field(
         default_factory=lambda: _env_bool("PROFIT_LADDER_ENABLED", True)
     )
+    # 2026-05-29: minimum ORIGINAL position qty for the ladder to engage.
+    # Below this the 25% fraction can't be expressed cleanly (rounds to 0 or
+    # is forced to >33% of the lot), and selling half of a 2-share winner at
+    # +10% fights the wide-trail "let winners run" design. Small lots ride
+    # the trail whole; ladder resumes when capital grows positions to ≥4 sh.
+    ladder_min_qty: int = field(
+        default_factory=lambda: _env_int("LADDER_MIN_QTY", 4)
+    )
     # Each tier: (peak_gain_threshold_pct, fraction_of_ORIGINAL_position_to_sell).
     # Defaults sell 25% at +10%, +18%, +28% → 75% locked, 25% rides.
     profit_ladder_tier1_gain: float = field(

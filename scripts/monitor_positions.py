@@ -1425,6 +1425,23 @@ def _take_partial_profit(tracker, client, notify):
 
         # ── LADDER MODE (preferred): tier-based fractional sells ─────
         if CONFIG.profit_ladder_enabled:
+            # 2026-05-29: skip the ladder on small positions. With original
+            # qty < ladder_min_qty, "25%" either rounds to 0 (no-op) or is
+            # forced to 1 share = >33% of the lot — far more aggressive than
+            # intended, and it directly undercuts the validated wide-trail
+            # change: a 2-share winner would dump 50% at +10% right as the
+            # trend starts (ORCL ran to +16% after the +10% mark). For small
+            # lots the TRAIL manages the whole position; the ladder resumes
+            # once capital grows and positions are large enough to fraction
+            # cleanly (qty ≥ 4 → 25% = a clean 1 share). Env: TRADE_LADDER_MIN_QTY.
+            _ladder_min_qty = int(getattr(CONFIG, "ladder_min_qty", 4))
+            _orig_q = int(pos.get("original_quantity", pos.get("quantity", 0)) or 0)
+            if _orig_q < _ladder_min_qty:
+                logger.debug(
+                    "Ladder skipped for %s: qty %d < min %d — trail manages whole lot",
+                    ticker, _orig_q, _ladder_min_qty,
+                )
+                continue
             # Determine which ladder tier the position currently qualifies for.
             tiers = [
                 (3, CONFIG.profit_ladder_tier3_gain, CONFIG.profit_ladder_tier3_fraction),
