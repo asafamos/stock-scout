@@ -396,6 +396,34 @@ def evaluate_static_gates(
     else:
         passed.append(f"reliability ≥ {min_rel:.0f}")
 
+    # 11b. Liquidity floor — average daily dollar volume (2026-05-29).
+    # Position-size impact at $300 is negligible even on a $10M-ADDV name
+    # ($300/$10M = 0.003%), so this is NOT about market impact. It's about
+    # the marketable-LIMIT entry (Stage A) filling cleanly: thin names have
+    # wide NBBO spreads where ref×1.003 sits below the ask, so the limit
+    # won't fill and we burn a candidate slot. A modest ADDV floor keeps the
+    # candidate set to names where the limit fills at ~ref. ANDG/SOLS (the
+    # +5.6%/+4.9% slippage disasters) were mostly stale-price MKT chases —
+    # Stage A is the primary fix; this is defense-in-depth.
+    # Fails OPEN on missing volume data (don't reject a good trade just
+    # because the scan row lacked vol_avg). Env: TRADE_MIN_ADDV_USD.
+    min_addv = float(getattr(cfg, "min_addv_usd", 0) or 0)
+    if min_addv > 0:
+        vol_avg = float(_row_get_first(row, ["vol_avg", "Vol_Avg", "AvgVolume", "avg_volume"], 0) or 0)
+        px_for_liq = entry if entry > 0 else float(_row_get_first(row, ["Close", "close", "Price"], 0) or 0)
+        if vol_avg > 0 and px_for_liq > 0:
+            addv = vol_avg * px_for_liq
+            if addv < min_addv:
+                failed.append(
+                    f"Liquidity ADDV ${addv/1e6:.1f}M < ${min_addv/1e6:.0f}M "
+                    f"(thin — marketable limit may not fill at ref)"
+                )
+            else:
+                passed.append(f"ADDV ${addv/1e6:.0f}M ≥ ${min_addv/1e6:.0f}M")
+        else:
+            # No volume data — fail open (pass) but note it.
+            passed.append("liquidity unknown (vol_avg missing — passed)")
+
     # 12. Trade-level sanity (only when entry+stop+target are all present)
     if entry > 0 and stop > 0 and target > 0:
         try:

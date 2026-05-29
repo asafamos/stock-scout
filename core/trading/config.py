@@ -292,6 +292,15 @@ class TradingConfig:
         default_factory=lambda: _env_bool("INSIDER_SIGNAL_ENABLED", True)
     )
 
+    # Liquidity floor — minimum average daily dollar volume (vol_avg × price)
+    # for a candidate to be tradeable. Defense-in-depth for the marketable
+    # LIMIT entry: thin names have wide spreads where the limit won't fill at
+    # ref. Default $10M is a low bar that mid/large-caps clear easily and
+    # only excludes genuinely thin micro-caps. Env: TRADE_MIN_ADDV_USD.
+    min_addv_usd: float = field(
+        default_factory=lambda: _env_float("MIN_ADDV_USD", 10_000_000.0)
+    )
+
     # ── Entry execution (2026-05-29: kill slippage) ──────────────
     # Live trade analysis over 11 buys (2026-04 → 2026-05) showed the
     # MARKET buy paid +1.93% avg slippage = $74.32 total = 106% of the
