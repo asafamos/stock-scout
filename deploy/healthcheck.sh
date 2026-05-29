@@ -390,7 +390,16 @@ fi
 # so a "stale" alert at 13:00-13:30 is a false positive. Same for first 30
 # minutes after open (giving monitor time to do its first cycle).
 SNAPSHOT="/home/stockscout/stock-scout-2/data/trades/portfolio_snapshot.json"
-SNAPSHOT_STALE_SEC=300  # 5 min — generous for slow IB cycles
+# 2026-05-29 FIX: was 300s, but the monitor's market-hours CHECK_INTERVAL
+# is ALSO 300s — so a snapshot is written every ~305-330s (300s sleep +
+# cycle exec time). With the threshold == the write interval, the age
+# routinely crosses 300s in the few seconds before each NORMAL write, and
+# the auto-recover then SIGKILLs a perfectly healthy monitor (observed
+# firing repeatedly at ~318s on 2026-05-29). The stale threshold must be
+# comfortably ABOVE the write interval. 660s = 2 full missed cycles + 60s
+# buffer → only a genuinely stuck daemon (no write for 11 min) trips it,
+# while normal 305-330s jitter does not.
+SNAPSHOT_STALE_SEC=660  # 11 min — must exceed 2× monitor CHECK_INTERVAL (300s)
 # 2026-05-26: gate this check on weekday too. Previously HOUR 14-20 only,
 # which fired on Sat/Sun/holiday afternoons even though market is closed
 # and (pre-fix monitor) the snapshot was legitimately stale. The Memorial
