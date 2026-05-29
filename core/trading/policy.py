@@ -575,12 +575,18 @@ def compute_execution_preview(
         regime_mult = 1.0
 
     trail_pct = base_trail_pct * regime_mult
-    # ATR floor (added 2026-05-15) — match order_manager.py behavior so the
-    # dashboard preview shows the same trail % that production will use.
+    # 2026-05-29 PARITY BUG FIX: this clamp used a hardcoded 2.0% floor while
+    # order_manager._execute_single floors at min_initial_trail_pct. That
+    # drift meant the preview (and any path relying on it) could submit a
+    # trail as tight as 2% — exactly how ORCL got a 3.13% trail when the
+    # intended floor was 4%, then got shaken out of a +16% run. Now we
+    # mirror order_manager precisely: effective_floor = max(initial_floor,
+    # atr_floor), then cap at 9%.
     _atr_floor_mult = float(getattr(cfg, "initial_trail_atr_floor_mult", 0.0))
-    if atr_pct > 0 and _atr_floor_mult > 0:
-        trail_pct = max(trail_pct, atr_pct * _atr_floor_mult)
-    trail_pct = max(2.0, min(trail_pct, 9.0))  # safety clamp
+    _atr_floor = atr_pct * _atr_floor_mult if (atr_pct > 0 and _atr_floor_mult > 0) else 0.0
+    _init_floor = float(getattr(cfg, "min_initial_trail_pct", 5.5))
+    _effective_floor = max(_init_floor, _atr_floor)
+    trail_pct = max(_effective_floor, min(trail_pct, 9.0))
 
     # ── Quantity estimate (matches risk_manager.calculate_qty conviction tiers) ──
     base_spend = float(getattr(cfg, "max_position_size", 300.0))

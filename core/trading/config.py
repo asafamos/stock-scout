@@ -344,8 +344,20 @@ class TradingConfig:
     # to -3.0% — pure noise on a 20-day-swing thesis. The ratchet still
     # tightens BELOW this floor later (tier 1 = 4%, tier 2 = 3%, tier 3
     # = 2%) once peak gains earn that protection.
+    # 2026-05-29 RAISED 4.0 → 5.5 after a 21-trade backtest on real OHLC.
+    # Fixed-width trail simulation across all closed trades:
+    #     3% → net -$8 | 4% → -$35 | 5% → -$24 | 5.5% → +$15 (best realized)
+    #     6% → +$218 (incl. 4 monster runners that never stopped out)
+    # The actual effective trail (~3-3.5%) was NET NEGATIVE — it shook us
+    # out of the exact trends the momentum strategy exists to capture
+    # (ORCL clipped at +4% then ran to +16%; ILMN clipped at +1.3% then
+    # ran +60%). 5.5% is the conservative choice: the best fully-realized
+    # width, without over-fitting to the 4 lucky runners that drive the 6%
+    # number. The ratchet (below) still tightens to lock gains once a
+    # position is a real winner, and regime_mult ×0.70 auto-tightens this
+    # in CORRECTION/PANIC. Env: TRADE_MIN_INITIAL_TRAIL_PCT to revert.
     min_initial_trail_pct: float = field(
-        default_factory=lambda: _env_float("MIN_INITIAL_TRAIL_PCT", 4.0)
+        default_factory=lambda: _env_float("MIN_INITIAL_TRAIL_PCT", 5.5)
     )
 
     # ── Partial Profit-Taking (sell half at intermediate target) ─
@@ -436,34 +448,44 @@ class TradingConfig:
     #      itself before the ratchet engages. T1/T2/T3 still fire
     #      immediately at any age — those tiers are at peaks (10/18/28%)
     #      that already imply a meaningful run.
+    # 2026-05-29: tier trails softened in lockstep with the 5.5% initial
+    # floor. The backtest showed partial-tightening into the 4-5% "valley
+    # of death" is the worst place to be — wide enough to give back the
+    # quick profit, too tight to survive the pullback before the real run.
+    # So tier trails now sit only modestly below the 5.5% initial and
+    # only deep winners (+18%/+28%) get pulled meaningfully tighter to
+    # lock genuine gains. T0 threshold raised 8 → 10 so it can't fire on
+    # day-2 FOMO. All env-overridable.
     ratchet_tier0_gain: float = field(
-        default_factory=lambda: _env_float("RATCHET_T0_GAIN", 8.0)
+        default_factory=lambda: _env_float("RATCHET_T0_GAIN", 10.0)
     )
     ratchet_tier0_trail_pct: float = field(
-        default_factory=lambda: _env_float("RATCHET_T0_TRAIL_PCT", 3.5)
-    )   # Peak +8% → trail 3.5% (early lock above noise band)
+        default_factory=lambda: _env_float("RATCHET_T0_TRAIL_PCT", 5.0)
+    )   # Peak +10% → trail 5.0% (gentle first lock, just below 5.5% initial)
     min_hold_days_for_t0: int = field(
         default_factory=lambda: _env_int("RATCHET_T0_MIN_HOLD_DAYS", 2)
     )   # T0 ratchet only engages after position has aged ≥N days
 
     ratchet_tier1_gain: float = field(
-        default_factory=lambda: _env_float("RATCHET_T1_GAIN", 10.0)
+        default_factory=lambda: _env_float("RATCHET_T1_GAIN", 14.0)
     )
     ratchet_tier1_trail_pct: float = field(
-        default_factory=lambda: _env_float("RATCHET_T1_TRAIL_PCT", 3.0)
-    )   # Peak +10% → trail 3.0% (was +12% → 4% — tightened 2026-05-05)
+        default_factory=lambda: _env_float("RATCHET_T1_TRAIL_PCT", 4.5)
+    )   # 2026-05-29: +10%→3.0% softened to +14%→4.5% — was choking
+        # developing winners in the 4-5% valley of death (see backtest)
     ratchet_tier2_gain: float = field(
-        default_factory=lambda: _env_float("RATCHET_T2_GAIN", 18.0)
+        default_factory=lambda: _env_float("RATCHET_T2_GAIN", 22.0)
     )
     ratchet_tier2_trail_pct: float = field(
-        default_factory=lambda: _env_float("RATCHET_T2_TRAIL_PCT", 2.5)
-    )   # Peak +18% → trail 2.5% (was +20% → 3% — tightened 2026-05-05)
+        default_factory=lambda: _env_float("RATCHET_T2_TRAIL_PCT", 3.5)
+    )   # 2026-05-29: +18%→2.5% softened to +22%→3.5% (lock real gains, gentler)
     ratchet_tier3_gain: float = field(
-        default_factory=lambda: _env_float("RATCHET_T3_GAIN", 28.0)
+        default_factory=lambda: _env_float("RATCHET_T3_GAIN", 30.0)
     )
     ratchet_tier3_trail_pct: float = field(
-        default_factory=lambda: _env_float("RATCHET_T3_TRAIL_PCT", 2.0)
-    )   # Peak +28% → trail 2.0% (was +30% — tightened 2026-05-05)
+        default_factory=lambda: _env_float("RATCHET_T3_TRAIL_PCT", 2.5)
+    )   # 2026-05-29: +28%→2.0% softened to +30%→2.5% — only monster
+        # winners get pulled this tight, to lock a genuine +27%+ run
 
     # ── Break-Even Protection ──────────────────────────────────
     # Closes the gap between entry and the ratchet's lowest tier (T0 = +8%)
