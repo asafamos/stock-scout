@@ -584,7 +584,13 @@ def compute_execution_preview(
     # atr_floor), then cap at 9%.
     _atr_floor_mult = float(getattr(cfg, "initial_trail_atr_floor_mult", 0.0))
     _atr_floor = atr_pct * _atr_floor_mult if (atr_pct > 0 and _atr_floor_mult > 0) else 0.0
-    _init_floor = float(getattr(cfg, "min_initial_trail_pct", 5.5))
+    # Regime-aware floor (parity with order_manager): defensive regimes get a
+    # lower floor so the regime_mult tightening isn't overridden by the wide
+    # bull-market floor.
+    _defensive = regime in ("CORRECTION", "BEARISH", "PANIC", "DISTRIBUTION")
+    _init_floor = float(getattr(cfg,
+        "min_initial_trail_pct_defensive" if _defensive else "min_initial_trail_pct",
+        3.0 if _defensive else 5.5))
     _effective_floor = max(_init_floor, _atr_floor)
     trail_pct = max(_effective_floor, min(trail_pct, 9.0))
 

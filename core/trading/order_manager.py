@@ -1260,7 +1260,18 @@ class OrderManager:
         # (tier 1=4%, tier 2=3%, tier 3=2%) once peak gains earn that
         # protection. Cap stays at 9% — even in raging bull, $300
         # positions don't need 12% trails ($36 of paper loss).
-        initial_floor = float(getattr(self.cfg, "min_initial_trail_pct", 4.0))
+        # 2026-05-29: REGIME-AWARE floor. The wide 5.5% floor is for normal/
+        # bull markets (let winners run — validated by backtest). But in a
+        # CORRECTION/PANIC the regime_mult ×0.70 is meant to TIGHTEN the stop
+        # to preserve capital — and a flat 5.5% floor would override that,
+        # holding a too-wide stop in a falling market. So defensive regimes
+        # get a lower floor (default 3.0%), letting the regime tightening
+        # actually work. This keeps the system "wide in good markets, tight
+        # in bad" — the whole point of regime-awareness.
+        _defensive = _row_regime in ("CORRECTION", "BEARISH", "PANIC", "DISTRIBUTION")
+        initial_floor = float(getattr(self.cfg,
+            "min_initial_trail_pct_defensive" if _defensive else "min_initial_trail_pct",
+            3.0 if _defensive else 5.5))
         # ATR-based floor (added 2026-05-15) — prevents trail tighter than
         # the stock's normal daily volatility. Without this, ILMN (ATR 4.49%)
         # could get a 4.0% trail = guaranteed whipsaw on a single 1σ day.

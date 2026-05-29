@@ -359,6 +359,15 @@ class TradingConfig:
     min_initial_trail_pct: float = field(
         default_factory=lambda: _env_float("MIN_INITIAL_TRAIL_PCT", 5.5)
     )
+    # 2026-05-29: lower floor for DEFENSIVE regimes (CORRECTION/BEARISH/
+    # PANIC/DISTRIBUTION). The wide 5.5% floor is for normal/bull markets
+    # (let winners run). In a falling market the regime_mult ×0.70 tightens
+    # the stop to preserve capital — a flat 5.5% floor would override that.
+    # This defensive floor (3.0%) lets the tightening work, so the trail is
+    # "wide in good markets, tight in bad". Env: TRADE_MIN_INITIAL_TRAIL_PCT_DEFENSIVE.
+    min_initial_trail_pct_defensive: float = field(
+        default_factory=lambda: _env_float("MIN_INITIAL_TRAIL_PCT_DEFENSIVE", 3.0)
+    )
 
     # ── Partial Profit-Taking (sell half at intermediate target) ─
     partial_profit_enabled: bool = field(
