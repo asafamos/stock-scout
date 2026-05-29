@@ -84,6 +84,15 @@ class TradingConfig:
     min_viable_position_usd: float = field(
         default_factory=lambda: _env_float("MIN_VIABLE_POSITION_USD", 30.0)
     )
+    # 2026-05-29: grace window (sec) before drift_check flags a position for
+    # "NO active stop". A freshly-bought position's OCA bracket may not be in
+    # the cycle's order snapshot yet (race with the opportunistic buy that
+    # placed it), causing a false "DRIFT DETECTED" the moment after a buy.
+    # Skip drift checks for positions younger than this; self-resolves next
+    # cycle. Env: TRADE_DRIFT_FRESH_GRACE_SEC.
+    drift_fresh_grace_sec: float = field(
+        default_factory=lambda: _env_float("DRIFT_FRESH_GRACE_SEC", 300.0)
+    )
 
     # ── Circuit Breakers (stop new buys when losses pile up) ──
     max_daily_loss_pct: float = field(

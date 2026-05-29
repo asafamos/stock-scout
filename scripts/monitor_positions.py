@@ -975,9 +975,33 @@ def _drift_check(tracker, client, ibkr_orders, notify):
         _net_liq = 0.0
     _cash_under_2k = (0 < _net_liq < 2000)
 
+    # Grace window for freshly-opened positions. The ibkr_orders snapshot
+    # used here is fetched earlier in the cycle — BEFORE an opportunistic
+    # buy places the new position's OCA bracket. So a position bought this
+    # cycle (e.g. PLTR right after SOLS closed on 2026-05-29) appears to
+    # have "NO active stop" even though its TRAIL+LMT landed seconds later.
+    # Skip drift checks for positions younger than this; it self-resolves
+    # next cycle once the orders are in the snapshot. Env: TRADE_DRIFT_FRESH_GRACE_SEC.
+    from datetime import datetime as _dt_drift
+    from core.trading.config import CONFIG as _CFG_drift
+    _fresh_grace = float(getattr(_CFG_drift, "drift_fresh_grace_sec", 300))
+
     for sym, pos in tracked.items():
         # Skip if position not in IB yet (just opened, may be pending)
         if sym not in ib_pos_by_ticker:
+            continue
+        # Skip freshly-opened positions — their protective orders may not be
+        # in this cycle's order snapshot yet (race with opportunistic buy).
+        try:
+            _o = str(pos.get("opened_at", "") or "")[:19]
+            _age_s = (_dt_drift.utcnow() - _dt_drift.fromisoformat(_o)).total_seconds() if _o else 1e9
+        except Exception:
+            _age_s = 1e9
+        if _age_s < _fresh_grace:
+            logger.debug(
+                "drift_check: skipping %s — opened %.0fs ago (<%.0fs grace, "
+                "protective orders may still be landing)", sym, _age_s, _fresh_grace,
+            )
             continue
         orders = orders_by_ticker.get(sym, [])
         order_types = {o.get("order_type") for o in orders}
