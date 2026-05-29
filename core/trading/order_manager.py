@@ -1278,12 +1278,27 @@ class OrderManager:
             _row_regime or "default",
         )
 
-        # Execute as OCA bracket: buy + trailing stop + limit sell (linked)
+        # Execute as OCA bracket: buy + trailing stop + limit sell (linked).
+        # 2026-05-29: pass a marketable LIMIT price = reference price ×
+        # (1 + buffer). `price` here is the live-refreshed quote (or scan
+        # fallback). The limit caps entry slippage; if the stock has run
+        # above it the order won't fill and _execute_single skips the trade
+        # — exactly what we want for the ANDG/SOLS illiquid-chase case that
+        # cost 5-6% slippage. buffer is configurable (default 0.3%).
+        _buf = float(getattr(self.cfg, "entry_limit_buffer_pct", 0.3)) / 100.0
+        _use_limit = bool(getattr(self.cfg, "entry_use_limit", True))
+        _limit_price = round(price * (1.0 + _buf), 2) if (_use_limit and price > 0) else 0.0
+        if _limit_price > 0:
+            logger.info(
+                "  Entry as marketable LIMIT $%.2f (ref $%.2f + %.2f%% buffer)",
+                _limit_price, price, _buf * 100,
+            )
         bracket = self.client.buy_with_bracket(
             ticker=ticker,
             qty=qty,
             trail_pct=trail_pct,
             target_price=target,
+            limit_price=_limit_price,
         )
 
         buy_result = bracket["buy"]

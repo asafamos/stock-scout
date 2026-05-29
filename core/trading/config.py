@@ -292,6 +292,35 @@ class TradingConfig:
         default_factory=lambda: _env_bool("INSIDER_SIGNAL_ENABLED", True)
     )
 
+    # ── Entry execution (2026-05-29: kill slippage) ──────────────
+    # Live trade analysis over 11 buys (2026-04 → 2026-05) showed the
+    # MARKET buy paid +1.93% avg slippage = $74.32 total = 106% of the
+    # entire net realized profit ($69.84). Worst offenders were illiquid
+    # names: ANDG +5.64% ($24.59), SOLS +4.88% ($16.65). Fix: place a
+    # MARKETABLE LIMIT instead of a MARKET order. The limit sits a small
+    # buffer above the live ask so it fills immediately on a normal
+    # spread, but CAPS the worst-case fill price. If the price has run
+    # away (e.g. live-price fetch failed and we fell back to a stale
+    # scan price, or the stock gapped), the limit simply doesn't fill and
+    # we skip the trade — far better than chasing it 5% higher with a MKT.
+    entry_use_limit: bool = field(
+        default_factory=lambda: _env_bool("ENTRY_USE_LIMIT", True)
+    )
+    # Buffer above the reference (live) price for the marketable limit.
+    # 0.3% is enough to clear a normal NBBO spread on a liquid name while
+    # capping slippage well below the 1.93% we were paying. Illiquid names
+    # with wider spreads simply won't fill — which the liquidity filter
+    # (Stage B) will keep out of the candidate set anyway.
+    entry_limit_buffer_pct: float = field(
+        default_factory=lambda: _env_float("ENTRY_LIMIT_BUFFER_PCT", 0.3)
+    )
+    # How long to wait for the limit to fill before cancelling + skipping.
+    # Swing entries are not time-critical to the second; if it doesn't
+    # fill in this window the price moved against us and we'd rather pass.
+    entry_limit_fill_wait_sec: int = field(
+        default_factory=lambda: _env_int("ENTRY_LIMIT_FILL_WAIT_SEC", 20)
+    )
+
     # ── Stop / Target ─────────────────────────────────────────
     trailing_stop_pct: float = field(
         default_factory=lambda: _env_float("TRAILING_STOP_PCT", 5.0)

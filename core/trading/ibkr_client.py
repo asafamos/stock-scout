@@ -507,11 +507,23 @@ class IBKRClient:
         qty: int,
         trail_pct: float,
         target_price: float,
+        limit_price: float = 0.0,
     ) -> dict:
         """Buy + trailing stop + limit sell as OCA bracket.
 
         When one exit order fills, the other is automatically cancelled.
         Returns dict with order IDs for all three legs.
+
+        2026-05-29 — entry slippage fix. If `limit_price` > 0 and
+        CONFIG.entry_use_limit is True, the parent buy is a MARKETABLE
+        LIMIT at limit_price instead of a MARKET order. This caps the
+        worst-case fill: on a normal spread the limit fills immediately
+        (it's set a small buffer above the live ask), but if the price
+        has run away the order simply doesn't fill within the wait window
+        and we cancel + report unfilled — the caller then skips the
+        position rather than chasing the stock several % higher (which
+        was costing ~1.93% avg / $74 total across the first 11 live buys).
+        Passing limit_price=0 preserves the legacy MARKET behavior.
         """
         if self.cfg.dry_run:
             logger.info(
@@ -538,30 +550,72 @@ class IBKRClient:
             # Generate OCA group name (unique per trade)
             oca_group = _make_oca_group(ticker)
 
-            # Leg 1: Market buy (parent)
+            # Leg 1: parent buy — MARKETABLE LIMIT (default) or MARKET (legacy).
+            use_limit = (
+                bool(getattr(self.cfg, "entry_use_limit", True))
+                and limit_price and limit_price > 0
+            )
             buy_order = Order()
             buy_order.action = "BUY"
             buy_order.totalQuantity = qty
-            buy_order.orderType = "MKT"
-            # 2026-05-19: explicit TIF=DAY silences "Error 10349: TIF was
-            # set to DAY based on order preset" warning that polluted logs.
-            # GTC doesn't apply to MKT (fills immediately) — DAY is correct.
-            buy_order.tif = "DAY"
+            if use_limit:
+                buy_order.orderType = "LMT"
+                buy_order.lmtPrice = round(float(limit_price), 2)
+                buy_order.tif = "DAY"
+                logger.info(
+                    "BUY LMT %d x %s @ $%.2f (marketable limit — caps slippage)",
+                    qty, ticker, buy_order.lmtPrice,
+                )
+            else:
+                buy_order.orderType = "MKT"
+                # 2026-05-19: explicit TIF=DAY silences "Error 10349: TIF was
+                # set to DAY based on order preset" warning that polluted logs.
+                # GTC doesn't apply to MKT (fills immediately) — DAY is correct.
+                buy_order.tif = "DAY"
+                logger.info("BUY MKT %d x %s (no limit_price — legacy path)", qty, ticker)
             buy_order.transmit = True
             buy_trade = self._ib.placeOrder(contract, buy_order)
 
-            # Wait for fill — up to 30s. CRITICAL: if the buy doesn't fill
-            # we must NOT proceed to place protective orders or report
-            # success — otherwise the tracker records a phantom OPEN with
-            # zero qty, then reconciliation later writes a fake CLOSE with
-            # estimated P&L. (See KNX phantom 2026-04-28; audit finding #2.)
-            for _ in range(30):
+            # Wait for fill. CRITICAL: if the buy doesn't fill we must NOT
+            # proceed to place protective orders or report success —
+            # otherwise the tracker records a phantom OPEN with zero qty,
+            # then reconciliation later writes a fake CLOSE with estimated
+            # P&L. (See KNX phantom 2026-04-28; audit finding #2.)
+            #
+            # For a LIMIT, the wait is intentional: a marketable limit fills
+            # near-instantly on a normal spread; if it's still unfilled when
+            # the window elapses, the price ran above our limit and we
+            # WANT to bail (no-chase). MARKET keeps the legacy 30s.
+            _fill_wait = (
+                int(getattr(self.cfg, "entry_limit_fill_wait_sec", 20))
+                if use_limit else 30
+            )
+            for _ in range(_fill_wait):
                 self._ib.sleep(1)
                 if buy_trade.orderStatus.status == "Filled":
                     break
-                # Also exit early on hard rejects so we don't burn 30s
+                # Also exit early on hard rejects so we don't burn the window
                 if buy_trade.orderStatus.status in ("Cancelled", "Inactive", "ApiCancelled"):
                     break
+
+            # LIMIT no-chase: if a marketable limit didn't fully fill in the
+            # window, cancel the remainder. A partial fill is kept (the
+            # protective-order qty is truncated to filled_qty below); a zero
+            # fill returns the standard unfilled path (caller skips position).
+            if use_limit and buy_trade.orderStatus.status not in (
+                "Filled", "Cancelled", "Inactive", "ApiCancelled"
+            ):
+                _filled_so_far = int(buy_trade.orderStatus.filled or 0)
+                logger.warning(
+                    "BUY LMT %s unfilled after %ds (price ran above $%.2f) — "
+                    "cancelling remainder (filled %d/%d, no-chase)",
+                    ticker, _fill_wait, buy_order.lmtPrice, _filled_so_far, qty,
+                )
+                try:
+                    self._ib.cancelOrder(buy_order)
+                    self._ib.sleep(1)
+                except Exception:
+                    pass
 
             filled = buy_trade.orderStatus.avgFillPrice or 0.0
             filled_qty = int(buy_trade.orderStatus.filled or 0)
