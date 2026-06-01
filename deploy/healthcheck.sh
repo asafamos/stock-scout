@@ -332,25 +332,71 @@ fi
 # This service already runs as User=stockscout, so no runuser needed.
 # If the IB query fails or returns no answer, SKIP the drift check entirely
 # instead of false-alarming on every tracker ticker.
+#
+# 2026-06-01 FIX: tracker↔IB races during the monitor's reconcile cycle
+# produced false-alarm DRIFT alerts. Specifically:
+#   • OCA trail/target fires on IB → IB no longer holds the position.
+#   • Monitor cycle hasn't yet run reconcile (CHECK_INTERVAL ≈ 5 min).
+#   • Healthcheck timer fires in this window (every 15 min) → sees
+#     "tracker has X, IB doesn't" → false DRIFT alert.
+#   • A minute later the monitor reconciles + writes the trail_fired CLOSE
+#     so the user sees DRIFT THEN immediate SELL — confusing.
+# Symmetric race on the other side: monitor BUYs, fills in IB, healthcheck
+# fires before the tracker write lands → false "IB has X but tracker doesn't".
+#
+# Fix: the IB query also returns RECENT FILLS (last GRACE_MIN minutes).
+# If the orphan ticker has a recent fill in the matching direction, suppress
+# the alert — it's a known reconcile race the monitor will close on its
+# next cycle. The monitor-stale check (6b) is an independent safety net that
+# catches a dead monitor, so suppressing here doesn't hide real failures.
+#
+# Env override: TRADE_DRIFT_RECENT_FILL_GRACE_MIN (default 30).
 TRACKER="/home/stockscout/stock-scout-2/data/trades/open_positions.json"
 if [ -f "${TRACKER}" ]; then
     # Random clientId (see run_handshake_check for rationale).
     DRIFT_CID=$(( (RANDOM % 700) + 200 ))
     export DRIFT_CID
+    : "${TRADE_DRIFT_RECENT_FILL_GRACE_MIN:=30}"
+    export TRADE_DRIFT_RECENT_FILL_GRACE_MIN
     IB_QUERY=$(bash -c 'cd /home/stockscout/stock-scout-2 && set -a && source .env.trading 2>/dev/null && set +a && /home/stockscout/stock-scout-2/.venv/bin/python -c "
 import os
+from datetime import datetime, timezone, timedelta
 from ib_insync import IB
+GRACE_MIN = int(os.environ.get(\"TRADE_DRIFT_RECENT_FILL_GRACE_MIN\", \"30\"))
 try:
     ib = IB(); ib.connect(\"127.0.0.1\", 7496, clientId=int(os.environ[\"DRIFT_CID\"]), timeout=10)
     syms = sorted({p.contract.symbol for p in ib.positions() if p.position != 0})
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=GRACE_MIN)
+    recent_buys, recent_sells = set(), set()
+    try:
+        for f in ib.fills():
+            try:
+                ex = f.execution
+                if not getattr(ex, \"time\", None):
+                    continue
+                t = ex.time if ex.time.tzinfo else ex.time.replace(tzinfo=timezone.utc)
+                if t < cutoff:
+                    continue
+                side = (ex.side or \"\").upper()
+                if side in (\"BOT\", \"BUY\"):
+                    recent_buys.add(f.contract.symbol)
+                elif side in (\"SLD\", \"SELL\"):
+                    recent_sells.add(f.contract.symbol)
+            except Exception:
+                continue
+    except Exception:
+        pass
     ib.disconnect()
-    print(\"OK\", \" \".join(syms))
+    print(\"OK\", \" \".join(syms) + \"|\" + \" \".join(sorted(recent_buys)) + \"|\" + \" \".join(sorted(recent_sells)))
 except Exception as e:
     print(\"ERR\", e)
 "' 2>/dev/null)
     STATUS=$(echo "${IB_QUERY}" | awk '{print $1}')
     if [ "$STATUS" = "OK" ]; then
-        IB_TICKERS=$(echo "${IB_QUERY}" | cut -d' ' -f2-)
+        BODY=$(echo "${IB_QUERY}" | cut -d' ' -f2-)
+        IB_TICKERS=$(echo "${BODY}" | cut -d'|' -f1)
+        RECENT_BUYS=$(echo "${BODY}" | cut -d'|' -f2)
+        RECENT_SELLS=$(echo "${BODY}" | cut -d'|' -f3)
         TRACKER_TICKERS=$(python3 -c "
 import json
 try:
@@ -362,12 +408,27 @@ except Exception:
 " 2>/dev/null)
         for sym in ${IB_TICKERS}; do
             if [ -n "${sym}" ] && ! echo " ${TRACKER_TICKERS} " | grep -q " ${sym} "; then
+                # Suppress: monitor BOUGHT this in the last GRACE_MIN min — tracker
+                # write is in-flight. The monitor's own _drift_check will adopt or
+                # write the OPEN on its next cycle.
+                if echo " ${RECENT_BUYS} " | grep -q " ${sym} "; then
+                    echo "DRIFT-SUPPRESS: IB has ${sym} (fresh BUY < ${TRADE_DRIFT_RECENT_FILL_GRACE_MIN}m, monitor will reconcile)"
+                    continue
+                fi
                 send_alert "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') DRIFT: IB holds <b>${sym}</b> but tracker doesn't know"
                 ISSUES=$((ISSUES + 1))
             fi
         done
         for sym in ${TRACKER_TICKERS}; do
             if [ -n "${sym}" ] && ! echo " ${IB_TICKERS} " | grep -q " ${sym} "; then
+                # Suppress: OCA stop/target SOLD this in the last GRACE_MIN min —
+                # monitor reconcile (CLOSE event with reason=trail_fired) is
+                # pending on the next cycle. If the monitor is dead, check 6b
+                # (snapshot freshness) fires independently.
+                if echo " ${RECENT_SELLS} " | grep -q " ${sym} "; then
+                    echo "DRIFT-SUPPRESS: tracker has ${sym} (fresh SELL < ${TRADE_DRIFT_RECENT_FILL_GRACE_MIN}m, monitor will close)"
+                    continue
+                fi
                 send_alert "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') DRIFT: tracker holds <b>${sym}</b> but IB doesn't"
                 ISSUES=$((ISSUES + 1))
             fi
