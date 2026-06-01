@@ -1,0 +1,135 @@
+{
+  "schema_version": 1,
+  "last_updated": "2026-06-01T16:42:10.377249+00:00",
+  "broadcast_seq": 74065,
+  "pipeline": {
+    "state": "idle",
+    "last_fire": "15:00:00",
+    "last_complete": null,
+    "regime": "STRONG_UPTREND",
+    "candidates_passed": null,
+    "skips": [],
+    "today_buys": 2,
+    "today_closes": 2
+  },
+  "positions": [
+    {
+      "ticker": "PACS",
+      "qty": 8,
+      "entry": 36.42,
+      "mkt": 36.19,
+      "pnl_pct": -0.63,
+      "pnl_abs": -1.84,
+      "peak_pct": 0.63,
+      "trail_pct": 5.5,
+      "target": 44.48,
+      "opened_at": "2026-05-29",
+      "earnings_date": "2026-08-10",
+      "days_to_earnings": 70
+    },
+    {
+      "ticker": "MTSI",
+      "qty": 1,
+      "entry": 352.58,
+      "mkt": 350.12,
+      "pnl_pct": -0.7,
+      "pnl_abs": -2.46,
+      "peak_pct": 0.0,
+      "trail_pct": 5.5,
+      "target": 412.62,
+      "opened_at": "2026-06-01",
+      "earnings_date": "2026-08-06",
+      "days_to_earnings": 66
+    },
+    {
+      "ticker": "GEO",
+      "qty": 11,
+      "entry": 22.78,
+      "mkt": 23.16,
+      "pnl_pct": 1.68,
+      "pnl_abs": 4.22,
+      "peak_pct": 0.0,
+      "trail_pct": 5.5,
+      "target": 27.341999626159666,
+      "opened_at": "2026-06-01",
+      "earnings_date": "2026-08-05",
+      "days_to_earnings": 65
+    }
+  ],
+  "trade_log_today": [
+    {
+      "action": "CLOSE",
+      "ticker": "LEGN",
+      "quantity": 12,
+      "price": 25.76,
+      "timestamp": "2026-06-01T13:46:10.917666",
+      "entry_price": 27.26,
+      "pnl": -18.0,
+      "reason": "trail_fired",
+      "held_since": "2026-05-29T16:55:53.158746"
+    },
+    {
+      "action": "CLOSE",
+      "ticker": "PLTR",
+      "quantity": 2,
+      "price": 158.31,
+      "timestamp": "2026-06-01T14:11:23.474074",
+      "entry_price": 156.0285,
+      "pnl": 4.56,
+      "reason": "trail_fired_in_profit",
+      "held_since": "2026-05-29T18:29:16.552722"
+    },
+    {
+      "action": "OPEN",
+      "ticker": "MTSI",
+      "quantity": 1,
+      "price": 352.58,
+      "timestamp": "2026-06-01T14:15:51.183748",
+      "stop_loss": 337.44000244140625,
+      "target_price": 412.62,
+      "target_date": "2026-06-16 00:00:00",
+      "score": 91.55198127225808,
+      "scan_price": 356.10557817731586,
+      "slippage_pct": -0.99
+    },
+    {
+      "action": "OPEN",
+      "ticker": "GEO",
+      "quantity": 11,
+      "price": 22.7765,
+      "timestamp": "2026-06-01T14:16:48.403505",
+      "stop_loss": 22.290000915527344,
+      "target_price": 27.341999626159666,
+      "target_date": "2026-06-24 00:00:00",
+      "score": 88.10253741020091,
+      "scan_price": 22.771500832693917,
+      "slippage_pct": 0.022
+    }
+  ],
+  "system_health": {
+    "stockscout-monitor": true,
+    "stockscout-pipeline.timer": true,
+    "stockscout-statusbot": true,
+    "stockscout-healthcheck.timer": true,
+    "stockscout-daily-summary.timer": true,
+    "stockscout-command-poller": true,
+    "ibgateway": true,
+    "all_active": true,
+    "scan_age_hours": 0.8,
+    "outcomes_age_days": 0,
+    "pipeline_next_fire": "2026-06-01T19:15:00+00:00"
+  },
+  "account": {
+    "net_liquidation": 982.21,
+    "cash": 87.84,
+    "tier": "sub_2k",
+    "snapshot_age_minutes": 4.6
+  },
+  "throttle": {
+    "active": false,
+    "level": "inactive",
+    "win_rate": 0.6,
+    "size_multiplier": 1.0,
+    "trades_in_window": 10
+  }
+}
