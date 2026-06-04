@@ -275,6 +275,19 @@ def run_check():
         ibkr_positions = {p.ticker: p for p in client.sync_positions()}
         ibkr_orders = client.get_open_orders()
 
+        # 1a. Ledger ingest (deep fix for tracker↔IB drift). Idempotently
+        # record IB's OWN executions, keyed by execId. This is the event
+        # source: a SELL execution here IS the close — no position-diff
+        # inference, no reconcile_drop, no fabricated P&L. Returns only the
+        # NEW executions so we can react to fresh fills in the close path.
+        new_execs: list = []
+        if getattr(CONFIG, "ledger_enabled", False):
+            try:
+                from core.trading import ledger
+                new_execs = ledger.ingest(client)
+            except Exception as _le:
+                logger.warning("ledger ingest failed (non-fatal): %s", _le)
+
         # Reset miss counter for tickers that ARE in this sync
         # (so a transient miss followed by a hit clears the count).
         for ticker_seen in ibkr_positions:
@@ -432,14 +445,49 @@ def run_check():
                     except Exception:
                         pass
 
+                # ── LEDGER MODE (deep fix) ───────────────────────────
+                # IB is the source of truth. The SELL execution (if real)
+                # is already in the ledger as broker-truth P&L, recorded by
+                # the ingest at the top of this cycle. We do NOT infer a
+                # price or fabricate P&L: we drop the stale metadata row and
+                # react to any fresh SELL execution. This removes the entire
+                # inference/reconcile_drop machinery that was the drift
+                # engine (KNX 2026-04-28, PAAS 2026-06-03 — losses that
+                # vanished with pnl=None).
+                if getattr(CONFIG, "ledger_enabled", False):
+                    matched = [
+                        e for e in new_execs
+                        if e.get("ticker") == ticker and e.get("side") == "SELL"
+                    ]
+                    tracker.drop_metadata(ticker)
+                    if matched:
+                        rp = sum(float(e.get("realized_pnl") or 0)
+                                 for e in matched
+                                 if e.get("realized_pnl") is not None)
+                        xp = float(matched[-1].get("price") or exit_price or 0.0)
+                        notify.notify_sell(ticker, pos["quantity"], xp, reason, rp)
+                        _try_opportunistic_buy(client, tracker, notify,
+                                               reason=f"after_close_{ticker}")
+                    else:
+                        # Gone from IB but no SELL execution surfaced this
+                        # cycle — the fill was ingested in a prior cycle
+                        # (P&L already in the ledger) or it's a manual move.
+                        # No fabricated number; the account-truth
+                        # reconciliation (/pnl) is the backstop.
+                        logger.info(
+                            "%s gone from IB, no new SELL exec this cycle — "
+                            "metadata dropped (P&L, if any, is in ledger)",
+                            ticker,
+                        )
+                        _try_opportunistic_buy(client, tracker, notify,
+                                               reason=f"after_close_{ticker}")
+
+                # ── LEGACY MODE (ledger disabled) ────────────────────
                 # If we found a real exit price → record a proper CLOSE
                 # with accurate P&L. If we DIDN'T → use reconcile_drop
                 # which removes the position from the tracker WITHOUT
-                # writing a CLOSE row with a fake P&L. Old behavior
-                # estimated from stop_loss/peak_price and produced
-                # misleading P&L (see audit finding #1; KNX phantom
-                # 2026-04-28). Now: no fake numbers reach the trade log.
-                if exit_price > 0:
+                # writing a CLOSE row with a fake P&L.
+                elif exit_price > 0:
                     tracker.remove_position(ticker, exit_price, reason)
                     pnl = (exit_price - pos["entry_price"]) * pos["quantity"]
                     notify.notify_sell(ticker, pos["quantity"], exit_price, reason, pnl)

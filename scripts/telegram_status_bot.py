@@ -230,9 +230,94 @@ def get_portfolio_status() -> str:
         return f"⚠️ Cannot connect to IB Gateway: {e}\n\nTry: http://87.99.142.12:5800/vnc.html"
 
 
+def _fetch_ib_unrealized_and_netliq() -> tuple:
+    """Single IB connection → (unrealized_total, net_liquidation). (0,0) on fail."""
+    unrealized = 0.0
+    net_liq = 0.0
+    try:
+        from ib_insync import IB
+        ib = IB()
+        ib.connect("127.0.0.1", 7496, clientId=97, timeout=10)
+        for p in ib.portfolio():
+            if p.position != 0:
+                unrealized += float(p.unrealizedPNL or 0)
+        for item in ib.accountSummary():
+            if item.tag == "NetLiquidation":
+                net_liq = float(item.value or 0)
+                break
+        ib.disconnect()
+    except Exception as e:
+        logger.warning("Could not fetch unrealized/net-liq: %s", e)
+    return round(unrealized, 2), round(net_liq, 2)
+
+
 def get_pnl_summary() -> str:
-    """Today's P&L + running totals from trade_log + live unrealized."""
+    """P&L summary. In ledger mode every number is broker-truth:
+
+      • Today realized   → Σ ledger SELL realizedPNL (net of commission)
+      • Lifetime realized → NetLiq − starting_capital − open_unrealized
+                            (pure IB; always true, covers pre-ledger history)
+      • Record / PF       → ledger closed round-trips
+      • Reconciliation    → ledger-cumulative vs account-truth; flags drift
+
+    The legacy trade_log path is retained for ledger_enabled=False.
+    """
     from datetime import date
+    unrealized, net_liq = _fetch_ib_unrealized_and_netliq()
+
+    try:
+        from core.trading.config import CONFIG
+        ledger_on = bool(getattr(CONFIG, "ledger_enabled", False))
+    except Exception:
+        CONFIG = None
+        ledger_on = False
+
+    un_emoji = "🟢" if unrealized >= 0 else "🔴"
+
+    if ledger_on:
+        try:
+            from core.trading import ledger
+            realized_today = ledger.realized_today()
+            lifetime = ledger.lifetime_realized_truth(net_liq, unrealized)
+            st = ledger.stats()
+            rec = ledger.reconcile(net_liq, unrealized)
+
+            today_emoji = "🟢" if realized_today >= 0 else "🔴"
+            life_emoji = "🟢" if lifetime >= 0 else "🔴"
+            pf = st.get("profit_factor")
+            pf_str = "∞" if pf is None and st.get("realized_total", 0) > 0 else (
+                f"{pf:.2f}" if pf is not None else "—")
+            pf_emoji = "🟢" if (pf or 0) >= 1.5 else ("🟡" if (pf or 0) >= 1.0 else "🔴")
+            wr = st.get("win_rate", 0.0)
+
+            # Reconciliation line — the single check that exposes drift.
+            if rec["ok"]:
+                rec_line = f"✅ Books reconcile with IB (Δ ${rec['delta']:+.2f})"
+            else:
+                rec_line = (
+                    f"⚠️ <b>Ledger drift vs IB: Δ ${rec['delta']:+.2f}</b>\n"
+                    f"   ledger ${rec['ledger_realized']:+.2f} + baseline "
+                    f"${rec['pre_ledger_baseline']:+.2f} vs account-truth "
+                    f"${rec['account_truth_realized']:+.2f}"
+                )
+
+            return (
+                f"<b>💰 P&L Summary</b> <i>(broker-truth)</i>\n\n"
+                f"{today_emoji} <b>Today (realized):</b> ${realized_today:+.2f}\n"
+                f"{un_emoji} <b>Open (unrealized):</b> ${unrealized:+.2f}\n"
+                f"{life_emoji} <b>Lifetime (realized):</b> ${lifetime:+.2f} "
+                f"<i>(NetLiq − deposit − open)</i>\n\n"
+                f"<b>Record:</b> {st['wins']}W / {st['losses']}L "
+                f"({wr:.0f}% win rate, {st['n_closed']} trades)\n"
+                f"<b>Profit Factor:</b> {pf_emoji} {pf_str} "
+                f"<i>(gross wins ÷ gross losses)</i>\n"
+                f"💰 <b>Net:</b> ${net_liq:,.2f}\n\n"
+                f"{rec_line}"
+            )
+        except Exception as _e:
+            logger.error("ledger /pnl failed, falling back to legacy: %s", _e)
+
+    # ── Legacy path (ledger disabled or errored) ──
     try:
         from pathlib import Path
         log_path = Path(__file__).resolve().parents[1] / "data" / "trades" / "trade_log.json"
@@ -253,65 +338,40 @@ def get_pnl_summary() -> str:
     wins = sum(1 for t in log if t.get("action") == "CLOSE" and float(t.get("pnl", 0) or 0) > 0)
     losses = sum(1 for t in log if t.get("action") == "CLOSE" and float(t.get("pnl", 0) or 0) < 0)
     total_closes = wins + losses
-
-    # Unrealized from IB
-    unrealized = 0.0
-    try:
-        from ib_insync import IB
-        ib = IB()
-        ib.connect("127.0.0.1", 7496, clientId=97, timeout=10)
-        for p in ib.portfolio():
-            if p.position != 0:
-                unrealized += float(p.unrealizedPNL or 0)
-        ib.disconnect()
-    except Exception as e:
-        logger.warning("Could not fetch unrealized P&L: %s", e)
+    unreconciled = sum(1 for t in log if t.get("action") == "RECONCILE_DROP")
 
     win_rate = (wins / total_closes * 100) if total_closes else 0.0
     today_emoji = "🟢" if realized_today >= 0 else "🔴"
     total_emoji = "🟢" if realized_total >= 0 else "🔴"
-    un_emoji = "🟢" if unrealized >= 0 else "🔴"
 
-    # Audit M7: surface MAX DRAWDOWN and PROFIT FACTOR — both already
-    # computed by analytics, just weren't exposed via /pnl. Profit factor
-    # = gross wins ÷ gross losses (>1.0 = strategy is positive expectancy).
-    # Max DD = peak-to-trough decline of the realized equity curve.
+    # FIXED (was dead): the import named a nonexistent symbol
+    # `pair_buy_sell_events` → ImportError swallowed → PF/DD never shown.
     extra_block = ""
     try:
         from core.trading.analytics import (
-            compute_drawdown,
-            build_equity_curve,
-            pair_buy_sell_events,
+            compute_drawdown, build_equity_curve, build_trade_pairs,
         )
-        pairs = pair_buy_sell_events(log)
+        pairs = build_trade_pairs(log)
         if pairs and len(pairs) >= 2:
             curve = build_equity_curve(pairs, starting_balance=1000.0)
-            dd = compute_drawdown(curve)
-            max_dd_pct = float(dd.get("max_dd_pct", 0) or 0)
-
-            # Profit factor — gross wins ÷ |gross losses|
-            gross_wins = sum(
-                float(t.get("pnl", 0) or 0)
-                for t in log if t.get("action") == "CLOSE"
-                and float(t.get("pnl", 0) or 0) > 0
-            )
-            gross_losses = abs(sum(
-                float(t.get("pnl", 0) or 0)
-                for t in log if t.get("action") == "CLOSE"
-                and float(t.get("pnl", 0) or 0) < 0
-            ))
+            max_dd_pct = float(compute_drawdown(curve).get("max_dd_pct", 0) or 0)
+            gross_wins = sum(float(t.get("pnl", 0) or 0) for t in log
+                             if t.get("action") == "CLOSE" and float(t.get("pnl", 0) or 0) > 0)
+            gross_losses = abs(sum(float(t.get("pnl", 0) or 0) for t in log
+                                   if t.get("action") == "CLOSE" and float(t.get("pnl", 0) or 0) < 0))
             pf = (gross_wins / gross_losses) if gross_losses > 0 else float("inf")
             pf_str = "∞" if pf == float("inf") else f"{pf:.2f}"
             pf_emoji = "🟢" if pf >= 1.5 else ("🟡" if pf >= 1.0 else "🔴")
             dd_emoji = "🟢" if max_dd_pct < 5 else ("🟡" if max_dd_pct < 10 else "🔴")
             extra_block = (
-                f"\n<b>Profit Factor:</b> {pf_emoji} {pf_str} "
-                f"<i>(gross wins ÷ gross losses)</i>\n"
+                f"\n<b>Profit Factor:</b> {pf_emoji} {pf_str}\n"
                 f"<b>Max Drawdown:</b> {dd_emoji} -{max_dd_pct:.1f}%"
             )
     except Exception as _e:
         logger.debug("PF/DD enrichment skipped: %s", _e)
 
+    unrec_line = (f"\n⚠️ <i>{unreconciled} trades unreconciled "
+                  f"(P&L unknown — excluded from stats)</i>") if unreconciled else ""
     return (
         f"<b>💰 P&L Summary</b>\n\n"
         f"{today_emoji} <b>Today (realized):</b> ${realized_today:+.2f}\n"
@@ -319,12 +379,43 @@ def get_pnl_summary() -> str:
         f"{total_emoji} <b>Lifetime (closed):</b> ${realized_total:+.2f}\n\n"
         f"<b>Record:</b> {wins}W / {losses}L "
         f"({win_rate:.0f}% win rate, {total_closes} trades)"
-        f"{extra_block}"
+        f"{extra_block}{unrec_line}"
     )
 
 
 def get_recent_trades(limit: int = 10) -> str:
-    """Show last N closed trades."""
+    """Show last N closed trades. In ledger mode these are broker-truth
+    round-trips (realized P&L net of commission, keyed by IB execId)."""
+    try:
+        from core.trading.config import CONFIG
+        ledger_on = bool(getattr(CONFIG, "ledger_enabled", False))
+    except Exception:
+        ledger_on = False
+
+    if ledger_on:
+        try:
+            from core.trading import ledger
+            trips = [t for t in ledger.closed_round_trips()
+                     if t.get("realized_pnl") is not None]
+            recent = trips[-limit:][::-1]
+            if not recent:
+                return "<b>📜 Trade History</b>\n\nNo closed trades yet."
+            lines = [f"<b>📜 Last {len(recent)} Closed Trades</b> <i>(broker-truth)</i>\n"]
+            for t in recent:
+                pnl = float(t["realized_pnl"])
+                emoji = "🟢" if pnl >= 0 else "🔴"
+                when = str(t.get("exit_time", ""))[:10]
+                hold = t.get("hold_days")
+                hold_str = f", {hold}d" if hold is not None else ""
+                lines.append(
+                    f"{emoji} <b>{t.get('ticker', '?')}</b> "
+                    f"${pnl:+.2f} <i>({when}{hold_str})</i>"
+                )
+            return "\n".join(lines)
+        except Exception as _e:
+            logger.error("ledger /history failed, falling back to legacy: %s", _e)
+
+    # ── Legacy path ──
     try:
         from pathlib import Path
         log_path = Path(__file__).resolve().parents[1] / "data" / "trades" / "trade_log.json"
