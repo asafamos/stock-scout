@@ -395,6 +395,36 @@ class TradingConfig:
         default_factory=lambda: _env_float("MIN_INITIAL_TRAIL_PCT_DEFENSIVE", 3.0)
     )
 
+    # ── Accounting / reconciliation ───────────────────────────
+    # Initial deposit. Used to reconcile the trade-log realized P&L against
+    # IB's net liquidation: starting_capital + Σ(CLOSE pnl) + Σ(open
+    # unrealized) should ≈ IB net-liq. A divergence beyond
+    # reconcile_tolerance_usd means the ledger lost trades (reconcile_drop),
+    # double-counted, or is gross-of-commission — surfaced in /pnl + daily
+    # summary instead of silently overstating performance.
+    # Env: TRADE_STARTING_CAPITAL, TRADE_RECONCILE_TOLERANCE_USD.
+    starting_capital: float = field(
+        default_factory=lambda: _env_float("STARTING_CAPITAL", 977.50)
+    )
+    reconcile_tolerance_usd: float = field(
+        default_factory=lambda: _env_float("RECONCILE_TOLERANCE_USD", 5.0)
+    )
+
+    # ── Trail activation (P2 — OFF by default, see docs/trail_tuning.md) ──
+    # When enabled, the monitor only begins *tightening* the trail (ratchet,
+    # break-even, partial) once a position has earned a minimum gain — so a
+    # fresh position is not whipsawed out by day-1 noise before the swing
+    # thesis (5-15d) plays out. Default 0.0 = current behavior (no-op).
+    # This NEVER widens past the initial protective bracket and never leaves
+    # a position unprotected; it only gates the *tightening* passes.
+    # Env: TRADE_TRAIL_ACTIVATION_ENABLED, TRADE_TRAIL_ACTIVATION_MIN_GAIN_PCT.
+    trail_activation_enabled: bool = field(
+        default_factory=lambda: _env_bool("TRAIL_ACTIVATION_ENABLED", False)
+    )
+    trail_activation_min_gain_pct: float = field(
+        default_factory=lambda: _env_float("TRAIL_ACTIVATION_MIN_GAIN_PCT", 0.0)
+    )
+
     # ── Partial Profit-Taking (sell half at intermediate target) ─
     partial_profit_enabled: bool = field(
         default_factory=lambda: _env_bool("PARTIAL_PROFIT_ENABLED", True)
@@ -581,10 +611,23 @@ class TradingConfig:
         default_factory=lambda: _env_float("INITIAL_TRAIL_ATR_FLOOR_MULT", 0.9)
     )
 
+    # ── Event-sourced ledger (deep fix for tracker↔IB drift) ──────
+    # When enabled: IB is the single source of truth for position existence
+    # and realized P&L; the durable ledger (executions.jsonl) is built by
+    # idempotently ingesting IB executions (keyed by execId), and all
+    # reporting reads from IB-live + ledger instead of the JSON tracker.
+    # This eliminates the dual-source-of-truth that caused months of drift.
+    # Setting it False fully restores the legacy trade_log behavior.
+    # See docs/architecture_ledger.md. Env: TRADE_LEDGER_ENABLED.
+    ledger_enabled: bool = field(
+        default_factory=lambda: _env_bool("LEDGER_ENABLED", True)
+    )
+
     # ── Paths ──────────────────────────────────────────────────
     scan_results_path: str = "data/scans/latest_scan_live.json"
     open_positions_path: str = "data/trades/open_positions.json"
     trade_log_path: str = "data/trades/trade_log.json"
+    ledger_path: str = "data/trades/executions.jsonl"
 
     @property
     def ibkr_port(self) -> int:

@@ -67,6 +67,24 @@ def send_telegram(text: str) -> None:
         logger.error("Telegram send failed: %s", e)
 
 
+def _get_net_liquidation() -> float:
+    """Live IB net liquidation (account-truth total value). 0.0 on failure."""
+    try:
+        from ib_insync import IB
+        ib = IB()
+        ib.connect("127.0.0.1", 7496, clientId=94, timeout=15)
+        net = 0.0
+        for item in ib.accountSummary():
+            if item.tag == "NetLiquidation":
+                net = float(item.value or 0)
+                break
+        ib.disconnect()
+        return round(net, 2)
+    except Exception as e:
+        logger.warning("Could not fetch net liquidation: %s", e)
+        return 0.0
+
+
 def _get_ib_portfolio() -> list:
     """Return live IB positions with unrealized P&L. Safe-fails to []."""
     try:
@@ -109,6 +127,34 @@ def build_summary(for_date: str = None) -> str:
     realized_today = sum(float(t.get("pnl", 0) or 0) for t in todays_closes)
     wins_today = sum(1 for t in todays_closes if float(t.get("pnl", 0) or 0) > 0)
     losses_today = sum(1 for t in todays_closes if float(t.get("pnl", 0) or 0) < 0)
+
+    # ── Ledger override for TODAY (broker-truth) ─────────────────────
+    # In ledger mode closes are NOT written to trade_log (no fabricated
+    # CLOSE rows) — they live in the ledger as IB executions. Rebuild the
+    # "today" view from the ledger so the summary isn't blank.
+    ledger_on = False
+    try:
+        from core.trading.config import CONFIG as _CFG
+        ledger_on = bool(getattr(_CFG, "ledger_enabled", False))
+    except Exception:
+        pass
+    if ledger_on:
+        try:
+            from core.trading import ledger as _ldg
+            _trips_today = [
+                t for t in _ldg.closed_round_trips()
+                if t.get("realized_pnl") is not None
+                and str(t.get("exit_time", "")).startswith(for_date)
+            ]
+            todays_closes = [
+                {"ticker": t["ticker"], "pnl": t["realized_pnl"], "reason": ""}
+                for t in _trips_today
+            ]
+            realized_today = round(sum(t["pnl"] for t in todays_closes), 2)
+            wins_today = sum(1 for t in todays_closes if t["pnl"] > 0)
+            losses_today = sum(1 for t in todays_closes if t["pnl"] < 0)
+        except Exception as _e:
+            logger.warning("daily_summary today ledger override skipped: %s", _e)
 
     # Lifetime
     all_closes = [t for t in log if t.get("action") == "CLOSE"]
@@ -224,6 +270,39 @@ def build_summary(for_date: str = None) -> str:
         else:
             close_reasons[r[:20] or "unknown"] += 1
 
+    # ── Ledger override (broker-truth headline numbers) ──────────────
+    # In ledger mode the realized P&L, record, and profit factor come from
+    # IB's own executions (net of commission), and lifetime realized is the
+    # always-true account identity: NetLiq − starting_capital − open_unreal.
+    # This is what makes the headline reconcile with the broker instead of
+    # overstating it (the months-old drift).
+    rec_line = ""
+    try:
+        from core.trading.config import CONFIG
+        if getattr(CONFIG, "ledger_enabled", False):
+            from core.trading import ledger
+            net_liq = _get_net_liquidation()
+            realized_today = ledger.realized_today()
+            realized_total = ledger.lifetime_realized_truth(net_liq, unrealized_total)
+            st = ledger.stats()
+            life_wins, life_losses = st["wins"], st["losses"]
+            life_n = life_wins + life_losses
+            win_rate = st["win_rate"]
+            avg_win, avg_loss = st["avg_win"], st["avg_loss"]
+            expectancy = ((win_rate / 100) * avg_win
+                          + (1 - win_rate / 100) * avg_loss) if life_n else 0.0
+            profit_factor = st["profit_factor"] if st["profit_factor"] is not None else 999.0
+            if st["avg_hold_days"] is not None:
+                avg_hold = st["avg_hold_days"]
+            rec = ledger.reconcile(net_liq, unrealized_total)
+            rec_line = (
+                f"\n  ✅ Reconciles with IB (Δ ${rec['delta']:+.2f})"
+                if rec["ok"] else
+                f"\n  ⚠️ Ledger drift vs IB: Δ ${rec['delta']:+.2f}"
+            )
+    except Exception as _e:
+        logger.warning("daily_summary ledger override skipped: %s", _e)
+
     # Lifetime
     lifetime_emoji = "🟢" if realized_total >= 0 else "🔴"
     pf_emoji = "🟢" if profit_factor >= 1.5 else ("🟡" if profit_factor >= 1.0 else "🔴")
@@ -233,6 +312,7 @@ def build_summary(for_date: str = None) -> str:
         f"  Record: {life_wins}W / {life_losses}L ({win_rate:.0f}%)\n"
         f"  Expectancy: ${expectancy:+.2f}/trade"
         + (f"\n  Avg win: ${avg_win:+.2f}  |  Avg loss: ${avg_loss:+.2f}" if life_n else "")
+        + rec_line
     )
 
     # Strategic Edge Indicators

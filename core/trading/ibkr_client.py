@@ -277,6 +277,106 @@ class IBKRClient:
             logger.error("Failed to get positions: %s", e)
             return []
 
+    def get_fills(self) -> List[dict]:
+        """Return this session's executions as normalized dicts.
+
+        The atom of the event-sourced ledger (core/trading/ledger.py). Each
+        row is keyed by IB's globally-unique, stable ``execId`` so the ledger
+        can upsert idempotently — an execution can never be counted twice
+        (kills the 2026-05-01 double-CLOSE class) and is never estimated
+        (kills the KNX/PAAS phantom class), because we only ever record what
+        IB actually executed.
+
+        ``realized_pnl`` comes straight from IB's CommissionReport and is
+        NET OF COMMISSIONS on both legs — the broker's own number, which
+        reconciles to NetLiquidation by construction. Only populated on the
+        closing (SELL, for long-only) leg; the opening leg reports the IB
+        "unset" sentinel which we normalize to None.
+
+        Note: ``ib.fills()`` is SESSION-scoped (roughly today / since gateway
+        connect). The durable ledger accumulates across sessions by appending
+        these every monitor cycle; it never re-derives, so a stale session
+        cannot corrupt history.
+        """
+        if self.cfg.dry_run:
+            return []
+        if self._ib is None:
+            return []
+        _UNSET = 1.7976931348623157e308  # IB's UNSET_DOUBLE sentinel
+        out: List[dict] = []
+        try:
+            fills = self._ib.fills()
+        except Exception as e:
+            logger.warning("get_fills: ib.fills() failed: %s", e)
+            return []
+        for f in fills:
+            try:
+                ex = f.execution
+                exec_id = getattr(ex, "execId", "") or ""
+                if not exec_id:
+                    continue
+                side_raw = (getattr(ex, "side", "") or "").upper()
+                side = "BUY" if side_raw in ("BOT", "BUY") else (
+                    "SELL" if side_raw in ("SLD", "SELL") else side_raw
+                )
+                t = getattr(ex, "time", None)
+                # Normalize to tz-aware ISO (UTC) so downstream date math is safe.
+                t_iso = None
+                if t is not None:
+                    try:
+                        from datetime import timezone as _tz
+                        tt = t if getattr(t, "tzinfo", None) else t.replace(tzinfo=_tz.utc)
+                        t_iso = tt.isoformat()
+                    except Exception:
+                        t_iso = str(t)
+                cr = getattr(f, "commissionReport", None)
+                commission = None
+                realized = None
+                if cr is not None:
+                    try:
+                        c = float(getattr(cr, "commission", None))
+                        if c == c and abs(c) < _UNSET / 2:
+                            commission = round(c, 4)
+                    except (TypeError, ValueError):
+                        pass
+                    try:
+                        rp = float(getattr(cr, "realizedPNL", None))
+                        # Filter NaN and the UNSET sentinel (opening legs).
+                        if rp == rp and abs(rp) < _UNSET / 2:
+                            realized = round(rp, 2)
+                    except (TypeError, ValueError):
+                        pass
+                out.append({
+                    "exec_id": exec_id,
+                    "ticker": getattr(f.contract, "symbol", "") or "",
+                    "side": side,
+                    "shares": float(getattr(ex, "shares", 0) or 0),
+                    "price": float(getattr(ex, "price", 0) or 0),
+                    "time": t_iso,
+                    "commission": commission,
+                    "realized_pnl": realized,
+                })
+            except Exception as _e:
+                logger.debug("get_fills: skipping malformed fill: %s", _e)
+                continue
+        return out
+
+    def get_account_realized_pnl(self) -> Optional[float]:
+        """IB's account-level DAILY realized P&L (net), or None if unavailable.
+
+        A cheap independent cross-check for the ledger's today-realized:
+        both should agree. Uses accountSummary RealizedPnL tag.
+        """
+        if self.cfg.dry_run or self._ib is None:
+            return None
+        try:
+            for item in self._ib.accountSummary():
+                if item.tag == "RealizedPnL":
+                    return float(item.value)
+        except Exception as e:
+            logger.debug("get_account_realized_pnl failed: %s", e)
+        return None
+
     def get_live_price(self, ticker: str, timeout: float = 6.0) -> Optional[float]:
         """Fetch a near-real-time price via IBKR delayed market data (15-min lag).
 

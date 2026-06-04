@@ -367,6 +367,26 @@ class PositionTracker:
             ticker, reason,
         )
 
+    def drop_metadata(self, ticker: str) -> bool:
+        """Remove a position's metadata row WITHOUT writing any trade_log entry.
+
+        Used in ledger mode: when IB no longer holds a ticker, its local row
+        is just stale annotation to garbage-collect. The realized P&L (if the
+        position closed) lives in the event-sourced ledger as broker truth —
+        so unlike reconcile_drop(), this writes NOTHING to the trade log and
+        invents no P&L. Existence was never the tracker's to assert.
+        Returns True if a row was removed.
+        """
+        with _file_lock(self._positions_path):
+            positions = self._read_positions_unlocked()
+            remaining = [p for p in positions if p.get("ticker") != ticker]
+            if len(remaining) == len(positions):
+                return False
+            _atomic_write_json(self._positions_path, remaining)
+        logger.info("drop_metadata: removed stale annotation for %s "
+                    "(P&L, if any, is in the ledger)", ticker)
+        return True
+
     def reconcile_adopt(
         self,
         ticker: str,

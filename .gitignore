@@ -15,6 +15,8 @@ data/.user_identity
 data/trades/open_positions.json
 data/trades/portfolio_snapshot.json
 data/trades/trade_log.json
+data/trades/executions.jsonl
+data/trades/ledger_baseline.json
 
 # Environment and secrets
 .env
