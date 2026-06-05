@@ -309,9 +309,53 @@ def _build_positions_with_earnings() -> List[Dict]:
 
 
 def _build_today_log() -> List[Dict]:
+    """Build today's BUY/SELL/PARTIAL log for the dashboard.
+
+    2026-06-05 FIX: in LEDGER MODE the monitor's close path calls
+    ``tracker.drop_metadata()`` instead of writing a CLOSE row to
+    trade_log.json (per docs/architecture_ledger.md — broker truth lives
+    in the ledger, the trade_log is legacy). So reading ONLY trade_log
+    misses today's closes and the dashboard would show "0 sells today"
+    even when 4 positions closed. Merge ledger SELL executions in.
+    """
     today_iso = date.today().isoformat()
     log = _read_json(TRADE_LOG, default=[]) or []
-    return [t for t in log if str(t.get("timestamp", "")).startswith(today_iso)]
+    entries = [t for t in log if str(t.get("timestamp", "")).startswith(today_iso)]
+
+    # ── Merge LEDGER closes for today (broker-truth P&L) ──
+    ledger_path = ROOT / "data" / "trades" / "executions.jsonl"
+    if ledger_path.exists():
+        # Avoid double-counting: skip tickers already in `entries` as CLOSE
+        already_closed = {e["ticker"] for e in entries
+                          if e.get("action") in ("CLOSE", "PARTIAL")}
+        try:
+            with open(ledger_path) as f:
+                for ln in f:
+                    try:
+                        ex = json.loads(ln)
+                    except Exception:
+                        continue
+                    if str(ex.get("time", "")).startswith(today_iso) \
+                            and ex.get("side") == "SELL" \
+                            and ex.get("ticker") not in already_closed:
+                        # Synthesize a CLOSE-style entry the dashboard
+                        # already knows how to render.
+                        entries.append({
+                            "action": "CLOSE",
+                            "ticker": ex["ticker"],
+                            "timestamp": ex.get("time", ""),
+                            "price": ex.get("price"),
+                            "quantity": ex.get("shares"),
+                            "pnl": ex.get("realized_pnl"),
+                            "reason": "trail_fired_in_profit"
+                                      if (ex.get("realized_pnl") or 0) > 0
+                                      else "trail_fired",
+                            "source": "ledger",
+                        })
+        except Exception as _ledger_err:
+            logger.warning("ledger merge skipped: %s", _ledger_err)
+
+    return entries
 
 
 def _build_throttle_state() -> Dict:
@@ -438,6 +482,50 @@ def _next_sequence() -> int:
         return 0  # 0 signals "unknown" to readers
 
 
+def _build_ledger_summary() -> Dict:
+    """Broker-truth P&L from the event-sourced ledger.
+
+    Added 2026-06-05 so the Streamlit dashboard can show the SAME
+    numbers as Telegram /pnl (broker truth), instead of the legacy
+    trade_log.json that has phantom +$74 from reconcile_drop bugs.
+    """
+    out = {
+        "today_realized": 0.0,
+        "lifetime_realized": None,  # computed via NetLiq − deposit − open
+        "trades_today": 0,
+        "reconciliation_delta": None,
+        "ledger_total": 0.0,
+        "pre_ledger_baseline": 0.0,
+    }
+    try:
+        # Try via ledger module — gives proper account-truth lifetime
+        sys.path.insert(0, str(ROOT))
+        from core.trading import ledger as _ledger
+        # Today's realized from ledger
+        today_iso = date.today().isoformat()
+        ledger_path = ROOT / "data" / "trades" / "executions.jsonl"
+        if ledger_path.exists():
+            today_rp = 0.0
+            today_n = 0
+            with open(ledger_path) as f:
+                for ln in f:
+                    try:
+                        ex = json.loads(ln)
+                    except Exception:
+                        continue
+                    if str(ex.get("time", "")).startswith(today_iso) \
+                            and ex.get("side") == "SELL":
+                        today_rp += float(ex.get("realized_pnl", 0) or 0)
+                        today_n += 1
+            out["today_realized"] = round(today_rp, 2)
+            out["trades_today"] = today_n
+            out["ledger_total"] = round(_ledger.realized_ledger_total(), 2)
+            out["pre_ledger_baseline"] = round(_ledger.get_pre_ledger_baseline(), 2)
+    except Exception as _le:
+        logger.debug("ledger summary skipped: %s", _le)
+    return out
+
+
 def build_state() -> Dict:
     return {
         "schema_version": 1,
@@ -446,6 +534,7 @@ def build_state() -> Dict:
         "pipeline": _build_pipeline_state(),
         "positions": _build_positions_with_earnings(),
         "trade_log_today": _build_today_log(),
+        "ledger_summary": _build_ledger_summary(),  # NEW 2026-06-05 broker truth
         "system_health": _build_health(),
         "account": _build_account(),
         "throttle": _build_throttle_state(),
