@@ -354,19 +354,36 @@ def evaluate_static_gates(
     else:
         passed.append(f"score in [{floor:.0f}, {cap:.0f}]")
 
-    # 7. RR floor
-    min_rr = float(getattr(cfg, "min_rr_to_trade", 2.0))
+    # 7. RR window — Supabase backtest shows sweet spot [3.0, 5.0]
+    #    RR 2.0-2.5 = -0.62%, RR 3-4 = +2.78%, RR 4-5 = +3.81%, RR 7-10 = +0.70%
+    min_rr = float(getattr(cfg, "min_rr_to_trade", 3.0))
+    max_rr = float(getattr(cfg, "max_rr_to_trade", 5.0))
     if rr < min_rr:
         failed.append(f"R:R {rr:.2f} < {min_rr:.2f}")
+    elif max_rr > 0 and rr > max_rr:
+        failed.append(f"R:R {rr:.2f} > {max_rr:.2f} (sweet-spot cap)")
     else:
-        passed.append(f"R:R ≥ {min_rr:.2f}")
+        passed.append(f"R:R in [{min_rr:.1f}, {max_rr:.1f}]")
 
-    # 8. ML prob floor
-    min_ml = float(getattr(cfg, "min_ml_prob", 0.33))
+    # 8. ML window — Supabase backtest shows sweet spot [0.40, 0.55]
+    #    ML 0.20-0.30 = -1.16%, ML 0.45-0.50 = +5.07% (BEST), ML 0.55-0.60 = -4.33%
+    min_ml = float(getattr(cfg, "min_ml_prob", 0.40))
+    max_ml = float(getattr(cfg, "max_ml_prob", 0.55))
     if ml_prob < min_ml:
         failed.append(f"ML {ml_prob:.3f} < {min_ml:.3f}")
+    elif max_ml > 0 and ml_prob > max_ml:
+        failed.append(f"ML {ml_prob:.3f} > {max_ml:.3f} (sweet-spot cap)")
     else:
-        passed.append(f"ML ≥ {min_ml:.2f}")
+        passed.append(f"ML in [{min_ml:.2f}, {max_ml:.2f}]")
+
+    # 8b. ATR floor — Supabase backtest shows volatility = opportunity
+    #     ATR 0-2% = -0.86%, ATR 4-5% = +1.55%, ATR 5-7% = +6.13%
+    min_atr = float(getattr(cfg, "min_atr_pct", 0.04))
+    atr_pct_val = float(_row_get_first(row, ["ATR_Pct", "atr_pct"], 0) or 0)
+    if min_atr > 0 and atr_pct_val < min_atr:
+        failed.append(f"ATR {atr_pct_val:.3f} < {min_atr:.2f} (low-vol drag)")
+    elif min_atr > 0:
+        passed.append(f"ATR ≥ {min_atr:.2f}")
 
     # 9. Confidence floor (regime-aware)
     min_conf_int = confidence_floor(regime, cfg)

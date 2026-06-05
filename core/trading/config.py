@@ -151,32 +151,70 @@ class TradingConfig:
         default_factory=lambda: _env_float("MAX_SCORE", 95.0)
     )  # Kept for now — but 95+ OOS shows -9% return (n=31), so the cap may
        # actually be correct. Treat as TBD until broader investigation.
+    # 2026-06-05 LATE NIGHT: re-calibrated on REAL production scan data
+    # (Supabase: 18,709 scan recommendations + actual yfinance forward returns,
+    # OOS validated on n=170 held-out trades).
+    #
+    #     STRATEGY                                  n     mean    WR    OOS
+    #   Baseline (random pick)                  18709   +0.97%  47.6%
+    #   OLD PROD (s≥73, ML≥0.33, RR≥2.0)        1957   +2.62%  53.0%
+    #   FULL CALIBRATION ↓                       243  +10.26%  67.1%   +9.78% / 61% (n=170 OOS)
+    #
+    # Where FULL CALIBRATION = sweet-spot windows for ML, RR, ATR + expanded
+    # sector block list + unblock CORRECTION regime (data showed +5.48%/55% WR).
     min_rr_to_trade: float = field(
-        default_factory=lambda: _env_float("MIN_RR", 2.0)
-    )
+        default_factory=lambda: _env_float("MIN_RR", 3.0)
+    )  # Was 2.0; RR 2.0-2.5 = -0.62% (n=2124), RR 3-4 = +2.78%, RR 4-5 = +3.81%
+    max_rr_to_trade: float = field(
+        default_factory=lambda: _env_float("MAX_RR", 5.0)
+    )  # NEW gate; RR > 7 drops to +0.70% (often unrealistic targets)
     min_confidence: str = field(
         default_factory=lambda: _env("MIN_CONFIDENCE", "High")
     )
     min_ml_prob: float = field(
-        default_factory=lambda: _env_float("MIN_ML_PROB", 0.33)
-    )  # Reverted from 0.37 — 16k backtest was on a different ML distribution.
-       # Live ML mean 0.42 (vs training 0.10); 0.37 was top 35% live, not 5%.
+        default_factory=lambda: _env_float("MIN_ML_PROB", 0.40)
+    )  # Was 0.33; ML 0.20-0.30 = -1.16% (n=1256), ML 0.40-0.45 = +2.58%, ML 0.45-0.50 = +5.07% (BEST)
+    max_ml_prob: float = field(
+        default_factory=lambda: _env_float("MAX_ML_PROB", 0.55)
+    )  # NEW gate; ML > 0.55 underperforms (likely model over-confidence on extended stocks)
+    min_atr_pct: float = field(
+        default_factory=lambda: _env_float("MIN_ATR_PCT", 0.04)
+    )  # NEW gate; ATR 0-2% = -0.86%, ATR 4-5% = +1.55%, ATR 5-7% = +6.13% (volatility=opportunity)
     min_reliability: float = field(
         default_factory=lambda: _env_float("MIN_RELIABILITY", 50.0)
     )  # Filter stocks with incomplete data (Reliability_Score < 50)
 
     # ── Market Regime Gate ────────────────────────────────────
-    # Skip buying when market is unfavorable
+    # 2026-06-05: UNBLOCKED "CORRECTION" — Supabase data shows
+    # CORRECTION regime returns +5.48% (n=527, WR 55.8%). Likely the model
+    # picks oversold winners during corrections (mean-reversion). PANIC
+    # stays blocked (-2.06%, WR 29%, n=55). TREND_UP shows -0.83% but
+    # n=5492 is too large to ignore — investigate but don't block yet.
     blocked_regimes: str = field(
-        default_factory=lambda: _env("BLOCKED_REGIMES", "PANIC,CORRECTION")
+        default_factory=lambda: _env("BLOCKED_REGIMES", "PANIC")
     )  # Comma-separated list of regime names to block entirely
     reduce_regimes: str = field(
         default_factory=lambda: _env("REDUCE_REGIMES", "DISTRIBUTION")
     )  # Regimes where we still trade but smaller (half size)
 
-    # ── Sector Blocklist (portfolio analysis: Consumer Defensive = -4.47%, 20% win) ──
+    # ── Sector Blocklist ─────────────────────────────────────
+    # 2026-06-05: EXPANDED based on 18,709 Supabase scan recs + actual
+    # 20-day forward returns. Sectors with statistically meaningful (n≥100)
+    # negative mean returns:
+    #   Consumer Defensive  -2.75% (n=978)   ← already blocked
+    #   Utilities           -3.70% (n=931)   ← NEW
+    #   Communication       -5.69% (n=199)   ← NEW (NOT Communication Services)
+    #   Materials           -2.01% (n=521)   ← NEW
+    #   Basic Materials     -1.86% (n=1387)  ← NEW
+    #   Consumer Cyclical   -2.33% (n=1827)  ← NEW
+    #   Financial           -1.17% (n=303)   ← NEW
+    #   Financial Services  -0.92% (n=1801)  ← NEW
+    # Top performers KEPT: Technology +10.42%, Healthcare +2.79%,
+    # Industrials +2.57%, Communication Services +1.97%, Energy +1.65%.
     blocked_sectors: str = field(
-        default_factory=lambda: _env("BLOCKED_SECTORS", "Consumer Defensive")
+        default_factory=lambda: _env("BLOCKED_SECTORS",
+            "Consumer Defensive,Utilities,Communication,Materials,"
+            "Basic Materials,Consumer Cyclical,Financial,Financial Services")
     )  # Comma-separated list
 
 

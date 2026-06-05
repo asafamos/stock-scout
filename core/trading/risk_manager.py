@@ -1018,9 +1018,12 @@ class RiskManager:
                 f"for regime={market_regime or 'default'})"
             )
 
-        # 7. R:R filter
+        # 7. R:R window (defense-in-depth; SSOT is evaluate_static_gates above)
         if rr < self.cfg.min_rr_to_trade:
             return False, f"R:R too low ({rr:.2f} < {self.cfg.min_rr_to_trade})"
+        _max_rr = float(getattr(self.cfg, "max_rr_to_trade", 0) or 0)
+        if _max_rr > 0 and rr > _max_rr:
+            return False, f"R:R too high ({rr:.2f} > {_max_rr:.2f} sweet-spot cap)"
 
         # 8. Market hours
         if not self.client.is_market_open() and not self.cfg.dry_run:
