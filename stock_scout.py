@@ -2873,7 +2873,24 @@ else:
         """Helper to add a recommendation to the virtual portfolio."""
         try:
             ticker = str(row.get("Ticker", row.get("ticker", "")))
-            entry_p = float(row.get("Entry_Price", row.get("entry_price", row.get("Close", 0))))
+            # 2026-06-05 fix: row.get("Entry_Price") returns NaN (not None)
+            # when the column exists but is empty — float(NaN) = NaN, which
+            # was then sent to Supabase and rejected as null. Iterate through
+            # fallbacks and skip NaN at each step.
+            entry_p = None
+            for _k in ("Entry_Price", "entry_price", "Close", "close", "price"):
+                _v = row.get(_k, None)
+                if _v is not None and not pd.isna(_v):
+                    try:
+                        _vf = float(_v)
+                        if _vf > 0:
+                            entry_p = _vf
+                            break
+                    except (TypeError, ValueError):
+                        continue
+            if entry_p is None or entry_p <= 0:
+                st.toast(f"Skipped {ticker} — no valid entry_price in row", icon="ℹ️")
+                return
             target_p = row.get("Target_Price", row.get("target_price"))
             stop_p = row.get("Stop_Loss", row.get("stop_price", row.get("Stop_Price")))
             holding = int(row.get("Holding_Days", row.get("holding_days", 20)))
