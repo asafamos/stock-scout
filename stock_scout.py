@@ -2873,10 +2873,12 @@ else:
         """Helper to add a recommendation to the virtual portfolio."""
         try:
             ticker = str(row.get("Ticker", row.get("ticker", "")))
-            # 2026-06-05 fix: row.get("Entry_Price") returns NaN (not None)
-            # when the column exists but is empty — float(NaN) = NaN, which
-            # was then sent to Supabase and rejected as null. Iterate through
-            # fallbacks and skip NaN at each step.
+            # 2026-06-05: scan rows from Supabase / older parquet files can
+            # have NaN for Entry_Price/Close (column exists, value is empty).
+            # row.get returns NaN (not None), so the previous fallback
+            # produced NaN → Supabase NOT NULL constraint violation.
+            # New strategy: iterate fallbacks AND fall back to LIVE price
+            # from yfinance if none of the scan fields are populated.
             entry_p = None
             for _k in ("Entry_Price", "entry_price", "Close", "close", "price"):
                 _v = row.get(_k, None)
@@ -2888,8 +2890,23 @@ else:
                             break
                     except (TypeError, ValueError):
                         continue
+            # Last-resort: fetch current price from yfinance (free, fast).
+            # User explicitly clicked "Add to portfolio" so getting *some*
+            # tracking price is better than silently skipping.
+            if (entry_p is None or entry_p <= 0) and ticker:
+                try:
+                    import yfinance as yf
+                    _hist = yf.Ticker(ticker).history(period="1d", auto_adjust=True)
+                    if not _hist.empty:
+                        _live = float(_hist["Close"].iloc[-1])
+                        if _live > 0:
+                            entry_p = _live
+                            st.toast(f"{ticker}: using live price ${_live:.2f} (scan had no Entry_Price)",
+                                     icon="💡")
+                except Exception as _yf_err:
+                    logger.debug("yfinance fallback for %s failed: %s", ticker, _yf_err)
             if entry_p is None or entry_p <= 0:
-                st.toast(f"Skipped {ticker} — no valid entry_price in row", icon="ℹ️")
+                st.toast(f"Skipped {ticker} — no price available (scan or live)", icon="ℹ️")
                 return
             target_p = row.get("Target_Price", row.get("target_price"))
             stop_p = row.get("Stop_Loss", row.get("stop_price", row.get("Stop_Price")))
