@@ -126,21 +126,32 @@ class TradingConfig:
     )
 
     # ── Trade Filters ──────────────────────────────────────────
+    # 2026-06-05: tightened from (73, 2.0, 0.33) → (80, 2.5, 0.37) based on
+    # rigorous backtest on 16k training rows + 28 live trades:
+    #   • Live cohort 73-80: 9 trades, 22% WR, only +$4.20 net — bad band.
+    #   • OOS backtest (RR≥2.5 + ML≥0.37, top-2/date): +9.64%/trade, WR 78.6%
+    #     vs PROD baseline (RR 2.0, ML 0.33): +6.93%/trade, WR 64.7%.
+    #   • FIT validation: same direction (+14.61% vs +13.43%). Stable.
+    # NOT changed (curve-fit traps avoided): removing max_score=95 cap (95+
+    # OOS is just PLTR/NFLX bull run); Vol_Class 3 filter (3 tickers only);
+    # ReliabilityTier 'neutral' filter (same 3 tickers). See conv 2026-06-05.
     min_score_to_trade: float = field(
-        default_factory=lambda: _env_float("MIN_SCORE", 73.0)
+        default_factory=lambda: _env_float("MIN_SCORE", 80.0)
     )
     max_score_to_trade: float = field(
         default_factory=lambda: _env_float("MAX_SCORE", 95.0)
-    )  # Q5 (highest scores) underperform — cap at 95
+    )  # Q5 (highest scores) underperform on FIT (+5.6% vs 90-95's +20.8%).
+       # OOS appears to favor 95+ but is dominated by PLTR/NFLX 2024 bull —
+       # curve-fit risk. Keep the cap; re-evaluate when more diverse OOS data.
     min_rr_to_trade: float = field(
-        default_factory=lambda: _env_float("MIN_RR", 2.0)
+        default_factory=lambda: _env_float("MIN_RR", 2.5)
     )
     min_confidence: str = field(
         default_factory=lambda: _env("MIN_CONFIDENCE", "High")
     )
     min_ml_prob: float = field(
-        default_factory=lambda: _env_float("MIN_ML_PROB", 0.33)
-    )  # Calibrated to real ML output range (0.30-0.37); filters bottom half
+        default_factory=lambda: _env_float("MIN_ML_PROB", 0.37)
+    )  # 2026-06-05: raised 0.33→0.37 per OOS backtest (WR 64%→73%).
     min_reliability: float = field(
         default_factory=lambda: _env_float("MIN_RELIABILITY", 50.0)
     )  # Filter stocks with incomplete data (Reliability_Score < 50)
