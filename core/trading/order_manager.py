@@ -836,10 +836,28 @@ class OrderManager:
                 return s * 0.0 + 0.5  # all-equal → neutral 0.5
             return (s - s.min()) / rng
 
-        # Documented-intent weights (must sum to 1.0 when all signals present).
-        WEIGHT_SCORE = 0.45
-        WEIGHT_RR = 0.25
-        WEIGHT_ML = 0.20
+        # 2026-06-05 LATE NIGHT: REBALANCED based on Supabase backtest
+        # (18,709 production scan rows + actual forward returns).
+        #
+        # The OLD weights (SCORE=0.45 dominant) were PROVEN suboptimal:
+        #   On OLD PROD pool (n=1957):
+        #     CURRENT (score 0.45):  TOP-2 returns +2.55% (WORSE than pool +2.62%!)
+        #     RR-HEAVY (rr 0.50):    TOP-2 returns +6.34% ← BEST
+        #     ATR-HEAVY (atr 0.40):  TOP-2 returns +5.18%
+        # Picking by SCORE was even worse than random pick from the pool.
+        #
+        # Component correlations with fwd_return_20d (n=18,709):
+        #   final_score:  -0.13  (NEGATIVE — score↑ returns↓)
+        #   ml_prob:      sweet-spot peak around 0.45-0.50
+        #   rr_ratio:     +0.088 (best stable signal)
+        #   atr_pct:      +0.140 (POSITIVE — vol = opportunity)
+        #
+        # New weights de-emphasize score (just a tiebreaker), elevate
+        # RR/ML/ATR (the validated predictors). ATR is a NEW ranking signal.
+        WEIGHT_SCORE = 0.05    # was 0.45 — score is anti-predictive as ranker
+        WEIGHT_RR = 0.45       # was 0.25 — RR is the strongest stable signal
+        WEIGHT_ML = 0.25       # was 0.20
+        WEIGHT_ATR = 0.15      # NEW signal — strongest correlation (+0.14)
         WEIGHT_SECTOR = 0.05
         WEIGHT_INSIDER = 0.05
 
@@ -878,6 +896,15 @@ class OrderManager:
 
         if ml_col and ml_col in result.columns:
             signals.append((WEIGHT_ML, _norm(result[ml_col])))
+
+        # ATR signal (NEW 2026-06-05) — Supabase backtest showed +0.14 corr
+        # with fwd_return_20d. ATR 5-7% returns +6.13% mean (n=1960) vs
+        # ATR 0-2% returns -0.86% (n=1600). Volatility = opportunity for
+        # 20-day swing strategy. Find ATR column (column name varies).
+        for atr_col_candidate in ("ATR_Pct", "atr_pct", "ATR%", "atr"):
+            if atr_col_candidate in result.columns:
+                signals.append((WEIGHT_ATR, _norm(result[atr_col_candidate])))
+                break
 
         # Sector momentum signal (positive ranking input, not just block).
         if sector_col and sector_col in result.columns:
