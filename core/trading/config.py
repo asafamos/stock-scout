@@ -561,24 +561,33 @@ class TradingConfig:
         # winners get pulled this tight, to lock a genuine +27%+ run
 
     # ── Break-Even Protection ──────────────────────────────────
-    # Closes the gap between entry and the ratchet's lowest tier (T0 = +8%)
-    # where a base trail of ~4% would still fire at a loss.
+    # Closes the gap between entry and the ratchet's lowest tier (T0 = +10%)
+    # where a base trail of ~5.5% would still fire at a loss.
     #
     # Mechanism: when peak_gain ≥ break_even_threshold, dynamically
     # tighten the TRAIL % so the resulting stop floors at
     #   entry × break_even_floor_mult   (default 1.002 = +0.2% to cover commissions)
-    # Once base trail naturally floors above break-even (roughly when
-    # peak_gain ≥ base_trail_pct + 0.2pp), this becomes a no-op because
-    # the "only-tighten" guard rejects the wider candidate.
     #
-    # Forensic justification (2026-05-15): in last 7 trades, ELVN peaked
-    # at +0.41% then closed at -3.60%; RSI peaked at +1.17% then closed
-    # at -2.88%. Both were "winners turned losers". Break-even at +2%
-    # threshold would have saved RSI (~$3.95 saved). ELVN's peak was
-    # below threshold and can't be saved by any trail mechanism — that's
-    # a pick-quality issue, not a trail issue.
+    # ⚠️ DEFAULT FLIPPED TO FALSE ON 2026-06-05. ⚠️
+    # The original (2026-05-15) justification rested on 2 anecdotes (ELVN, RSI)
+    # — that's not validation, it's curve-fit storytelling. Proper backtest on
+    # the 16k-row training dataset (score ≥ 80 cohort, n=1,450) showed:
+    #   • 48.1% of trades end ABOVE +0.2% — BE cuts their profit at +0.2%.
+    #   • 51.9% end below +0.2% — BE *might* save them, IF they peaked ≥ 1.5%.
+    #   • Upper-bound net (BE's BEST possible case): -$68.79 per $1k per trade.
+    #   • Realistic estimate (peak-doubling rule):    -$74.81 per $1k per trade.
+    # i.e., even in the most BE-favorable accounting, it costs more than it
+    # saves. PRM on 2026-06-05 was the canonical failure mode: BE armed at
+    # +1.94% peak, locked exit at +0.2%, then the price kept climbing to
+    # $30.63 (vs our $30.08 exit). One "save" anecdote (today's PRM "saved
+    # $11.51 vs naive trail-fire-at-peak") was visible in the cash account;
+    # the much larger aggregate cost was hidden in opportunity cost.
+    #
+    # Keep the mechanism + env switch intact so it's trivially re-enabled if
+    # later data justifies it — but it ships OFF by default. Re-enabling needs
+    # a fresh backtest, not another anecdote.
     break_even_enabled: bool = field(
-        default_factory=lambda: _env_bool("BREAK_EVEN_ENABLED", True)
+        default_factory=lambda: _env_bool("BREAK_EVEN_ENABLED", False)
     )
     break_even_threshold_pct: float = field(
         default_factory=lambda: _env_float("BREAK_EVEN_THRESHOLD_PCT", 1.5)
