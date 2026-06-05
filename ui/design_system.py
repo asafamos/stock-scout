@@ -1073,11 +1073,19 @@ div[data-testid="stDataFrame"] tr:hover td {
     transition: all 0.2s ease !important;
     padding: 8px 20px !important;
     letter-spacing: 0.01em;
+    /* 2026-06-05 dark-mode fix: explicit bg+color via CSS vars so the
+       secondary button doesn't fall through to Streamlit's white-on-white
+       default. Vars resolve correctly under both light + dark themes. */
+    background-color: var(--ss-bg-card) !important;
+    color: var(--ss-text-primary) !important;
+    border: 1px solid var(--ss-border) !important;
 }
 
 .stButton > button:hover, .stDownloadButton > button:hover {
     transform: translateY(-1px) !important;
     box-shadow: var(--ss-shadow-md) !important;
+    background-color: var(--ss-bg-card-hover) !important;
+    border-color: var(--ss-border-hover) !important;
 }
 
 .stButton > button[kind="primary"],
