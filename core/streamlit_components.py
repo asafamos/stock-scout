@@ -128,13 +128,21 @@ def buy_pre_check_widget(st, scan_df=None):
         ticker_list = ", ".join(eligible_tickers[:8])
         if len(eligible_tickers) > 8:
             ticker_list += f" +{len(eligible_tickers) - 8} more"
+        # 2026-06-05: dark-mode contrast fix — Streamlit's default <code> styling
+        # produces low-contrast (greenish dim) text on the badge background in
+        # auto dark mode. Inline explicit colors that work in BOTH light and dark.
+        _code_buy = (
+            "direction:ltr; background:rgba(15,118,80,0.18); "
+            "color:#dcfce7; padding:2px 6px; border-radius:4px; "
+            "font-weight:600; font-size:0.85em;"
+        )
         st.markdown(
             f'<div dir="ltr" style="direction:ltr;text-align:left;'
             f'background:rgba(16,185,129,0.10);border-left:4px solid #10b981;'
             f'border-radius:8px;padding:12px 16px;margin:8px 0;'
             f'font-size:0.92rem;color:var(--ss-text-primary,#0c4a36);">'
             f'🚀 <b>{n_eligible} of {n_total}</b> would BUY if pipeline ran now · '
-            f'<code style="direction:ltr;">{ticker_list}</code>'
+            f'<code style="{_code_buy}">{ticker_list}</code>'
             f'</div>',
             unsafe_allow_html=True,
         )
@@ -144,8 +152,14 @@ def buy_pre_check_widget(st, scan_df=None):
         for e in evals:
             reason_counts[e["reason"]] = reason_counts.get(e["reason"], 0) + 1
         sorted_reasons = sorted(reason_counts.items(), key=lambda x: -x[1])[:3]
+        # 2026-06-05: dark-mode contrast fix — see above. Amber theme.
+        _code_block = (
+            "direction:ltr; background:rgba(120,53,15,0.25); "
+            "color:#fef3c7; padding:2px 6px; border-radius:4px; "
+            "font-weight:600; font-size:0.85em;"
+        )
         reason_summary = " · ".join(
-            f'<code style="direction:ltr;">{r}</code> ({c})'
+            f'<code style="{_code_block}">{r}</code> ({c})'
             for r, c in sorted_reasons
         )
         st.markdown(

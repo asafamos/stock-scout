@@ -1267,6 +1267,37 @@ button[data-testid="stSidebarCollapseButton"],
     direction: ltr !important;
 }
 
+/* ---------- DARK-MODE CODE CONTRAST FIX (2026-06-05) ----------
+   Streamlit's default <code> styling in auto dark-mode renders as
+   low-contrast greenish text on dark background — unreadable when
+   embedded in colored badges (e.g. "Top blocks: code(reason)"). Override
+   with explicit theme-aware colors. */
+@media (prefers-color-scheme: dark) {
+    .stMarkdown code,
+    div[data-testid="stMarkdownContainer"] code,
+    .stMarkdown p code {
+        background: rgba(255,255,255,0.10) !important;
+        color: #f1f5f9 !important;
+        padding: 2px 6px !important;
+        border-radius: 4px !important;
+        font-size: 0.85em !important;
+        font-weight: 500 !important;
+        border: 1px solid rgba(255,255,255,0.05) !important;
+    }
+}
+/* Also handle Streamlit's explicit dark-theme attribute (manual override) */
+[data-theme="dark"] .stMarkdown code,
+.stApp[data-theme="dark"] .stMarkdown code,
+html[data-theme="dark"] .stMarkdown code {
+    background: rgba(255,255,255,0.10) !important;
+    color: #f1f5f9 !important;
+    padding: 2px 6px !important;
+    border-radius: 4px !important;
+    font-size: 0.85em !important;
+    font-weight: 500 !important;
+    border: 1px solid rgba(255,255,255,0.05) !important;
+}
+
 /* ---------- Streamlit status/expander LTR ---------- */
 div[data-testid="stStatus"],
 div[data-testid="stExpander"] {
