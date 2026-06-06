@@ -652,17 +652,25 @@ class OrderManager:
             )
             return result
 
-        # ML probability filter
+        # ML probability filter — WINDOW (2026-06-05 sweet spot 0.40-0.55).
+        # Pre-filter now enforces BOTH bounds so we don't waste rank/iteration
+        # cycles on candidates the SSOT (policy.evaluate_static_gates) will
+        # ultimately reject for ML > max_ml_prob.
         if ml_col and ml_col in result.columns:
             ml_vals = pd.to_numeric(result[ml_col], errors="coerce")
             before = len(result)
-            result = result[ml_vals >= self.cfg.min_ml_prob]
+            _ml_max = float(getattr(self.cfg, "max_ml_prob", 0) or 0)
+            if _ml_max > 0:
+                result = result[(ml_vals >= self.cfg.min_ml_prob) & (ml_vals <= _ml_max)]
+            else:
+                result = result[ml_vals >= self.cfg.min_ml_prob]
             dropped = before - len(result)
             if dropped:
-                logger.info("ML filter dropped %d stocks (ML < %.2f)",
-                            dropped, self.cfg.min_ml_prob)
+                _label = f"{self.cfg.min_ml_prob}-{_ml_max}" if _ml_max > 0 else f">={self.cfg.min_ml_prob}"
+                logger.info("ML filter dropped %d stocks (window %s)", dropped, _label)
             if result.empty:
-                logger.info("No stocks pass ML filter (>= %.2f)", self.cfg.min_ml_prob)
+                logger.info("No stocks pass ML filter (window %s)",
+                            f"{self.cfg.min_ml_prob}-{_ml_max}" if _ml_max > 0 else f">={self.cfg.min_ml_prob}")
                 return result
 
         # Sector blocklist filter
@@ -723,26 +731,53 @@ class OrderManager:
         # stop_distance floor 3%), otherwise raw rr_col. Forensic analysis
         # 2026-05-14 showed scan-tight stops produce R:R 10+ that
         # over-promotes lottery-ticket candidates.
+        # RR WINDOW (2026-06-05 sweet spot 3.0-5.0). Pre-filter enforces both
+        # bounds so the SSOT doesn't have to reject 7+ RR candidates after
+        # they've consumed rank/iteration cycles.
+        _rr_max = float(getattr(self.cfg, "max_rr_to_trade", 0) or 0)
+
+        def _apply_rr(rr_vals):
+            if _rr_max > 0:
+                return result[(rr_vals >= self.cfg.min_rr_to_trade) & (rr_vals <= _rr_max)]
+            return result[rr_vals >= self.cfg.min_rr_to_trade]
+
         if "_effective_rr" in result.columns:
             rr_vals = pd.to_numeric(result["_effective_rr"], errors="coerce")
-            # Fall back to raw rr_col when effective is NaN (e.g., CF
-            # had stop > entry, effective math goes weird)
             if rr_col and rr_col in result.columns:
                 raw_rr = pd.to_numeric(result[rr_col], errors="coerce")
                 rr_vals = rr_vals.fillna(raw_rr)
-            result = result[rr_vals >= self.cfg.min_rr_to_trade]
+            result = _apply_rr(rr_vals)
             if result.empty:
                 logger.info(
-                    "No stocks pass effective-RR filter (>= %.1f)",
-                    self.cfg.min_rr_to_trade,
+                    "No stocks pass effective-RR filter (window %.1f-%.1f)",
+                    self.cfg.min_rr_to_trade, _rr_max or 999,
                 )
                 return result
         elif rr_col and rr_col in result.columns:
             rr_vals = pd.to_numeric(result[rr_col], errors="coerce")
-            result = result[rr_vals >= self.cfg.min_rr_to_trade]
+            result = _apply_rr(rr_vals)
             if result.empty:
-                logger.info("No stocks pass RR filter (>= %.1f)", self.cfg.min_rr_to_trade)
+                logger.info("No stocks pass RR filter (window %.1f-%.1f)",
+                            self.cfg.min_rr_to_trade, _rr_max or 999)
                 return result
+
+        # ATR floor (NEW 2026-06-05) — volatility = opportunity.
+        # Pre-filter so low-vol stocks (ATR < 4%) don't waste rank cycles.
+        _min_atr = float(getattr(self.cfg, "min_atr_pct", 0) or 0)
+        if _min_atr > 0:
+            for _atr_col in ("ATR_Pct", "atr_pct"):
+                if _atr_col in result.columns:
+                    atr_vals = pd.to_numeric(result[_atr_col], errors="coerce")
+                    before = len(result)
+                    result = result[atr_vals >= _min_atr]
+                    dropped = before - len(result)
+                    if dropped:
+                        logger.info("ATR filter dropped %d stocks (ATR < %.2f)",
+                                    dropped, _min_atr)
+                    if result.empty:
+                        logger.info("No stocks pass ATR filter (>= %.2f)", _min_atr)
+                        return result
+                    break
 
         # Confidence filter — regime-aware. In TREND_UP / MODERATE_UP markets
         # Medium-quality setups are tradable (the macro tailwind compensates
