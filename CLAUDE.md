@@ -17,33 +17,60 @@ AI-powered stock recommendation system that scans 3,000+ US stocks using technic
 - **ib_insync**: Installed locally (not in requirements.txt to avoid breaking Streamlit Cloud)
 - **Connection tested**: Successfully connects from Mac to IB Gateway
 
-### Trading Config (adjusted for $977 balance)
-- Max position size: $300 (allows 1 share up to $600 for expensive stocks)
-- Max open positions: 3
-- Max daily buys: 3
-- Max portfolio exposure: $900
-- Score filter: 73-95 (lowered from 75 to catch near-miss stocks like BURL)
-- ML probability min: 0.33 (lowered from 0.40 — real ML output range is 0.30-0.37, 0.40 blocked 100%)
-- Trailing stop: adaptive — `avg(scan_stop_pct, 1.5×ATR%) × regime_mult`, clamped `[2%, 9%]`
-  - Regime mult: TREND_UP/MODERATE_UP/BULLISH=1.20, SIDEWAYS/NEUTRAL=1.00, DISTRIBUTION=0.85, CORRECTION/BEARISH/PANIC=0.70
-- Blocked sectors: Consumer Defensive
-- Selection ranking (in order):
-  1. Base: 45% score + 25% R:R + 20% ML + (10% sector momentum at 30-day ETF level)
-  2. After ranking: insider-buying boost — `rank = 0.9 × prior_rank + 0.1 × insider_score` (top 20 only, SEC EDGAR Form 4)
+### Trading Config (RECALIBRATED 2026-06-06 on 18,709 Supabase production trades)
+**Position sizing (adjusted for ~$977 balance):**
+- Max position size: $400 (was $300; allows 1 share up to $600 for expensive stocks)
+- Max open positions: 3 | Max daily buys: 3 | Max portfolio exposure: $1000
+- min_viable_position_usd: $30 (early-exit candidate loop when cash exhausted)
+
+**Trade GATES (WINDOW-based, validated on real fwd returns):**
+- Score: 73-95 (max=95 because Q5 underperforms in-sample; 95+ OOS = PLTR/NFLX curve fit)
+- ML probability: **0.40-0.55** ← SWEET SPOT (live ML mean 0.42, max 0.76. 0.45-0.50 = +5.07% returns)
+- R:R: **3.0-5.0** ← SWEET SPOT (RR 2-2.5 returns -0.62%, RR 4-5 returns +3.81%, RR 7+ drops)
+- ATR_Pct: **≥ 0.04** (NEW gate — ATR 5-7% returns +6.13%, low-vol returns negative)
+- Min confidence: High | Min reliability: 50
+
+**Blocked sectors (8, from 1):** Consumer Defensive, Utilities, Communication, Materials, Basic Materials, Consumer Cyclical, Financial, Financial Services
+**Top sectors kept:** Technology +10.42%, Healthcare +2.79%, Industrials, Energy, Communication Services
+
+**Blocked regimes: PANIC only** (CORRECTION removed — data showed +5.48%/55% WR, mean-reversion edge)
+**Reduce_regimes: DISTRIBUTION** (half-size)
+
+**Trail:** 5.5% normal / 3.0% defensive (CORRECTION/BEARISH/PANIC/DISTRIBUTION), ATR floor 0.9×, regime mult (UP=1.20, SIDEWAYS=1.00, DISTRIBUTION=0.85, defensive=0.70)
+**BREAK_EVEN: DISABLED** (backtest showed net -$74.81/$1k/trade — was a bad anecdote-based feature)
+
+**Selection ranking weights (REBALANCED, sum=1.00):**
+- **RR: 40%** (was 25% — strongest stable signal, corr +0.088)
+- **ML: 25%** (was 20%)
+- **ATR: 15%** (NEW signal — corr +0.140)
+- **Score: 5%** (was 45% — anti-predictive as ranker, corr -0.13)
+- Sector momentum: 5% | Insider boost: 5% | SPY momentum: 5% when available
+- INSIGHT: ranking by score actually PICKED LOSERS — picking by RR gave +6.34%/trade vs +2.55% by score
 
 ### Trading Architecture
 - `core/trading/policy.py` - **Single source of truth for buy gates + execution preview.**
-  Both `risk_manager.can_open_position` (production) and `streamlit_components.evaluate_scan_row_for_buy` (dashboard preview) call into `evaluate_static_gates()`. Eliminates parity drift between the "🚀 BUY ELIGIBLE" badge in the UI and what the trader actually does. Also exposes `compute_execution_preview()` which mirrors `_execute_single`'s price/stop/target/trail derivation, so the UI shows the SAME numbers that get submitted to IB.
-- `core/trading/ibkr_client.py` - IB connection + OCA bracket orders (buy + trailing stop + limit sell). All Stock contracts are routed through `_ib_symbol()` → `policy.normalize_ticker_for_ib()` so `BRK.B` becomes `BRK B` for IB.
-- `core/trading/order_manager.py` - Scan → filter → risk check → execute → track. **Tracker write happens BEFORE notify_buy** (so a Telegram BUY message is always backed by an audit row).
-- `core/trading/position_tracker.py` - JSON-backed position tracking
-- `core/trading/risk_manager.py` - Pre-trade validation. Uses `policy.regime_score_floor()` and `policy.confidence_floor()` for parity with the dashboard preview.
+  Both `risk_manager.can_open_position` (production) and `streamlit_components.evaluate_scan_row_for_buy` (dashboard preview) call into `evaluate_static_gates()`. Also `compute_execution_preview()` mirrors `_execute_single`'s price/stop/target/trail derivation.
+- `core/trading/ibkr_client.py` - IB connection + OCA bracket orders. All Stock contracts routed through `_ib_symbol()` → `policy.normalize_ticker_for_ib()` (BRK.B → BRK B).
+- `core/trading/order_manager.py` - Scan → filter → risk check → execute → track. **Tracker write BEFORE notify_buy** (Telegram BUY always backed by audit row). Pre-filter parity with SSOT (added 2026-06-06: ML window, RR window, ATR floor).
+- `core/trading/position_tracker.py` - JSON-backed position tracking. `drop_metadata()` is the ledger-mode close path (no P&L fabrication).
+- `core/trading/risk_manager.py` - Pre-trade validation. Calls policy.evaluate_static_gates as defense-in-depth.
 - `core/trading/notifications.py` - Telegram alerts
-- `core/trading/config.py` - All settings (override via TRADE_* env vars). All gate thresholds (min_score, min_ml, min_rr, min_confidence, blocked_sectors) read FROM here — never hardcoded in callers.
+- `core/trading/config.py` - All settings (override via TRADE_* env vars). All gate thresholds read FROM here — never hardcoded.
+- **`core/trading/ledger.py` (NEW 2026-06-04)** - Event-sourced ledger. `executions.jsonl` idempotent by IB execId. Realized P&L from `commissionReport.realizedPNL` (net of fees, reconciles to NetLiq by construction). **THE source of truth** for closed-trade accounting — replaced the buggy trade_log-based path.
 - `scripts/run_auto_trade.py` - CLI entry point
-- `scripts/monitor_positions.py` - Position monitoring daemon
+- `scripts/monitor_positions.py` - Position monitoring daemon (ingests ledger fills each cycle in ledger mode)
+- `scripts/migrate_ledger.py` - ONE-TIME baseline anchor. Run after deploying ledger code; sets `pre_ledger_realized` so `/pnl` reconciliation reads Δ≈0.
+
+### CRITICAL ARCHITECTURE LAYERS (do NOT confuse)
+- **IB is the source of truth** for: positions, NetLiq, executions, realized P&L (via ledger)
+- **The ledger (executions.jsonl)** is the source of truth for: per-execution realized P&L, win/loss record
+- **The tracker (open_positions.json)** is the metadata annotation layer — NO P&L authority
+- **The legacy trade_log.json** has pre-cutover history with phantom data. Do NOT compute lifetime P&L from it.
+- **Lifetime realized = NetLiq − starting_capital − open_unrealized** (account-truth identity)
+- See `docs/architecture_ledger.md` for full spec.
 
 ### Safety: DRY_RUN=True by default, requires explicit override for live trading
+**Reversibility of recent changes:** all gates env-overridable (TRADE_MIN_SCORE, TRADE_MIN_ML_PROB, TRADE_MAX_ML_PROB, TRADE_MIN_RR, TRADE_MAX_RR, TRADE_MIN_ATR_PCT, TRADE_BLOCKED_SECTORS, TRADE_BLOCKED_REGIMES, TRADE_BREAK_EVEN_ENABLED, TRADE_LEDGER_ENABLED). Selection weights live in `order_manager.py` (need code change to revert).
 
 ## Telegram Bot
 - Bot name: StockScout Alerts (@stockscout_asaf_bot)
