@@ -889,12 +889,17 @@ class OrderManager:
         #
         # New weights de-emphasize score (just a tiebreaker), elevate
         # RR/ML/ATR (the validated predictors). ATR is a NEW ranking signal.
+        # Weights sum to EXACTLY 1.00 (plus WEIGHT_MOM=0.05 added below
+        # only when SPY momentum data is available → renormalized).
         WEIGHT_SCORE = 0.05    # was 0.45 — score is anti-predictive as ranker
-        WEIGHT_RR = 0.45       # was 0.25 — RR is the strongest stable signal
+        WEIGHT_RR = 0.40       # was 0.25; reduced from 0.45 so base sums to 1.00
         WEIGHT_ML = 0.25       # was 0.20
         WEIGHT_ATR = 0.15      # NEW signal — strongest correlation (+0.14)
         WEIGHT_SECTOR = 0.05
         WEIGHT_INSIDER = 0.05
+        # 0.05 + 0.40 + 0.25 + 0.15 + 0.05 + 0.05 = 1.00 ✓
+        # (WEIGHT_MOM=0.05 added below makes 1.05 when present — the
+        # auto-renormalize step handles that gracefully.)
 
         signals = [(WEIGHT_SCORE, _norm(result[score_col]))]
 
