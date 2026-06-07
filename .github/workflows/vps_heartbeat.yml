@@ -49,7 +49,13 @@ jobs:
           STATE_URL='https://api.github.com/repos/asafamos/stock-scout/contents/data/state/system_state.json?ref=state-feed'
 
           echo "→ fetching $STATE_URL"
-          RAW=$(curl -fsS -H 'Accept: application/vnd.github+json' "$STATE_URL")
+          # 2026-06-08: added --retry 4 / --retry-delay 8 / --retry-all-errors.
+          # A single transient 403 (GitHub API momentary rate-limit, observed
+          # 2026-06-07 19:33 UTC — surrounded by 4 successful runs) was enough
+          # to trigger a misleading "VPS HEARTBEAT" failure email. Retry the
+          # GET several times before declaring failure; the actual VPS is fine.
+          RAW=$(curl -fsS --retry 4 --retry-delay 8 --retry-all-errors \
+                -H 'Accept: application/vnd.github+json' "$STATE_URL")
           CONTENT_B64=$(echo "$RAW" | jq -r '.content' | tr -d '\n')
 
           if [ -z "$CONTENT_B64" ] || [ "$CONTENT_B64" = "null" ]; then

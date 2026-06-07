@@ -50,7 +50,9 @@ jobs:
           echo "→ Pre-pipeline health check"
 
           # 1. State-feed freshness
-          STATE_RAW=$(curl -fsS -H 'Accept: application/vnd.github+json' "$STATE_URL")
+          # 2026-06-08: retry transient GitHub API errors (3xx/4xx hiccups)
+          STATE_RAW=$(curl -fsS --retry 4 --retry-delay 8 --retry-all-errors \
+                      -H 'Accept: application/vnd.github+json' "$STATE_URL")
           STATE_B64=$(echo "$STATE_RAW" | jq -r '.content' | tr -d '\n')
           if [ -z "$STATE_B64" ] || [ "$STATE_B64" = "null" ]; then
               MSG="🚨 PRE-PIPELINE FAIL — state-feed empty (broadcaster down?)"
@@ -66,7 +68,8 @@ jobs:
           echo "state-feed age: ${STATE_AGE_MIN}m"
 
           # 2. Latest scan commit age
-          SCAN_RAW=$(curl -fsS -H 'Accept: application/vnd.github+json' "$SCAN_URL")
+          SCAN_RAW=$(curl -fsS --retry 4 --retry-delay 8 --retry-all-errors \
+                     -H 'Accept: application/vnd.github+json' "$SCAN_URL")
           SCAN_DATE=$(echo "$SCAN_RAW" | jq -r '.[0].commit.committer.date // empty')
           SCAN_EPOCH=$(date -u -d "$SCAN_DATE" +%s 2>/dev/null || echo 0)
           SCAN_AGE_MIN=$(( (NOW_EPOCH - SCAN_EPOCH) / 60 ))
