@@ -558,6 +558,24 @@ class TradingConfig:
     # were waiting for tier 2 (+18%) to bump the floor. With dynamic
     # trail, IB tracks the peak continuously, so every penny above the
     # threshold raises the stop too.
+    # ── Time-based trail tightening (Phase B, 2026-06-10) ─────
+    # After Phase A widened initial trail to 9% (capture intraday noise),
+    # we want to TIGHTEN to a sane 5.5% once the position has had time to
+    # establish (no longer in chop zone). Backtest on 512 trades:
+    #   trail 9% alone:      +0.42% / trade OOS
+    #   trail 5.5% + 7d hold: +1.26% / trade OOS  (+0.84pp from tightening)
+    # The tightening only runs AFTER ratchet (so a ratchet-tightened
+    # position e.g. at 2.5% never loosens to 5.5%).
+    time_tighten_enabled: bool = field(
+        default_factory=lambda: _env_bool("TIME_TIGHTEN_ENABLED", True)
+    )
+    time_tighten_days: int = field(
+        default_factory=lambda: _env_int("TIME_TIGHTEN_DAYS", 7)
+    )  # After position is this old, tighten trail to time_tighten_target_pct
+    time_tighten_target_pct: float = field(
+        default_factory=lambda: _env_float("TIME_TIGHTEN_TARGET_PCT", 5.5)
+    )  # The "normal" trail width once chop window passes
+
     ratchet_enabled: bool = field(
         default_factory=lambda: _env_bool("RATCHET_ENABLED", True)
     )

@@ -531,6 +531,13 @@ def run_check():
         # LMT order being placed on IB.
         _target_hit_pass(tracker, client, ibkr_orders, notify)
 
+        # 2a2. Time-based trail tightening — Phase B (2026-06-10).
+        # After 7 days (default) tighten trail from 9% → 5.5%. Runs BEFORE
+        # ratchet so a freshly-time-tightened position can still be further
+        # tightened by ratchet if profit threshold met.
+        if getattr(CONFIG, "time_tighten_enabled", False):
+            _time_tighten_stops(tracker, client, ibkr_orders, notify)
+
         # 2b. Ratchet stops up as positions run up (lock in profits)
         if CONFIG.ratchet_enabled:
             _ratchet_stops(tracker, client, ibkr_orders, notify)
@@ -1831,6 +1838,117 @@ def _target_hit_pass(tracker, client, ibkr_orders, notify):
             )
         except Exception:
             pass
+
+
+def _time_tighten_stops(tracker, client, ibkr_orders, notify):
+    """Time-based trail tightening (Phase B, 2026-06-10).
+
+    After a position is older than `CONFIG.time_tighten_days` (default 7),
+    tighten the TRAIL from the wide initial 9% (which protects from
+    intraday chop in days 1-7) to `CONFIG.time_tighten_target_pct`
+    (default 5.5%, the "normal" production trail).
+
+    Why this exists — postmortem on 12 trail-fired losers (May-Jun 2026):
+    9/12 (75%) recovered above ENTRY within 14 days. The 5.5% trail was
+    firing on natural intraday noise BEFORE the 20-day swing thesis could
+    play out. Phase A widened the initial trail to 9% to absorb that
+    noise. This Phase B tightens after the chop window has passed.
+
+    Real-OHLC simulation (512 production trades, OOS-validated):
+      5.5% trail no time-tighten (was bleeding): -1.73% / trade OOS
+      9.0% trail no time-tighten (Phase A only): +0.42% / trade OOS
+      9% → 5.5% at day 7 (this code):           +1.26% / trade OOS
+
+    Only TIGHTENS — never loosens. A ratchet-tightened position (e.g.,
+    at 2.5% after +30% gain) is NOT re-loosened to 5.5%. Idempotent —
+    a position already at ≤ target trail is skipped.
+    """
+    from core.trading.config import CONFIG
+    from datetime import datetime as _dt, timezone as _tz
+
+    if not getattr(CONFIG, "time_tighten_enabled", False):
+        return
+
+    positions = tracker.get_open_positions()
+    if not positions:
+        return
+
+    threshold_days = int(getattr(CONFIG, "time_tighten_days", 7))
+    target_pct = float(getattr(CONFIG, "time_tighten_target_pct", 5.5))
+
+    orders_by_ticker = {}
+    for o in ibkr_orders:
+        t = o.get("ticker", "")
+        if t and o.get("status") in ("Submitted", "PreSubmitted"):
+            orders_by_ticker.setdefault(t, []).append(o)
+
+    now_utc = _dt.now(_tz.utc)
+    any_changes = False
+
+    for pos in positions:
+        ticker = pos.get("ticker", "")
+        if not ticker:
+            continue
+        # Compute age from opened_at
+        opened_at = str(pos.get("opened_at", "") or "")[:19]
+        if not opened_at:
+            continue
+        try:
+            opened_dt = _dt.fromisoformat(opened_at).replace(tzinfo=_tz.utc)
+            age_days = (now_utc - opened_dt).total_seconds() / 86400.0
+        except Exception:
+            continue
+        if age_days < threshold_days:
+            continue  # still in chop-protection window
+
+        # Find the active TRAIL order
+        trail_order = None
+        for o in orders_by_ticker.get(ticker, []):
+            if o.get("order_type") == "TRAIL":
+                trail_order = o
+                break
+        if not trail_order:
+            continue
+
+        current_pct = pos.get("trailing_stop_pct", 0) or 0
+        # ONLY tighten — never loosen. If ratchet or earnings has already
+        # tightened below target, leave it alone.
+        if current_pct > 0 and current_pct <= target_pct + 0.05:
+            continue
+
+        # Avoid re-firing every cycle
+        if pos.get("time_tightened"):
+            continue
+
+        try:
+            result = client.modify_trailing_pct(trail_order["order_id"], target_pct)
+            if result.status in ("Submitted", "PreSubmitted", "PendingSubmit", "DRY_RUN"):
+                pos["trailing_stop_pct"] = target_pct
+                pos["time_tightened"] = True
+                pos["time_tightened_at"] = now_utc.isoformat()
+                any_changes = True
+                try:
+                    notify._send(
+                        f"⏱️ <b>TIME-TIGHTEN {ticker}</b>\n"
+                        f"  Age: {age_days:.1f}d ≥ {threshold_days}d threshold\n"
+                        f"  Trail: {current_pct:.1f}% → <b>{target_pct:.1f}%</b>\n"
+                        f"  Chop-protection window passed — normal trail engaged."
+                    )
+                except Exception:
+                    pass
+                logger.info(
+                    "TIME-TIGHTEN %s: %.1f%% → %.1f%% (age %.1fd)",
+                    ticker, current_pct, target_pct, age_days,
+                )
+        except Exception as _e:
+            logger.warning("TIME-TIGHTEN failed for %s: %s", ticker, _e)
+
+    # Persist mutations once at the end (matches _ratchet_stops pattern)
+    if any_changes:
+        try:
+            tracker._save_positions(positions)
+        except Exception as _se:
+            logger.warning("TIME-TIGHTEN: failed to persist tracker changes: %s", _se)
 
 
 def _ratchet_stops(tracker, client, ibkr_orders, notify):
