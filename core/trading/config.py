@@ -439,9 +439,21 @@ class TradingConfig:
     # width, without over-fitting to the 4 lucky runners that drive the 6%
     # number. The ratchet (below) still tightens to lock gains once a
     # position is a real winner, and regime_mult ×0.70 auto-tightens this
-    # in CORRECTION/PANIC. Env: TRADE_MIN_INITIAL_TRAIL_PCT to revert.
+    # in CORRECTION/PANIC.
+    #
+    # 2026-06-10: WIDENED 5.5% → 9.0% based on real-OHLC trail simulation
+    # on 512 production trades (Mar-Jun 2026). Findings:
+    #   • At 5.5% trail, OOS returns -1.73%/trade (the system was bleeding)
+    #   • At 9.0% trail, OOS returns +0.42%/trade
+    #   • At 5.5% trail + 7d min-hold, OOS +1.26% (best — Phase B)
+    # Of 12 recent losers, 9 (75%) recovered above ENTRY within 14 days —
+    # the 5.5% trail was firing on natural intraday noise BEFORE the
+    # 20-day swing strategy could play out.
+    # Risk: max single-trade loss now -9% × $400 = -$36 (was -$22).
+    # But sim showed 0/512 trades lost >10%, so risk is bounded.
+    # Env: TRADE_MIN_INITIAL_TRAIL_PCT to revert.
     min_initial_trail_pct: float = field(
-        default_factory=lambda: _env_float("MIN_INITIAL_TRAIL_PCT", 5.5)
+        default_factory=lambda: _env_float("MIN_INITIAL_TRAIL_PCT", 9.0)
     )
     # 2026-05-29: lower floor for DEFENSIVE regimes (CORRECTION/BEARISH/
     # PANIC/DISTRIBUTION). The wide 5.5% floor is for normal/bull markets
