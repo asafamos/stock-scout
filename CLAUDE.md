@@ -36,7 +36,15 @@ AI-powered stock recommendation system that scans 3,000+ US stocks using technic
 **Blocked regimes: PANIC only** (CORRECTION removed — data showed +5.48%/55% WR, mean-reversion edge)
 **Reduce_regimes: DISTRIBUTION** (half-size)
 
-**Trail:** 5.5% normal / 3.0% defensive (CORRECTION/BEARISH/PANIC/DISTRIBUTION), ATR floor 0.9×, regime mult (UP=1.20, SIDEWAYS=1.00, DISTRIBUTION=0.85, defensive=0.70)
+**Trail (RECALIBRATED 2026-06-10 on real-OHLC simulation of 512 trades):**
+- **Initial trail: 9.0%** (was 5.5%) — absorbs intraday noise during days 1-7
+- **At day 7: tightens automatically to 5.5%** via `_time_tighten_stops` in monitor
+- 3.0% defensive (CORRECTION/BEARISH/PANIC/DISTRIBUTION)
+- ATR floor 0.9×, regime mult (UP=1.20, SIDEWAYS=1.00, DISTRIBUTION=0.85, defensive=0.70)
+- Then standard RATCHET tightens further as profit accumulates (T0 +10% → 5%, T1 +14% → 4.5%, T2 +22% → 3.5%, T3 +30% → 2.5%)
+- Reasoning: postmortem on 12 trail-fired losers showed 9/12 (75%) recovered above ENTRY within 14 days. The 5.5% trail was firing on natural intraday noise. Real-OHLC backtest: 5.5%+0d=-1.73%/trade OOS; 9%+0d=+0.42%; 9%→5.5% at day 7=+1.26% (chosen).
+- Env: TRADE_MIN_INITIAL_TRAIL_PCT, TRADE_TIME_TIGHTEN_ENABLED, TRADE_TIME_TIGHTEN_DAYS, TRADE_TIME_TIGHTEN_TARGET_PCT
+
 **BREAK_EVEN: DISABLED** (backtest showed net -$74.81/$1k/trade — was a bad anecdote-based feature)
 
 **Selection ranking weights (REBALANCED, sum=1.00):**
