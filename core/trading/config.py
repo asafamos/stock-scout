@@ -178,8 +178,13 @@ class TradingConfig:
         default_factory=lambda: _env_float("MAX_ML_PROB", 0.55)
     )  # NEW gate; ML > 0.55 underperforms (likely model over-confidence on extended stocks)
     min_atr_pct: float = field(
-        default_factory=lambda: _env_float("MIN_ATR_PCT", 0.04)
-    )  # NEW gate; ATR 0-2% = -0.86%, ATR 4-5% = +1.55%, ATR 5-7% = +6.13% (volatility=opportunity)
+        default_factory=lambda: _env_float("MIN_ATR_PCT", 0.03)
+    )  # 2026-06-12 LOOSENED 0.04 → 0.03. At 0.04 we blocked 58% of universe
+       # (live verified: 127/304 in latest scan pass; 5/8 days no buys at all).
+       # Original data: ATR 3-4% = +0.68% (FIRST positive band) — that's
+       # where the gate should sit, not at 4% (which removed half the universe).
+       # policy.evaluate_static_gates ALSO treats atr==0 as missing data
+       # (not low-vol). Upstream provider failures shouldn't kill picks.
     min_reliability: float = field(
         default_factory=lambda: _env_float("MIN_RELIABILITY", 50.0)
     )  # Filter stocks with incomplete data (Reliability_Score < 50)

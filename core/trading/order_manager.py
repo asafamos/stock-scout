@@ -769,7 +769,12 @@ class OrderManager:
                 if _atr_col in result.columns:
                     atr_vals = pd.to_numeric(result[_atr_col], errors="coerce")
                     before = len(result)
-                    result = result[atr_vals >= _min_atr]
+                    # 2026-06-12: treat ATR=0 / NaN as MISSING DATA (pass through).
+                    # Real stocks have non-zero ATR; 0.000 means upstream
+                    # provider failed. Don't kill valid picks because of that.
+                    # Drop only real low-vol stocks (0 < atr < min_atr).
+                    keep = (atr_vals.isna()) | (atr_vals == 0) | (atr_vals >= _min_atr)
+                    result = result[keep]
                     dropped = before - len(result)
                     if dropped:
                         logger.info("ATR filter dropped %d stocks (ATR < %.2f)",

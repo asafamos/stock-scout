@@ -377,11 +377,23 @@ def evaluate_static_gates(
         passed.append(f"ML in [{min_ml:.2f}, {max_ml:.2f}]")
 
     # 8b. ATR floor — Supabase backtest shows volatility = opportunity
-    #     ATR 0-2% = -0.86%, ATR 4-5% = +1.55%, ATR 5-7% = +6.13%
-    min_atr = float(getattr(cfg, "min_atr_pct", 0.04))
+    #     ATR 2-3% = -0.64% (n=5844),  ATR 3-4% = +0.68% (n=5351, FIRST positive band),
+    #     ATR 4-5% = +1.55%, ATR 5-7% = +6.13%
+    # 2026-06-12 FIX: was 0.04 — too tight, blocked 58% of universe (127/304
+    # passing other gates → only 4 with ATR ≥ 4%). The natural inflection
+    # where returns turn positive is at 3% (0.03), not 4%. ALSO: handle
+    # ATR=0 as MISSING DATA (not low-vol). Real stocks always have
+    # non-zero ATR; 0.000 indicates the upstream data provider failed.
+    # Fail-OPEN when ATR is missing (let other gates decide); fail-CLOSED
+    # only when ATR is a real positive number below the floor.
+    min_atr = float(getattr(cfg, "min_atr_pct", 0.03))
     atr_pct_val = float(_row_get_first(row, ["ATR_Pct", "atr_pct"], 0) or 0)
-    if min_atr > 0 and atr_pct_val < min_atr:
+    if min_atr > 0 and atr_pct_val > 0 and atr_pct_val < min_atr:
+        # Real positive ATR, but too low
         failed.append(f"ATR {atr_pct_val:.3f} < {min_atr:.2f} (low-vol drag)")
+    elif min_atr > 0 and atr_pct_val <= 0:
+        # Treat as missing data — fail-open with a warning note
+        passed.append(f"ATR missing (pass-through)")
     elif min_atr > 0:
         passed.append(f"ATR ≥ {min_atr:.2f}")
 
