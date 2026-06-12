@@ -43,7 +43,20 @@ def _read_json(path: Path, default=None):
 
 
 def _is_service_active(name: str) -> bool:
-    """Return True if a systemd service is active (best-effort, no sudo)."""
+    """Return True if a systemd service is active (best-effort, no sudo).
+
+    Special-case `ibgateway`: the gateway runs as a Docker container, not a
+    systemd unit. Check `docker ps` instead so daily_health doesn't false-alarm.
+    """
+    if name == "ibgateway":
+        try:
+            r = subprocess.run(
+                ["docker", "ps", "--filter", "name=^ibgateway$", "--format", "{{.Status}}"],
+                capture_output=True, text=True, timeout=5,
+            )
+            return r.stdout.strip().startswith("Up")
+        except Exception:
+            return False
     try:
         r = subprocess.run(
             ["systemctl", "is-active", name],
