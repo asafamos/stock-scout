@@ -1,6 +1,6 @@
 {
-  "timestamp": "2026-06-22T13:59:21.759035Z",
-  "universe_size": 303,
+  "timestamp": "2026-06-22T15:48:53.675013Z",
+  "universe_size": 387,
   "universe_name": "default",
   "config_version": "unknown",
   "lookback_days": 250,
@@ -197,9 +197,9 @@
   "scan_type": "auto_github_actions",
   "universe_count": 2000,
   "provider": "Unknown",
-  "results_count": 303,
+  "results_count": 387,
   "batches_ok": 10,
   "beta_filter_enabled": true,
   "fundamental_enabled": true,
-  "runtime_seconds": 1677.26
+  "runtime_seconds": 2827.06
 }
