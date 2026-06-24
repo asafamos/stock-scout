@@ -29,6 +29,16 @@ on:
 
   workflow_dispatch:  # Allow manual trigger
 
+# Serialize: only one Auto Stock Scan can be in-flight at a time. Prevents
+# the binary-merge conflict on data/scans/latest_scan.parquet that bit us
+# 2026-06-22 + 2026-06-23 when a manual dispatch overlapped the scheduled
+# 17:30 run — both finished, both tried to push, rebase exploded on the
+# binary parquet. cancel-in-progress=false because a 55-min scan in flight
+# shouldn't be killed; the new one queues and starts from a fresh tree.
+concurrency:
+  group: auto-stock-scan
+  cancel-in-progress: false
+
 jobs:
   scan:
     runs-on: ubuntu-latest
@@ -168,7 +178,20 @@ jobs:
               fi
               echo "Push failed (attempt $attempt/3) — rebasing and retrying..."
               git stash --include-untracked || true
-              git pull --rebase origin main
+              # -X theirs: when rebasing OUR commits onto origin/main, prefer
+              # OUR fresher scan output on binary conflicts (parquet/jsonl).
+              # Confusing semantics — during rebase "theirs" = the commits
+              # being replayed (us), "ours" = the branch being rebased onto
+              # (origin/main). Without this, latest_scan.parquet conflicts
+              # halt rebase with conflict markers we can't auto-resolve.
+              git pull --rebase -X theirs origin main || true
+              # Belt-and-suspenders: if rebase still left conflicted binaries,
+              # force our version and continue.
+              if [ -d .git/rebase-apply ] || [ -d .git/rebase-merge ]; then
+                git checkout --theirs data/scans/ reports/ 2>/dev/null || true
+                git add data/scans/ reports/ 2>/dev/null || true
+                git rebase --continue || git rebase --abort
+              fi
               git stash pop || true
               # Re-add any files that may have been unstaged during rebase
               git add data/scans/ reports/ || true

@@ -39,6 +39,7 @@ logger = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parents[1]
 TRADE_LOG = ROOT / "data" / "trades" / "trade_log.json"
+LEDGER = ROOT / "data" / "trades" / "executions.jsonl"
 
 TOKEN = os.getenv("TRADE_TELEGRAM_TOKEN", "")
 CHAT_ID = os.getenv("TRADE_TELEGRAM_CHAT_ID", "")
@@ -75,6 +76,65 @@ def _load_log() -> list:
         return json.loads(TRADE_LOG.read_text())
     except Exception:
         return []
+
+
+def _load_ledger_pairs() -> list:
+    """FIFO-pair BUY/SELL from broker ledger. Returns (open, close, pnl, hold_days).
+
+    Broker-truth source. Use for LIFETIME totals — `trade_log.json` carries
+    phantom entries from before the ledger existed (pre-2026-06-04), which
+    inflated lifetime P&L to +$74 vs the real -$11 on 2026-06-21.
+
+    Returns dicts that look like trade_log entries (ticker / timestamp /
+    price / reason="ledger") so `_metrics()` works unchanged. Cohort
+    breakdown skips these because they lack the `score` field — that's
+    fine, cohorts stay on trade_log (signal data we DO have).
+    """
+    if not LEDGER.exists():
+        return []
+    fills = []
+    with open(LEDGER) as f:
+        for ln in f:
+            try:
+                fills.append(json.loads(ln))
+            except Exception:
+                pass
+    fills.sort(key=lambda e: e.get("time", ""))
+
+    opens = defaultdict(list)
+    pairs = []
+    for e in fills:
+        t = e.get("ticker")
+        side = e.get("side")
+        price = float(e.get("price", 0) or 0)
+        ts = e.get("time", "")
+        if side == "BUY":
+            opens[t].append({"ts": ts, "price": price})
+        elif side == "SELL":
+            pnl = float(e.get("realized_pnl", 0) or 0)
+            o_list = opens.get(t, [])
+            if o_list:
+                o = o_list.pop(0)
+                try:
+                    ts_o = datetime.fromisoformat(o["ts"][:19].replace("Z", ""))
+                    ts_c = datetime.fromisoformat(ts[:19].replace("Z", ""))
+                    hd = (ts_c - ts_o).days
+                except Exception:
+                    hd = 0
+                pairs.append((
+                    {"ticker": t, "timestamp": o["ts"], "price": o["price"]},
+                    {"ticker": t, "timestamp": ts, "price": price, "reason": "ledger"},
+                    pnl,
+                    hd,
+                ))
+            else:
+                pairs.append((
+                    {"ticker": t, "timestamp": ts},
+                    {"ticker": t, "timestamp": ts, "price": price, "reason": "ledger"},
+                    pnl,
+                    0,
+                ))
+    return pairs
 
 
 def _pair_trades(log: list) -> list:
@@ -385,7 +445,12 @@ def build_retro(today: date = None) -> str:
 
     this_week = _filter_by_window(pairs, monday, next_monday)
     last_week = _filter_by_window(pairs, last_monday, monday)
-    lifetime = pairs
+    # LIFETIME totals come from the broker ledger (executions.jsonl) — the
+    # ground truth. trade_log.json had phantom entries from before the
+    # ledger existed (pre-2026-06-04) that inflated lifetime P&L to +$74
+    # vs the real -$11. Fix #45. Falls back to trade_log if ledger empty.
+    ledger_pairs = _load_ledger_pairs()
+    lifetime = ledger_pairs if ledger_pairs else pairs
 
     m_now = _metrics(this_week)
     m_prev = _metrics(last_week)
@@ -450,11 +515,15 @@ def build_retro(today: date = None) -> str:
             f"(WR {m_life['win_rate']:.0f}%, PF {m_life['profit_factor']:.2f})"
         )
 
-    # 4. Cohort breakdown (lifetime — needs sample to be useful)
-    cohort_lines = _cohort_breakdown(lifetime)
+    # 4. Cohort breakdown — uses TRADE_LOG (which carries entry signals
+    # like score / RR / stop_loss). The ledger has broker fills only.
+    # Cohort P&L sums may diverge from lifetime totals by phantom-trade
+    # amounts; treat as RELATIVE comparison (which buckets out-/under-
+    # perform), not absolute P&L.
+    cohort_lines = _cohort_breakdown(pairs)
     if cohort_lines:
         lines.append("")
-        lines.append("<b>4️⃣ COHORTS (lifetime — which setups win?)</b>")
+        lines.append("<b>4️⃣ COHORTS (signal cohorts from trade_log — relative comparison)</b>")
         lines.extend(cohort_lines)
 
     # 5. Verdict
