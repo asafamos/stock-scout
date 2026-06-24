@@ -23,15 +23,18 @@ AI-powered stock recommendation system that scans 3,000+ US stocks using technic
 - Max open positions: 3 | Max daily buys: 3 | Max portfolio exposure: $1000
 - min_viable_position_usd: $30 (early-exit candidate loop when cash exhausted)
 
-**Trade GATES (WINDOW-based, validated on real fwd returns):**
-- Score: 73-95 (max=95 because Q5 underperforms in-sample; 95+ OOS = PLTR/NFLX curve fit)
-- ML probability: **0.40-0.55** ← SWEET SPOT (live ML mean 0.42, max 0.76. 0.45-0.50 = +5.07% returns)
-- R:R: **3.0-5.0** ← SWEET SPOT (RR 2-2.5 returns -0.62%, RR 4-5 returns +3.81%, RR 7+ drops)
-- ATR_Pct: **≥ 0.04** (NEW gate — ATR 5-7% returns +6.13%, low-vol returns negative)
-- Min confidence: High | Min reliability: 50
+**Trade GATES (RECALIBRATED 2026-06-24 on 1,748-trade analysis — `deep_analysis.py` on scan_outcomes.jsonl Apr 30 → Jun 4 2026):**
+- Score: 73-95 in CONFIG, but **runtime uses `REGIME_MIN_SCORE + 5`** per regime (= 65 in MODERATE_UP, see `policy.py:139`). CONFIG.min_score is only fallback for unknown regimes. CLAUDE.md and CONFIG say 73; actual effective floor for current regime is 65. Documented in [memory: regime-score-floor].
+- ML probability: **0.40-0.60** (was 0.55; raised because bucket 0.55-0.60 = +4.93% mean vs in-window +3.0%; ML>0.65 drops to +2.10%)
+- R:R: **3.0-no cap** (was 3.0-5.0; cap removed because RR 7+ = +9.01% mean p=0.003 SIG. RR 5-6 dip -0.93% is small enough to live with.)
+- ATR_Pct: **≥ 0.03** (lowered from 0.04 on 2026-06-12; bucket 0.03-0.04 = +2.0% mean, was being excluded. ATR=0 treated as missing data pass-through.)
+- Min confidence: High (regime-adjusted in `confidence_floor` — same opaque-design pattern as score floor)
+- Min reliability: 50
 
-**Blocked sectors (8, from 1):** Consumer Defensive, Utilities, Communication, Materials, Basic Materials, Consumer Cyclical, Financial, Financial Services
-**Top sectors kept:** Technology +10.42%, Healthcare +2.79%, Industrials, Energy, Communication Services
+**Blocked sectors (8, RECALIBRATED 2026-06-24 — data-supported):**
+- BLOCKED: Consumer Defensive (-2.36% mean), Utilities (-0.42%), Communication, Materials (-7.36%), Basic Materials (-2.51%), Financial (-3.82%), **Energy (-1.59%, n=304, p=0.0000 SIG)**, **Real Estate (-3.25%)**
+- UNBLOCKED (were wrongly blocked): **Consumer Cyclical (+3.06% mean n=163)**, **Financial Services (+4.54% n=80)**
+- Top kept: Industrials +6.31%, Healthcare +5.81%, Communication Services +5.04%, Technology +4.59%, Financial Services +4.54%, Consumer Cyclical +3.06%
 
 **Blocked regimes: PANIC only** (CORRECTION removed — data showed +5.48%/55% WR, mean-reversion edge)
 **Reduce_regimes: DISTRIBUTION** (half-size)
