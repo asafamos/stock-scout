@@ -1,6 +1,6 @@
 {
-  "timestamp": "2026-06-24T21:38:32.046435Z",
-  "universe_size": 376,
+  "timestamp": "2026-06-25T13:59:07.209254Z",
+  "universe_size": 298,
   "universe_name": "default",
   "config_version": "unknown",
   "lookback_days": 250,
@@ -195,11 +195,11 @@
     "SignalStrength"
   ],
   "scan_type": "auto_github_actions",
-  "universe_count": 1999,
+  "universe_count": 2000,
   "provider": "Unknown",
-  "results_count": 376,
+  "results_count": 298,
   "batches_ok": 10,
   "beta_filter_enabled": true,
   "fundamental_enabled": true,
-  "runtime_seconds": 3550.23
+  "runtime_seconds": 1654.99
 }
