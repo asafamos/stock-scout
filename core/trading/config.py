@@ -177,6 +177,11 @@ class TradingConfig:
     max_ml_prob: float = field(
         default_factory=lambda: _env_float("MAX_ML_PROB", 0.55)
     )  # NEW gate; ML > 0.55 underperforms (likely model over-confidence on extended stocks)
+    min_fundamental_score: float = field(
+        default_factory=lambda: _env_float("MIN_FUNDAMENTAL_SCORE", 30.0)
+    )  # NEW 2026-06-26 — soft filter. Data on 1,748 trades shows fund<30
+       # mean = +1.24% (n=12) vs fund 30-60 mean = +6.87% (n=270).
+       # Blocking <30 removes ~5% of weakest candidates. Set 0 to disable.
     max_volume_surge: float = field(
         default_factory=lambda: _env_float("MAX_VOLUME_SURGE", 1.5)
     )  # NEW 2026-06-26 — counter-intuitive but data is clear (n=303,

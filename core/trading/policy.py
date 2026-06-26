@@ -397,6 +397,21 @@ def evaluate_static_gates(
     elif min_atr > 0:
         passed.append(f"ATR ≥ {min_atr:.2f}")
 
+    # 8a. Fundamental score floor (NEW 2026-06-26).
+    # Soft filter on quality. Data on 1,748 trades:
+    #   fund<30: mean +1.24% (n=12)  ← weakest cohort
+    #   fund 30-40: +5.19% (n=129)
+    #   fund 40-60: +7.7% mean (n=141) — sweet spot
+    # Block fund < cfg.min_fundamental_score (default 30). Pass-through if
+    # column missing or floor disabled (=0).
+    min_fund = float(getattr(cfg, "min_fundamental_score", 30.0))
+    if min_fund > 0:
+        fund_val = float(_row_get_first(row, ["Fundamental_Score","fundamental_score","FundamentalScore"], -1) or -1)
+        if fund_val >= 0 and fund_val < min_fund:
+            failed.append(f"Fundamental {fund_val:.0f} < {min_fund:.0f} (weakest cohort)")
+        elif fund_val >= 0:
+            passed.append(f"Fundamental {fund_val:.0f} ≥ {min_fund:.0f}")
+
     # 8b. Volume surge filter (NEW 2026-06-26).
     # Counter-intuitive but data is clear (n=303 in tradeable universe,
     # p=0.04 SIG): HIGH volume_surge predicts LOWER fwd returns.
