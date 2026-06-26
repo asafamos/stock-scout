@@ -41,6 +41,12 @@ jobs:
         env:
           TELEGRAM_TOKEN: ${{ secrets.TRADE_TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TRADE_TELEGRAM_CHAT_ID }}
+          # 2026-06-26: auth the API call. Unauthenticated GH API is 60/h
+          # per runner IP — kept hitting 403 because we share the rate
+          # window with every other scheduled workflow. Authenticated
+          # bumps to 5000/h. Retry+delay didn't help because the bucket
+          # stays empty for the full hour. Two failures 2026-06-25.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
@@ -50,12 +56,12 @@ jobs:
 
           echo "→ fetching $STATE_URL"
           # 2026-06-08: added --retry 4 / --retry-delay 8 / --retry-all-errors.
-          # A single transient 403 (GitHub API momentary rate-limit, observed
-          # 2026-06-07 19:33 UTC — surrounded by 4 successful runs) was enough
-          # to trigger a misleading "VPS HEARTBEAT" failure email. Retry the
-          # GET several times before declaring failure; the actual VPS is fine.
+          # 2026-06-26: + Authorization header (root cause was the missing
+          # token, not transient blips — retries alone couldn't help when
+          # the whole hourly window was exhausted).
           RAW=$(curl -fsS --retry 4 --retry-delay 8 --retry-all-errors \
-                -H 'Accept: application/vnd.github+json' "$STATE_URL")
+                -H 'Accept: application/vnd.github+json' \
+                -H "Authorization: Bearer ${GH_TOKEN}" "$STATE_URL")
           CONTENT_B64=$(echo "$RAW" | jq -r '.content' | tr -d '\n')
 
           if [ -z "$CONTENT_B64" ] || [ "$CONTENT_B64" = "null" ]; then
