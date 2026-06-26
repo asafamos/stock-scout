@@ -177,6 +177,18 @@ class TradingConfig:
     max_ml_prob: float = field(
         default_factory=lambda: _env_float("MAX_ML_PROB", 0.55)
     )  # NEW gate; ML > 0.55 underperforms (likely model over-confidence on extended stocks)
+    max_volume_surge: float = field(
+        default_factory=lambda: _env_float("MAX_VOLUME_SURGE", 1.5)
+    )  # NEW 2026-06-26 — counter-intuitive but data is clear (n=303,
+       # p=0.04 SIG): high volume_surge predicts LOWER returns. Buckets:
+       # vs<0.5: +11.15%; 0.5-1: +6.48%; 1-1.5: +4.97%; 1.5-2: +0.70%;
+       # >=2: -6.12%. Blocking vs>=1.5 removes ~5% of candidates that
+       # collectively lose money. ENV: TRADE_MAX_VOLUME_SURGE (0 = disable).
+    max_slippage_pct: float = field(
+        default_factory=lambda: _env_float("MAX_SLIPPAGE_PCT", 3.0)
+    )  # NEW 2026-06-26 — was hardcoded 5.0 in order_manager. Tightened
+       # to 3.0 (data: 34% of 29 OPENs had >2% slippage, mean 1.79%).
+       # ENV: TRADE_MAX_SLIPPAGE_PCT for flexibility.
     min_atr_pct: float = field(
         default_factory=lambda: _env_float("MIN_ATR_PCT", 0.03)
     )  # 2026-06-12 LOOSENED 0.04 → 0.03. At 0.04 we blocked 58% of universe

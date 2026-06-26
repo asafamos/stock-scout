@@ -397,6 +397,21 @@ def evaluate_static_gates(
     elif min_atr > 0:
         passed.append(f"ATR ≥ {min_atr:.2f}")
 
+    # 8b. Volume surge filter (NEW 2026-06-26).
+    # Counter-intuitive but data is clear (n=303 in tradeable universe,
+    # p=0.04 SIG): HIGH volume_surge predicts LOWER fwd returns.
+    # Buckets: vs<0.5=+11.15%, 0.5-1=+6.48%, 1-1.5=+4.97%,
+    #          1.5-2=+0.70%, >=2=-6.12%.
+    # Block vs >= cfg.max_volume_surge (default 1.5). Pass-through if
+    # column missing or cap disabled (=0).
+    max_vs = float(getattr(cfg, "max_volume_surge", 1.5))
+    if max_vs > 0:
+        vs_val = float(_row_get_first(row, ["Volume_Surge","volume_surge","VolumeSurge"], 0) or 0)
+        if vs_val > 0 and vs_val >= max_vs:
+            failed.append(f"Volume surge {vs_val:.2f} ≥ {max_vs:.1f} (low-return cohort)")
+        elif vs_val > 0:
+            passed.append(f"Volume surge {vs_val:.2f} < {max_vs:.1f}")
+
     # 9. Confidence floor (regime-aware)
     min_conf_int = confidence_floor(regime, cfg)
     conf_int = _CONF_MAP.get(confidence.upper(), 0)

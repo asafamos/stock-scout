@@ -1251,21 +1251,27 @@ class OrderManager:
             move_pct = (live_price - scan_price) / scan_price * 100
 
             # SLIPPAGE HARD-REJECT — refuse to trade against a price that
-            # has moved >5% from scan time. Beyond that we're chasing a
+            # has moved too far from scan time. Beyond that we're chasing a
             # different stock than the one the scan analyzed (halt+reopen,
             # gap-up news, etc). Proportional rescaling of stop/target
             # masks the problem; backtests showed runaway losses on these
             # entries. (Audit 2026-04-30 finding #3.)
-            if abs(move_pct) > 5.0:
+            # 2026-06-26: tightened from 5% to 3%. Slippage analysis on
+            # 29 OPEN events showed 34% had >2% slippage (mean 1.79%); the
+            # 5% threshold let chase-and-lose trades through. 3% catches
+            # the worst 10-15% of cases while keeping legit breakout entries.
+            # Env-overridable via TRADE_MAX_SLIPPAGE_PCT for flexibility.
+            _max_slip = float(getattr(self.cfg, "max_slippage_pct", 3.0))
+            if abs(move_pct) > _max_slip:
                 logger.warning(
-                    "SLIPPAGE REJECT %s: scan $%.2f → live $%.2f (%+.2f%%, > 5%% threshold)",
-                    ticker, scan_price, live_price, move_pct,
+                    "SLIPPAGE REJECT %s: scan $%.2f → live $%.2f (%+.2f%%, > %.1f%% threshold)",
+                    ticker, scan_price, live_price, move_pct, _max_slip,
                 )
                 return {
                     "ticker": ticker, "status": "skipped",
                     "reason": (
                         f"Live price ${live_price:.2f} moved {move_pct:+.1f}% "
-                        f"from scan ${scan_price:.2f} (> 5% reject threshold)"
+                        f"from scan ${scan_price:.2f} (> {_max_slip:.1f}% reject threshold)"
                     ),
                 }
 
