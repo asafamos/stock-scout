@@ -892,19 +892,28 @@ class OrderManager:
         #   rr_ratio:     +0.088 (best stable signal)
         #   atr_pct:      +0.140 (POSITIVE — vol = opportunity)
         #
-        # New weights de-emphasize score (just a tiebreaker), elevate
-        # RR/ML/ATR (the validated predictors). ATR is a NEW ranking signal.
+        # 2026-06-26 rebalance — deep dive on 1,748 trades exposed a gap:
+        # `Fundamental_Score` was NOT in the ranking but turned out to be
+        # the strongest single-signal picker. Within the tradeable universe
+        # (n=303): corr(fund, return) = +0.117 p=0.04 SIG, while corr(rr)
+        # = -0.07 NS and corr(ml_prob) = -0.05 NS. Simulated top-3 per
+        # scan day: rank-by-fund alone = +8.98% vs current weighted blend
+        # = +4.65%. Added Tech_Score (top-3 by tech alone = +6.72%) at a
+        # smaller weight as a complementary momentum signal. Dropped
+        # WEIGHT_SCORE to 0 (FinalScore is anti-predictive at the ranker
+        # stage even though it's still used as the gate floor).
+        #
         # Weights sum to EXACTLY 1.00 (plus WEIGHT_MOM=0.05 added below
         # only when SPY momentum data is available → renormalized).
-        WEIGHT_SCORE = 0.05    # was 0.45 — score is anti-predictive as ranker
-        WEIGHT_RR = 0.40       # was 0.25; reduced from 0.45 so base sums to 1.00
-        WEIGHT_ML = 0.25       # was 0.20
-        WEIGHT_ATR = 0.15      # NEW signal — strongest correlation (+0.14)
+        WEIGHT_FUND = 0.25     # NEW 2026-06-26 — top single-signal picker (+8.98% top-3)
+        WEIGHT_RR = 0.30       # was 0.40 — still important but corr near zero in tradeable universe
+        WEIGHT_ML = 0.20       # was 0.25
+        WEIGHT_ATR = 0.10      # was 0.15
+        WEIGHT_TECH = 0.05     # NEW 2026-06-26 — momentum complement (+6.72% top-3)
+        WEIGHT_SCORE = 0.00    # was 0.05 — anti-predictive in tradeable universe (corr -0.04)
         WEIGHT_SECTOR = 0.05
         WEIGHT_INSIDER = 0.05
-        # 0.05 + 0.40 + 0.25 + 0.15 + 0.05 + 0.05 = 1.00 ✓
-        # (WEIGHT_MOM=0.05 added below makes 1.05 when present — the
-        # auto-renormalize step handles that gracefully.)
+        # 0.25 + 0.30 + 0.20 + 0.10 + 0.05 + 0.00 + 0.05 + 0.05 = 1.00 ✓
 
         signals = [(WEIGHT_SCORE, _norm(result[score_col]))]
 
@@ -949,6 +958,22 @@ class OrderManager:
         for atr_col_candidate in ("ATR_Pct", "atr_pct", "ATR%", "atr"):
             if atr_col_candidate in result.columns:
                 signals.append((WEIGHT_ATR, _norm(result[atr_col_candidate])))
+                break
+
+        # Fundamental score (NEW 2026-06-26) — strongest single-signal picker
+        # on 1,748-trade analysis (rank top-3 by fund alone = +8.98% per day).
+        # corr(fund, fwd_return) = +0.117 p=0.04 SIG within tradeable universe.
+        for fund_col_candidate in ("Fundamental_Score", "fundamental_score"):
+            if fund_col_candidate in result.columns:
+                signals.append((WEIGHT_FUND, _norm(result[fund_col_candidate])))
+                break
+
+        # Technical score (NEW 2026-06-26) — second-best single-signal picker
+        # (rank top-3 by tech alone = +6.72%). Smaller weight; complements
+        # fundamental_score with a momentum/price-action component.
+        for tech_col_candidate in ("TechScore_20d", "Tech_Score", "technical_score"):
+            if tech_col_candidate in result.columns:
+                signals.append((WEIGHT_TECH, _norm(result[tech_col_candidate])))
                 break
 
         # Sector momentum signal (positive ranking input, not just block).
