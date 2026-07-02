@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "last_updated": "2026-07-02T23:52:53.842065+00:00",
+  "broadcast_seq": 156755,
+  "pipeline": {
+    "state": "idle",
+    "last_fire": "19:15:02",
+    "last_complete": null,
+    "regime": "RANGING",
+    "candidates_passed": null,
+    "skips": [],
+    "today_buys": 0,
+    "today_closes": 0
+  },
+  "positions": [
+    {
+      "ticker": "ARCB",
+      "qty": 3,
+      "entry": 146.88,
+      "mkt": 138.94,
+      "pnl_pct": -5.41,
+      "pnl_abs": -23.82,
+      "peak_pct": 0.0,
+      "trail_pct": 9.0,
+      "target": 168.74,
+      "opened_at": "2026-06-26",
+      "earnings_date": "2026-07-29",
+      "days_to_earnings": 27
+    },
+    {
+      "ticker": "AEO",
+      "qty": 21,
+      "entry": 16.63,
+      "mkt": 16.46,
+      "pnl_pct": -1.02,
+      "pnl_abs": -3.57,
+      "peak_pct": 4.13,
+      "trail_pct": 9.0,
+      "target": 20.85,
+      "opened_at": "2026-06-30",
+      "earnings_date": "2026-05-28",
+      "days_to_earnings": -35
+    },
+    {
+      "ticker": "IVZ",
+      "qty": 1,
+      "entry": 26.81,
+      "mkt": 26.9,
+      "pnl_pct": 0.34,
+      "pnl_abs": 0.09,
+      "peak_pct": 2.64,
+      "trail_pct": 9.0,
+      "target": 30.15,
+      "opened_at": "2026-07-01",
+      "earnings_date": "2026-07-28",
+      "days_to_earnings": 26
+    }
+  ],
+  "trade_log_today": [],
+  "ledger_summary": {
+    "today_realized": 0.0,
+    "lifetime_realized": null,
+    "trades_today": 0,
+    "reconciliation_delta": null,
+    "ledger_total": -102.35,
+    "pre_ledger_baseline": 0.0
+  },
+  "system_health": {
+    "stockscout-monitor": true,
+    "stockscout-pipeline.timer": true,
+    "stockscout-statusbot": true,
+    "stockscout-healthcheck.timer": true,
+    "stockscout-daily-summary.timer": true,
+    "stockscout-command-poller": true,
+    "ibgateway": true,
+    "all_active": true,
+    "scan_age_hours": 3.7,
+    "outcomes_age_days": 0,
+    "pipeline_next_fire": "2026-07-03T13:30:00+00:00"
+  },
+  "account": {
+    "net_liquidation": 845.03,
+    "cash": 55.57,
+    "tier": "sub_2k",
+    "snapshot_age_minutes": 0.9
+  },
+  "throttle": {
+    "active": false,
+    "level": "inactive",
+    "win_rate": 0.8,
+    "size_multiplier": 1.0,
+    "trades_in_window": 10
+  }
+}
