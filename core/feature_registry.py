@@ -197,6 +197,7 @@ def get_feature_names(version: str = DEFAULT_VERSION) -> List[str]:
         "v3.5": FEATURE_SPECS_V3_5,
         "v3.6": FEATURE_SPECS_V3_6,
         "v3.7": FEATURE_SPECS_V3_7,
+        "v3.8": FEATURE_SPECS_V3_8,
         "v4": FEATURE_SPECS_V4,
     }
     if version not in specs_map:
@@ -223,6 +224,7 @@ def get_feature_specs(version: str = DEFAULT_VERSION) -> List[FeatureSpec]:
         "v3.5": FEATURE_SPECS_V3_5,
         "v3.6": FEATURE_SPECS_V3_6,
         "v3.7": FEATURE_SPECS_V3_7,
+        "v3.8": FEATURE_SPECS_V3_8,
         "v4": FEATURE_SPECS_V4,
     }
     if version not in specs_map:
@@ -650,5 +652,62 @@ FEATURE_SPECS_V4: List[FeatureSpec] = [
 FEATURE_COUNT_V4 = len(FEATURE_SPECS_V4)
 assert FEATURE_COUNT_V4 == 30, f"Expected 30 features, got {FEATURE_COUNT_V4}"
 
+
+# =============================================================================
+# FEATURE DEFINITIONS V3.8 (15 features) — PRUNED from v3.6 using 2026-07-03
+#   permutation importance report on 218,339 rows, OOS AUC=0.6283 baseline.
+#
+#   Removed 11 features (harmful or redundant):
+#     HARMFUL (negative permutation importance in current data):
+#       - ADX                (-0.003054) — worst offender
+#       - VCP_Ratio          (-0.001993)
+#       - ATR_Delta_5d       (-0.001787)
+#       - Momentum_Consistency (-0.000789)
+#       - Volume_Surge       (-0.000401) — corr -0.117 with fwd returns
+#       - Momentum_x_Volume  (-0.000367)
+#       - MACD_Hist          (-0.000288)
+#       - Squeeze_x_Volume   (-0.000249)
+#     MULTICOLLINEARITY (r > 0.95, remove weaker):
+#       - Return_20d         (r=0.966 with RS_vs_SPY_20d)
+#       - VCP_x_RS           (r=0.972 with RS_vs_SPY_20d)
+#       - Volume_Delta_5d    (dependent on removed Volume_Surge)
+#
+#   Kept 15 features (all POSITIVE importance):
+#     Top 3 account for >80% of predictive power:
+#       ATR_Pct (+0.072), Distance_From_52w_Low (+0.040),
+#       Consolidation_Tightness (+0.012).
+#
+#   Expected impact: cleaner model, better generalization, faster training.
+#   The old v3.7 pruning was based on v3.6 AUC=0.6144; v3.8 uses updated
+#   2026-07-03 data (AUC 0.6283, more mature). Different features removed.
+# =============================================================================
+FEATURE_SPECS_V3_8: List[FeatureSpec] = [
+    # --- Price Action (4) — top importance ---
+    FeatureSpec("Support_Strength", "fraction days near support", 0.2, (0, 1), "price_action"),
+    FeatureSpec("Distance_From_52w_Low", "(close-52w_low)/52w_low", 0.5, (-0.5, 5.0), "price_action"),
+    FeatureSpec("Consolidation_Tightness", "(20d_high-low)/avg", 0.1, (0.01, 0.5), "price_action"),
+    FeatureSpec("Distance_To_Resistance", "(20d_high-close)/close", 0.05, (0, 0.5), "price_action"),
+
+    # --- Sector (2) ---
+    FeatureSpec("Sector_Momentum", "sector_etf_ret_20d", 0.0, (-0.5, 0.5), "sector"),
+    FeatureSpec("Sector_Rank", "1 if stock beats sector in 5d", 0.5, (0, 1), "sector"),
+
+    # --- Momentum (2) ---
+    FeatureSpec("RS_vs_SPY_20d", "stock_ret_20d - spy_ret_20d", 0.0, (-1.0, 1.0), "momentum"),
+    FeatureSpec("Momentum_Acceleration", "Return_5d - (Return_20d-Return_5d)/3", 0.0, (-0.3, 0.3), "delta"),
+
+    # --- Volatility (2) — top predictors ---
+    FeatureSpec("ATR_Pct", "Average True Range as % of price", 0.02, (0.001, 0.5), "technical"),
+    FeatureSpec("Tightness_Ratio", "Range contraction: range_5d/range_20d", 1.0, (0.05, 2.0), "volatility"),
+
+    # --- Trend (1) ---
+    FeatureSpec("MA50_Slope", "50-day MA pct change over 10d", 0.0, (-0.2, 0.2), "technical"),
+
+    # --- Delta (1) ---
+    FeatureSpec("RSI_Delta_5d", "RSI_now - RSI_5d_ago", 0.0, (-50, 50), "delta"),
+]
+FEATURE_COUNT_V3_8 = len(FEATURE_SPECS_V3_8)
+
+
 # List of all supported versions
-SUPPORTED_VERSIONS = ["v3", "v3.1", "v3.2", "v3.3", "v3.4", "v3.5", "v3.6", "v3.7", "v4"]
+SUPPORTED_VERSIONS = ["v3", "v3.1", "v3.2", "v3.3", "v3.4", "v3.5", "v3.6", "v3.7", "v3.8", "v4"]

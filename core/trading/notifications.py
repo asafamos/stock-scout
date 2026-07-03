@@ -75,16 +75,51 @@ def _send(text: str) -> bool:
 def notify_buy(ticker: str, qty: int, price: float,
                stop: float, target: float, score: float,
                trail_pct: float = 5.0, rr: float = 0.0,
-               target_date: str = "", prefix: str = "BUY"):
+               target_date: str = "", prefix: str = "BUY",
+               ml_prob: float = 0.0, fund_score: float = 0.0,
+               tech_score: float = 0.0, volume_surge: float = 0.0,
+               sector: str = "", regime: str = ""):
+    """BUY alert with enhanced attribution — ELITE flag, fund/tech/ML/regime.
+
+    ELITE cohort (fund>=45 AND tech>=60 AND vs<1.0) is highlighted with a
+    diamond emoji since backtest shows +10.69% mean vs +6.11% baseline.
+    """
     rr_line = f"  R:R: {rr:.1f}\n" if rr > 0 else ""
     date_line = f"  Exit by: {target_date}\n" if target_date else ""
+
+    # ELITE detection (matches order_manager ranking logic)
+    is_elite = (
+        fund_score >= 45 and tech_score >= 60
+        and 0 < volume_surge < 1.0
+    )
+    header = f"\U0001f48e ELITE {prefix}" if is_elite else prefix
+
+    # Attribution block — only shown if we have any values
+    attr_lines = []
+    if fund_score > 0:
+        attr_lines.append(f"  Fund: {fund_score:.0f}")
+    if tech_score > 0:
+        attr_lines.append(f"  Tech: {tech_score:.0f}")
+    if ml_prob > 0:
+        # Flag ML deadzone (0.45-0.55) as a weak signal
+        ml_flag = " ⚠️ deadzone" if 0.45 <= ml_prob <= 0.55 else ""
+        attr_lines.append(f"  ML: {ml_prob:.2f}{ml_flag}")
+    if volume_surge > 0:
+        attr_lines.append(f"  VolSurge: {volume_surge:.2f}")
+    if sector:
+        attr_lines.append(f"  Sector: {sector}")
+    if regime:
+        attr_lines.append(f"  Regime: {regime}")
+    attr_block = ("\n".join(attr_lines) + "\n") if attr_lines else ""
+
     _send(
-        f"<b>{prefix} {ticker}</b>\n"
+        f"<b>{header} {ticker}</b>\n"
         f"  Qty: {qty} shares @ ${price:.2f}\n"
         f"  Stop: {trail_pct:.1f}% trailing (${stop:.2f})\n"
         f"  Target: ${target:.2f} (+{(target/price-1)*100:.1f}%)\n"
         f"{rr_line}"
         f"  Score: {score:.1f}\n"
+        f"{attr_block}"
         f"{date_line}"
         f"  Total: ${qty * price:,.0f}"
     )

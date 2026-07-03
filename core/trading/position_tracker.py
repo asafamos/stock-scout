@@ -327,6 +327,15 @@ class PositionTracker:
         logger.info("Position closed: %s @ $%.2f (P&L: $%.2f, reason: %s)",
                      ticker, exit_price, pnl, reason)
 
+        # POST-TRADE ATTRIBUTION (2026-07-03).
+        # Persist rich per-close metadata to a separate JSONL file so we
+        # can analyze WHY trades won/lost without polluting trade_log.
+        # File: data/trades/attribution.jsonl (append-only).
+        try:
+            self._write_attribution(pos, exit_price, pnl, reason)
+        except Exception as _a_err:
+            logger.warning("attribution logging failed for %s: %s", ticker, _a_err)
+
     def reconcile_drop(self, ticker: str, reason: str = "reconcile_drop"):
         """Drop a position from the tracker when IB doesn't have it,
         WITHOUT writing a CLOSE entry to trade_log.
@@ -483,6 +492,76 @@ class PositionTracker:
         """Locked atomic save — safe when called concurrently with other writers."""
         with _file_lock(self._positions_path):
             _atomic_write_json(self._positions_path, positions)
+
+    def _write_attribution(self, pos: dict, exit_price: float, pnl: float, reason: str):
+        """Append a rich per-close record to data/trades/attribution.jsonl.
+
+        Captures the full state at close for offline analysis: entry
+        conditions, peak reached, days held, distance from peak,
+        exit reason. Non-blocking — failures logged, don't break close.
+        """
+        from datetime import datetime, timezone
+        import os as _os
+
+        entry_price = float(pos.get("entry_price", 0) or 0)
+        peak_price = float(pos.get("peak_price", entry_price) or entry_price)
+        qty = int(pos.get("quantity", 0) or 0)
+        opened_at = str(pos.get("opened_at", ""))
+
+        # Derive days held (best-effort from ISO date)
+        days_held = None
+        try:
+            _o = datetime.fromisoformat(opened_at.replace("Z", "+00:00"))
+            if _o.tzinfo is None:
+                _o = _o.replace(tzinfo=timezone.utc)
+            days_held = round((datetime.now(timezone.utc) - _o).total_seconds() / 86400, 2)
+        except Exception:
+            pass
+
+        peak_gain_pct = ((peak_price - entry_price) / entry_price * 100) if entry_price > 0 else None
+        exit_gain_pct = ((exit_price - entry_price) / entry_price * 100) if entry_price > 0 and exit_price > 0 else None
+        distance_from_peak_pp = None
+        if peak_gain_pct is not None and exit_gain_pct is not None:
+            distance_from_peak_pp = round(peak_gain_pct - exit_gain_pct, 2)
+
+        record = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "ticker": pos.get("ticker"),
+            "qty": qty,
+            "entry_price": entry_price,
+            "exit_price": exit_price,
+            "peak_price": peak_price,
+            "pnl_usd": round(pnl, 2),
+            "peak_gain_pct": round(peak_gain_pct, 2) if peak_gain_pct is not None else None,
+            "exit_gain_pct": round(exit_gain_pct, 2) if exit_gain_pct is not None else None,
+            "distance_from_peak_pp": distance_from_peak_pp,
+            "days_held": days_held,
+            "reason": reason,
+            "sector": pos.get("sector"),
+            # Entry-time signals (best-effort — some are captured only for newer positions)
+            "entry_score": pos.get("score"),
+            "entry_ml_prob": pos.get("entry_ml_prob"),
+            "entry_atr_pct": pos.get("entry_atr_pct"),
+            "target_price": pos.get("target_price"),
+            "target_date": str(pos.get("target_date")) if pos.get("target_date") else None,
+            "trailing_stop_pct_at_close": pos.get("trailing_stop_pct"),
+            "ladder_tiers_fired": pos.get("ladder_tiers_fired", []),
+            "opened_at": opened_at,
+        }
+
+        # Append (create dir/file as needed)
+        try:
+            attribution_path = _os.path.join(_os.path.dirname(self._log_path), "attribution.jsonl")
+            _os.makedirs(_os.path.dirname(attribution_path), exist_ok=True)
+            with open(attribution_path, "a") as f:
+                f.write(json.dumps(record, default=str) + "\n")
+            logger.info("Attribution logged for %s (pnl=$%.2f, peak +%.1f%%, dist %.1fpp, held %sd)",
+                        pos.get("ticker"), pnl,
+                        peak_gain_pct if peak_gain_pct is not None else 0,
+                        distance_from_peak_pp if distance_from_peak_pp is not None else 0,
+                        days_held)
+        except Exception as _err:
+            logger.warning("attribution write failed: %s", _err)
 
     def _log_trade(self, action: str, ticker: str, qty: int,
                    price: float, extra: dict):

@@ -951,6 +951,27 @@ class OrderManager:
         if ml_col and ml_col in result.columns:
             signals.append((WEIGHT_ML, _norm(result[ml_col])))
 
+            # ML sub-window bimodal penalty (2026-07-03).
+            # Live-data backtest: ML 0.40-0.45 = +4.24%, 0.45-0.55 = +2.04%
+            # (dead zone), 0.55-0.60 = +4.93%. Add a small penalty for
+            # picks inside the dead zone so ties tilt toward the wings.
+            # Non-gating (still passes if ML in [0.40, 0.60]) — pure
+            # rank tilt.
+            WEIGHT_ML_DEADZONE = 0.03
+            try:
+                ml_v = pd.to_numeric(result[ml_col], errors="coerce").fillna(0)
+                # Deadzone penalty: 1.0 outside 0.45-0.55, 0.0 in dead center.
+                # Triangular: distance from 0.50, capped 0 at boundaries.
+                dist_from_center = (ml_v - 0.50).abs()
+                # Penalty = 0 when distance > 0.05 (outside deadzone),
+                # scales up to 0.05 at ml=0.50 (dead center).
+                # Convert to bonus: outside deadzone gets full weight,
+                # inside deadzone loses weight linearly.
+                deadzone_bonus = (dist_from_center * 20).clip(0.0, 1.0)  # 0..1
+                signals.append((WEIGHT_ML_DEADZONE, _norm(deadzone_bonus)))
+            except Exception as _e:
+                logger.debug("ml deadzone penalty skipped: %s", _e)
+
         # ATR signal (NEW 2026-06-05) — Supabase backtest showed +0.14 corr
         # with fwd_return_20d. ATR 5-7% returns +6.13% mean (n=1960) vs
         # ATR 0-2% returns -0.86% (n=1600). Volatility = opportunity for
@@ -994,6 +1015,24 @@ class OrderManager:
                 signals.append((WEIGHT_ELITE, elite_mask))
         except Exception as _e:
             logger.debug("elite bonus skipped: %s", _e)
+
+        # Volume_surge as an INVERTED ranking penalty (2026-07-03).
+        # Correlation -0.117 SIG with forward returns. Within the passing
+        # window (<1.5, already filtered by gate), LOWER surge is better.
+        # We add a small 5% weight to the inverted signal so a stock with
+        # vs=0.8 out-ranks vs=1.4, all else equal. This is additive on top
+        # of the ELITE bonus which specifically requires vs<1.0.
+        WEIGHT_VS_INV = 0.05
+        try:
+            vs_col2 = next((c for c in ("Volume_Surge","volume_surge","VolumeSurge") if c in result.columns), None)
+            if vs_col2:
+                vs_series = pd.to_numeric(result[vs_col2], errors="coerce").fillna(1.0)
+                # Invert: lower vs → higher score. Cap at 0..1.5, then invert.
+                vs_capped = vs_series.clip(lower=0.0, upper=1.5)
+                vs_inverted = 1.5 - vs_capped  # 0.8 → 0.7, 1.4 → 0.1
+                signals.append((WEIGHT_VS_INV, _norm(vs_inverted)))
+        except Exception as _e:
+            logger.debug("volume_surge inverse skipped: %s", _e)
 
         # Sector momentum signal (positive ranking input, not just block).
         if sector_col and sector_col in result.columns:
@@ -1660,9 +1699,16 @@ class OrderManager:
         # already got a more important CRITICAL alert; don't pile on a
         # second routine notification that suggests everything's fine.
         if _tracker_ok:
+            # Enhanced attribution — pull optional fields from the row
+            _fund = float(row.get("Fundamental_Score", row.get("fundamental_score", 0)) or 0)
+            _tech = float(row.get("TechScore_20d", row.get("Tech_Score", 0)) or 0)
+            _vs = float(row.get("Volume_Surge", row.get("volume_surge", 0)) or 0)
+            _regime = str(row.get("Market_Regime", "") or "")
             notify.notify_buy(
                 ticker, qty, filled_price, stop, target, score,
                 trail_pct=trail_pct, rr=rr, target_date=target_date,
+                ml_prob=ml_prob, fund_score=_fund, tech_score=_tech,
+                volume_surge=_vs, sector=sector, regime=_regime,
             )
         # Store extra data (sector, ml_prob) for monitor's exit logic
         try:
