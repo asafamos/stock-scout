@@ -140,15 +140,22 @@ def regime_score_floor(regime: str, cfg) -> float:
     """Regime-aware minimum FinalScore_20d to trade.
 
     Uses `REGIME_MIN_SCORE` (defined in this module) plus a +5 buffer
-    over the scan's inclusion threshold — trades demand higher
-    conviction than mere recommendation. Falls back to
-    `cfg.min_score_to_trade` when the regime is unknown.
+    over the scan's inclusion threshold. `cfg.min_score_to_trade` acts
+    as a HARD FLOOR — regimes that would set a lower threshold get
+    raised to CONFIG.
+
+    2026-07-03 BUG FIX: previously regime table silently overrode
+    CONFIG. In TREND_UP the floor was 60 even though CONFIG says 73,
+    letting Score 60-72 picks through (AEO#2 score 50, IVZ score 68
+    both bought during freeze week with 0% WR). CONFIG is now the
+    contract, regime table only tightens above it.
     """
     base = float(getattr(cfg, "min_score_to_trade", 73.0))
     if not regime:
         return base
     scan_min = float(REGIME_MIN_SCORE.get(regime.upper(), base - 5.0))
-    return scan_min + 5.0
+    # CONFIG.min_score is the HARD FLOOR — regime can only raise it.
+    return max(scan_min + 5.0, base)
 
 
 def confidence_floor(regime: str, cfg) -> int:
