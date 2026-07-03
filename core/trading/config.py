@@ -148,15 +148,19 @@ class TradingConfig:
         default_factory=lambda: _env_float("MIN_SCORE", 73.0)
     )
     max_score_to_trade: float = field(
-        default_factory=lambda: _env_float("MAX_SCORE", 200.0)
-    )  # 2026-07-03 REMOVED (was 95). Backtest on scan_outcomes.jsonl (2169
-       # resolved trades, Apr30-Jul2 2026):
-       #   Score 73-95 (old gate):    n=1428  mean=+1.62%  WR=39.8%
-       #   Score 73+ (no cap):        n=1935  mean=+1.72%  WR=40.4%
-       #   Score >95 (was excluded):  n= 507  mean=+1.99%  WR=41.8% ← BETTER
-       #   Score 97+ narrow bucket:   n= 376  mean=+2.57%  WR=44.7% ← BEST
-       # The old backtest (n=31, -9%) was too small — real data with n=507
-       # shows 95+ is our best cohort. Env: TRADE_MAX_SCORE=95 to revert.
+        default_factory=lambda: _env_float("MAX_SCORE", 85.0)
+    )  # 2026-07-03 EVENING REVISION: was 95, briefly 200 (based on
+       # scan_outcomes.jsonl), now 85 (based on REAL portfolio_positions).
+       # REAL trades data (n=402 closed) reveals sweet spot below 85:
+       #   Score 73-79: n=104  mean=+3.05%  WR=67.3%
+       #   Score 80-83: n=42   mean=+4.72%  WR=69.0% ← BEST
+       #   Score 84-85: n=9    mean=-0.60%  WR=44.4% ← rolls over
+       #   Score 85-89: n=20   mean=-0.38%  WR=40.0% ← BAD
+       #   Score 90-94: n=10   mean=-0.48%  WR=50.0% ← BAD
+       #   Score >=94:  n=2    mean=-3.79%  WR=0.0%  ← WORST
+       # Simulated scan_outcomes had said high-score = best. Real trades
+       # with real trail-stop execution disagree. Trust real data.
+       # Env: TRADE_MAX_SCORE=200 to disable cap.
     # 2026-06-05 LATE NIGHT: re-calibrated on REAL production scan data
     # (Supabase: 18,709 scan recommendations + actual yfinance forward returns,
     # OOS validated on n=170 held-out trades).
