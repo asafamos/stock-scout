@@ -1577,17 +1577,101 @@ class IBKRClient:
             )
 
     def _sell_market(self, ticker: str, qty: int) -> TradeResult:
-        """Place a market sell order (used for target-date exits)."""
+        """Sell `qty` shares — uses LIMIT+GTC to bypass sub-$2k Error 201.
+
+        Sub-$2k accounts get IB Error 201 on MarketOrder SELL because IB's
+        preset auto-converts TIF to DAY, then flags it as margin/short and
+        rejects. LIMIT with tif=GTC at an aggressive price (0.5% below the
+        live mark) bypasses that path — the order is a plain long-close,
+        not a margin transaction, and fills near-immediately in liquid
+        names. Falls back to MarketOrder only if the limit doesn't fill
+        in ~10 seconds AND the account is above the $2k tier where market
+        orders work reliably.
+        """
         if self.cfg.dry_run:
-            logger.info("[DRY RUN] SELL MKT %d x %s", qty, ticker)
+            logger.info("[DRY RUN] SELL LMT %d x %s", qty, ticker)
             return TradeResult(
-                ticker=ticker, action="SELL", order_type="MKT",
+                ticker=ticker, action="SELL", order_type="LMT",
                 quantity=qty, filled_price=0.0, status="DRY_RUN",
             )
         try:
-            from ib_insync import Stock, MarketOrder
+            from ib_insync import Stock, LimitOrder, MarketOrder
             contract = Stock(_ib_symbol(ticker), "SMART", "USD")
             self._ib.qualifyContracts(contract)
+
+            # Snapshot current mark for aggressive-limit pricing.
+            ref_price = 0.0
+            try:
+                tickers = self._ib.reqTickers(contract)
+                if tickers:
+                    t0 = tickers[0]
+                    for cand in (t0.marketPrice(), t0.last, t0.close):
+                        try:
+                            v = float(cand)
+                        except (TypeError, ValueError):
+                            continue
+                        import math as _m
+                        if _m.isfinite(v) and v > 0:
+                            ref_price = v
+                            break
+            except Exception as _e:
+                logger.warning("SELL %s: reqTickers failed, will retry with 0 ref: %s", ticker, _e)
+
+            if ref_price > 0:
+                # LIMIT 0.5% below live mark → near-instant fill in liquid names,
+                # avoids the DAY-preset → Error 201 path.
+                limit_price = round(ref_price * 0.995, 2)
+                order = LimitOrder("SELL", qty, limit_price)
+                order.tif = "GTC"
+                logger.info("SELL LMT %d x %s @ %.2f (mark %.2f, GTC)",
+                            qty, ticker, limit_price, ref_price)
+                trade = self._ib.placeOrder(contract, order)
+
+                # Wait up to 10s for the limit to fill.
+                for _ in range(10):
+                    self._ib.sleep(1)
+                    if trade.orderStatus.status == "Filled":
+                        break
+
+                if trade.orderStatus.status == "Filled":
+                    return TradeResult(
+                        ticker=ticker, action="SELL", order_type="LMT",
+                        quantity=qty,
+                        filled_price=trade.orderStatus.avgFillPrice or limit_price,
+                        status="Filled",
+                        order_id=trade.order.orderId,
+                    )
+
+                # Not filled — cancel and consider fallback.
+                logger.warning("SELL LMT %s not filled in 10s (status=%s); cancelling",
+                               ticker, trade.orderStatus.status)
+                try:
+                    self._ib.cancelOrder(trade.order)
+                    self._ib.sleep(2)
+                except Exception:
+                    pass
+
+                # Fallback to MarketOrder ONLY if account is >= $2k tier.
+                net_liq = 0.0
+                try:
+                    net_liq = float(self.get_net_liquidation() or 0)
+                except Exception:
+                    pass
+
+                if net_liq < 2000:
+                    logger.error(
+                        "SELL %s: limit unfilled AND account sub-$2k — cannot fallback "
+                        "to MKT (Error 201). Will retry next cycle with fresh mark.",
+                        ticker,
+                    )
+                    return TradeResult(
+                        ticker=ticker, action="SELL", order_type="LMT",
+                        quantity=qty, filled_price=0.0,
+                        status="Cancelled_LimitUnfilled_SubTier",
+                        order_id=trade.order.orderId,
+                    )
+
+            # Either no ref price OR account >= $2k → use MarketOrder.
             order = MarketOrder("SELL", qty)
             trade = self._ib.placeOrder(contract, order)
 
@@ -1604,7 +1688,7 @@ class IBKRClient:
                 order_id=trade.order.orderId,
             )
         except Exception as e:
-            logger.error("SELL MKT failed for %s: %s", ticker, e)
+            logger.error("SELL failed for %s: %s", ticker, e)
             return TradeResult(
                 ticker=ticker, action="SELL", order_type="MKT",
                 quantity=qty, filled_price=0.0, status="Error",
