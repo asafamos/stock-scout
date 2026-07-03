@@ -28,7 +28,7 @@ AI-powered stock recommendation system that scans 3,000+ US stocks using technic
 - ML probability: **0.40-0.60** (was 0.55; raised because bucket 0.55-0.60 = +4.93% mean vs in-window +3.0%; ML>0.65 drops to +2.10%)
 - R:R: **3.0-no cap** (was 3.0-5.0; cap removed because RR 7+ = +9.01% mean p=0.003 SIG. RR 5-6 dip -0.93% is small enough to live with.)
 - ATR_Pct: **≥ 0.03** (lowered from 0.04 on 2026-06-12; bucket 0.03-0.04 = +2.0% mean, was being excluded. ATR=0 treated as missing data pass-through.)
-- Min confidence: High (regime-adjusted in `confidence_floor` — same opaque-design pattern as score floor)
+- Min confidence: High. 2026-07-03 FIX (commit 281b74c) — CONFIG is now HARD floor. Regime relax (High→Medium in bullish) is opt-in via `TRADE_CONFIDENCE_REGIME_RELAX=1`. Default disabled. Note: gate reads `SignalQuality` field, NOT `ML_Confidence_Status` — separate metrics, latter shown in status but not enforced.
 - Min reliability: 50
 
 **Blocked sectors (8, RECALIBRATED 2026-06-24 — data-supported):**
@@ -50,13 +50,15 @@ AI-powered stock recommendation system that scans 3,000+ US stocks using technic
 
 **BREAK_EVEN: DISABLED** (backtest showed net -$74.81/$1k/trade — was a bad anecdote-based feature)
 
-**Selection ranking weights (REBALANCED, sum=1.00):**
-- **RR: 40%** (was 25% — strongest stable signal, corr +0.088)
-- **ML: 25%** (was 20%)
-- **ATR: 15%** (NEW signal — corr +0.140)
-- **Score: 5%** (was 45% — anti-predictive as ranker, corr -0.13)
+**Selection ranking weights (REBALANCED 2026-06-26 + ELITE bonus 2026-07-03, sum=1.05 base):**
+- **Fundamental: 25%** (NEW 2026-06-26 — corr +0.117 SIG, top-3 by fund alone = +8.98%)
+- **RR: 30%** (was 40%, then 30% after 26/6)
+- **ML: 20%** (was 25%)
+- **ATR: 10%** (was 15%)
+- **Technical: 5%** (NEW 2026-06-26 — top-3 by tech alone = +6.72%)
+- **ELITE bonus: 5%** (NEW 2026-07-03 — mask ×1 if fund≥45 AND tech≥60 AND vs<1.0. ELITE cohort in backtest = +10.69% mean, WR 85%)
+- Score: 0% (was 5%, anti-predictive at ranker level even though it's the gate floor)
 - Sector momentum: 5% | Insider boost: 5% | SPY momentum: 5% when available
-- INSIGHT: ranking by score actually PICKED LOSERS — picking by RR gave +6.34%/trade vs +2.55% by score
 
 ### Trading Architecture
 - `core/trading/policy.py` - **Single source of truth for buy gates + execution preview.**
