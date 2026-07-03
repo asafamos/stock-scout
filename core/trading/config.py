@@ -169,8 +169,16 @@ class TradingConfig:
     # Where FULL CALIBRATION = sweet-spot windows for ML, RR, ATR + expanded
     # sector block list + unblock CORRECTION regime (data showed +5.48%/55% WR).
     min_rr_to_trade: float = field(
-        default_factory=lambda: _env_float("MIN_RR", 3.0)
-    )  # Was 2.0; RR 2.0-2.5 = -0.62% (n=2124), RR 3-4 = +2.78%, RR 4-5 = +3.81%
+        default_factory=lambda: _env_float("MIN_RR", 2.5)
+    )  # 2026-07-03 EVENING (ef9d859+): lowered 3.0 → 2.5 based on backtest
+       # under NEW gates (score>=73, ml 0.40-0.60, fund>=40, 2169 rows):
+       #   RR >= 2.0: n=670  mean=+2.56%  WR=47.3%
+       #   RR >= 2.5: n=364  mean=+2.92%  WR=44.2% ← BEST
+       #   RR >= 3.0: n=292  mean=+2.76%  WR=42.5%  (was cutting 25% of best)
+       #   RR >= 4.0: n=144  mean=+2.02%  WR=36.8%
+       # Old comment claimed RR 4-5 best (+3.81%) but that was under FUND>=30
+       # gates. Under FUND>=40, higher RR correlates with WORSE outcomes.
+       # Env: TRADE_MIN_RR=3.0 to revert.
     max_rr_to_trade: float = field(
         default_factory=lambda: _env_float("MAX_RR", 5.0)
     )  # NEW gate; RR > 7 drops to +0.70% (often unrealistic targets)
