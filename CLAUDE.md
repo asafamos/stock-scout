@@ -24,7 +24,7 @@ AI-powered stock recommendation system that scans 3,000+ US stocks using technic
 - min_viable_position_usd: $30 (early-exit candidate loop when cash exhausted)
 
 **Trade GATES (RECALIBRATED 2026-06-24 on 1,748-trade analysis — `deep_analysis.py` on scan_outcomes.jsonl Apr 30 → Jun 4 2026):**
-- Score: 73-95 in CONFIG, but **runtime uses `REGIME_MIN_SCORE + 5`** per regime (= 65 in MODERATE_UP, see `policy.py:139`). CONFIG.min_score is only fallback for unknown regimes. CLAUDE.md and CONFIG say 73; actual effective floor for current regime is 65. Documented in [memory: regime-score-floor].
+- Score: 73-95 in CONFIG. **2026-07-03 FIX (commit a9c6645):** runtime now uses `max(REGIME_MIN_SCORE+5, CONFIG.min_score)` so CONFIG.min_score_to_trade is the HARD floor. Regime table can only tighten above CONFIG (e.g., CORRECTION → 85, PANIC → 105), never loosen below. Previously TREND_UP silently lowered floor to 60 → let weak picks through → freeze-week 0% WR.
 - ML probability: **0.40-0.60** (was 0.55; raised because bucket 0.55-0.60 = +4.93% mean vs in-window +3.0%; ML>0.65 drops to +2.10%)
 - R:R: **3.0-no cap** (was 3.0-5.0; cap removed because RR 7+ = +9.01% mean p=0.003 SIG. RR 5-6 dip -0.93% is small enough to live with.)
 - ATR_Pct: **≥ 0.03** (lowered from 0.04 on 2026-06-12; bucket 0.03-0.04 = +2.0% mean, was being excluded. ATR=0 treated as missing data pass-through.)
