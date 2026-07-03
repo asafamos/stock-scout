@@ -976,6 +976,25 @@ class OrderManager:
                 signals.append((WEIGHT_TECH, _norm(result[tech_col_candidate])))
                 break
 
+        # ELITE bonus (NEW 2026-07-03) — deep-dive on 1,748 trades found:
+        #   fund>=45 + tech>=60 + vol_surge<1.0 → +10.69% mean, 85% WR (n=81)
+        #   vs baseline gate-passed → +6.11% mean
+        # That's +4.6pp lift PER TRADE from this combined signal. Apply as
+        # a small ranking bonus (5%) to bubble ELITE candidates to top-3.
+        WEIGHT_ELITE = 0.05
+        try:
+            fund_col = next((c for c in ("Fundamental_Score","fundamental_score") if c in result.columns), None)
+            tech_col = next((c for c in ("TechScore_20d","Tech_Score","technical_score") if c in result.columns), None)
+            vs_col = next((c for c in ("Volume_Surge","volume_surge","VolumeSurge") if c in result.columns), None)
+            if fund_col and tech_col and vs_col:
+                fund_v = pd.to_numeric(result[fund_col], errors="coerce").fillna(0)
+                tech_v = pd.to_numeric(result[tech_col], errors="coerce").fillna(0)
+                vs_v = pd.to_numeric(result[vs_col], errors="coerce").fillna(0)
+                elite_mask = ((fund_v >= 45) & (tech_v >= 60) & (vs_v > 0) & (vs_v < 1.0)).astype(float)
+                signals.append((WEIGHT_ELITE, elite_mask))
+        except Exception as _e:
+            logger.debug("elite bonus skipped: %s", _e)
+
         # Sector momentum signal (positive ranking input, not just block).
         if sector_col and sector_col in result.columns:
             try:

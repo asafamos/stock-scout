@@ -161,12 +161,22 @@ def regime_score_floor(regime: str, cfg) -> float:
 def confidence_floor(regime: str, cfg) -> int:
     """Regime-aware confidence floor as integer (3=High, 2=Medium, 1=Low).
 
-    cfg.min_confidence is the baseline (default "High"=3). In bullish
-    regimes we relax to Medium (2) — same logic as
-    `order_manager._filter_candidates`.
+    cfg.min_confidence is the HARD floor. Regime can only TIGHTEN above
+    it (never loosen). 2026-07-03 fix: same silent-override pattern as
+    regime_score_floor. In TREND_UP/MODERATE_UP the previous code
+    silently relaxed High → Medium, letting NEUTRAL-confidence picks
+    through (e.g., PR bought with NEUTRAL confidence + score 66).
+    Set cfg.min_confidence to "Medium" or lower if you WANT the relax
+    behavior; default stays at "High" so bullish regimes still require
+    High confidence.
+
+    To OPT INTO the old regime-relax behavior, set env
+    TRADE_CONFIDENCE_REGIME_RELAX=1. Default disables it.
     """
     base = _CONF_MAP.get(str(getattr(cfg, "min_confidence", "High")).upper(), 3)
-    if regime and regime.upper() in _MEDIUM_OK_REGIMES:
+    # Opt-in flag to preserve old bullish-regime relaxation
+    relax_enabled = bool(getattr(cfg, "confidence_regime_relax", False))
+    if relax_enabled and regime and regime.upper() in _MEDIUM_OK_REGIMES:
         return min(base, 2)
     return base
 

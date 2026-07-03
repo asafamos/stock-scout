@@ -171,6 +171,12 @@ class TradingConfig:
     min_confidence: str = field(
         default_factory=lambda: _env("MIN_CONFIDENCE", "High")
     )
+    confidence_regime_relax: bool = field(
+        default_factory=lambda: _env_bool("CONFIDENCE_REGIME_RELAX", False)
+    )  # NEW 2026-07-03 — opt-in flag to preserve old bullish-regime relaxation
+       # (High → Medium in TREND_UP/MODERATE_UP). Default DISABLED — CONFIG
+       # is the hard floor. Set TRADE_CONFIDENCE_REGIME_RELAX=1 to re-enable
+       # the old permissive behavior for testing.
     min_ml_prob: float = field(
         default_factory=lambda: _env_float("MIN_ML_PROB", 0.40)
     )  # Was 0.33; ML 0.20-0.30 = -1.16% (n=1256), ML 0.40-0.45 = +2.58%, ML 0.45-0.50 = +5.07% (BEST)
