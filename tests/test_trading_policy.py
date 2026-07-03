@@ -377,18 +377,24 @@ class TestParityContract:
     the production trader will do — the EXACT class of bug that
     motivated extracting policy.py in the first place."""
 
+    # Post 2026-07-03 fix (commit a9c6645): regime_score_floor now enforces
+    # CONFIG.min_score_to_trade as a HARD floor. Effective floor is
+    # max(REGIME_MIN_SCORE + 5, CONFIG.min_score_to_trade). Bullish regimes
+    # can only TIGHTEN above CONFIG (not below). Default CONFIG.min = 73.
     @pytest.mark.parametrize("regime,expected_floor", [
-        ("TREND_UP", 60.0),       # 55 + 5
-        ("MODERATE_UP", 65.0),    # 60 + 5
-        ("SIDEWAYS", 75.0),       # 70 + 5
-        ("DISTRIBUTION", 80.0),   # 75 + 5
-        ("CORRECTION", 85.0),     # 80 + 5
-        ("PANIC", 105.0),         # 100 + 5
+        ("TREND_UP", 73.0),       # max(55+5, 73)  → CONFIG wins
+        ("MODERATE_UP", 73.0),    # max(60+5, 73)  → CONFIG wins
+        ("SIDEWAYS", 75.0),       # max(70+5, 73)  → regime wins
+        ("DISTRIBUTION", 80.0),   # max(75+5, 73)  → regime wins
+        ("CORRECTION", 85.0),     # max(80+5, 73)  → regime wins
+        ("PANIC", 105.0),         # max(100+5, 73) → regime wins
     ])
     def test_score_floor_matches_scoring_config(self, regime, expected_floor, cfg):
         """If REGIME_MIN_SCORE in scoring_config.py is changed, this
         test breaks LOUDLY rather than silently — forcing the developer
-        to verify the new floor is intentional and update both paths."""
+        to verify the new floor is intentional and update both paths.
+
+        Effective floor is max(regime_table + 5, CONFIG.min_score_to_trade)."""
         assert regime_score_floor(regime, cfg) == pytest.approx(expected_floor)
 
     def test_evaluator_uses_cfg_for_ml_threshold(self, good_row, cfg):
