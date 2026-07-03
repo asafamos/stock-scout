@@ -148,9 +148,15 @@ class TradingConfig:
         default_factory=lambda: _env_float("MIN_SCORE", 73.0)
     )
     max_score_to_trade: float = field(
-        default_factory=lambda: _env_float("MAX_SCORE", 95.0)
-    )  # Kept for now — but 95+ OOS shows -9% return (n=31), so the cap may
-       # actually be correct. Treat as TBD until broader investigation.
+        default_factory=lambda: _env_float("MAX_SCORE", 200.0)
+    )  # 2026-07-03 REMOVED (was 95). Backtest on scan_outcomes.jsonl (2169
+       # resolved trades, Apr30-Jul2 2026):
+       #   Score 73-95 (old gate):    n=1428  mean=+1.62%  WR=39.8%
+       #   Score 73+ (no cap):        n=1935  mean=+1.72%  WR=40.4%
+       #   Score >95 (was excluded):  n= 507  mean=+1.99%  WR=41.8% ← BETTER
+       #   Score 97+ narrow bucket:   n= 376  mean=+2.57%  WR=44.7% ← BEST
+       # The old backtest (n=31, -9%) was too small — real data with n=507
+       # shows 95+ is our best cohort. Env: TRADE_MAX_SCORE=95 to revert.
     # 2026-06-05 LATE NIGHT: re-calibrated on REAL production scan data
     # (Supabase: 18,709 scan recommendations + actual yfinance forward returns,
     # OOS validated on n=170 held-out trades).
@@ -184,10 +190,13 @@ class TradingConfig:
         default_factory=lambda: _env_float("MAX_ML_PROB", 0.55)
     )  # NEW gate; ML > 0.55 underperforms (likely model over-confidence on extended stocks)
     min_fundamental_score: float = field(
-        default_factory=lambda: _env_float("MIN_FUNDAMENTAL_SCORE", 30.0)
-    )  # NEW 2026-06-26 — soft filter. Data on 1,748 trades shows fund<30
-       # mean = +1.24% (n=12) vs fund 30-60 mean = +6.87% (n=270).
-       # Blocking <30 removes ~5% of weakest candidates. Set 0 to disable.
+        default_factory=lambda: _env_float("MIN_FUNDAMENTAL_SCORE", 40.0)
+    )  # 2026-07-03 RAISED 30 → 40 based on scan_outcomes.jsonl (2169 trades):
+       #   Fund >= 30: n=1187  mean=+1.74%  WR=41.4%
+       #   Fund >= 40: n= 686  mean=+2.54%  WR=47.2% ← +0.80pp mean, +5.8pp WR
+       #   Fund 40-60: n= 559  mean=+3.16%  WR=50.4% ← sweet spot
+       # We keep <60 uncapped for now (n>60 sample small); tighten after data.
+       # Env: TRADE_MIN_FUNDAMENTAL_SCORE=30 to revert.
     max_volume_surge: float = field(
         default_factory=lambda: _env_float("MAX_VOLUME_SURGE", 1.5)
     )  # NEW 2026-06-26 — counter-intuitive but data is clear (n=303,
