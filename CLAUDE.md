@@ -24,10 +24,10 @@ AI-powered stock recommendation system that scans 3,000+ US stocks using technic
 - min_viable_position_usd: $30 (early-exit candidate loop when cash exhausted)
 
 **Trade GATES (RECALIBRATED 2026-06-24 on 1,748-trade analysis — `deep_analysis.py` on scan_outcomes.jsonl Apr 30 → Jun 4 2026):**
-- Score: **73-200 (cap effectively removed)** in CONFIG. **2026-07-03 (a9c6645):** runtime uses `max(REGIME_MIN_SCORE+5, CONFIG.min_score)` so CONFIG.min_score_to_trade is the HARD floor. **2026-07-03 EVENING (ef9d859):** MAX_SCORE 95 → 200 after backtest on 2169 resolved trades showed Score >95 = +1.99% mean, 41.8% WR (BETTER than 73-95 = +1.62%, 39.8%). Was excluding our best cohort based on n=31 old backtest. Now Score 97+ = +2.57% mean, 44.7% WR (n=376).
+- Score: **73-85** in CONFIG. **2026-07-03 (a9c6645):** runtime uses `max(REGIME_MIN_SCORE+5, CONFIG.min_score)` so CONFIG.min_score_to_trade is the HARD floor. **2026-07-03 EVENING (1159e0b):** MAX_SCORE tightened 95 → 85 based on REAL portfolio data (n=402 closed trades): Score 80-83 = +4.72% mean 69% WR (sweet spot), Score 85-89 = -0.38%, Score 90-94 = -0.48%. Simulated scan_outcomes had briefly suggested widening to 200 but real trade data with actual trail-stop execution disagrees — kept conservative cap at 85.
 - Fundamental_Score: **≥ 40** (was 30). **2026-07-03 EVENING (ef9d859):** raised after same backtest: Fund≥40 = +2.54% (n=686, WR 47%) vs Fund≥30 = +1.74% (n=1187, WR 41%). Fund 40-60 window = +3.16% (best). Fewer candidates but +0.80pp per trade.
 - ML probability: **0.40-0.60** (was 0.55; raised because bucket 0.55-0.60 = +4.93% mean vs in-window +3.0%; ML>0.65 drops to +2.10%)
-- R:R: **3.0-no cap** (was 3.0-5.0; cap removed because RR 7+ = +9.01% mean p=0.003 SIG. RR 5-6 dip -0.93% is small enough to live with.)
+- R:R: **2.5-no cap** (was 3.0-no cap). **2026-07-03 EVENING (c869b56):** floor lowered based on scan_outcomes (RR≥2.5=+2.92% best) confirmed by real portfolio direction (RR<2 highest WR in real trades but 2.5 is defensible compromise).
 - ATR_Pct: **≥ 0.03** (lowered from 0.04 on 2026-06-12; bucket 0.03-0.04 = +2.0% mean, was being excluded. ATR=0 treated as missing data pass-through.)
 - Min confidence: High. 2026-07-03 FIX (commit 281b74c) — CONFIG is now HARD floor. Regime relax (High→Medium in bullish) is opt-in via `TRADE_CONFIDENCE_REGIME_RELAX=1`. Default disabled. Note: gate reads `SignalQuality` field, NOT `ML_Confidence_Status` — separate metrics, latter shown in status but not enforced.
 - Min reliability: 50
