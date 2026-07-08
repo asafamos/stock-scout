@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 
 from ml.inference import InferenceEngine
-from core.risk_engine import RiskEngine
+from core.risk import RiskEngine  # unified path via core/risk/__init__.py
 from core.scoring_engine import (
     calculate_reliability_score,
     calculate_risk_meter,

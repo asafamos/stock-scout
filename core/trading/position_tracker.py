@@ -318,11 +318,18 @@ class PositionTracker:
 
         pos = removed[0]
         pnl = (exit_price - pos["entry_price"]) * pos["quantity"] if exit_price else 0
+        # 2026-07-08: include sector on CLOSE rows so the live-WR sector
+        # awareness in order_manager can find recent per-sector performance
+        # without joining back to the OPEN row. Also include the ML prob
+        # and ATR from entry — enables cohort analysis without joins.
         self._log_trade("CLOSE", ticker, pos["quantity"], exit_price, {
             "entry_price": pos["entry_price"],
             "pnl": round(pnl, 2),
             "reason": reason,
             "held_since": pos.get("opened_at"),
+            "sector": pos.get("sector"),
+            "entry_ml_prob": pos.get("entry_ml_prob"),
+            "entry_atr_pct": pos.get("entry_atr_pct"),
         })
         logger.info("Position closed: %s @ $%.2f (P&L: $%.2f, reason: %s)",
                      ticker, exit_price, pnl, reason)

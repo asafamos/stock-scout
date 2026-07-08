@@ -1,6 +1,9 @@
 # Per-user identity (persisted SSO email, never commit)
 data/.user_identity
 
+# Archived legacy models (2026-07-08 N2 cleanup)
+archive/models/
+
 # Runtime trading state — DO NOT TRACK.
 # These files represent live state on whichever machine is running the
 # monitor (Mac OR VPS). Tracking them in git creates a critical race:
