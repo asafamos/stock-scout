@@ -1,33 +1,33 @@
 Feature Importance Report
-Generated: 2026-07-07 02:42:36
+Generated: 2026-07-08 02:39:27
 ============================================================
 
-Training Date: 2026-07-07 02:42:23
+Training Date: 2026-07-08 02:39:14
 Total Features: 12
-Total Training Samples: 129988
+Total Training Samples: 130482
 CV Folds: 5
-Mean OOS AUC: 0.6250 ± 0.0419
-Mean P@20: 58.0%
+Mean OOS AUC: 0.6200 ± 0.0440
+Mean P@20: 64.0%
 
 ============================================================
 📊 FEATURE IMPORTANCE ANALYSIS
 ============================================================
 
 🔹 Permutation Importance (AUC-based, Top 15):
-   ATR_Pct                      +0.0717 ± 0.0013 ██████████████
-   Distance_From_52w_Low        +0.0462 ± 0.0025 █████████
-   Consolidation_Tightness      +0.0109 ± 0.0013 ██
-   RS_vs_SPY_20d                +0.0108 ± 0.0008 ██
-   MA50_Slope                   +0.0050 ± 0.0017 █
-   Support_Strength             +0.0036 ± 0.0008 
-   Distance_To_Resistance       +0.0035 ± 0.0003 
-   Tightness_Ratio              +0.0023 ± 0.0003 
-   RSI_Delta_5d                 +0.0017 ± 0.0005 
-   Momentum_Acceleration        -0.0002 ± 0.0003 
-   Sector_Rank                  -0.0011 ± 0.0004 
-   Sector_Momentum              -0.0028 ± 0.0013 
+   ATR_Pct                      +0.0815 ± 0.0019 ████████████████
+   Distance_From_52w_Low        +0.0434 ± 0.0023 ████████
+   Consolidation_Tightness      +0.0141 ± 0.0013 ██
+   RS_vs_SPY_20d                +0.0110 ± 0.0010 ██
+   MA50_Slope                   +0.0086 ± 0.0017 █
+   RSI_Delta_5d                 +0.0038 ± 0.0008 
+   Tightness_Ratio              +0.0023 ± 0.0004 
+   Momentum_Acceleration        +0.0022 ± 0.0006 
+   Support_Strength             +0.0015 ± 0.0007 
+   Distance_To_Resistance       +0.0003 ± 0.0004 
+   Sector_Rank                  -0.0010 ± 0.0002 
+   Sector_Momentum              -0.0032 ± 0.0009 
 
-⚠️  Harmful features (negative importance, consider removing): ['Momentum_Acceleration', 'Sector_Rank', 'Sector_Momentum']
+⚠️  Harmful features (negative importance, consider removing): ['Sector_Rank', 'Sector_Momentum']
 
 🔹 Feature Importance Tiers:
    🥇 High impact (≥0.01):     4 features
@@ -37,7 +37,7 @@ Mean P@20: 58.0%
 
 ✅ No highly correlated features found (threshold=0.95)
 
-Recommended Features (12): ['ATR_Pct', 'Distance_From_52w_Low', 'Consolidation_Tightness', 'RS_vs_SPY_20d', 'MA50_Slope', 'Support_Strength', 'Distance_To_Resistance', 'Tightness_Ratio', 'RSI_Delta_5d', 'Momentum_Acceleration', 'Sector_Rank', 'Sector_Momentum']
+Recommended Features (12): ['ATR_Pct', 'Distance_From_52w_Low', 'Consolidation_Tightness', 'RS_vs_SPY_20d', 'MA50_Slope', 'RSI_Delta_5d', 'Tightness_Ratio', 'Momentum_Acceleration', 'Support_Strength', 'Distance_To_Resistance', 'Sector_Rank', 'Sector_Momentum']
 Candidates for Removal (0): []
 
 
@@ -47,15 +47,15 @@ FULL PERMUTATION IMPORTANCE TABLE
 
 Feature                          Importance        Std
 -------------------------------------------------------
-ATR_Pct                           +0.071667   0.001291
-Distance_From_52w_Low             +0.046176   0.002464
-Consolidation_Tightness           +0.010896   0.001336
-RS_vs_SPY_20d                     +0.010844   0.000771
-MA50_Slope                        +0.005028   0.001681
-Support_Strength                  +0.003552   0.000755
-Distance_To_Resistance            +0.003548   0.000328
-Tightness_Ratio                   +0.002320   0.000313
-RSI_Delta_5d                      +0.001701   0.000502
-Momentum_Acceleration             -0.000210   0.000326
-Sector_Rank                       -0.001095   0.000353
-Sector_Momentum                   -0.002757   0.001292
+ATR_Pct                           +0.081480   0.001935
+Distance_From_52w_Low             +0.043427   0.002297
+Consolidation_Tightness           +0.014112   0.001250
+RS_vs_SPY_20d                     +0.010956   0.000998
+MA50_Slope                        +0.008645   0.001655
+RSI_Delta_5d                      +0.003784   0.000818
+Tightness_Ratio                   +0.002297   0.000421
+Momentum_Acceleration             +0.002248   0.000618
+Support_Strength                  +0.001475   0.000680
+Distance_To_Resistance            +0.000339   0.000381
+Sector_Rank                       -0.001038   0.000248
+Sector_Momentum                   -0.003172   0.000932
