@@ -1414,11 +1414,18 @@ class OrderManager:
         _row_ml = float(row.get("ML_20d_Prob", row.get("ml_prob", 0)) or 0)
         _row_sq = str(row.get("SignalQuality", row.get("Confidence_Level", "")))
         _row_rel = float(row.get("Reliability_Score", row.get("Reliability", 100)) or 100)
+        # 2026-07-08 BUG FIX: extract fund/tech/volume from row so gates can
+        # see them. Previously these were dropped between row and gate call,
+        # letting fund<40 picks (like ARCB fund=36) buy without rejection.
+        _row_fund = float(row.get("Fundamental_Score", row.get("fundamental_score", -1)) or -1)
+        _row_tech = float(row.get("TechScore_20d", row.get("Tech_Score", -1)) or -1)
+        _row_vs = float(row.get("Volume_Surge", row.get("volume_surge", -1)) or -1)
         allowed, reason = self.risk.can_open_position(
             ticker, price, score, rr, sector=sector, atr_pct=atr_pct,
             stop_loss=stop, target_price=target, market_regime=_row_regime,
             ml_prob=_row_ml,
             signal_quality=_row_sq, reliability_score=_row_rel,
+            fundamental_score=_row_fund, tech_score=_row_tech, volume_surge=_row_vs,
         )
         if not allowed:
             logger.info("SKIP %s: %s", ticker, reason)

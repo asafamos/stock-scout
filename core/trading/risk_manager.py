@@ -671,6 +671,9 @@ class RiskManager:
         ml_prob: float = 0.0,
         signal_quality: str = "",
         reliability_score: float = 100.0,
+        fundamental_score: float = -1.0,
+        tech_score: float = -1.0,
+        volume_surge: float = -1.0,
     ) -> Tuple[bool, str]:
         """Return (allowed, reason). Reason is empty string if allowed.
 
@@ -706,6 +709,14 @@ class RiskManager:
                 "Entry_Price": price,
                 "Stop_Loss": stop_loss,
                 "Target_Price": target_price,
+                # 2026-07-08 BUG FIX: these were missing → fund/vol_surge/atr
+                # gates silently passed on every buy since introduction.
+                # ARCB bought 2026-07-08 with fund=36.31 despite MIN_FUND=40
+                # because Fundamental_Score wasn't in synthetic_row.
+                "ATR_Pct": atr_pct,
+                "Fundamental_Score": fundamental_score,
+                "TechScore_20d": tech_score,
+                "Volume_Surge": volume_surge,
             }
             # Build a state dict from local sources (no state-feed needed
             # in production — risk_manager uses authoritative tracker +
