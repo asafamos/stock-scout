@@ -2041,7 +2041,15 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
     try:
         _df = ctx.results
         if len(_df) > 0 and "Ticker" in _df.columns:
-            from core.scoring_config import TECH_STRONG_THRESHOLD, ML_PROB_THRESHOLD
+            # DON'T re-import ML_PROB_THRESHOLD — it's already imported at
+            # module level (line 59). Re-importing here makes Python treat it
+            # as a LOCAL variable throughout the ENTIRE _phase_finalize function
+            # scope → line 1844 (which runs BEFORE this) hits UnboundLocalError:
+            # "cannot access local variable 'ML_PROB_THRESHOLD' where it is
+            # not associated with a value". This silently broke signal-first
+            # filtering + Days_To_Earnings + analyst PT columns for every scan
+            # since introduction. Import only what's not already at module scope.
+            from core.scoring_config import TECH_STRONG_THRESHOLD
             _SUPPORTIVE_REGIMES = {"TREND_UP", "MODERATE_UP", "BULLISH", "NEUTRAL", "SIDEWAYS"}
             def _recompute_quality(row):
                 w = 0.0

@@ -1176,7 +1176,8 @@ class IBKRClient:
             )
 
     def modify_trailing_pct(self, order_id: int,
-                            new_trail_pct: float) -> TradeResult:
+                            new_trail_pct: float,
+                            allow_loosen: bool = False) -> TradeResult:
         """Modify an existing TRAIL order's trailingPercent in-place.
 
         IB recognizes a re-submission with the same orderId as a
@@ -1236,6 +1237,27 @@ class IBKRClient:
                 )
 
             old_pct = float(getattr(target_trade.order, "trailingPercent", 0) or 0)
+
+            # SAFETY GUARD (2026-07-08, N4 from NEXT_SESSION.md):
+            # ratchet must only tighten TRAIL, never loosen it. A wider
+            # trail = looser stop = larger unprotected downside. Every
+            # caller in monitor_positions.py has its own "already tighter,
+            # skip" gate above modify_trailing_pct, but the assert here
+            # is defense-in-depth in case a future caller forgets. Set
+            # allow_loosen=True only for explicit rollback flows.
+            if not allow_loosen and old_pct > 0 and new_trail_pct > old_pct + 0.01:
+                logger.error(
+                    "modify_trailing_pct #%d: refusing LOOSEN %.2f%% → %.2f%% "
+                    "(new > old). Pass allow_loosen=True to override.",
+                    order_id, old_pct, new_trail_pct,
+                )
+                return TradeResult(
+                    ticker="", action="SELL", order_type="TRAIL",
+                    quantity=0, filled_price=0.0, status="Rejected_Loosen",
+                    order_id=order_id,
+                    error=f"refuse loosen {old_pct:.2f}% → {new_trail_pct:.2f}%",
+                )
+
             target_trade.order.trailingPercent = float(new_trail_pct)
             target_trade.order.transmit = True  # explicit — don't inherit
             # Re-submit with same orderId — IB treats this as a modification.

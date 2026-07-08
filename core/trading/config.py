@@ -350,8 +350,12 @@ class TradingConfig:
     # When THROTTLE_MODE=winrate (default — backward-compat), uses the
     # legacy WR thresholds above.
     throttle_mode: str = field(
-        default_factory=lambda: _env("THROTTLE_MODE", "winrate")
-    )   # "winrate" (default) or "expectancy"
+        default_factory=lambda: _env("THROTTLE_MODE", "expectancy")
+    )   # 2026-07-08: switched default winrate → expectancy.
+       # RR 2.5+ strategy is profitable at 35% WR (below the 30% warn
+       # threshold). The WR throttle was firing on normal behavior;
+       # expectancy tracks what actually matters: avg $ per trade.
+       # Legacy: THROTTLE_MODE=winrate to revert.
     throttle_warn_expectancy_pct: float = field(
         default_factory=lambda: _env_float("THROTTLE_WARN_EXPECTANCY_PCT", 0.0)
     )   # avg pnl% under this → halve sizes (0 = unprofitable on average)
@@ -673,8 +677,11 @@ class TradingConfig:
         default_factory=lambda: _env_float("RATCHET_T0_TRAIL_PCT", 5.0)
     )   # Peak +10% → trail 5.0% (gentle first lock, just below 5.5% initial)
     min_hold_days_for_t0: int = field(
-        default_factory=lambda: _env_int("RATCHET_T0_MIN_HOLD_DAYS", 2)
-    )   # T0 ratchet only engages after position has aged ≥N days
+        default_factory=lambda: _env_int("RATCHET_T0_MIN_HOLD_DAYS", 1)
+    )   # 2026-07-08: lowered 2 → 1. Data from pipeline-deep-dive: 30% of
+       # stop-fired reached +10% peak. Day-1 monsters (news, breakout)
+       # peak fast then reverse — 1-day min still filters day-of buy
+       # noise but catches next-day peaks. Env: RATCHET_T0_MIN_HOLD_DAYS.
 
     ratchet_tier1_gain: float = field(
         default_factory=lambda: _env_float("RATCHET_T1_GAIN", 14.0)
