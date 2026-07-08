@@ -184,8 +184,11 @@ class TradingConfig:
        # gates. Under FUND>=40, higher RR correlates with WORSE outcomes.
        # Env: TRADE_MIN_RR=3.0 to revert.
     max_rr_to_trade: float = field(
-        default_factory=lambda: _env_float("MAX_RR", 5.0)
-    )  # NEW gate; RR > 7 drops to +0.70% (often unrealistic targets)
+        default_factory=lambda: _env_float("MAX_RR", 0.0)
+    )  # 2026-07-08 SYNC: default was 5.0 but VPS env has 0 (disabled).
+       # per data-driven-gates-jun24: RR cap removed because RR 7+ =
+       # +9.01% mean p=0.003 SIG. Set 0 to disable, >0 to enforce.
+       # Kept env override path — TRADE_MAX_RR=5 to re-enable cap.
     min_confidence: str = field(
         default_factory=lambda: _env("MIN_CONFIDENCE", "High")
     )
@@ -263,8 +266,17 @@ class TradingConfig:
     blocked_sectors: str = field(
         default_factory=lambda: _env("BLOCKED_SECTORS",
             "Consumer Defensive,Utilities,Communication,Materials,"
-            "Basic Materials,Consumer Cyclical,Financial,Financial Services")
-    )  # Comma-separated list
+            "Basic Materials,Financial,Energy,Real Estate")
+    )  # 2026-07-08 SYNC: default was stale (blocked Consumer Cyclical and
+       # Financial Services — both POSITIVE per real trade data). VPS env
+       # override was correct; brought code default in sync with CLAUDE.md
+       # + scan_outcomes data:
+       #   BLOCKED: Cons Defensive (-2.36%), Utilities (-0.42%),
+       #            Materials (-7.36%), Basic Materials (-2.51%),
+       #            Financial (-3.82%), Energy (-1.59% SIG),
+       #            Real Estate (-3.25%), Communication (blocked)
+       #   UNBLOCKED (wrongly blocked before): Consumer Cyclical (+3.06%),
+       #             Financial Services (+4.54%)
 
 
     # ── Earnings calendar gate (binary-risk reduction) ─────────
