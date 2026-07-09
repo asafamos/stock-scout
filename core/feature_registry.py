@@ -198,6 +198,7 @@ def get_feature_names(version: str = DEFAULT_VERSION) -> List[str]:
         "v3.6": FEATURE_SPECS_V3_6,
         "v3.7": FEATURE_SPECS_V3_7,
         "v3.8": FEATURE_SPECS_V3_8,
+        "v3.9": FEATURE_SPECS_V3_9,
         "v4": FEATURE_SPECS_V4,
     }
     if version not in specs_map:
@@ -225,6 +226,7 @@ def get_feature_specs(version: str = DEFAULT_VERSION) -> List[FeatureSpec]:
         "v3.6": FEATURE_SPECS_V3_6,
         "v3.7": FEATURE_SPECS_V3_7,
         "v3.8": FEATURE_SPECS_V3_8,
+        "v3.9": FEATURE_SPECS_V3_9,
         "v4": FEATURE_SPECS_V4,
     }
     if version not in specs_map:
@@ -709,5 +711,45 @@ FEATURE_SPECS_V3_8: List[FeatureSpec] = [
 FEATURE_COUNT_V3_8 = len(FEATURE_SPECS_V3_8)
 
 
+# =============================================================================
+# FEATURE DEFINITIONS V3.9 (10 features) — PRUNED v3.8 based on 2026-07-09
+#   nightly training on 218,309 rows (OOS AUC=0.6175, DOWN from v3.6 baseline
+#   0.6283, suggesting v3.8 needed further tuning).
+#
+#   Nightly permutation importance identified 4 harmful features that
+#   were in v3.8:
+#     - Sector_Momentum   (-0.0032)  ← consistently harmful across 2 runs
+#     - Sector_Rank       (-0.0010)
+#     - Distance_To_Resistance (+0.0003, marginal)
+#     - RSI_Delta_5d      (+0.0038 in Jul 8, -harmful Jul 9)
+#
+#   Conservative approach: drop the 2 most consistently harmful (Sector_*).
+#   Keep RSI_Delta_5d and Distance_To_Resistance despite marginal harm —
+#   next week's data will decide.
+# =============================================================================
+FEATURE_SPECS_V3_9: List[FeatureSpec] = [
+    # --- Price Action (3) — top importance ---
+    FeatureSpec("Support_Strength", "fraction days near support", 0.2, (0, 1), "price_action"),
+    FeatureSpec("Distance_From_52w_Low", "(close-52w_low)/52w_low", 0.5, (-0.5, 5.0), "price_action"),
+    FeatureSpec("Consolidation_Tightness", "(20d_high-low)/avg", 0.1, (0.01, 0.5), "price_action"),
+    FeatureSpec("Distance_To_Resistance", "(20d_high-close)/close", 0.05, (0, 0.5), "price_action"),
+
+    # --- Momentum (2) ---
+    FeatureSpec("RS_vs_SPY_20d", "stock_ret_20d - spy_ret_20d", 0.0, (-1.0, 1.0), "momentum"),
+    FeatureSpec("Momentum_Acceleration", "Return_5d - (Return_20d-Return_5d)/3", 0.0, (-0.3, 0.3), "delta"),
+
+    # --- Volatility (2) — top predictors ---
+    FeatureSpec("ATR_Pct", "Average True Range as % of price", 0.02, (0.001, 0.5), "technical"),
+    FeatureSpec("Tightness_Ratio", "Range contraction: range_5d/range_20d", 1.0, (0.05, 2.0), "volatility"),
+
+    # --- Trend (1) ---
+    FeatureSpec("MA50_Slope", "50-day MA pct change over 10d", 0.0, (-0.2, 0.2), "technical"),
+
+    # --- Delta (1) ---
+    FeatureSpec("RSI_Delta_5d", "RSI_now - RSI_5d_ago", 0.0, (-50, 50), "delta"),
+]
+FEATURE_COUNT_V3_9 = len(FEATURE_SPECS_V3_9)
+
+
 # List of all supported versions
-SUPPORTED_VERSIONS = ["v3", "v3.1", "v3.2", "v3.3", "v3.4", "v3.5", "v3.6", "v3.7", "v3.8", "v4"]
+SUPPORTED_VERSIONS = ["v3", "v3.1", "v3.2", "v3.3", "v3.4", "v3.5", "v3.6", "v3.7", "v3.8", "v3.9", "v4"]

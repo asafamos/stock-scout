@@ -184,11 +184,18 @@ class TradingConfig:
        # gates. Under FUND>=40, higher RR correlates with WORSE outcomes.
        # Env: TRADE_MIN_RR=3.0 to revert.
     max_rr_to_trade: float = field(
-        default_factory=lambda: _env_float("MAX_RR", 0.0)
-    )  # 2026-07-08 SYNC: default was 5.0 but VPS env has 0 (disabled).
-       # per data-driven-gates-jun24: RR cap removed because RR 7+ =
-       # +9.01% mean p=0.003 SIG. Set 0 to disable, >0 to enforce.
-       # Kept env override path — TRADE_MAX_RR=5 to re-enable cap.
+        default_factory=lambda: _env_float("MAX_RR", 5.0)
+    )  # 2026-07-09 RE-INSTATE: fresh backtest on 2588 resolved trades
+       # (was 2169 last calibration → +419 new samples) revealed the
+       # RR 5-7 zone is CATASTROPHIC:
+       #   RR 2.5-3.0: n=20   mean=+5.47%  WR=60.0%  ← BEST
+       #   RR 3.0-4.0: n=43   mean=+2.28%  WR=44.2%
+       #   RR 4.0-5.0: n=29   mean=+2.53%  WR=41.4%
+       #   RR 5.0-7.0: n=18   mean=-3.49%  WR=0.0%   ← DISASTER
+       #   RR 7.0+:    n=16   mean=+2.89%  WR=25.0%  (mostly noise, small n)
+       # Cap at 5.0 blocks the disaster zone. Previously assumed RR 7+
+       # was fine (jun24 data) — new data disproves.
+       # TRADE_MAX_RR=0 to disable cap.
     min_confidence: str = field(
         default_factory=lambda: _env("MIN_CONFIDENCE", "High")
     )

@@ -1081,7 +1081,7 @@ def train_and_save_bundle():
     # v3.8 (2026-07-03): 12 clean features from v3.6 permutation report
     # (218k rows, AUC=0.6283). Removed 8 harmful + 3 multicollinear features.
     # Expected: better generalization, faster training, cleaner signal.
-    features = get_feature_names("v3.8")
+    features = get_feature_names("v3.9")
     
     # Verify all features are present in training data
     missing_features = [f for f in features if f not in full_df.columns]
@@ -1480,7 +1480,7 @@ def train_and_save_bundle():
     bundle = {
         "model": model,  # Calibrated model
         "feature_names": features,
-        "feature_version": "v3.8",
+        "feature_version": "v3.9",
         "target_mode": target_mode,
         "metrics": {
             "oos_auc_mean": mean_oos_auc,
@@ -1519,7 +1519,7 @@ def train_and_save_bundle():
     _oos_auc_std = float(np.std(oos_aucs)) if oos_aucs else 0.0
     meta = {
         "sklearn_version": __import__("sklearn").__version__,
-        "feature_version": "v3.8",
+        "feature_version": "v3.9",
         "feature_list": features,
         "training_timestamp_utc": datetime.utcnow().isoformat(),
         "model_type": "CalibratedEnsemble(HistGB+RF+LightGBM+LR)",
