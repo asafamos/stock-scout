@@ -23,11 +23,13 @@ AI-powered stock recommendation system that scans 3,000+ US stocks using technic
 - Max open positions: 3 | Max daily buys: 3 | Max portfolio exposure: $1000
 - min_viable_position_usd: $30 (early-exit candidate loop when cash exhausted)
 
-**Trade GATES (RECALIBRATED 2026-06-24 on 1,748-trade analysis — `deep_analysis.py` on scan_outcomes.jsonl Apr 30 → Jun 4 2026):**
-- Score: **73-85** in CONFIG. **2026-07-03 (a9c6645):** runtime uses `max(REGIME_MIN_SCORE+5, CONFIG.min_score)` so CONFIG.min_score_to_trade is the HARD floor. **2026-07-03 EVENING (1159e0b):** MAX_SCORE tightened 95 → 85 based on REAL portfolio data (n=402 closed trades): Score 80-83 = +4.72% mean 69% WR (sweet spot), Score 85-89 = -0.38%, Score 90-94 = -0.48%. Simulated scan_outcomes had briefly suggested widening to 200 but real trade data with actual trail-stop execution disagrees — kept conservative cap at 85.
-- Fundamental_Score: **≥ 40** (was 30). **2026-07-03 EVENING (ef9d859):** raised after same backtest: Fund≥40 = +2.54% (n=686, WR 47%) vs Fund≥30 = +1.74% (n=1187, WR 41%). Fund 40-60 window = +3.16% (best). Fewer candidates but +0.80pp per trade.
-- ML probability: **0.40-0.60** (was 0.55; raised because bucket 0.55-0.60 = +4.93% mean vs in-window +3.0%; ML>0.65 drops to +2.10%)
-- R:R: **2.5-no cap** (was 3.0-no cap). **2026-07-03 EVENING (c869b56):** floor lowered based on scan_outcomes (RR≥2.5=+2.92% best) confirmed by real portfolio direction (RR<2 highest WR in real trades but 2.5 is defensible compromise).
+**⚠️ 2026-07-09 FREEZE: gates below are FROZEN until we have 10-20 new trade closes under this config. See memory `feedback_no_flipflop.md` for framework. Do NOT retune based on more simulated data — that's the anti-pattern that caused MAX_SCORE to flip 4× in a week.**
+
+**Trade GATES (RECALIBRATED 2026-07-09 evening — final freeze state):**
+- Score: **73-85** in CONFIG. **2026-07-03 (a9c6645):** runtime uses `max(REGIME_MIN_SCORE+5, CONFIG.min_score)` so CONFIG.min_score_to_trade is the HARD floor. **MAX_SCORE=85** confirmed on 2026-07-09 (commit 75d987b) after brief flip to 97 based on simulated (n=2588). REAL portfolio (n=402) says 85-89=-0.38%, 90-94=-0.48%. Framework: when sim vs real disagree, TRUST REAL. Only revisit when real n≥100 in 85+ range.
+- Fundamental_Score: **≥ 45** (2026-07-09 commit 3f92573, was 40). Fund 40-45=-0.04% (dead zone), 45-50=+5.67% (BEST). Both sim + real agree on monotonic direction.
+- ML probability: **0.40-0.60** (was 0.55; raised because bucket 0.55-0.60 = +4.93% mean vs in-window +3.0%)
+- R:R: **2.5-5.0** (2026-07-09 commit 9ea1174 restored max=5.0 after fresh backtest: RR 5-7 = -3.49% mean, WR 0% (n=18) — DISASTER ZONE). Floor 2.5 stable.
 - ATR_Pct: **≥ 0.03** (lowered from 0.04 on 2026-06-12; bucket 0.03-0.04 = +2.0% mean, was being excluded. ATR=0 treated as missing data pass-through.)
 - Min confidence: High. 2026-07-03 FIX (commit 281b74c) — CONFIG is now HARD floor. Regime relax (High→Medium in bullish) is opt-in via `TRADE_CONFIDENCE_REGIME_RELAX=1`. Default disabled. Note: gate reads `SignalQuality` field, NOT `ML_Confidence_Status` — separate metrics, latter shown in status but not enforced.
 - Min reliability: 50
