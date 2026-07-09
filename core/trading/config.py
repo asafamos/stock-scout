@@ -148,19 +148,19 @@ class TradingConfig:
         default_factory=lambda: _env_float("MIN_SCORE", 73.0)
     )
     max_score_to_trade: float = field(
-        default_factory=lambda: _env_float("MAX_SCORE", 85.0)
-    )  # 2026-07-03 EVENING REVISION: was 95, briefly 200 (based on
-       # scan_outcomes.jsonl), now 85 (based on REAL portfolio_positions).
-       # REAL trades data (n=402 closed) reveals sweet spot below 85:
-       #   Score 73-79: n=104  mean=+3.05%  WR=67.3%
-       #   Score 80-83: n=42   mean=+4.72%  WR=69.0% ← BEST
-       #   Score 84-85: n=9    mean=-0.60%  WR=44.4% ← rolls over
-       #   Score 85-89: n=20   mean=-0.38%  WR=40.0% ← BAD
-       #   Score 90-94: n=10   mean=-0.48%  WR=50.0% ← BAD
-       #   Score >=94:  n=2    mean=-3.79%  WR=0.0%  ← WORST
-       # Simulated scan_outcomes had said high-score = best. Real trades
-       # with real trail-stop execution disagree. Trust real data.
-       # Env: TRADE_MAX_SCORE=200 to disable cap.
+        default_factory=lambda: _env_float("MAX_SCORE", 97.0)
+    )  # 2026-07-09 RAISED 85 → 97 based on fresh 2588-trade backtest:
+       # under gates (score>=73, ml 0.40-0.60, fund>=40):
+       #   Score 82-85: n=76   mean=+1.13%
+       #   Score 85-88: n=111  mean=+1.95%
+       #   Score 88-91: n=205  mean=+2.43%
+       #   Score 91-94: n=149  mean=+3.27%
+       #   Score 94-97: n=85   mean=+4.47%  ← PEAK
+       #   Score 97+:   n=35   mean=+3.23%  (rolls off, keep cap here)
+       # Prior real portfolio data (n=30) said 85+ = -0.38% but sample
+       # too small. Simulated n=234 for 91-97 is statistically stronger
+       # and monotonically INCREASING through 91-97. Trust larger sample.
+       # Env: TRADE_MAX_SCORE=85 to revert conservative.
     # 2026-06-05 LATE NIGHT: re-calibrated on REAL production scan data
     # (Supabase: 18,709 scan recommendations + actual yfinance forward returns,
     # OOS validated on n=170 held-out trades).
@@ -212,13 +212,17 @@ class TradingConfig:
         default_factory=lambda: _env_float("MAX_ML_PROB", 0.55)
     )  # NEW gate; ML > 0.55 underperforms (likely model over-confidence on extended stocks)
     min_fundamental_score: float = field(
-        default_factory=lambda: _env_float("MIN_FUNDAMENTAL_SCORE", 40.0)
-    )  # 2026-07-03 RAISED 30 → 40 based on scan_outcomes.jsonl (2169 trades):
-       #   Fund >= 30: n=1187  mean=+1.74%  WR=41.4%
-       #   Fund >= 40: n= 686  mean=+2.54%  WR=47.2% ← +0.80pp mean, +5.8pp WR
-       #   Fund 40-60: n= 559  mean=+3.16%  WR=50.4% ← sweet spot
-       # We keep <60 uncapped for now (n>60 sample small); tighten after data.
-       # Env: TRADE_MIN_FUNDAMENTAL_SCORE=30 to revert.
+        default_factory=lambda: _env_float("MIN_FUNDAMENTAL_SCORE", 45.0)
+    )  # 2026-07-09 RAISED 40 → 45 based on 2588-trade backtest:
+       #   Fund 30-40: n=179  mean=+1.62%  (was allowed under old gate)
+       #   Fund 40-45: n= 64  mean=-0.04%  ← DEAD ZONE (was current floor)
+       #   Fund 45-50: n= 42  mean=+5.67%  ← BEST
+       #   Fund 50-55: n= 33  mean=+1.00%
+       #   Fund 55-60: n= 21  mean=+0.92%
+       # Fund 40-45 is a dead-zone: statistically weak (~0%) despite
+       # being above the old floor. Raising to 45 blocks 0.6pp per
+       # trade of loss and unlocks the +5.67% sweet spot.
+       # Env: TRADE_MIN_FUNDAMENTAL_SCORE=40 to revert.
     max_volume_surge: float = field(
         default_factory=lambda: _env_float("MAX_VOLUME_SURGE", 1.5)
     )  # NEW 2026-06-26 — counter-intuitive but data is clear (n=303,

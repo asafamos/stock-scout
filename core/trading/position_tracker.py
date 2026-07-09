@@ -383,7 +383,10 @@ class PositionTracker:
             ticker, reason,
         )
 
-    def drop_metadata(self, ticker: str) -> bool:
+    def drop_metadata(self, ticker: str,
+                      exit_price: float = 0.0,
+                      realized_pnl: float = 0.0,
+                      reason: str = "ledger_close") -> bool:
         """Remove a position's metadata row WITHOUT writing any trade_log entry.
 
         Used in ledger mode: when IB no longer holds a ticker, its local row
@@ -391,16 +394,35 @@ class PositionTracker:
         position closed) lives in the event-sourced ledger as broker truth —
         so unlike reconcile_drop(), this writes NOTHING to the trade log and
         invents no P&L. Existence was never the tracker's to assert.
+
+        2026-07-09: added exit_price + realized_pnl params so the caller
+        (monitor after ledger match) can pass the AUTHORITATIVE broker P&L,
+        which we use to write a rich attribution.jsonl row. Prior behavior
+        (no attribution written on ledger closes) meant every trail-fired
+        exit was invisible to attribution analytics — the exact events we
+        most want to study.
+
         Returns True if a row was removed.
         """
+        # Capture the position row BEFORE removing so we can attribute it.
         with _file_lock(self._positions_path):
             positions = self._read_positions_unlocked()
+            removed_row = next((p for p in positions if p.get("ticker") == ticker), None)
             remaining = [p for p in positions if p.get("ticker") != ticker]
             if len(remaining) == len(positions):
                 return False
             _atomic_write_json(self._positions_path, remaining)
+
         logger.info("drop_metadata: removed stale annotation for %s "
                     "(P&L, if any, is in the ledger)", ticker)
+
+        # Write attribution using the broker-truth exit + P&L (if provided).
+        if removed_row is not None and exit_price > 0:
+            try:
+                self._write_attribution(removed_row, exit_price, realized_pnl, reason)
+            except Exception as _a_err:
+                logger.warning("attribution (drop_metadata) failed for %s: %s", ticker, _a_err)
+
         return True
 
     def reconcile_adopt(

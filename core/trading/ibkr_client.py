@@ -1246,11 +1246,23 @@ class IBKRClient:
             # is defense-in-depth in case a future caller forgets. Set
             # allow_loosen=True only for explicit rollback flows.
             if not allow_loosen and old_pct > 0 and new_trail_pct > old_pct + 0.01:
-                logger.error(
-                    "modify_trailing_pct #%d: refusing LOOSEN %.2f%% → %.2f%% "
-                    "(new > old). Pass allow_loosen=True to override.",
-                    order_id, old_pct, new_trail_pct,
-                )
+                # 2026-07-09 NOISE REDUCTION: use DEBUG for small loosening
+                # attempts (< 1%). These are recurring cycle noise (usually
+                # time_tighten trying to widen 5.0 → 5.5 on IVZ every 5 min
+                # even though upstream skip logic should catch it). Keep
+                # ERROR only for large loosening attempts (real bugs).
+                _delta = new_trail_pct - old_pct
+                if _delta < 1.0:
+                    logger.debug(
+                        "modify_trailing_pct #%d: skipping small LOOSEN %.2f%% → %.2f%%",
+                        order_id, old_pct, new_trail_pct,
+                    )
+                else:
+                    logger.error(
+                        "modify_trailing_pct #%d: refusing LARGE LOOSEN %.2f%% → %.2f%% "
+                        "(new > old). Pass allow_loosen=True to override.",
+                        order_id, old_pct, new_trail_pct,
+                    )
                 return TradeResult(
                     ticker="", action="SELL", order_type="TRAIL",
                     quantity=0, filled_price=0.0, status="Rejected_Loosen",

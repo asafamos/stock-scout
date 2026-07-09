@@ -459,12 +459,15 @@ def run_check():
                         e for e in new_execs
                         if e.get("ticker") == ticker and e.get("side") == "SELL"
                     ]
-                    tracker.drop_metadata(ticker)
+                    # 2026-07-09: pass exit_price + realized_pnl into
+                    # drop_metadata so attribution.jsonl gets a rich row.
                     if matched:
                         rp = sum(float(e.get("realized_pnl") or 0)
                                  for e in matched
                                  if e.get("realized_pnl") is not None)
                         xp = float(matched[-1].get("price") or exit_price or 0.0)
+                        tracker.drop_metadata(ticker, exit_price=xp,
+                                              realized_pnl=rp, reason=reason)
                         notify.notify_sell(ticker, pos["quantity"], xp, reason, rp)
                         _try_opportunistic_buy(client, tracker, notify,
                                                reason=f"after_close_{ticker}")
@@ -472,8 +475,10 @@ def run_check():
                         # Gone from IB but no SELL execution surfaced this
                         # cycle — the fill was ingested in a prior cycle
                         # (P&L already in the ledger) or it's a manual move.
-                        # No fabricated number; the account-truth
-                        # reconciliation (/pnl) is the backstop.
+                        # Still call drop_metadata to clean up stale row.
+                        # No exit_price/pnl → no attribution row (nothing
+                        # to attribute without exit info).
+                        tracker.drop_metadata(ticker)
                         logger.info(
                             "%s gone from IB, no new SELL exec this cycle — "
                             "metadata dropped (P&L, if any, is in ledger)",
