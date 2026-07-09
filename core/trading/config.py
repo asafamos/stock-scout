@@ -148,19 +148,23 @@ class TradingConfig:
         default_factory=lambda: _env_float("MIN_SCORE", 73.0)
     )
     max_score_to_trade: float = field(
-        default_factory=lambda: _env_float("MAX_SCORE", 97.0)
-    )  # 2026-07-09 RAISED 85 → 97 based on fresh 2588-trade backtest:
-       # under gates (score>=73, ml 0.40-0.60, fund>=40):
-       #   Score 82-85: n=76   mean=+1.13%
-       #   Score 85-88: n=111  mean=+1.95%
-       #   Score 88-91: n=205  mean=+2.43%
-       #   Score 91-94: n=149  mean=+3.27%
-       #   Score 94-97: n=85   mean=+4.47%  ← PEAK
-       #   Score 97+:   n=35   mean=+3.23%  (rolls off, keep cap here)
-       # Prior real portfolio data (n=30) said 85+ = -0.38% but sample
-       # too small. Simulated n=234 for 91-97 is statistically stronger
-       # and monotonically INCREASING through 91-97. Trust larger sample.
-       # Env: TRADE_MAX_SCORE=85 to revert conservative.
+        default_factory=lambda: _env_float("MAX_SCORE", 85.0)
+    )  # 2026-07-09 EVENING REVERT: undid the 85 → 97 flip after user
+       # pushed on inconsistency. My framework for this parameter:
+       #
+       # DISAGREEMENT between simulated and real data:
+       #   Simulated (n=2588): 91-97 = +3.3 to +4.5% ← BEST buckets
+       #   Real portfolio (n=402): 85-89 = -0.38%, 90-94 = -0.48% ← LOSERS
+       #
+       # Both samples cover the same period. The gap = execution effects
+       # (slippage, trail firing, real timing) that simulated forward-return
+       # data doesn't capture. For EXECUTION-SENSITIVE gates, real portfolio
+       # is ground truth even with smaller n.
+       #
+       # POLICY: keep 85 until real portfolio has n=100+ trades in 85+ range.
+       # Only revisit when we have enough real data to overturn the current
+       # observation.
+       # Env: TRADE_MAX_SCORE=200 to disable cap for testing.
     # 2026-06-05 LATE NIGHT: re-calibrated on REAL production scan data
     # (Supabase: 18,709 scan recommendations + actual yfinance forward returns,
     # OOS validated on n=170 held-out trades).
