@@ -1634,22 +1634,56 @@ class IBKRClient:
             self._ib.qualifyContracts(contract)
 
             # Snapshot current mark for aggressive-limit pricing.
+            # BUG FIX 2026-07-15: sub-$2k account without live-data
+            # subscription → reqTickers returned nan for all fields →
+            # ref_price stayed 0 → code fell through to MarketOrder →
+            # Error 201 → IVZ target-hit stuck for hours. Set delayed
+            # market data type BEFORE reqTickers so we get a usable
+            # snapshot (~15min lag, free on all IB accounts).
             ref_price = 0.0
             try:
+                try:
+                    self._ib.reqMarketDataType(3)  # 3 = delayed
+                except Exception:
+                    pass
                 tickers = self._ib.reqTickers(contract)
                 if tickers:
                     t0 = tickers[0]
-                    for cand in (t0.marketPrice(), t0.last, t0.close):
+                    import math as _m
+                    # delayedLast + delayedMarketPrice are the fields IB
+                    # populates under marketDataType=3. delayedClose is
+                    # YESTERDAY's close — skip it (see get_live_price
+                    # audit 2026-04-30 finding #4).
+                    for cand in (
+                        t0.marketPrice(),
+                        t0.last,
+                        getattr(t0, "delayedLast", None),
+                        getattr(t0, "delayedMarketPrice", lambda: None)()
+                            if callable(getattr(t0, "delayedMarketPrice", None))
+                            else getattr(t0, "delayedMarketPrice", None),
+                    ):
                         try:
-                            v = float(cand)
+                            v = float(cand) if cand is not None else 0.0
                         except (TypeError, ValueError):
                             continue
-                        import math as _m
                         if _m.isfinite(v) and v > 0:
                             ref_price = v
                             break
             except Exception as _e:
                 logger.warning("SELL %s: reqTickers failed, will retry with 0 ref: %s", ticker, _e)
+
+            # Last-resort fallback: use get_live_price which sets delayed
+            # mode + waits longer. Costs a few seconds but avoids the
+            # MarketOrder→Error 201 dead-end on sub-$2k accounts.
+            if ref_price <= 0:
+                try:
+                    lp = self.get_live_price(ticker, timeout=8.0)
+                    if lp and lp > 0:
+                        ref_price = float(lp)
+                        logger.info("SELL %s: ref_price via get_live_price = %.2f",
+                                    ticker, ref_price)
+                except Exception as _e:
+                    logger.warning("SELL %s: get_live_price fallback failed: %s", ticker, _e)
 
             if ref_price > 0:
                 # LIMIT 0.5% below live mark → near-instant fill in liquid names,
