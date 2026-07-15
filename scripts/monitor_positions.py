@@ -1814,11 +1814,52 @@ def _target_hit_pass(tracker, client, ibkr_orders, notify):
 
         exit_price = getattr(result, "filled_price", 0.0) or 0.0
         if exit_price <= 0:
+            status = getattr(result, "status", "?")
             logger.warning(
                 "Target-hit %s: sell status=%s, no fill price yet — tracker "
                 "will reconcile on next cycle",
-                ticker, getattr(result, "status", "?"),
+                ticker, status,
             )
+            # BUG FIX 2026-07-15: previously this was a silent warning that
+            # never reached Telegram. IVZ target hit at 14:00 UTC → 3 sells
+            # all rejected with Error 201 → user got zero notification and
+            # only discovered the stuck position via manual check hours
+            # later. Notify on every non-fill so the user sees a repeated
+            # failure and can intervene.
+            # Dedup: only notify if we haven't already sent one in the last
+            # 30 min (persisted via last_stuck_notify_at on the position).
+            try:
+                last_stuck = pos.get("last_stuck_notify_at")
+                now_iso = _dt.now(_tz.utc).isoformat()
+                should_notify = True
+                if last_stuck:
+                    try:
+                        _dt_stuck = _dt.fromisoformat(last_stuck.replace("Z","+00:00"))
+                        if (_dt.now(_tz.utc) - _dt_stuck).total_seconds() < 1800:
+                            should_notify = False
+                    except Exception:
+                        pass
+                if should_notify:
+                    gain_pct = ((current_price / entry) - 1) * 100 if entry > 0 else 0.0
+                    notify.notify_error(
+                        "Monitor",
+                        (
+                            f"🚨 STUCK POSITION: {ticker}\n"
+                            f"Target ${target:.2f} HIT (current ${current_price:.2f}, +{gain_pct:.2f}%)\n"
+                            f"But SELL rejected: status={status}\n"
+                            f"Likely IB sub-$2k tier lockout (Error 201).\n"
+                            f"TRAIL still protecting downside. Position needs manual close "
+                            f"OR account deposit to >$2k tier."
+                        ),
+                    )
+                    pos["last_stuck_notify_at"] = now_iso
+                    changed = True
+                    try:
+                        tracker._save_positions(positions)
+                    except Exception:
+                        pass
+            except Exception as _ne:
+                logger.warning("Failed to notify STUCK for %s: %s", ticker, _ne)
             continue
 
         pnl = (exit_price - entry) * qty
