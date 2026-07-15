@@ -845,7 +845,17 @@ class IBKRClient:
                     account_tier = "cash"
             except Exception:
                 pass
-            apply_goodaftertime_to_lmt = account_tier in ("sub_2k", "cash")
+            # BUG FIX 2026-07-15: sub_2k had `apply_goodaftertime_to_lmt = True`
+            # to avoid Good Faith Violations. But IB REJECTS the LMT SELL with
+            # Error 201 the moment it sees the future goodAfterTime — treats
+            # it as a scheduled short. Result: OCA becomes trail-only, target
+            # hits are unenforceable (IVZ, ARCB, TEO all lost to this on
+            # 7/1-7/8; IVZ finally sold manually at target 7/15).
+            # Trade-off flipped: rare intraday GFV is far better than
+            # "target-hit never fires".
+            # Keep goodAfterTime for "cash" tier ($2-25k) where IB accepts
+            # it and T+1 settlement really matters.
+            apply_goodaftertime_to_lmt = account_tier == "cash"
 
             _next_open = self._next_trading_day_open_utc() if apply_goodaftertime_to_lmt else ""
             logger.info(
