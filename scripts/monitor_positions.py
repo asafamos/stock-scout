@@ -1832,6 +1832,39 @@ def _target_hit_pass(tracker, client, ibkr_orders, notify):
             notify.notify_error("Monitor", f"Target-hit sell FAILED {ticker}: {_se}")
             continue
 
+        # FALLBACK 2026-07-15: if the fresh sell was rejected (typically
+        # Error 201 on sub-$2k tier: goodAfterTime-broken OCA leaves
+        # position with trail-only, fresh sells forbidden), tighten the
+        # existing TRAIL to just below current mark. MODIFY of an already-
+        # approved TRAIL is accepted by IB — the trail fires on next tick
+        # and closes near target. Discovered live during IVZ target-hit
+        # stuck at $30.37 for hours; force_exit_via_trail closed at $30.35.
+        exit_price = getattr(result, "filled_price", 0.0) or 0.0
+        if exit_price <= 0 and getattr(result, "status", "") != "Filled":
+            logger.info("Target-hit %s: fresh sell failed (%s) — falling back to TRAIL-modify",
+                        ticker, getattr(result, "status", "?"))
+            try:
+                fallback = client.force_exit_via_trail(ticker, aggressive=True)
+                if fallback.status == "Filled":
+                    result = fallback
+                    exit_price = fallback.filled_price
+                    logger.info("Target-hit %s: TRAIL-modify fallback FILLED @ $%.2f",
+                                ticker, exit_price)
+                    try:
+                        notify._send(
+                            f"✅ <b>{ticker} SOLD via TRAIL-modify fallback</b>\n"
+                            f"Fresh sell was rejected (IB tier), but tightening "
+                            f"the existing TRAIL forced exit @ ${exit_price:.2f}."
+                        )
+                    except Exception:
+                        pass
+                else:
+                    logger.warning("Target-hit %s: TRAIL-modify fallback status=%s",
+                                   ticker, fallback.status)
+            except Exception as _fe:
+                logger.error("Target-hit %s: TRAIL-modify fallback exception: %s",
+                             ticker, _fe)
+
         exit_price = getattr(result, "filled_price", 0.0) or 0.0
         if exit_price <= 0:
             status = getattr(result, "status", "?")

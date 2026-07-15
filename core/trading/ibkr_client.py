@@ -1773,6 +1773,202 @@ class IBKRClient:
                 error=str(e),
             )
 
+    def force_exit_via_trail(self, ticker: str, aggressive: bool = True) -> TradeResult:
+        """Force near-immediate exit by tightening the existing TRAIL to
+        just below the current market price.
+
+        DISCOVERED 2026-07-15 during IVZ target-hit lockout: IB rejects
+        any FRESH sell order on sub-$2k accounts (Error 201). But it
+        ACCEPTS modifications to an existing approved TRAIL — including
+        aggressive trailStopPrice moves. Setting trailStopPrice ≈ mark
+        causes the trail to fire on the next tick.
+
+        Two constraints:
+        1. Modification must come from the SAME clientId that placed the
+           order. Cross-client cancel fails with "OrderId not found" and
+           cross-client placeOrder with same orderId fails "Duplicate
+           order id". So we spawn a temporary IB connection with the
+           original clientId, modify, disconnect.
+        2. Only works when there IS an existing active TRAIL for this
+           ticker. If the TRAIL was cancelled somehow, this returns
+           Error and caller must handle.
+
+        Returns TradeResult with status='Filled' if the trail fired
+        within ~15s, otherwise 'Working' / 'Error'.
+        """
+        if self.cfg.dry_run:
+            logger.info("[DRY RUN] FORCE EXIT %s via trail modify", ticker)
+            return TradeResult(
+                ticker=ticker, action="SELL", order_type="TRAIL",
+                quantity=0, filled_price=0.0, status="DRY_RUN",
+            )
+
+        try:
+            from ib_insync import IB as _IB, Stock as _Stock
+
+            # 1. Find the active TRAIL + its clientId via current session.
+            try:
+                self._ib.reqAllOpenOrders()
+                self._ib.sleep(2)
+            except Exception:
+                pass
+
+            trail_trade = None
+            for t in self._ib.trades():
+                if (t.contract.symbol == _ib_symbol(ticker)
+                    and t.order.orderType == "TRAIL"
+                    and t.orderStatus.status in ("Submitted", "PreSubmitted")):
+                    trail_trade = t
+                    break
+
+            if not trail_trade:
+                logger.error("force_exit_via_trail %s: no active TRAIL found", ticker)
+                return TradeResult(
+                    ticker=ticker, action="SELL", order_type="TRAIL",
+                    quantity=0, filled_price=0.0, status="Error",
+                    error="no_active_trail",
+                )
+
+            original_client_id = trail_trade.order.clientId
+            original_order_id = trail_trade.order.orderId
+            original_perm_id = trail_trade.order.permId
+            qty = int(trail_trade.order.totalQuantity)
+
+            # 2. Get current mark via delayed data.
+            self._ib.reqMarketDataType(3)
+            contract = _Stock(_ib_symbol(ticker), "SMART", "USD")
+            self._ib.qualifyContracts(contract)
+            tk = self._ib.reqMktData(contract, "", snapshot=False,
+                                      regulatorySnapshot=False)
+            mark = 0.0
+            for _ in range(10):
+                self._ib.sleep(1)
+                for f in ("last", "delayedLast"):
+                    v = getattr(tk, f, None)
+                    try:
+                        v = float(v)
+                        if v > 0:
+                            mark = v
+                            break
+                    except (TypeError, ValueError):
+                        continue
+                if mark:
+                    break
+            if not mark:
+                try:
+                    mp = tk.marketPrice()
+                    mp = float(mp)
+                    if mp > 0:
+                        mark = mp
+                except Exception:
+                    pass
+
+            if mark <= 0:
+                logger.error("force_exit_via_trail %s: no mark", ticker)
+                return TradeResult(
+                    ticker=ticker, action="SELL", order_type="TRAIL",
+                    quantity=qty, filled_price=0.0, status="Error",
+                    error="no_mark",
+                )
+
+            # 3. Tight trail: stop 2 cents below mark, trail 0.5%.
+            new_stop = round(mark - 0.02, 2)
+            logger.info(
+                "force_exit_via_trail %s: mark=$%.2f, moving trail stop $%.2f → $%.2f (via clientId=%d, orderId=%d)",
+                ticker, mark, trail_trade.order.trailStopPrice or 0.0,
+                new_stop, original_client_id, original_order_id,
+            )
+
+            # 4. Modify — need SAME clientId. If our main session already
+            # matches, modify inline. Otherwise temp-connect.
+            def _do_modify(ib_conn):
+                # Rebuild the order preserving IDs so IB treats as UPDATE.
+                o = trail_trade.order
+                o.trailingPercent = 0.5
+                o.trailStopPrice = new_stop
+                trade2 = ib_conn.placeOrder(contract, o)
+                for _i in range(20):
+                    ib_conn.sleep(1)
+                    st = trade2.orderStatus.status
+                    if st == "Filled":
+                        return "Filled", trade2.orderStatus.avgFillPrice or new_stop
+                    if st in ("Cancelled", "Inactive"):
+                        # Log last err for diagnostics
+                        last = trade2.log[-1].message if trade2.log else ""
+                        return f"Cancelled:{last[:80]}", 0.0
+                return f"Working:{trade2.orderStatus.status}", 0.0
+
+            if int(getattr(self._ib.client, "clientId", -1)) == int(original_client_id):
+                status_str, fill_price = _do_modify(self._ib)
+            else:
+                # Temp connect as original client
+                aux = _IB()
+                try:
+                    aux.connect(self.cfg.host, self.cfg.port,
+                                clientId=int(original_client_id), timeout=10)
+                    aux.reqAllOpenOrders()
+                    aux.sleep(2)
+                    # Aux needs to know about the order — try to find it.
+                    aux_trail = None
+                    for at in aux.trades():
+                        if (at.contract.symbol == _ib_symbol(ticker)
+                            and at.order.orderType == "TRAIL"
+                            and at.orderStatus.status in ("Submitted","PreSubmitted")):
+                            aux_trail = at
+                            break
+                    if not aux_trail:
+                        logger.error("force_exit_via_trail %s: aux client couldn't see TRAIL", ticker)
+                        return TradeResult(
+                            ticker=ticker, action="SELL", order_type="TRAIL",
+                            quantity=qty, filled_price=0.0, status="Error",
+                            error="aux_no_trail",
+                        )
+                    # Rebuild via aux to preserve IDs
+                    o = aux_trail.order
+                    o.trailingPercent = 0.5
+                    o.trailStopPrice = new_stop
+                    trade2 = aux.placeOrder(aux_trail.contract, o)
+                    fill_price = 0.0
+                    status_str = "Working"
+                    for _i in range(20):
+                        aux.sleep(1)
+                        st = trade2.orderStatus.status
+                        if st == "Filled":
+                            status_str = "Filled"
+                            fill_price = trade2.orderStatus.avgFillPrice or new_stop
+                            break
+                        if st in ("Cancelled", "Inactive"):
+                            last = trade2.log[-1].message if trade2.log else ""
+                            status_str = f"Cancelled:{last[:80]}"
+                            break
+                finally:
+                    try:
+                        aux.disconnect()
+                    except Exception:
+                        pass
+
+            if status_str == "Filled":
+                logger.info("force_exit_via_trail %s: FILLED @ $%.2f", ticker, fill_price)
+                return TradeResult(
+                    ticker=ticker, action="SELL", order_type="TRAIL",
+                    quantity=qty, filled_price=fill_price,
+                    status="Filled", order_id=original_order_id,
+                )
+            else:
+                logger.warning("force_exit_via_trail %s: %s", ticker, status_str)
+                return TradeResult(
+                    ticker=ticker, action="SELL", order_type="TRAIL",
+                    quantity=qty, filled_price=0.0,
+                    status=status_str, order_id=original_order_id,
+                )
+        except Exception as e:
+            logger.error("force_exit_via_trail %s: exception %s", ticker, e)
+            return TradeResult(
+                ticker=ticker, action="SELL", order_type="TRAIL",
+                quantity=0, filled_price=0.0, status="Error",
+                error=str(e),
+            )
+
     def get_open_orders(self) -> List[dict]:
         """Get all open/pending orders across ALL clients.
 
