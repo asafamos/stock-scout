@@ -1613,6 +1613,26 @@ def _take_partial_profit(tracker, client, notify):
                         "LADDER T%d %s SELL failed: status=%s",
                         tn, ticker, result.status,
                     )
+                    # BUG FIX 2026-07-15: previously silent — same class of
+                    # silent-failure as target-hit. Notify Telegram so the
+                    # user sees a blocked ladder attempt instead of
+                    # discovering it after the fact. Deduped: one alert per
+                    # (ticker, tier) per hour so a stuck sub-$2k tier
+                    # doesn't spam.
+                    try:
+                        if _cooldown_ok(("ladder_fail", ticker, tn), _ALERT_COOLDOWN, _ALERT_COOLDOWN_SECONDS):
+                            notify.notify_error(
+                                "Ladder blocked",
+                                (
+                                    f"📉 LADDER T{tn} {ticker} SELL FAILED\n"
+                                    f"Peak +{peak_gain_pct:.1f}%, wanted to sell {sell_qty}\n"
+                                    f"Status: {result.status}\n"
+                                    f"Likely IB sub-$2k tier (Error 201). "
+                                    f"TRAIL still protects."
+                                ),
+                            )
+                    except Exception as _ne:
+                        logger.warning("Ladder-fail notify failed for %s: %s", ticker, _ne)
                     break  # stop firing this position this cycle
             continue  # move to next position
 
