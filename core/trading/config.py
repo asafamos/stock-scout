@@ -697,6 +697,21 @@ class TradingConfig:
     # only deep winners (+18%/+28%) get pulled meaningfully tighter to
     # lock genuine gains. T0 threshold raised 8 → 10 so it can't fire on
     # day-2 FOMO. All env-overridable.
+    # T-EARLY tier (2026-07-15) closes the gap between Phase A (9% trail,
+    # day 0-7) and Phase B (5.5%, day 7+) / T0 (5%, peak +10%). A position
+    # at +5-6% profit on day 3-6 had NO auto-tightening — trail 9% would
+    # exit at loss. This tier fires at +5% peak → 5.5% trail, matching
+    # Phase B's target but based on PROFIT not time. Ratchet is idempotent
+    # (never loosens), so once Phase B / T0 fire tighter, this doesn't roll
+    # back. Env-overridable via RATCHET_TEARLY_*.
+    ratchet_tier_early_gain: float = field(
+        default_factory=lambda: _env_float("RATCHET_TEARLY_GAIN", 5.0)
+    )
+    ratchet_tier_early_trail_pct: float = field(
+        default_factory=lambda: _env_float("RATCHET_TEARLY_TRAIL_PCT", 5.5)
+    )   # Peak +5% → trail 5.5% (matches Phase B target, protects profit
+        # while position matures)
+
     ratchet_tier0_gain: float = field(
         default_factory=lambda: _env_float("RATCHET_T0_GAIN", 10.0)
     )

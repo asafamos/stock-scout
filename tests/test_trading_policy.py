@@ -174,11 +174,16 @@ class TestEvaluateStaticGates:
         assert not result.would_buy
         assert "Confidence" in result.primary_reason
 
-    def test_medium_confidence_allowed_in_trend_up(self, good_row, cfg):
+    def test_medium_confidence_blocked_by_default(self, good_row, cfg):
+        # 2026-07-03 (commit 281b74c): CONFIG.min_confidence is now the
+        # HARD floor across regimes. Old behavior "Medium OK in MODERATE_UP"
+        # was a silent bypass — proven to leak weak picks through.
+        # Opt-in relax via TRADE_CONFIDENCE_REGIME_RELAX=1 env var.
         good_row["Market_Regime"] = "MODERATE_UP"
-        good_row["SignalQuality"] = "Medium"  # MODERATE_UP allows Medium
+        good_row["SignalQuality"] = "Medium"
         result = evaluate_static_gates(good_row, cfg=cfg)
-        assert result.would_buy, result.gates_failed
+        assert not result.would_buy
+        assert "Confidence" in result.primary_reason
 
     # ── 9. Sector blocklist ─────────────────────────────────────────
     def test_blocked_sector_rejected(self, good_row, cfg):
@@ -217,12 +222,15 @@ class TestRegimeScoreFloor:
     """Parity check — risk_manager and dashboard MUST agree on floors."""
 
     def test_known_regimes_use_table(self, cfg):
-        # MODERATE_UP scan inclusion = 60, +5 buffer = 65
-        assert regime_score_floor("MODERATE_UP", cfg) == pytest.approx(65.0)
-        # SIDEWAYS scan inclusion = 70, +5 buffer = 75
+        # 2026-07-03 (commit a9c6645): regime_score_floor now enforces
+        # CONFIG.min_score_to_trade as HARD floor. Effective = max(regime+5, CONFIG).
+        # cfg default min_score = 73 in fixture.
+        # MODERATE_UP: max(60+5, 73) = 73
+        assert regime_score_floor("MODERATE_UP", cfg) == pytest.approx(73.0)
+        # SIDEWAYS: max(70+5, 73) = 75 (regime wins)
         assert regime_score_floor("SIDEWAYS", cfg) == pytest.approx(75.0)
-        # TREND_UP scan inclusion = 55, +5 buffer = 60
-        assert regime_score_floor("TREND_UP", cfg) == pytest.approx(60.0)
+        # TREND_UP: max(55+5, 73) = 73 (CONFIG wins)
+        assert regime_score_floor("TREND_UP", cfg) == pytest.approx(73.0)
 
     def test_unknown_regime_falls_back_to_static(self, cfg):
         # Falls back to base - 5 + 5 = base = 73
@@ -240,11 +248,15 @@ class TestConfidenceFloor:
     def test_high_required_in_sideways(self, cfg):
         assert confidence_floor("SIDEWAYS", cfg) == 3  # High
 
-    def test_medium_allowed_in_moderate_up(self, cfg):
-        assert confidence_floor("MODERATE_UP", cfg) == 2  # Medium
+    # 2026-07-03 (commit 281b74c): CONFIG.min_confidence is now the HARD
+    # floor across all regimes. Relax to Medium in bullish regimes is
+    # opt-in via TRADE_CONFIDENCE_REGIME_RELAX=1 env var.
+    def test_moderate_up_now_hard_high(self, cfg):
+        # cfg default min_confidence = High (3). No relax → still 3.
+        assert confidence_floor("MODERATE_UP", cfg) == 3
 
-    def test_medium_allowed_in_trend_up(self, cfg):
-        assert confidence_floor("TREND_UP", cfg) == 2
+    def test_trend_up_now_hard_high(self, cfg):
+        assert confidence_floor("TREND_UP", cfg) == 3
 
     def test_default_is_high(self, cfg):
         assert confidence_floor("NEUTRAL", cfg) == 3
@@ -265,9 +277,11 @@ class TestExecutionPreview:
         assert p.target == 170.0
         # MODERATE_UP regime → 1.20× trail multiplier
         assert p.regime_mult == pytest.approx(1.20)
-        # base = avg(scan stop %, 1.5×ATR) = avg(5.3, 3.75) = 4.5
-        # final = 4.5 × 1.20 = 5.4 → 5.4 (clamped)
-        assert 4.0 <= p.trail_pct <= 6.5
+        # 2026-06-10 Phase A: initial trail widened to 9% for day 0-7 to
+        # capture intraday noise; Phase B auto-tightens to 5.5% at day 7,
+        # T-early ratchet auto-tightens to 5.5% at peak +5% (2026-07-15).
+        # Preview shows Phase A initial (9%) since it's fresh.
+        assert 4.0 <= p.trail_pct <= 9.5
 
     def test_trail_clamped_to_floor(self, good_row, cfg):
         good_row["Market_Regime"] = "PANIC"  # 0.70× mult
