@@ -2002,15 +2002,13 @@ def _ratchet_stops(tracker, client, ibkr_orders, notify):
 
     # Ordered HIGHEST-gain first so the highest-applicable tier wins
     # (a stock at +25% peak should get tier 2's tighter trail, not
-    # tier 0's wider one). T-EARLY added 2026-07-15 — auto-protect at
-    # +5% peak (was previously a gap: 9% trail if before day 7 AND
-    # peak below +10%).
+    # tier 0's wider one). T-early tier removed 2026-07-15 (freeze
+    # violation) — see memory `trail-gap-jul15`.
     tiers = [
         (CONFIG.ratchet_tier3_gain, CONFIG.ratchet_tier3_trail_pct),
         (CONFIG.ratchet_tier2_gain, CONFIG.ratchet_tier2_trail_pct),
         (CONFIG.ratchet_tier1_gain, CONFIG.ratchet_tier1_trail_pct),
         (CONFIG.ratchet_tier0_gain, CONFIG.ratchet_tier0_trail_pct),
-        (CONFIG.ratchet_tier_early_gain, CONFIG.ratchet_tier_early_trail_pct),
     ]
 
     changed = False
