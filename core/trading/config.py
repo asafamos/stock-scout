@@ -281,17 +281,21 @@ class TradingConfig:
     blocked_sectors: str = field(
         default_factory=lambda: _env("BLOCKED_SECTORS",
             "Consumer Defensive,Utilities,Communication,Materials,"
-            "Basic Materials,Financial,Energy,Real Estate")
-    )  # 2026-07-08 SYNC: default was stale (blocked Consumer Cyclical and
-       # Financial Services — both POSITIVE per real trade data). VPS env
-       # override was correct; brought code default in sync with CLAUDE.md
-       # + scan_outcomes data:
-       #   BLOCKED: Cons Defensive (-2.36%), Utilities (-0.42%),
-       #            Materials (-7.36%), Basic Materials (-2.51%),
-       #            Financial (-3.82%), Energy (-1.59% SIG),
-       #            Real Estate (-3.25%), Communication (blocked)
-       #   UNBLOCKED (wrongly blocked before): Consumer Cyclical (+3.06%),
-       #             Financial Services (+4.54%)
+            "Basic Materials,Real Estate")
+    )  # 2026-07-17 UNBLOCK Energy + Financial based on 402 REAL Supabase
+       # positions (March-June 2026). "Trust real when sim disagrees" per
+       # feedback_no_flipflop framework:
+       #   Energy:    real n=70  +3.07%  win 65.7%  p<0.001 ***  ← was blocked from stale sim
+       #   Financial: real n=6   +3.05%  win 83.3%  p=0.062  ← small n but positive
+       # Kept blocked (confirmed by real data):
+       #   Consumer Defensive: n=22  -3.13%  p=0.006  ***
+       #   Basic Materials:    n=28  -0.80%  (weak but negative)
+       #   Materials:          n=8   -1.23%  (weak, small n)
+       #   Communication:      no data — kept as precaution
+       #   Utilities:          n=23  +0.88%  (borderline — kept to be safe)
+       #   Real Estate:        n=15  +1.08%  (borderline — kept to be safe)
+       # 2026-07-08 SYNC (previous): blocked Consumer Cyclical/Financial Services
+       # were unblocked based on real data +3.06%/+4.54% respectively.
 
 
     # ── Earnings calendar gate (binary-risk reduction) ─────────

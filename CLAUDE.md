@@ -35,10 +35,12 @@ AI-powered stock recommendation system that scans 3,000+ US stocks using technic
 - Min confidence: High. 2026-07-03 FIX (commit 281b74c) — CONFIG is now HARD floor. Regime relax (High→Medium in bullish) is opt-in via `TRADE_CONFIDENCE_REGIME_RELAX=1`. Default disabled. Note: gate reads `SignalQuality` field, NOT `ML_Confidence_Status` — separate metrics, latter shown in status but not enforced.
 - Min reliability: 50
 
-**Blocked sectors (8, RECALIBRATED 2026-06-24 — data-supported):**
-- BLOCKED: Consumer Defensive (-2.36% mean), Utilities (-0.42%), Communication, Materials (-7.36%), Basic Materials (-2.51%), Financial (-3.82%), **Energy (-1.59%, n=304, p=0.0000 SIG)**, **Real Estate (-3.25%)**
-- UNBLOCKED (were wrongly blocked): **Consumer Cyclical (+3.06% mean n=163)**, **Financial Services (+4.54% n=80)**
-- Top kept: Industrials +6.31%, Healthcare +5.81%, Communication Services +5.04%, Technology +4.59%, Financial Services +4.54%, Consumer Cyclical +3.06%
+**Blocked sectors (6, REVISED 2026-07-17 — real data trumps sim):**
+- BLOCKED: Consumer Defensive (-3.13% p=0.006, n=22), Utilities (+0.88% borderline, kept), Communication (no real data, kept as precaution), Materials (-1.23% n=8, weak), Basic Materials (-0.80% n=28, weak), Real Estate (+1.08% n=15, borderline)
+- **UNBLOCKED 2026-07-17: Energy (+3.07% p<0.001 n=70)** — was blocked from stale sim (-1.59% n=304). Real data flips: 402 REAL Supabase positions Mar-Jun 2026 show Energy = 65.7% win rate. Per no-flipflop framework: TRUST REAL when sim disagrees.
+- **UNBLOCKED 2026-07-17: Financial (+3.05% p=0.062 n=6)** — small n but positive; previously blocked as ambiguous.
+- Previous unblocks kept: Consumer Cyclical, Financial Services.
+- Top real performers (n=402 Supabase): **Energy +3.07% (NEW)**, Industrials +2.53% (n=53), Technology +1.95% (n=46), Communication Services +2.25% (n=26).
 
 **Blocked regimes: PANIC only** (CORRECTION removed — data showed +5.48%/55% WR, mean-reversion edge)
 **Reduce_regimes: DISTRIBUTION** (half-size)
@@ -56,14 +58,16 @@ AI-powered stock recommendation system that scans 3,000+ US stocks using technic
 
 **BREAK_EVEN: DISABLED** (backtest showed net -$74.81/$1k/trade — was a bad anecdote-based feature)
 
-**Selection ranking weights (REBALANCED 2026-06-26 + ELITE bonus 2026-07-03, sum=1.05 base):**
+**Selection ranking weights (REBALANCED 2026-06-26 + ELITE + SPEC bonus, sum=1.10 base):**
 - **Fundamental: 25%** (NEW 2026-06-26 — corr +0.117 SIG, top-3 by fund alone = +8.98%)
 - **RR: 30%** (was 40%, then 30% after 26/6)
 - **ML: 20%** (was 25%)
 - **ATR: 10%** (was 15%)
 - **Technical: 5%** (NEW 2026-06-26 — top-3 by tech alone = +6.72%)
 - **ELITE bonus: 5%** (NEW 2026-07-03 — mask ×1 if fund≥45 AND tech≥60 AND vs<1.0. ELITE cohort in backtest = +10.69% mean, WR 85%)
+- **SPEC bonus: 5%** (NEW 2026-07-17 — mask ×1 if Risk_Level=speculative. Real Supabase n=80: +3.98% p<0.001 vs core +0.33% p=0.426. Delta +$3.65/trade. Env kill: TRADE_SPEC_BONUS_WEIGHT=0)
 - Score: 0% (was 5%, anti-predictive at ranker level even though it's the gate floor)
+- Volume_surge INVERTED: 5% (2026-07-03 — corr -0.117 SIG within window)
 - Sector momentum: 5% | Insider boost: 5% | SPY momentum: 5% when available
 
 ### Trading Architecture
