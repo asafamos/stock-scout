@@ -115,6 +115,12 @@ AI-powered stock recommendation system that scans 3,000+ US stocks using technic
 - `notify_buy` prepends `[DRY] ` tag when TRADE_DRY_RUN=1 (prevents Telegram confusion)
 - Incident that triggered these fixes: verify-only DRY_RUN added MRX to tracker with order_ids=0, blocked a real trading slot until manual reset.
 
+**Healthcheck auto-heal (fixed 2026-07-17):**
+- `deploy/healthcheck.sh` detects stuck monitor (snapshot > 660s old) and Telegram-alerts "Auto-recovered: pkill -KILL + systemctl restart".
+- **PRIOR BUG**: alert said "Auto-recovered" but sudo commands SILENTLY FAILED — `stockscout` user was not in sudoers. Real behavior: monitor stayed stuck; only 0-position luck prevented incident.
+- Fixed by adding `/etc/sudoers.d/stockscout` with NOPASSWD for exactly: `pkill -KILL -u stockscout -f monitor_positions`, `systemctl restart stockscout-monitor{,.service}`, `systemctl restart stockscout-statusbot{,.service}`. Verified live: systemctl restart worked without password.
+- Incident that revealed this: 2026-07-17 17:30 STALE alert during quiet 0-position window (safe, but auto-heal fake).
+
 ### Data Collection Status (as of 2026-07-17)
 **Collected (backtestable):**
 - `data/trades/executions.jsonl` — IB fills, ledger source of truth (34 fills through 2026-07-17)
