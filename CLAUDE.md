@@ -18,9 +18,10 @@ AI-powered stock recommendation system that scans 3,000+ US stocks using technic
 - **Connection tested**: Successfully connects from Mac to IB Gateway
 
 ### Trading Config (RECALIBRATED 2026-06-06 on 18,709 Supabase production trades)
-**Position sizing (adjusted for ~$977 balance):**
-- Max position size: $400 (was $300; allows 1 share up to $600 for expensive stocks)
-- Max open positions: 3 | Max daily buys: 3 | Max portfolio exposure: $1000
+**Position sizing (adjusted for ~$867 balance, revised 2026-07-17):**
+- Max position size: **$450** (was $400; env `TRADE_MAX_POSITION_SIZE=450` — accommodates $600+ stocks in 1-share bites)
+- Max open positions: **3** | Max daily buys: **3** | Max portfolio exposure: **$1350**
+  - 2026-07-17 drift fix: `.env.trading` on VPS had `MAX_OPEN_POSITIONS=2` / `MAX_DAILY_BUYS=2` / `MAX_PORTFOLIO_EXPOSURE=900` (silent drift from setup_vps.sh defaults). Restored to 3/3/1350 after 2 days of 0-buy cycles left cash idle. See memory `throughput-drift-jul17.md`.
 - min_viable_position_usd: $30 (early-exit candidate loop when cash exhausted)
 
 **⚠️ 2026-07-09 FREEZE: gates below are FROZEN until we have 10-20 new trade closes under this config. See memory `feedback_no_flipflop.md` for framework. Do NOT retune based on more simulated data — that's the anti-pattern that caused MAX_SCORE to flip 4× in a week.**
