@@ -543,6 +543,16 @@ def run_check():
         if getattr(CONFIG, "time_tighten_enabled", False):
             _time_tighten_stops(tracker, client, ibkr_orders, notify)
 
+        # 2a2. Day-N momentum kill (2026-07-17 env-gated, default OFF).
+        # If position hasn't reached CONFIG.day_n_kill_min_gain_pct peak
+        # by day CONFIG.day_n_kill_cutoff_days → force exit. Deep-dive on
+        # 16 real trades + 1-min Polygon bars: losers had mean hold 5.2d
+        # (dead fast), winners 8.9d. day2+5% would have converted
+        # -$51 baseline sim → +$30 sim on that sample. Small sample so
+        # opt-in only.
+        if getattr(CONFIG, "day_n_kill_enabled", False):
+            _day_n_momentum_kill(tracker, client, ibkr_orders, notify)
+
         # 2b. Ratchet stops up as positions run up (lock in profits)
         if CONFIG.ratchet_enabled:
             _ratchet_stops(tracker, client, ibkr_orders, notify)
@@ -2048,6 +2058,160 @@ def _time_tighten_stops(tracker, client, ibkr_orders, notify):
             tracker._save_positions(positions)
         except Exception as _se:
             logger.warning("TIME-TIGHTEN: failed to persist tracker changes: %s", _se)
+
+
+def _day_n_momentum_kill(tracker, client, ibkr_orders, notify):
+    """Day-N Momentum Kill — force-exit stale non-movers.
+
+    Added 2026-07-17 after deep-dive on 16 real closed trades using
+    Polygon 1-min bars:
+      - Losers mean hold: 5.2 days (dead fast)
+      - Winners mean hold: 8.9 days
+      - 7/10 losers exited within 4 days
+      - 9/10 losers peaked at only +0-4% intraday max
+    Sim result: day 2 + min-gain 5% converted -$51 baseline to +$30
+    on that 16-trade sample. Sample-fit warning: n=16 is small; deploy
+    as opt-in (TRADE_DAY_N_KILL_ENABLED=1) and monitor first 10 trades.
+
+    Logic:
+      For each open position:
+        if days_held >= cutoff AND peak_gain_pct < min_gain_pct:
+          force market sell (via _sell_market with fallback to
+          force_exit_via_trail on sub-$2k Error 201)
+
+    Idempotent: fires ONCE per position (marks `day_n_kill_fired_at`).
+    """
+    from core.trading.config import CONFIG
+    from datetime import datetime as _dt, timezone as _tz
+
+    positions = tracker.get_open_positions()
+    if not positions:
+        return
+
+    cutoff = float(getattr(CONFIG, "day_n_kill_cutoff_days", 2.0))
+    min_gain = float(getattr(CONFIG, "day_n_kill_min_gain_pct", 5.0))
+
+    portfolio = {}
+    try:
+        portfolio = {p.contract.symbol: p for p in client._ib.portfolio() if p.position != 0}
+    except Exception:
+        logger.warning("day_n_kill: portfolio read failed")
+        return
+
+    any_changed = False
+    for pos in positions:
+        ticker = pos["ticker"]
+        if pos.get("day_n_kill_fired_at"):
+            continue  # already killed once
+
+        # Age
+        opened_iso = pos.get("opened_at") or pos.get("entry_time") or ""
+        try:
+            opened_dt = _dt.fromisoformat(opened_iso.replace("Z", "+00:00"))
+            if opened_dt.tzinfo is None:
+                opened_dt = opened_dt.replace(tzinfo=_tz.utc)
+        except Exception:
+            continue
+        now = _dt.now(_tz.utc)
+        days_held = (now - opened_dt).total_seconds() / 86400.0
+        if days_held < cutoff:
+            continue
+
+        # Peak gain
+        entry = float(pos.get("entry_price", 0) or 0)
+        peak = float(pos.get("peak_price", 0) or 0)
+        current = 0.0
+        pi = portfolio.get(ticker)
+        if pi:
+            try:
+                current = float(pi.marketPrice)
+            except Exception:
+                pass
+        best_seen = max(peak, current) if current > 0 else peak
+        if entry <= 0 or best_seen <= 0:
+            continue
+        peak_gain_pct = ((best_seen / entry) - 1) * 100
+
+        if peak_gain_pct >= min_gain:
+            continue  # position DID reach threshold, don't kill
+
+        qty = int(pos.get("quantity", 0) or 0)
+        if qty <= 0:
+            continue
+
+        logger.info(
+            "DAY-N KILL %s: age=%.1fd peak_gain=%.2f%% (< %.1f%%) — force selling",
+            ticker, days_held, peak_gain_pct, min_gain,
+        )
+
+        # Mark fired FIRST so any concurrent cycle doesn't double-fire
+        pos["day_n_kill_fired_at"] = now.isoformat()
+        any_changed = True
+        try:
+            tracker._save_positions(positions)
+        except Exception:
+            pass
+
+        # Try normal sell first
+        result = None
+        try:
+            result = client._sell_market(ticker, qty)
+        except Exception as _se:
+            logger.error("DAY-N KILL %s: _sell_market exc: %s", ticker, _se)
+
+        exit_price = getattr(result, "filled_price", 0.0) if result else 0.0
+
+        # Fallback to TRAIL-modify trick if fresh sell rejected (sub-$2k
+        # tier). Same path as _target_hit_pass fallback.
+        if exit_price <= 0:
+            try:
+                fb = client.force_exit_via_trail(ticker, aggressive=True)
+                if fb.status == "Filled":
+                    result = fb
+                    exit_price = fb.filled_price
+                    logger.info("DAY-N KILL %s: TRAIL-modify fallback FILLED @ $%.2f",
+                                ticker, exit_price)
+            except Exception as _fe:
+                logger.error("DAY-N KILL %s: fallback exc: %s", ticker, _fe)
+
+        if exit_price > 0:
+            pnl = (exit_price - entry) * qty
+            try:
+                tracker.remove_position(ticker, exit_price, "day_n_kill")
+            except Exception as _re:
+                logger.warning("DAY-N KILL %s: remove_position failed: %s", ticker, _re)
+            try:
+                notify.notify_sell(ticker, qty, exit_price, "day_n_kill", pnl)
+            except Exception:
+                pass
+            try:
+                notify._send(
+                    f"⏰ <b>DAY-{cutoff:.0f} KILL {ticker}</b>\n"
+                    f"  Age: {days_held:.1f}d  peak_gain: +{peak_gain_pct:.2f}% (< {min_gain:.1f}% threshold)\n"
+                    f"  Entry ${entry:.2f} → Exit ${exit_price:.2f}\n"
+                    f"  P&L: ${pnl:+.2f} — freed capital for higher-momentum candidates"
+                )
+            except Exception:
+                pass
+        else:
+            status = getattr(result, "status", "?") if result else "no_result"
+            logger.warning("DAY-N KILL %s: sell status=%s — will retry next cycle",
+                           ticker, status)
+            try:
+                notify.notify_error(
+                    "DayNKill",
+                    f"⏰ Day-{cutoff:.0f} kill {ticker} — sell rejected ({status}). "
+                    f"Position age {days_held:.1f}d, peak +{peak_gain_pct:.2f}%. "
+                    f"TRAIL still protects; will retry."
+                )
+            except Exception:
+                pass
+
+    if any_changed:
+        try:
+            tracker._save_positions(positions)
+        except Exception as _se:
+            logger.warning("DAY-N KILL: save failed: %s", _se)
 
 
 def _ratchet_stops(tracker, client, ibkr_orders, notify):

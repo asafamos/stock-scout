@@ -646,6 +646,24 @@ class TradingConfig:
     #   trail 5.5% + 7d hold: +1.26% / trade OOS  (+0.84pp from tightening)
     # The tightening only runs AFTER ratchet (so a ratchet-tightened
     # position e.g. at 2.5% never loosens to 5.5%).
+    # DAY-N MOMENTUM KILL (added 2026-07-17 after deep-dive on 16 real
+    # closed trades + 1-min Polygon bars). Losers were dead by day 4
+    # (mean hold 5.2d vs winners 8.9d) — most never reached a meaningful
+    # peak. Rule: at end of day N, if peak_gain_pct < min_gain_pct, sell
+    # at market. Sample-fit config: day 2 + 5% would have improved that
+    # 16-trade sample from -$51 sim to +$30 sim (+$80 preserved). Small
+    # sample, so DEFAULT OFF — flip via TRADE_DAY_N_KILL_ENABLED=1 for
+    # opt-in live trial.
+    day_n_kill_enabled: bool = field(
+        default_factory=lambda: _env_bool("DAY_N_KILL_ENABLED", False)
+    )
+    day_n_kill_cutoff_days: float = field(
+        default_factory=lambda: _env_float("DAY_N_KILL_CUTOFF_DAYS", 2.0)
+    )
+    day_n_kill_min_gain_pct: float = field(
+        default_factory=lambda: _env_float("DAY_N_KILL_MIN_GAIN_PCT", 5.0)
+    )
+
     time_tighten_enabled: bool = field(
         default_factory=lambda: _env_bool("TIME_TIGHTEN_ENABLED", True)
     )
