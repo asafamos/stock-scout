@@ -58,6 +58,21 @@ AI-powered stock recommendation system that scans 3,000+ US stocks using technic
 
 **BREAK_EVEN: DISABLED** (backtest showed net -$74.81/$1k/trade — was a bad anecdote-based feature)
 
+**DAY-N MOMENTUM KILL: ENABLED** (NEW 2026-07-17, `TRADE_DAY_N_KILL_ENABLED=1`)
+- Rule: if position age ≥ 2 days AND peak_gain_pct < 5% → force sell (market, with force_exit_via_trail fallback for sub-$2k Error 201)
+- Simulated on 16 real closed trades with Polygon 1-min bars: baseline -$50 → with kill +$30 (delta +$80). Real ledger was -$95 → sim projects +$30 (delta +$125).
+- Fires ONCE per position (marks `day_n_kill_fired_at`)
+- Rationale: losers mean hold 5.2d vs winners 8.9d; 7/10 real losers exited by day 4 with peaks +0-4%. No trail can catch these — momentum-selection layer needed.
+- Small sample (n=16) → env kill-switch: `TRADE_DAY_N_KILL_ENABLED=0` to disable, `TRADE_DAY_N_KILL_CUTOFF_DAYS=X`, `TRADE_DAY_N_KILL_MIN_GAIN_PCT=X` to tune.
+
+**ANALYST PT VETO (HARD, current default):**
+- Rule: if analyst_mean_PT < current_price AND n_analysts ≥ 3 → SKIP the trade (in `order_manager._cap_target_with_analysts`)
+- Env: `TRADE_ANALYST_VETO_OVERVALUED=1` (default). Set to 0 for SOFT mode (still buys, caps target at max(analyst_high, current × 1.06))
+- **Data gap**: analyst PT NOT saved to scan_outcomes — impossible to backtest currently. yfinance query at scan time is too slow for full backtest (200+ tickers → 2min+ timeout).
+- Code author's own note (order_manager.py:141-147): "systematically rejects the strongest MOMENTUM names — they often run ABOVE slow-to-update analyst targets, and we VALIDATED (out-of-time corr +0.22) that our score predicts returns regardless of analyst PT."
+- **Real observed impact 2026-07-17**: 3 straight zero-buy scan cycles due to this + volume_surge gates. Not a bug — the system rejecting overvalued names is by design. If we want to unblock, flip env flag (reversible in seconds). NOT flipped as of 2026-07-17 (no historical evidence either way).
+- **TODO to fix data gap**: modify `scripts/track_scan_outcomes.py` to fetch + save analyst PT with each recorded candidate. Then after 1-2 months of collection, backtest whether veto helps or hurts. NOT yet done.
+
 **Selection ranking weights (REBALANCED 2026-06-26 + ELITE + SPEC bonus, sum=1.10 base):**
 - **Fundamental: 25%** (NEW 2026-06-26 — corr +0.117 SIG, top-3 by fund alone = +8.98%)
 - **RR: 30%** (was 40%, then 30% after 26/6)
@@ -93,7 +108,31 @@ AI-powered stock recommendation system that scans 3,000+ US stocks using technic
 - See `docs/architecture_ledger.md` for full spec.
 
 ### Safety: DRY_RUN=True by default, requires explicit override for live trading
-**Reversibility of recent changes:** all gates env-overridable (TRADE_MIN_SCORE, TRADE_MIN_ML_PROB, TRADE_MAX_ML_PROB, TRADE_MIN_RR, TRADE_MAX_RR, TRADE_MIN_ATR_PCT, TRADE_BLOCKED_SECTORS, TRADE_BLOCKED_REGIMES, TRADE_BREAK_EVEN_ENABLED, TRADE_LEDGER_ENABLED). Selection weights live in `order_manager.py` (need code change to revert).
+**Reversibility of recent changes:** all gates env-overridable (TRADE_MIN_SCORE, TRADE_MIN_ML_PROB, TRADE_MAX_ML_PROB, TRADE_MIN_RR, TRADE_MAX_RR, TRADE_MIN_ATR_PCT, TRADE_BLOCKED_SECTORS, TRADE_BLOCKED_REGIMES, TRADE_BREAK_EVEN_ENABLED, TRADE_LEDGER_ENABLED, TRADE_DAY_N_KILL_ENABLED, TRADE_SPEC_BONUS_WEIGHT, TRADE_ANALYST_VETO_OVERVALUED). Selection weights live in `order_manager.py` (need code change to revert).
+
+**DRY_RUN safety (fixed 2026-07-17):**
+- `_execute_single` returns early on DRY_RUN → no tracker write, no notify_buy (prevents phantom positions blocking real slots)
+- `notify_buy` prepends `[DRY] ` tag when TRADE_DRY_RUN=1 (prevents Telegram confusion)
+- Incident that triggered these fixes: verify-only DRY_RUN added MRX to tracker with order_ids=0, blocked a real trading slot until manual reset.
+
+### Data Collection Status (as of 2026-07-17)
+**Collected (backtestable):**
+- `data/trades/executions.jsonl` — IB fills, ledger source of truth (34 fills through 2026-07-17)
+- `data/trades/open_positions.json` — tracker (currently cleaned to match IB; may drift if monitor's reconcile misses a sale — historical drift observed with TEO 7/16)
+- `data/outcomes/scan_outcomes.jsonl` — 2990 scan candidates with market context, scores, ML prob, fund/tech, RSI, ATR, volume_surge, sector. Resolved with return_5/10/20d.
+- Supabase `portfolio_positions` — 402 closed positions with realized return, peak, exit_reason, sector, final_score, risk_class (but recommendation_id + scan_id fields are EMPTY — can't join to features)
+- Supabase `scan_recommendations` — has full feature set but historical coverage very sparse (only 2 of our 16 recent trades matched)
+- Local `data/scans/*.parquet` — 111 scan snapshots (each ~130 columns of features)
+- Local `data/stockscout.duckdb` — 334 recs+outcomes rows but mostly early test data
+
+**Data GAPS (would improve future backtests):**
+- Analyst PT snapshot at scan/trade time — currently fetched live from yfinance, never persisted. Blocks `TRADE_ANALYST_VETO_OVERVALUED` backtest.
+- Intraday peak per closed position — currently reconstructed on-demand via Polygon 1-min bars (rate-limited 5/min = ~4min per 20 tickers). Blocks fast peak-giveback tuning.
+- Peak timing (hours from entry to peak) — has to be pulled fresh each analysis.
+- Supabase `portfolio_positions.recommendation_id` + `.scan_id` fields are empty for all rows — breaks joins to feature-rich `scan_recommendations`.
+
+### API Keys (for reference)
+Local `.env` has all 10 provider keys (FMP, POLYGON, FINNHUB, TIINGO, ALPHA_VANTAGE, EODHD, SIMFIN, NASDAQ, MARKETSTACK, OPENAI). Same keys in GH secrets for CI scans. VPS `.env.trading` intentionally does NOT have them (VPS runs auto_trade + monitor, does NOT scan). FMP legacy `/api/v3/historical-chart/1min` deprecated 2026-07 → use `/stable/historical-chart/1min?symbol=X`. Polygon 1-min via `/v2/aggs/ticker/X/range/1/minute/from/to`.
 
 ## Telegram Bot
 - Bot name: StockScout Alerts (@stockscout_asaf_bot)
