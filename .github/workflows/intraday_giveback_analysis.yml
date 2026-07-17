@@ -15,6 +15,10 @@ permissions:
 on:
   workflow_dispatch:
     inputs:
+      ledger_b64:
+        description: 'Base64-encoded contents of data/trades/executions.jsonl (VPS-only file, not in repo)'
+        required: true
+        type: string
       note:
         description: 'Analysis note (optional)'
         required: false
@@ -40,6 +44,15 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install requests pandas pyarrow
+
+      - name: Decode ledger input to file
+        env:
+          LEDGER_B64: ${{ inputs.ledger_b64 }}
+        run: |
+          mkdir -p data/trades
+          echo "$LEDGER_B64" | base64 -d > data/trades/executions.jsonl
+          echo "Ledger lines: $(wc -l < data/trades/executions.jsonl)"
+          head -1 data/trades/executions.jsonl | cut -c1-120
 
       - name: Fetch 1-min bars for all closed round-trips
         run: |
