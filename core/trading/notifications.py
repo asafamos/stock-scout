@@ -83,7 +83,16 @@ def notify_buy(ticker: str, qty: int, price: float,
 
     ELITE cohort (fund>=45 AND tech>=60 AND vs<1.0) is highlighted with a
     diamond emoji since backtest shows +10.69% mean vs +6.11% baseline.
+
+    BUG FIX 2026-07-17: prepend [DRY] tag when TRADE_DRY_RUN is on so the
+    user distinguishes simulation output from real fills. On 2026-07-17
+    a manual DRY_RUN verify triggered an ELITE BUY MRX alert identical
+    to a live buy, and the user thought a real trade had occurred.
     """
+    import os as _os
+    _dry = _os.getenv("TRADE_DRY_RUN", "1").strip() not in ("0", "false", "False", "no", "NO")
+    dry_tag = "[DRY] " if _dry else ""
+
     rr_line = f"  R:R: {rr:.1f}\n" if rr > 0 else ""
     date_line = f"  Exit by: {target_date}\n" if target_date else ""
 
@@ -92,7 +101,7 @@ def notify_buy(ticker: str, qty: int, price: float,
         fund_score >= 45 and tech_score >= 60
         and 0 < volume_surge < 1.0
     )
-    header = f"\U0001f48e ELITE {prefix}" if is_elite else prefix
+    header = f"{dry_tag}\U0001f48e ELITE {prefix}" if is_elite else f"{dry_tag}{prefix}"
 
     # Attribution block — only shown if we have any values
     attr_lines = []
