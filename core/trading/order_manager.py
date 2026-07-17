@@ -1039,6 +1039,34 @@ class OrderManager:
                 signals.append((WEIGHT_TECH, _norm(result[tech_col_candidate])))
                 break
 
+        # SPECULATIVE ranking bonus (NEW 2026-07-17) — deep-dive on 402
+        # closed Supabase positions (March-June 2026) found:
+        #   speculative: n=80  mean +3.98%  p<0.001 (HIGHLY significant)
+        #   core:        n=322 mean +0.33%  p=0.426 (not significant)
+        #   speculative + score 73-80: n=20  mean +7.48%  p=0.002 ***
+        #   speculative + score 80-85: n=9   mean +7.69%  p=0.029 **
+        # Delta +$3.65/trade. Speculative candidates peak >+5% at 56.2%
+        # rate vs core 40.7%.
+        # Caveat: much of the lift is April 2026 (SPEC +5.9% vs CORE -0.8%);
+        # March was inverse. Regime-sensitive but statistically robust.
+        # Add small ranking bonus so specs bubble up when competing.
+        # Env kill-switch: TRADE_SPEC_BONUS_WEIGHT=0 disables.
+        import os as _os
+        try:
+            WEIGHT_SPEC = float(_os.getenv("TRADE_SPEC_BONUS_WEIGHT", "0.05"))
+        except Exception:
+            WEIGHT_SPEC = 0.05
+        try:
+            risk_col_spec = next((c for c in ("Risk_Level", "risk_level", "risk_class") if c in result.columns), None)
+            if risk_col_spec and WEIGHT_SPEC > 0:
+                spec_mask = (result[risk_col_spec].astype(str).str.lower() == "speculative").astype(float)
+                if spec_mask.sum() > 0:
+                    signals.append((WEIGHT_SPEC, spec_mask))
+                    logger.debug("spec bonus: %d speculative candidates get +%.0f%% rank weight",
+                                 int(spec_mask.sum()), WEIGHT_SPEC * 100)
+        except Exception as _e:
+            logger.debug("speculative bonus skipped: %s", _e)
+
         # ELITE bonus (NEW 2026-07-03) — deep-dive on 1,748 trades found:
         #   fund>=45 + tech>=60 + vol_surge<1.0 → +10.69% mean, 85% WR (n=81)
         #   vs baseline gate-passed → +6.11% mean
