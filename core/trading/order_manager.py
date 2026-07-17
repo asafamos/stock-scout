@@ -1629,6 +1629,23 @@ class OrderManager:
         )
 
         buy_result = bracket["buy"]
+
+        # BUG FIX 2026-07-17: DRY_RUN was still writing to tracker + firing
+        # notify_buy, leaving a phantom position that fooled the pipeline
+        # into thinking a slot was used. Incident: manual DRY_RUN verify
+        # added MRX to tracker with order_ids={buy:0, trail:0, limit:0},
+        # blocking a real slot until manual tracker reset.
+        # Under DRY_RUN, exit early — no tracker write, no user-facing
+        # BUY alert (the [DRY] tag added elsewhere covers verify visibility).
+        if getattr(self.cfg, "dry_run", False) or buy_result.status == "DRY_RUN":
+            _sim_fill = buy_result.filled_price if buy_result.filled_price else price
+            logger.info(
+                "[DRY_RUN] would BUY %d x %s @ ~$%.2f — no tracker write, no notify",
+                qty, ticker, _sim_fill,
+            )
+            return {"ticker": ticker, "status": "dry_run",
+                    "entry_price": _sim_fill, "quantity": qty}
+
         if buy_result.status in ("Error",):
             # Buy didn't fill (status="Error" from bracket_order's hard-reject
             # path means: timeout, rejection, or zero-quantity fill). Skip
