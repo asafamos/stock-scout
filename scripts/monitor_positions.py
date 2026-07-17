@@ -262,6 +262,20 @@ def run_check():
 
     if not positions:
         logger.info("No open positions to monitor")
+        # BUG FIX 2026-07-17: even with 0 positions, write a fresh snapshot
+        # so healthcheck.sh doesn't fire STALE alerts + auto-heal loops.
+        # Before this fix: 0-position days → snapshot went stale → healthcheck
+        # tried to restart monitor (fake "Auto-recovered" alert, sudoers
+        # bug hid it further). Symptom: 3618s STALE alerts on days
+        # portfolio was legitimately empty. Snapshot itself is a
+        # heartbeat, not just a position report.
+        try:
+            if client.connect():
+                from core.trading.portfolio_snapshot import write_snapshot
+                write_snapshot(client, tracker)
+                client.disconnect()
+        except Exception as _snap_e:
+            logger.warning("Empty-tracker snapshot write failed: %s", _snap_e)
         return
 
     logger.info("Monitoring %d positions...", len(positions))
