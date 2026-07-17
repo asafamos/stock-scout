@@ -334,6 +334,48 @@ class OrderManager:
         for r in failed:
             notify.notify_error("Trade", f"{r.get('ticker')}: {r.get('error')}")
 
+        # NEW 2026-07-17: dry-cycle alert. If we ended a trade cycle with
+        # 0 buys AND we had cash AND we had capacity, the user should
+        # SEE WHY. Silent dry cycles for days (like 2026-07-15 → 2026-07-17)
+        # let the account sit idle and the user never learns which gate
+        # is blocking. Emit the top skip reasons.
+        try:
+            open_count = len(self.tracker.get_open_positions())
+            max_open = int(getattr(self.cfg, "max_open_positions", 0) or 0)
+            slots_free = max_open - open_count if max_open > 0 else 0
+            cash_avail = 0.0
+            try:
+                cash_avail = float(self.client.get_cash_balance() or 0)
+            except Exception:
+                pass
+            min_viable = float(getattr(self.cfg, "min_viable_position_usd", 30) or 30)
+
+            if len(bought) == 0 and slots_free > 0 and cash_avail >= min_viable:
+                # Bucket skip reasons
+                reason_counts: dict = {}
+                for r in skipped:
+                    rsn = str(r.get("reason", "unknown"))
+                    # First 60 chars as canonical bucket
+                    key = rsn[:60]
+                    reason_counts[key] = reason_counts.get(key, 0) + 1
+                # Top 5 by frequency
+                top = sorted(reason_counts.items(), key=lambda kv: -kv[1])[:5]
+                reasons_txt = "\n".join([f"  • {n}× {r}" for r, n in top]) or "  (no candidates reached evaluation)"
+                notify.notify_error(
+                    "DryCycle",
+                    (
+                        f"⚠️ Trade cycle: 0 bought.\n"
+                        f"Slots free: {slots_free}/{max_open}\n"
+                        f"Cash: ${cash_avail:.0f}\n"
+                        f"Candidates evaluated: {len(candidates)}, skipped: {len(skipped)}\n\n"
+                        f"Top skip reasons:\n{reasons_txt}"
+                    ),
+                )
+                logger.info("Dry-cycle alert sent (slots=%d cash=%.0f skipped=%d)",
+                            slots_free, cash_avail, len(skipped))
+        except Exception as _dce:
+            logger.warning("Dry-cycle alert emit failed: %s", _dce)
+
         return results
 
     def check_exits(self) -> List[Dict]:
