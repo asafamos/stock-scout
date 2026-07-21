@@ -325,6 +325,35 @@ class OrderManager:
             len(bought), len(skipped), len(failed),
         )
 
+        # NEW 2026-07-21: Adaptive gates. Feed pipeline outcome to the
+        # adaptive_gates tracker. It maintains a dry-streak counter and
+        # auto-relaxes Confidence to Medium in bullish regimes after N
+        # consecutive dry cycles blocked by Confidence.
+        # Env kill: TRADE_ADAPTIVE_GATES_ENABLED=0.
+        try:
+            if getattr(self.cfg, "adaptive_gates_enabled", True):
+                from core.trading.adaptive_gates import record_pipeline_outcome
+                _conf_blocked = bool(getattr(self, "_adaptive_confidence_blocked", False))
+                _regime_seen = getattr(self, "_adaptive_regime", "") or ""
+                threshold = int(getattr(self.cfg, "adaptive_gates_dry_threshold", 5))
+                _msg = record_pipeline_outcome(
+                    bought=len(bought),
+                    confidence_dropped=_conf_blocked,
+                    regime=_regime_seen,
+                    threshold=threshold,
+                )
+                if _msg:
+                    try:
+                        notify.notify_error("AdaptiveGates", _msg)
+                    except Exception:
+                        logger.info("Adaptive-gate state change (notify failed): %s", _msg)
+                    logger.info("Adaptive-gate: %s", _msg)
+                # Reset attributes on the instance for the next call
+                self._adaptive_confidence_blocked = False
+                self._adaptive_regime = ""
+        except Exception as _ae:
+            logger.warning("Adaptive gates recording failed: %s", _ae)
+
         # Telegram notification
         notify.notify_scan_complete(
             total=len(scan_df) if scan_df is not None else 0,
@@ -855,6 +884,12 @@ class OrderManager:
                     "Confidence filter dropped %d stocks (< %s, regime=%s)",
                     dropped, _floor_label, cur_regime or "default",
                 )
+            # Track for adaptive gate: if this filter emptied the pool AND
+            # its floor was High (i.e. the user isn't already at Medium),
+            # this cycle counts toward the dry-streak.
+            if dropped > 0 and result.empty and min_conf_val >= 3:
+                self._adaptive_confidence_blocked = True
+                self._adaptive_regime = cur_regime or ""
             if result.empty:
                 logger.info(
                     "No stocks pass confidence filter (regime=%s)",

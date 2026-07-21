@@ -203,6 +203,17 @@ class TradingConfig:
     min_confidence: str = field(
         default_factory=lambda: _env("MIN_CONFIDENCE", "High")
     )
+    # NEW 2026-07-21: Adaptive gates. When enabled (default), the system
+    # auto-tracks consecutive dry cycles blocked by Confidence < High and
+    # relaxes to Medium after N=5 dry cycles in a bullish regime. Any buy
+    # resets the streak. See core/trading/adaptive_gates.py.
+    # Env kill: TRADE_ADAPTIVE_GATES_ENABLED=0.
+    adaptive_gates_enabled: bool = field(
+        default_factory=lambda: _env_bool("ADAPTIVE_GATES_ENABLED", True)
+    )
+    adaptive_gates_dry_threshold: int = field(
+        default_factory=lambda: _env_int("ADAPTIVE_GATES_DRY_THRESHOLD", 5)
+    )
     confidence_regime_relax: bool = field(
         default_factory=lambda: _env_bool("CONFIDENCE_REGIME_RELAX", False)
     )  # NEW 2026-07-03 — opt-in flag to preserve old bullish-regime relaxation

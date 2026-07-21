@@ -178,6 +178,18 @@ def confidence_floor(regime: str, cfg) -> int:
     relax_enabled = bool(getattr(cfg, "confidence_regime_relax", False))
     if relax_enabled and regime and regime.upper() in _MEDIUM_OK_REGIMES:
         return min(base, 2)
+    # NEW 2026-07-21: Adaptive relaxation. After N consecutive dry cycles
+    # blocked by Confidence < High in a bullish regime, adaptive_gates
+    # module flips its own flag → we relax here too. Reset on any buy.
+    # Env kill: TRADE_ADAPTIVE_GATES_ENABLED=0.
+    if bool(getattr(cfg, "adaptive_gates_enabled", True)):
+        try:
+            from core.trading.adaptive_gates import get_adaptive_confidence_relaxed
+            if (get_adaptive_confidence_relaxed()
+                and regime and regime.upper() in _MEDIUM_OK_REGIMES):
+                return min(base, 2)
+        except Exception:
+            pass  # never let adaptive-gate lookup break the trade path
     return base
 
 
