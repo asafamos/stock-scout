@@ -887,6 +887,15 @@ def main():
                 elif text in ("/pnl", "pnl", "רווח"):
                     logger.info("P&L requested")
                     send_message(get_pnl_summary())
+                elif text in ("/perf", "perf", "ביצועים"):
+                    logger.info("Performance metrics requested")
+                    try:
+                        from core.trading import portfolio_metrics as _pm
+                        unrealized, net_liq = _fetch_ib_unrealized_and_netliq()
+                        send_message(_pm.format_perf_summary(net_liq, unrealized))
+                    except Exception as _e:
+                        logger.error("/perf failed: %s", _e)
+                        send_message(f"⚠️ /perf failed: {_e}")
                 elif text in ("/history", "history", "היסטוריה"):
                     logger.info("History requested")
                     send_message(get_recent_trades(10))
@@ -1045,6 +1054,7 @@ def main():
                         "• <b>status</b> — portfolio + orders\n"
                         "• <b>/today</b> — today's actions\n"
                         "• <b>/pnl</b> — P&L summary\n"
+                        "• <b>/perf</b> — portfolio metrics (CAGR/Sharpe/DD)\n"
                         "• <b>/history</b> — recent closed trades\n"
                         "• <b>/diag</b> — debug top scan candidates\n\n"
                         "<b>CONTROL</b>\n"
