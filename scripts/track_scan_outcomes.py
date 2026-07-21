@@ -215,12 +215,17 @@ def record_today():
 
         # Fetch analyst PT for top-30 only (cost control). Returns (0,0,0)
         # if unavailable/timeout — recorded honestly rather than skipped.
+        # 0.5s inter-request sleep because yfinance rate-limits after ~7
+        # rapid .info calls (observed 2026-07-21: 6/13 top tickers came back
+        # with n=0 without throttling).
         analyst_mean = analyst_high = 0.0
         n_analysts = 0
         analyst_veto = ""
         if _analyst_fetcher and ticker in top_tickers:
             try:
+                import time as _t
                 analyst_mean, analyst_high, n_analysts = _analyst_fetcher(ticker)
+                _t.sleep(0.5)  # crude but effective yfinance-friendly cadence
                 if n_analysts >= 3 and analyst_mean > 0 and entry_price > 0:
                     if analyst_mean < entry_price:
                         analyst_veto = "veto"
