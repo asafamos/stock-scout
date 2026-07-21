@@ -96,12 +96,25 @@ def notify_buy(ticker: str, qty: int, price: float,
     rr_line = f"  R:R: {rr:.1f}\n" if rr > 0 else ""
     date_line = f"  Exit by: {target_date}\n" if target_date else ""
 
+    from core.trading.sector_champion import (
+        get_cohort_stats, format_cohort_line, is_sector_champion,
+    )
+
     # ELITE detection (matches order_manager ranking logic)
     is_elite = (
         fund_score >= 45 and tech_score >= 60
         and 0 < volume_surge < 1.0
     )
-    header = f"{dry_tag}\U0001f48e ELITE {prefix}" if is_elite else f"{dry_tag}{prefix}"
+    is_champion = is_sector_champion(sector, score) if sector else False
+
+    if is_elite and is_champion:
+        header = f"{dry_tag}\U0001f48e🏆 ELITE+CHAMPION {prefix}"
+    elif is_elite:
+        header = f"{dry_tag}\U0001f48e ELITE {prefix}"
+    elif is_champion:
+        header = f"{dry_tag}🏆 CHAMPION {prefix}"
+    else:
+        header = f"{dry_tag}{prefix}"
 
     # Attribution block — only shown if we have any values
     attr_lines = []
@@ -110,8 +123,12 @@ def notify_buy(ticker: str, qty: int, price: float,
     if tech_score > 0:
         attr_lines.append(f"  Tech: {tech_score:.0f}")
     if ml_prob > 0:
-        # Flag ML deadzone (0.45-0.55) as a weak signal
-        ml_flag = " ⚠️ deadzone" if 0.45 <= ml_prob <= 0.55 else ""
+        # ML 0.45-0.55 "deadzone" — but neutralize the warning when the
+        # sector×score cohort has strong historical WR (Champion), since the
+        # empirical evidence overrides the ML-alone signal.
+        ml_flag = ""
+        if 0.45 <= ml_prob <= 0.55:
+            ml_flag = " (mid)" if is_champion else " ⚠️ deadzone"
         attr_lines.append(f"  ML: {ml_prob:.2f}{ml_flag}")
     if volume_surge > 0:
         attr_lines.append(f"  VolSurge: {volume_surge:.2f}")
@@ -119,6 +136,13 @@ def notify_buy(ticker: str, qty: int, price: float,
         attr_lines.append(f"  Sector: {sector}")
     if regime:
         attr_lines.append(f"  Regime: {regime}")
+
+    # Empirical cohort line (from real Supabase closes) — shows the buy in
+    # historical context so the user sees strength, not just gate values.
+    cohort_line = format_cohort_line(sector, score) if sector else ""
+    if cohort_line:
+        attr_lines.append(cohort_line)
+
     attr_block = ("\n".join(attr_lines) + "\n") if attr_lines else ""
 
     _send(

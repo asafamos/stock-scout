@@ -73,7 +73,7 @@ AI-powered stock recommendation system that scans 3,000+ US stocks using technic
 - **Real observed impact 2026-07-17**: 3 straight zero-buy scan cycles due to this + volume_surge gates. Not a bug — the system rejecting overvalued names is by design. If we want to unblock, flip env flag (reversible in seconds). NOT flipped as of 2026-07-17 (no historical evidence either way).
 - **TODO to fix data gap**: modify `scripts/track_scan_outcomes.py` to fetch + save analyst PT with each recorded candidate. Then after 1-2 months of collection, backtest whether veto helps or hurts. NOT yet done.
 
-**Selection ranking weights (REBALANCED 2026-06-26 + ELITE + SPEC bonus, sum=1.10 base):**
+**Selection ranking weights (REBALANCED 2026-06-26 + ELITE + SPEC + CHAMPION bonus):**
 - **Fundamental: 25%** (NEW 2026-06-26 — corr +0.117 SIG, top-3 by fund alone = +8.98%)
 - **RR: 30%** (was 40%, then 30% after 26/6)
 - **ML: 20%** (was 25%)
@@ -81,9 +81,16 @@ AI-powered stock recommendation system that scans 3,000+ US stocks using technic
 - **Technical: 5%** (NEW 2026-06-26 — top-3 by tech alone = +6.72%)
 - **ELITE bonus: 5%** (NEW 2026-07-03 — mask ×1 if fund≥45 AND tech≥60 AND vs<1.0. ELITE cohort in backtest = +10.69% mean, WR 85%)
 - **SPEC bonus: 5%** (NEW 2026-07-17 — mask ×1 if Risk_Level=speculative. Real Supabase n=80: +3.98% p<0.001 vs core +0.33% p=0.426. Delta +$3.65/trade. Env kill: TRADE_SPEC_BONUS_WEIGHT=0)
+- **SECTOR CHAMPION bonus: 5%** (NEW 2026-07-21 — mask ×1 if (sector, score) matches a strong cohort. Real Supabase n=402: Energy 70-85 (n=49, WR 74-79%, mean +2.9 to +5.2%), Technology 70-85 (n=25, WR 70-75%, mean +3.9 to +6.0%), Healthcare 70-75 (n=13, WR 84.6%, mean +2.69%). Env kill: TRADE_SECTOR_CHAMPION_WEIGHT=0. See core/trading/sector_champion.py.)
 - Score: 0% (was 5%, anti-predictive at ranker level even though it's the gate floor)
 - Volume_surge INVERTED: 5% (2026-07-03 — corr -0.117 SIG within window)
 - Sector momentum: 5% | Insider boost: 5% | SPY momentum: 5% when available
+
+**BUY ALERT ENHANCEMENT (NEW 2026-07-21):**
+- Header shows 🏆 CHAMPION / 💎 ELITE / 💎🏆 ELITE+CHAMPION when cohorts match
+- New `Cohort:` line displays historical n/WR/mean from real Supabase closes
+- ML deadzone warning downgraded to `(mid)` when in Champion cohort
+- Motivation: prior alerts over-emphasized weaknesses (e.g. "ML deadzone") without showing empirical STRENGTH from historical cohort match. VG buy (2026-07-21) triggered this — 91% WR cohort was invisible while ML flag was prominent.
 
 ### Trading Architecture
 - `core/trading/policy.py` - **Single source of truth for buy gates + execution preview.**

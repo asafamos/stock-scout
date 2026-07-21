@@ -1141,6 +1141,32 @@ class OrderManager:
         except Exception as _e:
             logger.debug("elite bonus skipped: %s", _e)
 
+        # SECTOR CHAMPION bonus (NEW 2026-07-21) — validated on 402 real
+        # Supabase closes. Score×Sector cohorts with WR>=70% AND mean>+2%:
+        #   Energy 70-75 n=12 WR=75.0% mean=+2.88%
+        #   Energy 75-80 n=14 WR=78.6% mean=+3.49%
+        #   Energy 80-85 n=23 WR=73.9% mean=+5.24%
+        #   Technology 70-85 (all 3 bands) WR=70-75% mean=+3.94..+5.98%
+        #   Healthcare 70-75 n=13 WR=84.6% mean=+2.69%
+        # vs baseline (all 402): mean=+1.06% WR=51.0%.
+        # Env kill-switch: TRADE_SECTOR_CHAMPION_WEIGHT=0 disables.
+        try:
+            from core.trading.sector_champion import champion_bonus_mask
+            WEIGHT_CHAMPION = float(_os.getenv("TRADE_SECTOR_CHAMPION_WEIGHT", "0.05"))
+            score_col_ch = next((c for c in ("FinalScore_20d","Score","final_score") if c in result.columns), None)
+            if sector_col and score_col_ch and WEIGHT_CHAMPION > 0:
+                score_v = pd.to_numeric(result[score_col_ch], errors="coerce").fillna(0)
+                champion_mask = result.apply(
+                    lambda r: champion_bonus_mask(str(r.get(sector_col, "")), float(r.get(score_col_ch, 0) or 0)),
+                    axis=1,
+                ).astype(float)
+                if champion_mask.sum() > 0:
+                    signals.append((WEIGHT_CHAMPION, champion_mask))
+                    logger.debug("sector champion bonus: %d candidates get +%.0f%% rank weight",
+                                 int(champion_mask.sum()), WEIGHT_CHAMPION * 100)
+        except Exception as _e:
+            logger.debug("sector champion bonus skipped: %s", _e)
+
         # Volume_surge as an INVERTED ranking penalty (2026-07-03).
         # Correlation -0.117 SIG with forward returns. Within the passing
         # window (<1.5, already filtered by gate), LOWER surge is better.

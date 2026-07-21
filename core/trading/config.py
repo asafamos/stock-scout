@@ -217,6 +217,15 @@ class TradingConfig:
     adaptive_gates_pt_threshold: int = field(
         default_factory=lambda: _env_int("ADAPTIVE_GATES_PT_THRESHOLD", 3)
     )  # Lower — analyst PT already blocked 3+ cycles this week
+    # NEW 2026-07-21: Sector Champion ranking bonus.
+    # Validated on 402 real Supabase closes — Score×Sector cohorts with
+    # WR>=70% and mean_ret>+2% (Energy 70-85, Technology 70-85, Healthcare
+    # 70-75) get a ranking preference. Alert shows cohort stats regardless.
+    # Bonus weight defaults to 0.05 (5%, matches SPEC bonus magnitude).
+    # Env kill: TRADE_SECTOR_CHAMPION_WEIGHT=0 disables the ranker bonus.
+    sector_champion_weight: float = field(
+        default_factory=lambda: _env_float("SECTOR_CHAMPION_WEIGHT", 0.05)
+    )
     confidence_regime_relax: bool = field(
         default_factory=lambda: _env_bool("CONFIDENCE_REGIME_RELAX", False)
     )  # NEW 2026-07-03 — opt-in flag to preserve old bullish-regime relaxation
