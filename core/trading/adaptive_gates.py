@@ -34,6 +34,12 @@ _DEFAULTS = {
     "confidence_relaxed_active": False,
     "confidence_relaxed_since": "",
     "confidence_last_regime": "",
+    # Analyst PT veto (added 2026-07-21 second phase). Same pattern:
+    # after N consecutive dry cycles blocked by analyst PT overvalued,
+    # auto-flip to SOFT MODE (cap target instead of veto).
+    "analyst_pt_dry_streak": 0,
+    "analyst_pt_relaxed_active": False,
+    "analyst_pt_relaxed_since": "",
 }
 
 # Regimes where Medium confidence is defensible (macro tailwind compensates
@@ -73,11 +79,26 @@ def get_adaptive_confidence_relaxed() -> bool:
     return _load().get("confidence_relaxed_active", False)
 
 
+def get_adaptive_analyst_pt_relaxed() -> bool:
+    """True if the analyst PT veto should switch to SOFT MODE right now.
+
+    Called from order_manager._cap_target_with_analysts. Reads state — no
+    side effects.
+
+    SOFT MODE: instead of vetoing (returning None), cap target to
+    max(analyst_high, current * 1.06). Buys the stock with a more
+    conservative target instead of rejecting outright.
+    """
+    return _load().get("analyst_pt_relaxed_active", False)
+
+
 def record_pipeline_outcome(
     bought: int,
     confidence_dropped: bool,
     regime: str,
     threshold: int = 5,
+    analyst_pt_dropped: bool = False,
+    analyst_pt_threshold: int = 3,
 ) -> Optional[str]:
     """Called at the end of every auto-trade pipeline. Updates streak state.
 
@@ -96,61 +117,105 @@ def record_pipeline_outcome(
     old_relaxed = bool(state.get("confidence_relaxed_active", False))
     old_streak = int(state.get("confidence_dry_streak", 0))
 
-    # Any buy → reset. This is the strongest signal that gates are OK.
+    old_pt_relaxed = bool(state.get("analyst_pt_relaxed_active", False))
+    old_pt_streak = int(state.get("analyst_pt_dry_streak", 0))
+
+    # Any buy → reset ALL streaks. This is the strongest signal gates are OK.
     if bought > 0:
+        changes = []
         if old_streak > 0 or old_relaxed:
             state["confidence_dry_streak"] = 0
             state["confidence_relaxed_active"] = False
             state["confidence_last_regime"] = regime
+            changes.append(f"Confidence streak was {old_streak}, relax was {'ON' if old_relaxed else 'OFF'}")
+        if old_pt_streak > 0 or old_pt_relaxed:
+            state["analyst_pt_dry_streak"] = 0
+            state["analyst_pt_relaxed_active"] = False
+            changes.append(f"Analyst PT streak was {old_pt_streak}, relax was {'ON' if old_pt_relaxed else 'OFF'}")
+        if changes:
             _save(state)
             return (
-                f"✅ Adaptive gate RESET — {bought} bought.\n"
-                f"Dry streak was {old_streak}, relax was {'ON' if old_relaxed else 'OFF'}.\n"
-                f"Confidence gate back to strict (High) for next cycle."
+                f"✅ Adaptive gates RESET — {bought} bought.\n"
+                + "\n".join(changes)
+                + "\nAll gates back to strict for next cycle."
             )
         return None
 
-    # 0 buys but NOT blocked by confidence — irrelevant for this counter.
-    if not confidence_dropped:
+    # 0 buys and NOTHING gate-blocked → nothing to do (rare — maybe all skipped by
+    # gap/slippage/other). Skip both trackers.
+    if not confidence_dropped and not analyst_pt_dropped:
         return None
-
-    # 0 buys AND confidence blocked → increment streak.
-    new_streak = old_streak + 1
-    state["confidence_dry_streak"] = new_streak
-    state["confidence_last_regime"] = regime
 
     is_bullish = regime.upper() in _BULLISH_REGIMES
     msg = None
 
-    if new_streak >= threshold and is_bullish and not old_relaxed:
-        # Activate relax.
-        state["confidence_relaxed_active"] = True
-        state["confidence_relaxed_since"] = datetime.now(timezone.utc).isoformat()
-        msg = (
-            f"🔓 Adaptive gate ACTIVATED\n"
-            f"{new_streak} consecutive dry cycles due to Confidence < High.\n"
-            f"Regime {regime} is bullish → auto-relaxing to Medium for next cycle.\n"
-            f"Will reset on any successful buy. "
-            f"Kill switch: TRADE_ADAPTIVE_GATES_ENABLED=0."
-        )
-    elif new_streak == threshold - 1 and is_bullish and not old_relaxed:
-        # Pre-warning one cycle before activation.
-        msg = (
-            f"⏳ Adaptive gate PRE-WARN\n"
-            f"{new_streak}/{threshold} dry cycles (Confidence blocked).\n"
-            f"Regime {regime}. Next dry cycle → auto-relax to Medium."
-        )
-    elif old_relaxed and not is_bullish:
-        # Regime turned non-bullish — deactivate relax as safety.
-        state["confidence_relaxed_active"] = False
-        msg = (
-            f"🔒 Adaptive gate DEACTIVATED — regime shift\n"
-            f"Regime {regime} is no longer bullish. Restoring strict Confidence "
-            f"(High) even though streak is {new_streak}."
-        )
+    # Confidence streak tracking (only if confidence was the blocker)
+    new_streak = old_streak
+    if confidence_dropped:
+        new_streak = old_streak + 1
+        state["confidence_dry_streak"] = new_streak
+        state["confidence_last_regime"] = regime
 
+    if confidence_dropped:
+        if new_streak >= threshold and is_bullish and not old_relaxed:
+            # Activate relax.
+            state["confidence_relaxed_active"] = True
+            state["confidence_relaxed_since"] = datetime.now(timezone.utc).isoformat()
+            msg = (
+                f"🔓 Adaptive gate ACTIVATED\n"
+                f"{new_streak} consecutive dry cycles due to Confidence < High.\n"
+                f"Regime {regime} is bullish → auto-relaxing to Medium for next cycle.\n"
+                f"Will reset on any successful buy. "
+                f"Kill switch: TRADE_ADAPTIVE_GATES_ENABLED=0."
+            )
+        elif new_streak == threshold - 1 and is_bullish and not old_relaxed:
+            # Pre-warning one cycle before activation.
+            msg = (
+                f"⏳ Adaptive gate PRE-WARN\n"
+                f"{new_streak}/{threshold} dry cycles (Confidence blocked).\n"
+                f"Regime {regime}. Next dry cycle → auto-relax to Medium."
+            )
+        elif old_relaxed and not is_bullish:
+            # Regime turned non-bullish — deactivate relax as safety.
+            state["confidence_relaxed_active"] = False
+            msg = (
+                f"🔒 Adaptive gate DEACTIVATED — regime shift\n"
+                f"Regime {regime} is no longer bullish. Restoring strict Confidence "
+                f"(High) even though streak is {new_streak}."
+            )
+
+    # ── Analyst PT dry-streak (independent of Confidence) ──
+    # This runs regardless of what happened with Confidence — analyst PT
+    # can block even when Confidence passed (e.g. today's Pipeline #2).
+    pt_msg = None
+    if analyst_pt_dropped:
+        new_pt_streak = old_pt_streak + 1
+        state["analyst_pt_dry_streak"] = new_pt_streak
+        if new_pt_streak >= analyst_pt_threshold and not old_pt_relaxed:
+            state["analyst_pt_relaxed_active"] = True
+            state["analyst_pt_relaxed_since"] = datetime.now(timezone.utc).isoformat()
+            pt_msg = (
+                f"🔓 Adaptive gate ACTIVATED (Analyst PT)\n"
+                f"{new_pt_streak} consecutive dry cycles blocked by Analyst PT veto.\n"
+                f"Switching to SOFT MODE (cap target at analyst_high or +6% "
+                f"instead of veto). Will reset on any successful buy. "
+                f"Kill: TRADE_ADAPTIVE_GATES_ENABLED=0."
+            )
+        elif new_pt_streak == analyst_pt_threshold - 1 and not old_pt_relaxed:
+            pt_msg = (
+                f"⏳ Adaptive gate PRE-WARN (Analyst PT)\n"
+                f"{new_pt_streak}/{analyst_pt_threshold} cycles blocked by Analyst PT.\n"
+                f"Next dry cycle → auto-switch to SOFT MODE."
+            )
+    # Persist state changes (streaks and relax flags) regardless of whether
+    # a message was generated — this cycle happened and must be recorded.
     _save(state)
-    return msg
+
+    # Combine messages (both Confidence and PT could have moved in the same
+    # cycle — rare, but possible).
+    parts = [m for m in [msg, pt_msg] if m]
+    combined = "\n\n".join(parts) if parts else None
+    return combined
 
 
 def force_reset() -> None:

@@ -147,7 +147,19 @@ def _cap_target_with_analysts(ticker: str, current_price: float,
     # target (analyst high if above price, else +6%) instead of skipping.
     if mean_pt < current_price:
         from core.trading.config import CONFIG as _C
-        if bool(getattr(_C, "analyst_veto_overvalued", True)):
+        # NEW 2026-07-21: Adaptive gate can auto-flip to SOFT MODE after
+        # N dry cycles. If the adaptive layer is telling us to relax this
+        # gate, treat as if the env flag was 0 for this call.
+        _static_veto = bool(getattr(_C, "analyst_veto_overvalued", True))
+        _adaptive_relax = False
+        if bool(getattr(_C, "adaptive_gates_enabled", True)):
+            try:
+                from core.trading.adaptive_gates import get_adaptive_analyst_pt_relaxed
+                _adaptive_relax = get_adaptive_analyst_pt_relaxed()
+            except Exception:
+                pass
+        _effective_veto = _static_veto and not _adaptive_relax
+        if _effective_veto:
             logger.info(
                 "Analyst veto for %s: mean PT $%.2f < current $%.2f (n=%d)",
                 ticker, mean_pt, current_price, n,
@@ -336,11 +348,19 @@ class OrderManager:
                 _conf_blocked = bool(getattr(self, "_adaptive_confidence_blocked", False))
                 _regime_seen = getattr(self, "_adaptive_regime", "") or ""
                 threshold = int(getattr(self.cfg, "adaptive_gates_dry_threshold", 5))
+                # Detect analyst-PT block from skip reasons in results
+                _pt_blocked = any(
+                    "Analyst mean PT" in str(r.get("reason", "") or "")
+                    for r in results
+                )
+                pt_threshold = int(getattr(self.cfg, "adaptive_gates_pt_threshold", 3))
                 _msg = record_pipeline_outcome(
                     bought=len(bought),
                     confidence_dropped=_conf_blocked,
                     regime=_regime_seen,
                     threshold=threshold,
+                    analyst_pt_dropped=_pt_blocked,
+                    analyst_pt_threshold=pt_threshold,
                 )
                 if _msg:
                     try:

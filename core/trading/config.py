@@ -214,6 +214,9 @@ class TradingConfig:
     adaptive_gates_dry_threshold: int = field(
         default_factory=lambda: _env_int("ADAPTIVE_GATES_DRY_THRESHOLD", 5)
     )
+    adaptive_gates_pt_threshold: int = field(
+        default_factory=lambda: _env_int("ADAPTIVE_GATES_PT_THRESHOLD", 3)
+    )  # Lower — analyst PT already blocked 3+ cycles this week
     confidence_regime_relax: bool = field(
         default_factory=lambda: _env_bool("CONFIDENCE_REGIME_RELAX", False)
     )  # NEW 2026-07-03 — opt-in flag to preserve old bullish-regime relaxation
