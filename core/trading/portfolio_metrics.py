@@ -262,6 +262,25 @@ def format_perf_summary(current_net_liq: float, current_unrealized: float,
     pf = st.get("profit_factor")
     pf_str = f"{pf:.2f}" if pf is not None else ("∞" if st.get("realized_total", 0) > 0 else "—")
 
+    # Post-freeze record — every closed trip since the 2026-07-09 gate freeze.
+    # This is the ONLY sample that reflects the current (validated) config.
+    # See CLAUDE.md `Gates frozen Jul 9` in memory.
+    freeze_date = date(2026, 7, 9)
+    post_freeze_trips = []
+    try:
+        for t in ledger.closed_round_trips(cfg):
+            if t.get("realized_pnl") is None:
+                continue
+            sell_time = _parse_time(t.get("sell_time") or t.get("close_time") or t.get("time"))
+            if sell_time and sell_time.date() >= freeze_date:
+                post_freeze_trips.append(t)
+    except Exception:
+        pass
+    pf_wins = [t for t in post_freeze_trips if t["realized_pnl"] > 0]
+    pf_losses = [t for t in post_freeze_trips if t["realized_pnl"] < 0]
+    pf_realized = sum(t["realized_pnl"] for t in post_freeze_trips)
+    pf_n = len(post_freeze_trips)
+
     # Build line-by-line so conditional formatting is unambiguous
     lines = ["📊 <b>Portfolio Performance</b>", ""]
 
@@ -271,16 +290,29 @@ def format_perf_summary(current_net_liq: float, current_unrealized: float,
         f"<i>(${m['start_equity']:,.0f} → ${m['end_equity']:,.0f})</i>"
     )
 
+    # Small-sample thresholds are strict on purpose: annualizing weeks of data
+    # produces nonsense numbers (e.g. -11% over 47d → -61% CAGR).
     if m["cagr_pct"] is not None:
-        caveat = " <i>⚠ small-sample</i>" if m["days_elapsed"] < 30 else ""
+        if m["days_elapsed"] < 90:
+            caveat = " <i>⚠ SMALL SAMPLE (need 90+d)</i>"
+        elif m["days_elapsed"] < 180:
+            caveat = " <i>⚠ small-sample</i>"
+        else:
+            caveat = ""
         lines.append(f"📈 <b>CAGR:</b> {_pct(m['cagr_pct'])}{caveat}")
     else:
         lines.append("📈 <b>CAGR:</b> ⏳ need 7+ days")
 
     if m["sharpe_annual"] is not None:
+        if m["days_elapsed"] < 60:
+            sh_caveat = " <i>⚠ SMALL SAMPLE (need 60+d)</i>"
+        elif m["days_elapsed"] < 120:
+            sh_caveat = " <i>⚠ small-sample</i>"
+        else:
+            sh_caveat = ""
         lines.append(
             f"{_sharpe_emoji(m['sharpe_annual'])} <b>Sharpe (annual):</b> "
-            f"{m['sharpe_annual']:.2f}"
+            f"{m['sharpe_annual']:.2f}{sh_caveat}"
         )
     else:
         lines.append(
@@ -299,10 +331,25 @@ def format_perf_summary(current_net_liq: float, current_unrealized: float,
     )
     lines.append("")
     lines.append(
-        f"<b>Record:</b> {st.get('wins', 0)}W / {st.get('losses', 0)}L "
+        f"<b>Record (all-time):</b> {st.get('wins', 0)}W / {st.get('losses', 0)}L "
         f"({wr:.0f}% WR, {n_closed} closed)"
     )
     lines.append(f"<b>Profit Factor:</b> {pf_str}")
+
+    # Post-freeze breakdown — separates buggy-era losses from new-config trades
+    if pf_n > 0:
+        pf_wr = len(pf_wins) / pf_n * 100
+        lines.append(
+            f"<b>Post-freeze (since 2026-07-09):</b> "
+            f"{len(pf_wins)}W / {len(pf_losses)}L ({pf_wr:.0f}% WR, "
+            f"${pf_realized:+.2f}, n={pf_n})"
+        )
+    else:
+        lines.append(
+            "<b>Post-freeze (since 2026-07-09):</b> "
+            "⏳ no closes yet — new config unproven"
+        )
+
     lines.append(f"<b>Days elapsed:</b> {m['days_elapsed']}")
     lines.append("")
     lines.append(
