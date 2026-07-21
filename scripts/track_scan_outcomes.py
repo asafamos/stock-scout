@@ -188,15 +188,53 @@ def record_today():
         for r in existing if not r.get("resolved")
     }
 
+    # Analyst PT fetch — cheap, cached in order_manager. Only for top-30 by
+    # score so we don't blow yfinance rate limits. This CLOSES the historical
+    # data gap: analyst PT was ONLY fetched at trade time and never saved,
+    # so we couldn't backtest whether TRADE_ANALYST_VETO_OVERVALUED helps.
+    # (Task #132 — 2026-07-21.)
+    try:
+        from core.trading.order_manager import _fetch_analyst_target
+        _analyst_fetcher = _fetch_analyst_target
+    except Exception as _e:
+        logger.warning("Analyst PT fetcher unavailable: %s", _e)
+        _analyst_fetcher = None
+
+    # Rank rows by score to identify the top-30 (most likely to actually trade)
+    def _sc(r):
+        return float(r.get("FinalScore_20d", r.get("Score", 0)) or 0)
+    ranked = sorted(rows, key=_sc, reverse=True)
+    top_tickers = {(r.get("Ticker") or r.get("ticker") or "") for r in ranked[:30]}
+
     new_records = []
     for row in rows:
         ticker = row.get("Ticker") or row.get("ticker") or ""
         if not ticker or (today, ticker) in existing_keys:
             continue
+        entry_price = float(row.get("Entry_Price", row.get("Close", 0)) or 0)
+
+        # Fetch analyst PT for top-30 only (cost control). Returns (0,0,0)
+        # if unavailable/timeout — recorded honestly rather than skipped.
+        analyst_mean = analyst_high = 0.0
+        n_analysts = 0
+        analyst_veto = ""
+        if _analyst_fetcher and ticker in top_tickers:
+            try:
+                analyst_mean, analyst_high, n_analysts = _analyst_fetcher(ticker)
+                if n_analysts >= 3 and analyst_mean > 0 and entry_price > 0:
+                    if analyst_mean < entry_price:
+                        analyst_veto = "veto"
+                    elif analyst_mean < entry_price * 1.06:
+                        analyst_veto = "soft_cap"
+                    else:
+                        analyst_veto = "pass"
+            except Exception as _e:
+                logger.debug("Analyst PT fetch failed for %s: %s", ticker, _e)
+
         rec = {
             "scan_date": today,
             "ticker": ticker,
-            "entry_price": float(row.get("Entry_Price", row.get("Close", 0)) or 0),
+            "entry_price": entry_price,
             "stop_loss": float(row.get("Stop_Loss", row.get("stop_loss", 0)) or 0),
             "target_price": float(row.get("Target_Price", row.get("target_price", 0)) or 0),
             "score": float(row.get("FinalScore_20d", row.get("Score", 0)) or 0),
@@ -211,6 +249,12 @@ def record_today():
             "reliability": float(row.get("Reliability_Score", 0) or 0),
             "volume_surge": float(row.get("VolumeSurge", row.get("Volume_Surge", 0)) or 0),
             "rsi": float(row.get("RSI", 0) or 0),
+            # Analyst PT snapshot (NEW 2026-07-21 — closes data gap for backtest)
+            "analyst_mean_pt": round(analyst_mean, 2),
+            "analyst_high_pt": round(analyst_high, 2),
+            "n_analysts": n_analysts,
+            "analyst_pt_gap_pct": round((analyst_mean / entry_price - 1) * 100, 2) if (analyst_mean > 0 and entry_price > 0) else 0.0,
+            "analyst_veto_status": analyst_veto,
             "recorded_at": datetime.utcnow().isoformat(),
             "resolved": False,
         }
