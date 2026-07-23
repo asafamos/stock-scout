@@ -470,6 +470,16 @@ class OrderManager:
         try:
             if not getattr(self.cfg, "adaptive_gates_enabled", True):
                 return False
+            # BUG FIX 2026-07-23: DRY_RUN was polluting adaptive state — a
+            # local `run_auto_trade` test with DRY_RUN would advance the
+            # streak counter and even ACTIVATE relax flags, then send real
+            # Telegram alerts. State file was permanently modified. Skip the
+            # recorder entirely in DRY_RUN — adaptive is a LIVE-outcome
+            # tracker, not a simulation counter.
+            import os as _os_dry
+            if _os_dry.getenv("TRADE_DRY_RUN", "1").strip() not in ("0", "false", "False", "no", "NO"):
+                logger.info("Adaptive-gate recorder SKIPPED (DRY_RUN — no state pollution)")
+                return False
             from core.trading.adaptive_gates import (
                 record_pipeline_outcome, get_state,
             )
@@ -500,8 +510,15 @@ class OrderManager:
                 rr_threshold=rr_threshold,
             )
             if _msg:
+                # RESET messages (any successful buy) are positive events —
+                # don't tag them "⚠️ Error" (misleading). Same for PRE-WARN.
+                # Only actual "🔓 ACTIVATED" alerts are neutral warnings.
+                # Fix 2026-07-23.
                 try:
-                    notify.notify_error("AdaptiveGates", _msg)
+                    if "RESET" in _msg or "PRE-WARN" in _msg or "DEACTIVATED" in _msg:
+                        notify._send(f"🔔 <b>AdaptiveGates</b>\n{_msg}")
+                    else:
+                        notify.notify_error("AdaptiveGates", _msg)
                 except Exception:
                     logger.info("Adaptive-gate state change (notify failed): %s", _msg)
                 logger.info("Adaptive-gate: %s", _msg)
@@ -1906,15 +1923,16 @@ class OrderManager:
                     "(${%+.3f}, %+.2f%%, %s than expected)",
                     ticker, price, filled_price, slip_abs, slip_pct, direction,
                 )
-                # Notify on significant slippage (>50bps) — warns that market
-                # conditions aren't matching the scan.
-                if abs(slip_pct) >= 0.50:
+                # Notify only on ADVERSE slippage >50bps. Favorable slippage
+                # (we got a BETTER price than expected) doesn't need a scary
+                # "📉 ALERT" — the log line is sufficient. Fix 2026-07-23.
+                if slip_abs > 0 and slip_pct >= 0.50:
                     try:
                         notify._send(
-                            f"📉 <b>SLIPPAGE ALERT {ticker}</b>\n"
+                            f"📉 <b>Slippage warning {ticker}</b>\n"
                             f"Expected: ${price:.2f}\n"
                             f"Filled: ${filled_price:.2f} "
-                            f"({slip_pct:+.2f}%, {direction})"
+                            f"({slip_pct:+.2f}%, worse than expected)"
                         )
                     except Exception:
                         pass
@@ -1928,11 +1946,28 @@ class OrderManager:
                            "will retry via monitor after fill",
                            ticker, bracket["trailing_stop"].status,
                            bracket["limit_sell"].status)
-            notify.notify_error("Protection",
-                f"⚠️ {ticker}: Protective orders REJECTED after buy! "
-                f"Trail: {bracket['trailing_stop'].status}, "
-                f"Limit: {bracket['limit_sell'].status}. "
-                f"Monitor will auto-resubmit after fill.")
+            # sub-$2k tier reliably rejects the LMT sell leg — that's the
+            # KNOWN behavior handled by the monitor (TRAIL-only fallback).
+            # Downgrade "Error: Protection REJECTED" (scary) to informational
+            # for the known-good path where TRAIL is still active. If BOTH
+            # legs are inactive → keep the scary Error alert.
+            _trail_active = bracket["trailing_stop"].status not in ("Error", "Cancelled", "Inactive")
+            if _trail_active:
+                # KNOWN sub-$2k pattern — TRAIL will resubmit, LMT is optional
+                try:
+                    notify._send(
+                        f"ℹ️ <b>{ticker}: TRAIL-only mode</b>\n"
+                        f"LMT sell rejected (sub-$2k tier). "
+                        f"TRAIL active in OCA — monitor will finalize."
+                    )
+                except Exception:
+                    pass
+            else:
+                notify.notify_error("Protection",
+                    f"⚠️ {ticker}: Both protective legs REJECTED! "
+                    f"Trail: {bracket['trailing_stop'].status}, "
+                    f"Limit: {bracket['limit_sell'].status}. "
+                    f"Monitor will auto-resubmit after fill.")
 
         order_ids = {
             "buy": buy_result.order_id,
