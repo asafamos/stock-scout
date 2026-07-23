@@ -487,6 +487,8 @@ class OrderManager:
                 for r in (results or [])
             )
             pt_threshold = int(getattr(self.cfg, "adaptive_gates_pt_threshold", 3))
+            _rr_blocked = bool(getattr(self, "_adaptive_rr_blocked", False))
+            rr_threshold = int(getattr(self.cfg, "adaptive_gates_rr_threshold", 3))
             _msg = record_pipeline_outcome(
                 bought=bought_count,
                 confidence_dropped=_conf_blocked,
@@ -494,6 +496,8 @@ class OrderManager:
                 threshold=threshold,
                 analyst_pt_dropped=_pt_blocked,
                 analyst_pt_threshold=pt_threshold,
+                rr_dropped=_rr_blocked,
+                rr_threshold=rr_threshold,
             )
             if _msg:
                 try:
@@ -503,14 +507,18 @@ class OrderManager:
                 logger.info("Adaptive-gate: %s", _msg)
             self._adaptive_confidence_blocked = False
             self._adaptive_regime = ""
+            self._adaptive_rr_blocked = False
 
             # Detect activation: any flag flipped False → True this call.
             state_after = get_state()
+            was_rr_relaxed_before_local = bool(state_before.get("rr_relaxed_active"))
             activated = (
                 (not was_conf_relaxed_before
                  and bool(state_after.get("confidence_relaxed_active")))
                 or (not was_pt_relaxed_before
                     and bool(state_after.get("analyst_pt_relaxed_active")))
+                or (not was_rr_relaxed_before_local
+                    and bool(state_after.get("rr_relaxed_active")))
             )
             return activated
         except Exception as _ae:
@@ -915,12 +923,32 @@ class OrderManager:
         # RR WINDOW (2026-06-05 sweet spot 3.0-5.0). Pre-filter enforces both
         # bounds so the SSOT doesn't have to reject 7+ RR candidates after
         # they've consumed rank/iteration cycles.
+        #
+        # ADAPTIVE RR (task #145, 2026-07-23): if adaptive_gates has activated
+        # rr_relaxed_active (after N consecutive dry cycles blocked by RR),
+        # use a lowered floor for this cycle. Reset happens on any buy.
         _rr_max = float(getattr(self.cfg, "max_rr_to_trade", 0) or 0)
+        _min_rr_effective = float(self.cfg.min_rr_to_trade)
+        try:
+            if bool(getattr(self.cfg, "adaptive_gates_enabled", True)):
+                from core.trading.adaptive_gates import get_adaptive_rr_relaxed
+                if get_adaptive_rr_relaxed():
+                    _relaxed_floor = float(
+                        getattr(self.cfg, "adaptive_rr_relaxed_floor", 2.0)
+                    )
+                    if _relaxed_floor < _min_rr_effective:
+                        logger.info(
+                            "Adaptive RR ACTIVE — floor %.2f → %.2f for this cycle",
+                            _min_rr_effective, _relaxed_floor,
+                        )
+                        _min_rr_effective = _relaxed_floor
+        except Exception as _ae:
+            logger.debug("Adaptive RR lookup failed: %s", _ae)
 
         def _apply_rr(rr_vals):
             if _rr_max > 0:
-                return result[(rr_vals >= self.cfg.min_rr_to_trade) & (rr_vals <= _rr_max)]
-            return result[rr_vals >= self.cfg.min_rr_to_trade]
+                return result[(rr_vals >= _min_rr_effective) & (rr_vals <= _rr_max)]
+            return result[rr_vals >= _min_rr_effective]
 
         if "_effective_rr" in result.columns:
             rr_vals = pd.to_numeric(result["_effective_rr"], errors="coerce")
@@ -931,15 +959,18 @@ class OrderManager:
             if result.empty:
                 logger.info(
                     "No stocks pass effective-RR filter (window %.1f-%.1f)",
-                    self.cfg.min_rr_to_trade, _rr_max or 999,
+                    _min_rr_effective, _rr_max or 999,
                 )
+                # Track for adaptive RR — task #145
+                self._adaptive_rr_blocked = True
                 return result
         elif rr_col and rr_col in result.columns:
             rr_vals = pd.to_numeric(result[rr_col], errors="coerce")
             result = _apply_rr(rr_vals)
             if result.empty:
                 logger.info("No stocks pass RR filter (window %.1f-%.1f)",
-                            self.cfg.min_rr_to_trade, _rr_max or 999)
+                            _min_rr_effective, _rr_max or 999)
+                self._adaptive_rr_blocked = True
                 return result
 
         # ATR floor (NEW 2026-06-05) — volatility = opportunity.

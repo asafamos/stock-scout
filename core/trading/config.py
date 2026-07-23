@@ -217,6 +217,16 @@ class TradingConfig:
     adaptive_gates_pt_threshold: int = field(
         default_factory=lambda: _env_int("ADAPTIVE_GATES_PT_THRESHOLD", 3)
     )  # Lower — analyst PT already blocked 3+ cycles this week
+    # NEW 2026-07-23 task #145: adaptive RR gate.
+    # Observed 2026-07-23: MODERATE_UP + VIX 12 → all candidates RR 1.7-2.2,
+    # gate 2.5 blocked everything even with Confidence relaxed. After N=3
+    # consecutive dry cycles blocked by RR, temporarily lower floor to 2.0.
+    adaptive_gates_rr_threshold: int = field(
+        default_factory=lambda: _env_int("ADAPTIVE_GATES_RR_THRESHOLD", 3)
+    )
+    adaptive_rr_relaxed_floor: float = field(
+        default_factory=lambda: _env_float("ADAPTIVE_RR_RELAXED_FLOOR", 2.0)
+    )
     # NEW 2026-07-21: Sector Champion ranking bonus.
     # Validated on 402 real Supabase closes — Score×Sector cohorts with
     # WR>=70% and mean_ret>+2% (Energy 70-85, Technology 70-85, Healthcare
