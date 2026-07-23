@@ -225,6 +225,14 @@ class OrderManager:
         candidates = self._filter_candidates(scan_df)
         if candidates.empty:
             logger.info("No candidates passed filters")
+            # BUG FIX 2026-07-23: previously returned immediately, skipping the
+            # adaptive-gates recorder at line ~345. That meant when the
+            # confidence filter dropped everything (the exact case adaptive was
+            # designed for), the dry-streak counter never advanced, and adaptive
+            # never activated. Observed: streak stayed at 0 for 2+ days of dry
+            # cycles. Call the recorder here before returning so filter-only
+            # dry cycles count toward the streak.
+            self._record_adaptive_outcome(bought_count=0, results=[])
             return []
 
         logger.info("Candidates after filtering: %d", len(candidates))
@@ -337,42 +345,11 @@ class OrderManager:
             len(bought), len(skipped), len(failed),
         )
 
-        # NEW 2026-07-21: Adaptive gates. Feed pipeline outcome to the
-        # adaptive_gates tracker. It maintains a dry-streak counter and
-        # auto-relaxes Confidence to Medium in bullish regimes after N
-        # consecutive dry cycles blocked by Confidence.
-        # Env kill: TRADE_ADAPTIVE_GATES_ENABLED=0.
-        try:
-            if getattr(self.cfg, "adaptive_gates_enabled", True):
-                from core.trading.adaptive_gates import record_pipeline_outcome
-                _conf_blocked = bool(getattr(self, "_adaptive_confidence_blocked", False))
-                _regime_seen = getattr(self, "_adaptive_regime", "") or ""
-                threshold = int(getattr(self.cfg, "adaptive_gates_dry_threshold", 5))
-                # Detect analyst-PT block from skip reasons in results
-                _pt_blocked = any(
-                    "Analyst mean PT" in str(r.get("reason", "") or "")
-                    for r in results
-                )
-                pt_threshold = int(getattr(self.cfg, "adaptive_gates_pt_threshold", 3))
-                _msg = record_pipeline_outcome(
-                    bought=len(bought),
-                    confidence_dropped=_conf_blocked,
-                    regime=_regime_seen,
-                    threshold=threshold,
-                    analyst_pt_dropped=_pt_blocked,
-                    analyst_pt_threshold=pt_threshold,
-                )
-                if _msg:
-                    try:
-                        notify.notify_error("AdaptiveGates", _msg)
-                    except Exception:
-                        logger.info("Adaptive-gate state change (notify failed): %s", _msg)
-                    logger.info("Adaptive-gate: %s", _msg)
-                # Reset attributes on the instance for the next call
-                self._adaptive_confidence_blocked = False
-                self._adaptive_regime = ""
-        except Exception as _ae:
-            logger.warning("Adaptive gates recording failed: %s", _ae)
+        # NEW 2026-07-21: Adaptive gates recording (see _record_adaptive_outcome).
+        # Extracted 2026-07-23 so the early-return path (no candidates passed
+        # filters) can call it too — otherwise dry cycles blocked at the
+        # filter never counted toward the streak. Task #142.
+        self._record_adaptive_outcome(bought_count=len(bought), results=results)
 
         # Telegram notification
         notify.notify_scan_complete(
@@ -426,6 +403,48 @@ class OrderManager:
             logger.warning("Dry-cycle alert emit failed: %s", _dce)
 
         return results
+
+    def _record_adaptive_outcome(self, bought_count: int, results: List[Dict]) -> None:
+        """Feed pipeline outcome to the adaptive_gates tracker.
+
+        Called from BOTH the normal end-of-execute path AND the early-return
+        path (all candidates dropped by filters). Prior version only called
+        from the normal path; task #142 fixed the early-return miss that
+        caused the streak to stay at 0 for consecutive dry cycles.
+
+        Also resets the instance flag `_adaptive_confidence_blocked` so the
+        next call starts clean.
+        """
+        try:
+            if not getattr(self.cfg, "adaptive_gates_enabled", True):
+                return
+            from core.trading.adaptive_gates import record_pipeline_outcome
+            _conf_blocked = bool(getattr(self, "_adaptive_confidence_blocked", False))
+            _regime_seen = getattr(self, "_adaptive_regime", "") or ""
+            threshold = int(getattr(self.cfg, "adaptive_gates_dry_threshold", 5))
+            _pt_blocked = any(
+                "Analyst mean PT" in str(r.get("reason", "") or "")
+                for r in (results or [])
+            )
+            pt_threshold = int(getattr(self.cfg, "adaptive_gates_pt_threshold", 3))
+            _msg = record_pipeline_outcome(
+                bought=bought_count,
+                confidence_dropped=_conf_blocked,
+                regime=_regime_seen,
+                threshold=threshold,
+                analyst_pt_dropped=_pt_blocked,
+                analyst_pt_threshold=pt_threshold,
+            )
+            if _msg:
+                try:
+                    notify.notify_error("AdaptiveGates", _msg)
+                except Exception:
+                    logger.info("Adaptive-gate state change (notify failed): %s", _msg)
+                logger.info("Adaptive-gate: %s", _msg)
+            self._adaptive_confidence_blocked = False
+            self._adaptive_regime = ""
+        except Exception as _ae:
+            logger.warning("Adaptive gates recording failed: %s", _ae)
 
     def check_exits(self) -> List[Dict]:
         """Check open positions for target-date exits."""
