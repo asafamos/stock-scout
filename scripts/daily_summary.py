@@ -196,15 +196,29 @@ def build_summary(for_date: str = None) -> str:
                 f"  {emoji} {t.get('ticker')}: ${pnl:+.2f} <i>({reason})</i>"
             )
 
-    # Open positions
+    # Open positions — use tracker entry_price (execution, matches BUY alert)
+    # for display consistency. IB unrealized$ remains authoritative.
+    # See _load_tracker_entries() note in telegram_status_bot.py.
+    tracker_entries = {}
+    try:
+        _tp = Path(__file__).resolve().parents[1] / "data" / "trades" / "open_positions.json"
+        if _tp.exists():
+            tracker_entries = {r.get("ticker"): float(r.get("entry_price") or 0)
+                               for r in json.loads(_tp.read_text())
+                               if r.get("ticker")}
+    except Exception:
+        pass
+
     if portfolio:
         lines.append(f"\n<b>📦 Open Positions ({len(portfolio)}):</b>")
         un_emoji = "🟢" if unrealized_total >= 0 else "🔴"
         for p in portfolio:
-            pct = (p["unrealized"] / (p["avg_cost"] * abs(p["qty"])) * 100) if p["avg_cost"] else 0
+            entry = tracker_entries.get(p["ticker"]) or p["avg_cost"]
+            cost_basis = entry * abs(p["qty"])
+            pct = (p["unrealized"] / cost_basis * 100) if cost_basis else 0
             pe = "🟢" if p["unrealized"] >= 0 else "🔴"
             lines.append(
-                f"  {pe} {p['ticker']}: {int(p['qty'])} @ ${p['avg_cost']:.2f} "
+                f"  {pe} {p['ticker']}: {int(p['qty'])} @ ${entry:.2f} "
                 f"→ ${p['market_price']:.2f} ({pct:+.1f}%, ${p['unrealized']:+.2f})"
             )
         lines.append(f"  {un_emoji} <b>Total Unrealized: ${unrealized_total:+.2f}</b>")

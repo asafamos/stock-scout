@@ -133,6 +133,28 @@ def _market_session_label() -> str:
     return "🌙 Overnight (closed)"
 
 
+def _load_tracker_entry_prices() -> dict:
+    """Load {ticker: entry_price} from position tracker for display consistency.
+
+    IB's avgCost includes commission (~$1/order); tracker stores raw
+    execution price which is what the BUY alert shows and what users
+    remember. To keep the numbers in /status, /daily_summary, and BUY
+    alerts aligned, use tracker's entry_price as the displayed cost basis.
+    IB's unrealizedPNL remains the authoritative dollar value.
+    """
+    try:
+        from pathlib import Path
+        p = Path(__file__).resolve().parents[1] / "data" / "trades" / "open_positions.json"
+        if not p.exists():
+            return {}
+        positions = json.loads(p.read_text())
+        return {r.get("ticker"): float(r.get("entry_price") or 0)
+                for r in positions if r.get("ticker")}
+    except Exception as _e:
+        logger.debug("tracker entry_price load failed: %s", _e)
+        return {}
+
+
 def get_portfolio_status() -> str:
     """Get live portfolio status from IBKR."""
     try:
@@ -146,19 +168,26 @@ def get_portfolio_status() -> str:
             "",
         ]
 
-        # Positions
+        # Positions — use tracker entry_price (matches BUY alert) for display.
+        tracker_entries = _load_tracker_entry_prices()
         portfolio = ib.portfolio()
         total_pnl = 0.0
         total_cost = 0.0
         for p in portfolio:
             if p.position != 0:
                 pnl_emoji = "🟢" if p.unrealizedPNL >= 0 else "🔴"
-                # % change from cost basis (per position)
-                pos_cost = float(p.averageCost) * abs(int(p.position))
+                sym = p.contract.symbol
+                # Prefer tracker entry_price (execution, matches BUY alert)
+                # over IB avgCost (post-commission). Falls back to avgCost
+                # for positions not in tracker (e.g. pre-ledger manual buys).
+                entry = tracker_entries.get(sym) or float(p.averageCost)
+                qty = abs(int(p.position))
+                pos_cost = entry * qty
+                # PnL$ from IB (authoritative); pct on our entry basis.
                 pos_pct = (p.unrealizedPNL / pos_cost * 100) if pos_cost > 0 else 0.0
                 lines.append(
-                    f"{pnl_emoji} <b>{p.contract.symbol}</b>: "
-                    f"{int(p.position)} shares @ ${p.averageCost:.2f}\n"
+                    f"{pnl_emoji} <b>{sym}</b>: "
+                    f"{int(p.position)} shares @ ${entry:.2f}\n"
                     f"   Mkt: ${p.marketPrice:.2f} | "
                     f"PnL: ${p.unrealizedPNL:+.2f} ({pos_pct:+.2f}%)"
                 )
