@@ -54,21 +54,10 @@ def main() -> int:
             return 2
         positions = client.get_positions() or []
         n_pos = len(positions)
-        # Cash balance — use accountSummary tag "CashBalance" (base currency)
         try:
-            acc = client.ib.accountSummary()
-            cash = 0.0
-            for a in acc:
-                if a.tag in ("TotalCashValue", "CashBalance", "AvailableFunds"):
-                    try:
-                        cash = float(a.value)
-                    except Exception:
-                        pass
-                    if a.tag == "AvailableFunds":
-                        # AvailableFunds is the most conservative — prefer it
-                        break
+            cash = float(client.get_cash_balance() or 0.0)
         except Exception as _e:
-            print(f"IB_UNAVAILABLE:account_summary_failed:{_e}")
+            print(f"IB_UNAVAILABLE:cash_balance_failed:{_e}")
             return 2
     finally:
         try:
