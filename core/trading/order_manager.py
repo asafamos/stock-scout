@@ -417,18 +417,34 @@ class OrderManager:
                 # Top 5 by frequency
                 top = sorted(reason_counts.items(), key=lambda kv: -kv[1])[:5]
                 reasons_txt = "\n".join([f"  • {n}× {r}" for r, n in top]) or "  (no candidates reached evaluation)"
-                notify.notify_error(
-                    "DryCycle",
-                    (
-                        f"⚠️ Trade cycle: 0 bought.\n"
-                        f"Slots free: {slots_free}/{max_open}\n"
-                        f"Cash: ${cash_avail:.0f}\n"
-                        f"Candidates evaluated: {len(candidates)}, skipped: {len(skipped)}\n\n"
-                        f"Top skip reasons:\n{reasons_txt}"
-                    ),
+                # BUG FIX 2026-07-23: suppress DryCycle alert entirely in
+                # DRY_RUN mode. DryCycle is a "human attention needed"
+                # signal — it does not fire on simulations. When user runs
+                # `python -m scripts.run_auto_trade` on their laptop the
+                # scan-complete alert already carries the [DRY] tag; a
+                # second scary "0 bought Slots free 2/3 Cash $10000" from
+                # a DRY paper account only confused the user.
+                import os as _os
+                _is_dry = _os.getenv("TRADE_DRY_RUN", "1").strip() not in (
+                    "0", "false", "False", "no", "NO"
                 )
-                logger.info("Dry-cycle alert sent (slots=%d cash=%.0f skipped=%d)",
-                            slots_free, cash_avail, len(skipped))
+                if not _is_dry:
+                    notify.notify_error(
+                        "DryCycle",
+                        (
+                            f"⚠️ Trade cycle: 0 bought.\n"
+                            f"Slots free: {slots_free}/{max_open}\n"
+                            f"Cash: ${cash_avail:.0f}\n"
+                            f"Candidates evaluated: {len(candidates)}, skipped: {len(skipped)}\n\n"
+                            f"Top skip reasons:\n{reasons_txt}"
+                        ),
+                    )
+                    logger.info("Dry-cycle alert sent (slots=%d cash=%.0f skipped=%d)",
+                                slots_free, cash_avail, len(skipped))
+                else:
+                    logger.info("Dry-cycle alert SUPPRESSED (DRY_RUN): "
+                                "slots=%d cash=%.0f skipped=%d",
+                                slots_free, cash_avail, len(skipped))
         except Exception as _dce:
             logger.warning("Dry-cycle alert emit failed: %s", _dce)
 

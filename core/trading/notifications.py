@@ -208,8 +208,15 @@ def notify_sell(ticker: str, qty: int, price: float,
 
 
 def notify_scan_complete(total: int, candidates: int, bought: int):
+    # BUG FIX 2026-07-23: manual DRY_RUN runs were sending scan_complete +
+    # DryCycle alerts to Telegram that looked identical to real cycles,
+    # confusing the user (2026-07-23: "Cash: $10000" from paper account).
+    # Tag as [DRY] so context is unambiguous.
+    import os as _os
+    _dry = _os.getenv("TRADE_DRY_RUN", "1").strip() not in ("0", "false", "False", "no", "NO")
+    tag = "[DRY] " if _dry else ""
     _send(
-        f"<b>Scan Complete</b>\n"
+        f"<b>{tag}Scan Complete{' (Auto)' if not _dry else ''}</b>\n"
         f"  Scanned: {total} stocks\n"
         f"  Candidates: {candidates}\n"
         f"  Bought: {bought}"
