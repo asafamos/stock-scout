@@ -385,8 +385,20 @@ def evaluate_static_gates(
 
     # 7. RR window — Supabase backtest shows sweet spot [3.0, 5.0]
     #    RR 2.0-2.5 = -0.62%, RR 3-4 = +2.78%, RR 4-5 = +3.81%, RR 7-10 = +0.70%
+    # ADAPTIVE RR (task #145, 2026-07-23): honor adaptive_gates relax flag
+    # here too, otherwise the pre-filter would let a candidate through and
+    # then this SSOT would reject it — silent selection asymmetry.
     min_rr = float(getattr(cfg, "min_rr_to_trade", 3.0))
     max_rr = float(getattr(cfg, "max_rr_to_trade", 5.0))
+    try:
+        if bool(getattr(cfg, "adaptive_gates_enabled", True)):
+            from core.trading.adaptive_gates import get_adaptive_rr_relaxed
+            if get_adaptive_rr_relaxed():
+                _relaxed_floor = float(getattr(cfg, "adaptive_rr_relaxed_floor", 2.0))
+                if _relaxed_floor < min_rr:
+                    min_rr = _relaxed_floor
+    except Exception:
+        pass
     if rr < min_rr:
         failed.append(f"R:R {rr:.2f} < {min_rr:.2f}")
     elif max_rr > 0 and rr > max_rr:
