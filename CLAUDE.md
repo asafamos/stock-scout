@@ -172,6 +172,13 @@ Local `.env` has all 10 provider keys (FMP, POLYGON, FINNHUB, TIINGO, ALPHA_VANT
 - **Preflight skip (task #143)**: `scripts/preflight_pipeline.py` runs BEFORE GH Actions dispatch. If `n_positions >= MAX_OPEN_POSITIONS` OR `cash < min_viable_position_usd` → skip entire scan (saves ~45min compute × wasted-empty run). Kill switch: `TRADE_SKIP_WHEN_FULL=0`. If IB unreachable → PROCEED conservatively.
 - **Immediate re-eval after adaptive activation (task #144)**: when `_record_adaptive_outcome` newly-activates a relax flag (confidence or analyst_pt), the current run recursively retries `execute_recommendations(_adaptive_retry=True)` on the SAME scan_df. This catches candidates the just-relaxed gate would allow WITHOUT waiting 1-4h for the next pipeline. Max 1 retry per invocation (loop protection). See `core/trading/order_manager.py:execute_recommendations`.
 
+### Adaptive RR gate (NEW 2026-07-23 EOD, task #145)
+- Extends adaptive to the RR gate — same pattern as Confidence/Analyst PT.
+- After N=3 consecutive dry cycles blocked by RR filter, relax `min_rr_to_trade` from 2.5 to 2.0 for the next cycle.
+- Env: `ADAPTIVE_GATES_RR_THRESHOLD=3`, `ADAPTIVE_RR_RELAXED_FLOOR=2.0`.
+- **PATCHED 3 RR CHECK SITES** (critical for consistency): pre-filter in `_filter_candidates`, SSOT `policy.evaluate_static_gates`, defense-in-depth `risk_manager.can_open_position`. Missing any one → silent asymmetry.
+- Motivation: 2026-07-23 all 3 pipelines dry (Confidence + then RR blocked). MODERATE_UP + VIX 12 produces candidates with RR 1.7-2.2 — all rejected by 2.5 floor. Adaptive RR closed the gap. **Same day it deployed → 2 LIVE buys (DELL, PACS)** in the closing 5 min.
+
 ## How to Run Auto-Trade (Manual from Mac)
 ```bash
 # 1. Open IB Gateway 10.37 → Log in (Live Trading, IB API)
