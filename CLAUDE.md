@@ -162,6 +162,16 @@ Local `.env` has all 10 provider keys (FMP, POLYGON, FINNHUB, TIINGO, ALPHA_VANT
 - **Next step**: Run first LIVE trade from Mac → then move to VPS for 24/7 operation
 - **Scan loading**: order_manager auto-picks the most recent scan file (GH Actions parquet or Streamlit JSON) by modification time
 
+### VPS Pipeline schedule (3x weekday, documented rationale in stockscout-pipeline.timer)
+- **13:30 UTC / 09:30 ET / 16:30 IL** — Pipeline #1 (MARKET OPEN, overnight news reactions)
+- **15:00 UTC / 11:00 ET / 18:00 IL** — Pipeline #2 (OPENING RANGE BREAKOUT, highest-edge swing window)
+- **19:15 UTC / 15:15 ET / 22:15 IL** — Pipeline #3 (POWER HOUR, institutional flow + overnight gap potential)
+- Each pipeline: (1) preflight capacity check → (2) trigger GH Actions scan via repository_dispatch → (3) poll for new parquet (30s cadence, 150min max) → (4) run auto-trade → (5) record outcomes.
+
+### Pipeline efficiency + smart-retry (NEW 2026-07-23)
+- **Preflight skip (task #143)**: `scripts/preflight_pipeline.py` runs BEFORE GH Actions dispatch. If `n_positions >= MAX_OPEN_POSITIONS` OR `cash < min_viable_position_usd` → skip entire scan (saves ~45min compute × wasted-empty run). Kill switch: `TRADE_SKIP_WHEN_FULL=0`. If IB unreachable → PROCEED conservatively.
+- **Immediate re-eval after adaptive activation (task #144)**: when `_record_adaptive_outcome` newly-activates a relax flag (confidence or analyst_pt), the current run recursively retries `execute_recommendations(_adaptive_retry=True)` on the SAME scan_df. This catches candidates the just-relaxed gate would allow WITHOUT waiting 1-4h for the next pipeline. Max 1 retry per invocation (loop protection). See `core/trading/order_manager.py:execute_recommendations`.
+
 ## How to Run Auto-Trade (Manual from Mac)
 ```bash
 # 1. Open IB Gateway 10.37 → Log in (Live Trading, IB API)

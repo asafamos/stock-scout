@@ -86,6 +86,33 @@ if [ -n "${TRADE_TELEGRAM_TOKEN:-}" ] && [ -n "${TRADE_TELEGRAM_CHAT_ID:-}" ]; t
         >/dev/null 2>&1 || true
 fi
 
+# ─── Pre-flight capacity check (2026-07-23, task #143) ─────────────────
+# Skip triggering GH Actions if we have no free slots or no cash. This
+# saves ~45min of scan compute + IB API calls per empty pipeline. If IB
+# is unreachable we PROCEED conservatively (better a wasted scan than a
+# missed buy).
+# Kill switch: TRADE_SKIP_WHEN_FULL=0 disables the entire preflight.
+PREFLIGHT_OUT=$($PY -m scripts.preflight_pipeline 2>&1 || true)
+PREFLIGHT_RC=$?
+echo "Preflight: $PREFLIGHT_OUT"
+case "$PREFLIGHT_OUT" in
+    SKIP:*)
+        REASON="${PREFLIGHT_OUT#SKIP:}"
+        echo "Pipeline SKIPPED — $REASON"
+        TG_SEND "⏭️" "Pipeline SKIPPED (no capacity)" "Reason: <code>${REASON}</code>
+No GH Actions scan triggered, no compute wasted.
+Kill: <code>TRADE_SKIP_WHEN_FULL=0</code>"
+        exit 0
+        ;;
+    IB_UNAVAILABLE:*)
+        echo "Preflight inconclusive — IB unavailable. Proceeding conservatively."
+        # Fall through — better a wasted scan than a missed opportunity
+        ;;
+    PROCEED:*)
+        echo "Preflight OK — capacity available."
+        ;;
+esac
+
 # Snapshot the current scan parquet hash so we can detect a NEW one.
 # Fail-fast if the initial fetch fails — we must have a true baseline,
 # not "none", or the next successful fetch will trip the change detector

@@ -194,10 +194,15 @@ class OrderManager:
     def execute_recommendations(
         self,
         scan_df: Optional[pd.DataFrame] = None,
+        _adaptive_retry: bool = False,
     ) -> List[Dict]:
         """Main entry: read scan, filter, execute trades.
 
         Returns list of trade result dicts for logging/display.
+
+        `_adaptive_retry` (internal): set to True on the second call inside
+        the same pipeline run after adaptive gates ACTIVATED — see task #144.
+        Prevents recursion loops (max one retry per invocation).
         """
         logger.info("=" * 60)
         logger.info("AUTO-TRADE: Starting execution")
@@ -231,8 +236,19 @@ class OrderManager:
             # designed for), the dry-streak counter never advanced, and adaptive
             # never activated. Observed: streak stayed at 0 for 2+ days of dry
             # cycles. Call the recorder here before returning so filter-only
-            # dry cycles count toward the streak.
-            self._record_adaptive_outcome(bought_count=0, results=[])
+            # dry cycles count toward the streak. Task #142.
+            activated = self._record_adaptive_outcome(bought_count=0, results=[])
+            # TASK #144: if adaptive JUST activated this call, retry the SAME
+            # scan once with the freshly-relaxed state. Prevents waiting 1-4h
+            # for the next pipeline to benefit from the activation.
+            if activated and not _adaptive_retry:
+                logger.info(
+                    "Adaptive gates just activated — retrying filter+trade "
+                    "with relaxed state on the same scan"
+                )
+                return self.execute_recommendations(
+                    scan_df=scan_df, _adaptive_retry=True
+                )
             return []
 
         logger.info("Candidates after filtering: %d", len(candidates))
@@ -349,7 +365,21 @@ class OrderManager:
         # Extracted 2026-07-23 so the early-return path (no candidates passed
         # filters) can call it too — otherwise dry cycles blocked at the
         # filter never counted toward the streak. Task #142.
-        self._record_adaptive_outcome(bought_count=len(bought), results=results)
+        activated = self._record_adaptive_outcome(
+            bought_count=len(bought), results=results
+        )
+        # TASK #144: if adaptive JUST activated AND we bought nothing this
+        # round (evaluated candidates were all rejected, e.g. by analyst PT
+        # veto), retry the same scan once with the new relaxed state. Skip
+        # retry if we DID buy anything (streak reset, no relax active).
+        if activated and len(bought) == 0 and not _adaptive_retry:
+            logger.info(
+                "Adaptive gates just activated after eval — retrying same "
+                "scan with relaxed state"
+            )
+            return self.execute_recommendations(
+                scan_df=scan_df, _adaptive_retry=True
+            )
 
         # Telegram notification
         notify.notify_scan_complete(
@@ -404,7 +434,7 @@ class OrderManager:
 
         return results
 
-    def _record_adaptive_outcome(self, bought_count: int, results: List[Dict]) -> None:
+    def _record_adaptive_outcome(self, bought_count: int, results: List[Dict]) -> bool:
         """Feed pipeline outcome to the adaptive_gates tracker.
 
         Called from BOTH the normal end-of-execute path AND the early-return
@@ -414,11 +444,25 @@ class OrderManager:
 
         Also resets the instance flag `_adaptive_confidence_blocked` so the
         next call starts clean.
+
+        Returns:
+            True if adaptive activation happened this call (either flag
+            newly True) — signal to the caller that an immediate re-eval
+            with the freshly-relaxed state may catch a candidate that was
+            just blocked. See task #144.
         """
         try:
             if not getattr(self.cfg, "adaptive_gates_enabled", True):
-                return
-            from core.trading.adaptive_gates import record_pipeline_outcome
+                return False
+            from core.trading.adaptive_gates import (
+                record_pipeline_outcome, get_state,
+            )
+            # Snapshot state BEFORE recording so we can detect a same-call
+            # activation (state was False → became True).
+            state_before = get_state()
+            was_conf_relaxed_before = bool(state_before.get("confidence_relaxed_active"))
+            was_pt_relaxed_before = bool(state_before.get("analyst_pt_relaxed_active"))
+
             _conf_blocked = bool(getattr(self, "_adaptive_confidence_blocked", False))
             _regime_seen = getattr(self, "_adaptive_regime", "") or ""
             threshold = int(getattr(self.cfg, "adaptive_gates_dry_threshold", 5))
@@ -443,8 +487,19 @@ class OrderManager:
                 logger.info("Adaptive-gate: %s", _msg)
             self._adaptive_confidence_blocked = False
             self._adaptive_regime = ""
+
+            # Detect activation: any flag flipped False → True this call.
+            state_after = get_state()
+            activated = (
+                (not was_conf_relaxed_before
+                 and bool(state_after.get("confidence_relaxed_active")))
+                or (not was_pt_relaxed_before
+                    and bool(state_after.get("analyst_pt_relaxed_active")))
+            )
+            return activated
         except Exception as _ae:
             logger.warning("Adaptive gates recording failed: %s", _ae)
+            return False
 
     def check_exits(self) -> List[Dict]:
         """Check open positions for target-date exits."""
