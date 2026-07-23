@@ -1030,8 +1030,23 @@ class RiskManager:
             )
 
         # 7. R:R window (defense-in-depth; SSOT is evaluate_static_gates above)
-        if rr < self.cfg.min_rr_to_trade:
-            return False, f"R:R too low ({rr:.2f} < {self.cfg.min_rr_to_trade})"
+        # ADAPTIVE RR (task #145, 2026-07-23): mirror the SSOT relax logic
+        # so all three RR checks (pre-filter, SSOT, this defense-in-depth)
+        # agree on the effective floor. Without this, adaptive would let
+        # a candidate through the first two and this third layer would
+        # silently reject it.
+        _rr_floor = float(self.cfg.min_rr_to_trade)
+        try:
+            if bool(getattr(self.cfg, "adaptive_gates_enabled", True)):
+                from core.trading.adaptive_gates import get_adaptive_rr_relaxed
+                if get_adaptive_rr_relaxed():
+                    _relaxed = float(getattr(self.cfg, "adaptive_rr_relaxed_floor", 2.0))
+                    if _relaxed < _rr_floor:
+                        _rr_floor = _relaxed
+        except Exception:
+            pass
+        if rr < _rr_floor:
+            return False, f"R:R too low ({rr:.2f} < {_rr_floor})"
         _max_rr = float(getattr(self.cfg, "max_rr_to_trade", 0) or 0)
         if _max_rr > 0 and rr > _max_rr:
             return False, f"R:R too high ({rr:.2f} > {_max_rr:.2f} sweet-spot cap)"
