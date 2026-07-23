@@ -39,7 +39,7 @@ def main() -> int:
 
     try:
         from core.trading.config import CONFIG
-        from core.trading.ibkr_client import IBClient
+        from core.trading.ibkr_client import IBKRClient
     except Exception as e:
         print(f"IB_UNAVAILABLE:import_failed:{e}")
         return 2
@@ -47,7 +47,7 @@ def main() -> int:
     max_pos = int(getattr(CONFIG, "max_open_positions", 3) or 3)
     min_viable = float(getattr(CONFIG, "min_viable_position_usd", 30.0) or 30.0)
 
-    client = IBClient(CONFIG)
+    client = IBKRClient(CONFIG)
     try:
         if not client.connect():
             print("IB_UNAVAILABLE:connect_failed")
