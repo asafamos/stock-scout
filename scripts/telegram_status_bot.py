@@ -112,6 +112,27 @@ def get_updates(offset: int = 0) -> list:
     return []
 
 
+def _market_session_label() -> str:
+    """Return a short label for the current US market session.
+
+    Regular: 13:30-20:00 UTC. Pre-market: 08:00-13:30 UTC.
+    After-hours: 20:00-24:00 UTC (Mon-Fri). Weekend closed.
+    """
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    # weekday(): Mon=0, Sun=6. US markets closed Sat/Sun.
+    if now.weekday() >= 5:
+        return "🌙 Weekend (closed)"
+    minutes = now.hour * 60 + now.minute
+    if 480 <= minutes < 810:   # 08:00-13:30 UTC → pre-market
+        return "🌅 Pre-market"
+    if 810 <= minutes < 1200:  # 13:30-20:00 UTC → regular
+        return "🟢 Market OPEN"
+    if 1200 <= minutes < 1440:  # 20:00-24:00 UTC → after-hours
+        return "🌆 After-hours"
+    return "🌙 Overnight (closed)"
+
+
 def get_portfolio_status() -> str:
     """Get live portfolio status from IBKR."""
     try:
@@ -119,21 +140,30 @@ def get_portfolio_status() -> str:
         ib = IB()
         ib.connect("127.0.0.1", 7496, clientId=99, timeout=10)
 
-        lines = ["<b>📊 Portfolio Status</b>\n"]
+        lines = [
+            "<b>📊 Portfolio Status</b>",
+            _market_session_label(),
+            "",
+        ]
 
         # Positions
         portfolio = ib.portfolio()
         total_pnl = 0.0
+        total_cost = 0.0
         for p in portfolio:
             if p.position != 0:
                 pnl_emoji = "🟢" if p.unrealizedPNL >= 0 else "🔴"
+                # % change from cost basis (per position)
+                pos_cost = float(p.averageCost) * abs(int(p.position))
+                pos_pct = (p.unrealizedPNL / pos_cost * 100) if pos_cost > 0 else 0.0
                 lines.append(
                     f"{pnl_emoji} <b>{p.contract.symbol}</b>: "
                     f"{int(p.position)} shares @ ${p.averageCost:.2f}\n"
                     f"   Mkt: ${p.marketPrice:.2f} | "
-                    f"PnL: ${p.unrealizedPNL:+.2f}"
+                    f"PnL: ${p.unrealizedPNL:+.2f} ({pos_pct:+.2f}%)"
                 )
                 total_pnl += p.unrealizedPNL
+                total_cost += pos_cost
 
         if not any(p.position != 0 for p in portfolio):
             lines.append("No open positions")
@@ -221,7 +251,10 @@ def get_portfolio_status() -> str:
                 lines.append(f"💵 Cash: ${float(item.value):,.2f}")
 
         pnl_emoji = "🟢" if total_pnl >= 0 else "🔴"
-        lines.append(f"{pnl_emoji} Total PnL: ${total_pnl:+.2f}")
+        total_pct = (total_pnl / total_cost * 100) if total_cost > 0 else 0.0
+        lines.append(
+            f"{pnl_emoji} Total PnL: ${total_pnl:+.2f} ({total_pct:+.2f}%)"
+        )
 
         ib.disconnect()
         return "\n".join(lines)
