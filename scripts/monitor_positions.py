@@ -487,17 +487,51 @@ def run_check():
                                                reason=f"after_close_{ticker}")
                     else:
                         # Gone from IB but no SELL execution surfaced this
-                        # cycle — the fill was ingested in a prior cycle
+                        # cycle. The fill was ingested in a PRIOR cycle
                         # (P&L already in the ledger) or it's a manual move.
-                        # Still call drop_metadata to clean up stale row.
-                        # No exit_price/pnl → no attribution row (nothing
-                        # to attribute without exit info).
-                        tracker.drop_metadata(ticker)
-                        logger.info(
-                            "%s gone from IB, no new SELL exec this cycle — "
-                            "metadata dropped (P&L, if any, is in ledger)",
-                            ticker,
-                        )
+                        # BUG FIX 2026-07-24 (VG): previously called
+                        # drop_metadata() without notify_sell — so a fill
+                        # ingested one cycle before close-detection (the
+                        # common case when trail fires between cycles) got
+                        # NO Telegram sell alert. Look up the last SELL
+                        # execution from the ledger and use it for the
+                        # notification + attribution.
+                        try:
+                            from core.trading import ledger as _lg
+                            _sells = [
+                                r for r in _lg.load()
+                                if r.get("ticker") == ticker
+                                and r.get("side") == "SELL"
+                            ]
+                            if _sells:
+                                _last = _sells[-1]
+                                _xp = float(_last.get("price") or 0.0)
+                                _rp = float(_last.get("realized_pnl") or 0.0)
+                                tracker.drop_metadata(
+                                    ticker, exit_price=_xp,
+                                    realized_pnl=_rp, reason=reason,
+                                )
+                                notify.notify_sell(
+                                    ticker, pos["quantity"], _xp, reason, _rp,
+                                )
+                                logger.info(
+                                    "%s: alerted from prior-cycle SELL (price=%.2f pnl=%+.2f)",
+                                    ticker, _xp, _rp,
+                                )
+                            else:
+                                # Truly no SELL in ledger — manual move or
+                                # data gap. Clean up silently.
+                                tracker.drop_metadata(ticker)
+                                logger.warning(
+                                    "%s gone from IB and NO SELL in ledger — "
+                                    "metadata dropped (manual move?)", ticker,
+                                )
+                        except Exception as _le:
+                            tracker.drop_metadata(ticker)
+                            logger.warning(
+                                "%s close-alert lookup failed: %s — metadata dropped",
+                                ticker, _le,
+                            )
                         _try_opportunistic_buy(client, tracker, notify,
                                                reason=f"after_close_{ticker}")
 
