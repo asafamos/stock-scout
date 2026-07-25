@@ -1,41 +1,41 @@
 Feature Importance Report
-Generated: 2026-07-24 03:07:01
+Generated: 2026-07-25 03:12:01
 ============================================================
 
-Training Date: 2026-07-24 03:06:50
+Training Date: 2026-07-25 03:11:49
 Total Features: 10
-Total Training Samples: 131201
+Total Training Samples: 131379
 CV Folds: 5
-Mean OOS AUC: 0.6038 ± 0.0679
-Mean P@20: 34.0%
+Mean OOS AUC: 0.5999 ± 0.0677
+Mean P@20: 31.0%
 
 ============================================================
 📊 FEATURE IMPORTANCE ANALYSIS
 ============================================================
 
 🔹 Permutation Importance (AUC-based, Top 15):
-   ATR_Pct                      +0.0499 ± 0.0021 █████████
-   Distance_From_52w_Low        +0.0220 ± 0.0032 ████
-   Consolidation_Tightness      +0.0178 ± 0.0011 ███
-   MA50_Slope                   +0.0146 ± 0.0013 ██
-   RS_vs_SPY_20d                +0.0047 ± 0.0013 
-   Momentum_Acceleration        +0.0006 ± 0.0003 
-   Tightness_Ratio              +0.0003 ± 0.0004 
-   RSI_Delta_5d                 -0.0002 ± 0.0004 
-   Support_Strength             -0.0011 ± 0.0011 
-   Distance_To_Resistance       -0.0014 ± 0.0003 
+   ATR_Pct                      +0.0440 ± 0.0021 ████████
+   Consolidation_Tightness      +0.0251 ± 0.0011 █████
+   Distance_From_52w_Low        +0.0136 ± 0.0016 ██
+   MA50_Slope                   +0.0113 ± 0.0018 ██
+   RS_vs_SPY_20d                +0.0078 ± 0.0011 █
+   Distance_To_Resistance       +0.0021 ± 0.0004 
+   Support_Strength             +0.0008 ± 0.0010 
+   Momentum_Acceleration        -0.0001 ± 0.0005 
+   Tightness_Ratio              -0.0006 ± 0.0004 
+   RSI_Delta_5d                 -0.0006 ± 0.0003 
 
-⚠️  Harmful features (negative importance, consider removing): ['RSI_Delta_5d', 'Support_Strength', 'Distance_To_Resistance']
+⚠️  Harmful features (negative importance, consider removing): ['Momentum_Acceleration', 'Tightness_Ratio', 'RSI_Delta_5d']
 
 🔹 Feature Importance Tiers:
    🥇 High impact (≥0.01):     4 features
-   🥈 Medium impact (0.005-0.01): 0 features
+   🥈 Medium impact (0.005-0.01): 1 features
    🥉 Low impact (0.001-0.005):   1 features
-   ❌ Negligible (<0.001):       5 features
+   ❌ Negligible (<0.001):       4 features
 
 ✅ No highly correlated features found (threshold=0.95)
 
-Recommended Features (10): ['ATR_Pct', 'Distance_From_52w_Low', 'Consolidation_Tightness', 'MA50_Slope', 'RS_vs_SPY_20d', 'Momentum_Acceleration', 'Tightness_Ratio', 'RSI_Delta_5d', 'Support_Strength', 'Distance_To_Resistance']
+Recommended Features (10): ['ATR_Pct', 'Consolidation_Tightness', 'Distance_From_52w_Low', 'MA50_Slope', 'RS_vs_SPY_20d', 'Distance_To_Resistance', 'Support_Strength', 'Momentum_Acceleration', 'Tightness_Ratio', 'RSI_Delta_5d']
 Candidates for Removal (0): []
 
 
@@ -45,13 +45,13 @@ FULL PERMUTATION IMPORTANCE TABLE
 
 Feature                          Importance        Std
 -------------------------------------------------------
-ATR_Pct                           +0.049868   0.002138
-Distance_From_52w_Low             +0.022040   0.003177
-Consolidation_Tightness           +0.017826   0.001130
-MA50_Slope                        +0.014583   0.001253
-RS_vs_SPY_20d                     +0.004683   0.001275
-Momentum_Acceleration             +0.000551   0.000263
-Tightness_Ratio                   +0.000311   0.000435
-RSI_Delta_5d                      -0.000234   0.000440
-Support_Strength                  -0.001082   0.001114
-Distance_To_Resistance            -0.001388   0.000324
+ATR_Pct                           +0.043980   0.002126
+Consolidation_Tightness           +0.025061   0.001137
+Distance_From_52w_Low             +0.013636   0.001621
+MA50_Slope                        +0.011310   0.001840
+RS_vs_SPY_20d                     +0.007769   0.001110
+Distance_To_Resistance            +0.002102   0.000442
+Support_Strength                  +0.000761   0.001010
+Momentum_Acceleration             -0.000099   0.000456
+Tightness_Ratio                   -0.000619   0.000448
+RSI_Delta_5d                      -0.000639   0.000321
