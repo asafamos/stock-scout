@@ -267,6 +267,16 @@ class IBKRClient:
         try:
             positions = []
             for p in self._ib.positions():
+                # BUG FIX 2026-08-04: IB keeps returning closed positions
+                # with position=0 (residual entry from earlier that day).
+                # Monitor's close-detection uses `ticker not in ibkr_positions`
+                # as the "gone" test; zero-quantity entries made monitor
+                # think we still held sold tickers → tracker never dropped
+                # PACS after its 08-03 sell → DRIFT alerts + no re-buy of
+                # the freed slot for 24 hours. Filter zero-qty here so the
+                # dict only contains ACTUAL holdings.
+                if p.position == 0:
+                    continue
                 positions.append(Position(
                     ticker=p.contract.symbol,
                     quantity=p.position,
