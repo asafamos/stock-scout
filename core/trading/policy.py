@@ -408,8 +408,20 @@ def evaluate_static_gates(
 
     # 8. ML window — Supabase backtest shows sweet spot [0.40, 0.55]
     #    ML 0.20-0.30 = -1.16%, ML 0.45-0.50 = +5.07% (BEST), ML 0.55-0.60 = -4.33%
+    # ADAPTIVE ML (task #146, 2026-08-05): honor adaptive_gates relax flag
+    # so pre-filter, SSOT, and risk_manager agree. Opt-in via
+    # TRADE_ADAPTIVE_ML_ENABLED=1 (reader-side).
     min_ml = float(getattr(cfg, "min_ml_prob", 0.40))
     max_ml = float(getattr(cfg, "max_ml_prob", 0.55))
+    try:
+        if bool(getattr(cfg, "adaptive_gates_enabled", True)):
+            from core.trading.adaptive_gates import get_adaptive_ml_relaxed
+            if get_adaptive_ml_relaxed():
+                _relaxed_floor = float(getattr(cfg, "adaptive_ml_relaxed_floor", 0.35))
+                if _relaxed_floor < min_ml:
+                    min_ml = _relaxed_floor
+    except Exception:
+        pass
     if ml_prob < min_ml:
         failed.append(f"ML {ml_prob:.3f} < {min_ml:.3f}")
     elif max_ml > 0 and ml_prob > max_ml:

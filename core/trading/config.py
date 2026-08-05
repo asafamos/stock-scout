@@ -227,6 +227,18 @@ class TradingConfig:
     adaptive_rr_relaxed_floor: float = field(
         default_factory=lambda: _env_float("ADAPTIVE_RR_RELAXED_FLOOR", 2.0)
     )
+    # NEW 2026-08-05 task #146: adaptive ML gate.
+    # Observed 2026-08-05: MODERATE_UP low-vol → all top-10 candidates had
+    # ML 0.31-0.37, blocked by 0.40 floor. Threshold=5 (higher than RR=3)
+    # because ML is a stronger signal to respect. Floor relax 0.40→0.35.
+    # DEFAULT OFF via env: activation gated by TRADE_ADAPTIVE_ML_ENABLED=1.
+    # Streak tracking still runs for observability even when relax is off.
+    adaptive_gates_ml_threshold: int = field(
+        default_factory=lambda: _env_int("ADAPTIVE_GATES_ML_THRESHOLD", 5)
+    )
+    adaptive_ml_relaxed_floor: float = field(
+        default_factory=lambda: _env_float("ADAPTIVE_ML_RELAXED_FLOOR", 0.35)
+    )
     # NEW 2026-07-21: Sector Champion ranking bonus.
     # Validated on 402 real Supabase closes — Score×Sector cohorts with
     # WR>=70% and mean_ret>+2% (Energy 70-85, Technology 70-85, Healthcare

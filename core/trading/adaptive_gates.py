@@ -47,6 +47,15 @@ _DEFAULTS = {
     "rr_dry_streak": 0,
     "rr_relaxed_active": False,
     "rr_relaxed_since": "",
+    # ML gate (added 2026-08-05 — task #146). Same low-vol MODERATE_UP
+    # pattern: today's top-10 candidates had ML prob 0.31-0.37, all below
+    # 0.4 floor. Adaptive covers this like RR — after N=5 dry cycles blocked
+    # by ML, relax floor 0.40 → 0.35. Threshold is HIGHER (5 vs 3 for RR)
+    # because ML confidence is a stronger signal to respect. DEFAULT OFF —
+    # requires TRADE_ADAPTIVE_ML_ENABLED=1 env to activate.
+    "ml_dry_streak": 0,
+    "ml_relaxed_active": False,
+    "ml_relaxed_since": "",
 }
 
 # Regimes where Medium confidence is defensible (macro tailwind compensates
@@ -96,6 +105,22 @@ def get_adaptive_rr_relaxed() -> bool:
     return _load().get("rr_relaxed_active", False)
 
 
+def get_adaptive_ml_relaxed() -> bool:
+    """True if the ML gate should be relaxed to 0.35 (from 0.40) right now.
+
+    Called from order_manager's ML filter, policy.evaluate_static_gates,
+    and risk_manager.can_open_position (defense-in-depth trio). Reads
+    state only — no side effects. Activated after N consecutive cycles
+    blocked by ML filter. GATED BY TRADE_ADAPTIVE_ML_ENABLED env: if
+    that's not set to 1, always returns False (recorder still tracks
+    streaks for observability, but the relax flag stays inert). Task #146.
+    """
+    import os as _os
+    if _os.getenv("TRADE_ADAPTIVE_ML_ENABLED", "0").strip() not in ("1", "true", "True", "yes", "YES"):
+        return False
+    return _load().get("ml_relaxed_active", False)
+
+
 def get_adaptive_analyst_pt_relaxed() -> bool:
     """True if the analyst PT veto should switch to SOFT MODE right now.
 
@@ -118,6 +143,8 @@ def record_pipeline_outcome(
     analyst_pt_threshold: int = 3,
     rr_dropped: bool = False,
     rr_threshold: int = 3,
+    ml_dropped: bool = False,
+    ml_threshold: int = 5,
 ) -> Optional[str]:
     """Called at the end of every auto-trade pipeline. Updates streak state.
 
@@ -142,6 +169,9 @@ def record_pipeline_outcome(
     old_rr_relaxed = bool(state.get("rr_relaxed_active", False))
     old_rr_streak = int(state.get("rr_dry_streak", 0))
 
+    old_ml_relaxed = bool(state.get("ml_relaxed_active", False))
+    old_ml_streak = int(state.get("ml_dry_streak", 0))
+
     # Any buy → reset ALL streaks. This is the strongest signal gates are OK.
     if bought > 0:
         changes = []
@@ -158,6 +188,10 @@ def record_pipeline_outcome(
             state["rr_dry_streak"] = 0
             state["rr_relaxed_active"] = False
             changes.append(f"RR streak was {old_rr_streak}, relax was {'ON' if old_rr_relaxed else 'OFF'}")
+        if old_ml_streak > 0 or old_ml_relaxed:
+            state["ml_dry_streak"] = 0
+            state["ml_relaxed_active"] = False
+            changes.append(f"ML streak was {old_ml_streak}, relax was {'ON' if old_ml_relaxed else 'OFF'}")
         if changes:
             _save(state)
             return (
@@ -169,7 +203,7 @@ def record_pipeline_outcome(
 
     # 0 buys and NOTHING gate-blocked → nothing to do (rare — maybe all skipped by
     # gap/slippage/other). Skip all trackers.
-    if not confidence_dropped and not analyst_pt_dropped and not rr_dropped:
+    if not confidence_dropped and not analyst_pt_dropped and not rr_dropped and not ml_dropped:
         return None
 
     is_bullish = regime.upper() in _BULLISH_REGIMES
@@ -257,12 +291,42 @@ def record_pipeline_outcome(
                 f"Next dry cycle → auto-relax RR floor 2.5 → 2.0."
             )
 
+    # ── ML dry-streak (independent of other gates) ──
+    # Task #146 — 2026-08-05: ML gate blocked all 10 top-scoring candidates
+    # today (ML 0.31-0.37, floor 0.40). Adaptive extension covers it
+    # symmetrically. IMPORTANT: activation is gated by env
+    # TRADE_ADAPTIVE_ML_ENABLED=1 in the READER (get_adaptive_ml_relaxed).
+    # Streak tracking runs unconditionally for observability; the actual
+    # gate relaxation is opt-in.
+    ml_msg = None
+    if ml_dropped:
+        new_ml_streak = old_ml_streak + 1
+        state["ml_dry_streak"] = new_ml_streak
+        if new_ml_streak >= ml_threshold and not old_ml_relaxed:
+            state["ml_relaxed_active"] = True
+            state["ml_relaxed_since"] = datetime.now(timezone.utc).isoformat()
+            import os as _os_ml
+            _ml_env_on = _os_ml.getenv("TRADE_ADAPTIVE_ML_ENABLED", "0").strip() in ("1", "true", "True", "yes", "YES")
+            ml_msg = (
+                f"🔓 Adaptive gate ACTIVATED (ML)\n"
+                f"{new_ml_streak} consecutive dry cycles blocked by ML filter.\n"
+                f"{'✅ Relaxing min_ml_prob from 0.40 → 0.35 for next cycle.' if _ml_env_on else '⚠️ OBSERVED ONLY — env TRADE_ADAPTIVE_ML_ENABLED=0 (opt-in). Set to 1 to activate relax.'}\n"
+                f"Will reset on any successful buy. "
+                f"Kill: TRADE_ADAPTIVE_GATES_ENABLED=0."
+            )
+        elif new_ml_streak == ml_threshold - 1 and not old_ml_relaxed:
+            ml_msg = (
+                f"⏳ Adaptive gate PRE-WARN (ML)\n"
+                f"{new_ml_streak}/{ml_threshold} cycles blocked by ML filter.\n"
+                f"Next dry cycle → ACTIVATE (relax only if TRADE_ADAPTIVE_ML_ENABLED=1)."
+            )
+
     # Persist state changes (streaks and relax flags) regardless of whether
     # a message was generated — this cycle happened and must be recorded.
     _save(state)
 
     # Combine messages (any combination could move in the same cycle).
-    parts = [m for m in [msg, pt_msg, rr_msg] if m]
+    parts = [m for m in [msg, pt_msg, rr_msg, ml_msg] if m]
     combined = "\n\n".join(parts) if parts else None
     return combined
 

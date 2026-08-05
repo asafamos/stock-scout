@@ -499,6 +499,8 @@ class OrderManager:
             pt_threshold = int(getattr(self.cfg, "adaptive_gates_pt_threshold", 3))
             _rr_blocked = bool(getattr(self, "_adaptive_rr_blocked", False))
             rr_threshold = int(getattr(self.cfg, "adaptive_gates_rr_threshold", 3))
+            _ml_blocked = bool(getattr(self, "_adaptive_ml_blocked", False))
+            ml_threshold = int(getattr(self.cfg, "adaptive_gates_ml_threshold", 5))
             _msg = record_pipeline_outcome(
                 bought=bought_count,
                 confidence_dropped=_conf_blocked,
@@ -508,6 +510,8 @@ class OrderManager:
                 analyst_pt_threshold=pt_threshold,
                 rr_dropped=_rr_blocked,
                 rr_threshold=rr_threshold,
+                ml_dropped=_ml_blocked,
+                ml_threshold=ml_threshold,
             )
             if _msg:
                 # RESET messages (any successful buy) are positive events —
@@ -525,10 +529,12 @@ class OrderManager:
             self._adaptive_confidence_blocked = False
             self._adaptive_regime = ""
             self._adaptive_rr_blocked = False
+            self._adaptive_ml_blocked = False
 
             # Detect activation: any flag flipped False → True this call.
             state_after = get_state()
             was_rr_relaxed_before_local = bool(state_before.get("rr_relaxed_active"))
+            was_ml_relaxed_before_local = bool(state_before.get("ml_relaxed_active"))
             activated = (
                 (not was_conf_relaxed_before
                  and bool(state_after.get("confidence_relaxed_active")))
@@ -536,6 +542,8 @@ class OrderManager:
                     and bool(state_after.get("analyst_pt_relaxed_active")))
                 or (not was_rr_relaxed_before_local
                     and bool(state_after.get("rr_relaxed_active")))
+                or (not was_ml_relaxed_before_local
+                    and bool(state_after.get("ml_relaxed_active")))
             )
             return activated
         except Exception as _ae:
@@ -862,21 +870,43 @@ class OrderManager:
         # Pre-filter now enforces BOTH bounds so we don't waste rank/iteration
         # cycles on candidates the SSOT (policy.evaluate_static_gates) will
         # ultimately reject for ML > max_ml_prob.
+        #
+        # ADAPTIVE ML (task #146, 2026-08-05): mirrors adaptive RR pattern.
+        # After N consecutive cycles blocked by ML, relax floor 0.40 → 0.35
+        # if env TRADE_ADAPTIVE_ML_ENABLED=1. Streak is tracked regardless
+        # (observability); actual floor-relax is opt-in.
         if ml_col and ml_col in result.columns:
             ml_vals = pd.to_numeric(result[ml_col], errors="coerce")
             before = len(result)
             _ml_max = float(getattr(self.cfg, "max_ml_prob", 0) or 0)
+            _ml_min = float(self.cfg.min_ml_prob)
+            try:
+                if bool(getattr(self.cfg, "adaptive_gates_enabled", True)):
+                    from core.trading.adaptive_gates import get_adaptive_ml_relaxed
+                    if get_adaptive_ml_relaxed():
+                        _relaxed = float(getattr(self.cfg, "adaptive_ml_relaxed_floor", 0.35))
+                        if _relaxed < _ml_min:
+                            logger.info(
+                                "Adaptive ML ACTIVE — floor %.2f → %.2f for this cycle",
+                                _ml_min, _relaxed,
+                            )
+                            _ml_min = _relaxed
+            except Exception as _ae:
+                logger.debug("Adaptive ML lookup failed: %s", _ae)
+
             if _ml_max > 0:
-                result = result[(ml_vals >= self.cfg.min_ml_prob) & (ml_vals <= _ml_max)]
+                result = result[(ml_vals >= _ml_min) & (ml_vals <= _ml_max)]
             else:
-                result = result[ml_vals >= self.cfg.min_ml_prob]
+                result = result[ml_vals >= _ml_min]
             dropped = before - len(result)
             if dropped:
-                _label = f"{self.cfg.min_ml_prob}-{_ml_max}" if _ml_max > 0 else f">={self.cfg.min_ml_prob}"
+                _label = f"{_ml_min}-{_ml_max}" if _ml_max > 0 else f">={_ml_min}"
                 logger.info("ML filter dropped %d stocks (window %s)", dropped, _label)
             if result.empty:
                 logger.info("No stocks pass ML filter (window %s)",
-                            f"{self.cfg.min_ml_prob}-{_ml_max}" if _ml_max > 0 else f">={self.cfg.min_ml_prob}")
+                            f"{_ml_min}-{_ml_max}" if _ml_max > 0 else f">={_ml_min}")
+                # Track for adaptive ML — task #146
+                self._adaptive_ml_blocked = True
                 return result
 
         # Sector blocklist filter
