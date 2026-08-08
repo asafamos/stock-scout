@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "last_updated": "2026-08-08T20:59:17.376960+00:00",
+  "broadcast_seq": 254497,
+  "pipeline": {
+    "state": "idle",
+    "last_fire": null,
+    "last_outcome": null
+  },
+  "positions": [
+    {
+      "ticker": "AAL",
+      "qty": 18,
+      "entry": 16.32,
+      "mkt": 15.94,
+      "pnl_pct": -2.3,
+      "pnl_abs": -6.75,
+      "peak_pct": 0.0,
+      "trail_pct": 9.0,
+      "target": 18.89,
+      "opened_at": "2026-08-06",
+      "earnings_date": "2026-10-22",
+      "days_to_earnings": 75
+    },
+    {
+      "ticker": "FRSH",
+      "qty": 25,
+      "entry": 11.62,
+      "mkt": 11.79,
+      "pnl_pct": 1.46,
+      "pnl_abs": 4.25,
+      "peak_pct": 3.15,
+      "trail_pct": 9.0,
+      "target": 13.54,
+      "opened_at": "2026-08-06",
+      "earnings_date": "2026-11-03",
+      "days_to_earnings": 87
+    },
+    {
+      "ticker": "FTNT",
+      "qty": 1,
+      "entry": 160.44,
+      "mkt": 159.73,
+      "pnl_pct": -0.44,
+      "pnl_abs": -0.71,
+      "peak_pct": 2.09,
+      "trail_pct": 9.0,
+      "target": 182.91,
+      "opened_at": "2026-08-06",
+      "earnings_date": "2026-11-04",
+      "days_to_earnings": 88
+    }
+  ],
+  "trade_log_today": [],
+  "ledger_summary": {
+    "today_realized": 0.0,
+    "lifetime_realized": null,
+    "trades_today": 0,
+    "reconciliation_delta": null,
+    "ledger_total": -143.09,
+    "pre_ledger_baseline": 0.0
+  },
+  "system_health": {
+    "stockscout-monitor": true,
+    "stockscout-pipeline.timer": true,
+    "stockscout-statusbot": true,
+    "stockscout-healthcheck.timer": true,
+    "stockscout-daily-summary.timer": true,
+    "stockscout-command-poller": true,
+    "ibgateway": true,
+    "all_active": true,
+    "scan_age_hours": 52.7,
+    "outcomes_age_days": 2,
+    "pipeline_next_fire": "2026-08-10T13:30:00+00:00"
+  },
+  "account": {
+    "net_liquidation": 827.58,
+    "cash": 86.18,
+    "tier": "sub_2k",
+    "snapshot_age_minutes": 0.2
+  },
+  "throttle": {
+    "active": false,
+    "level": "inactive",
+    "win_rate": 0.8,
+    "size_multiplier": 1.0,
+    "trades_in_window": 10
+  }
+}
