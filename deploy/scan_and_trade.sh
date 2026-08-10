@@ -86,30 +86,40 @@ if [ -n "${TRADE_TELEGRAM_TOKEN:-}" ] && [ -n "${TRADE_TELEGRAM_CHAT_ID:-}" ]; t
         >/dev/null 2>&1 || true
 fi
 
-# ─── Pre-flight capacity check (2026-07-23, task #143) ─────────────────
-# Skip triggering GH Actions if we have no free slots or no cash. This
-# saves ~45min of scan compute + IB API calls per empty pipeline. If IB
-# is unreachable we PROCEED conservatively (better a wasted scan than a
-# missed buy).
-# Kill switch: TRADE_SKIP_WHEN_FULL=0 disables the entire preflight.
+# ─── Pre-flight capacity check (2026-07-23, task #143 — MODE UPDATE 2026-08-08) ──
+# Sets PIPELINE_MODE to TRADE_ENABLED or SCAN_ONLY.
+#
+# 2026-08-08 fix: previously "SKIP" exited immediately with no scan → no
+# outcomes recorded → ML feedback loop broken after 4 days of full portfolio.
+# New behavior: SCAN_ONLY mode still triggers GH Actions scan + records
+# outcomes to pending_scans.jsonl for ML training, but SKIPS the actual
+# auto-trade at the end. Compute is spent (~45min GH Actions) but ML data
+# keeps flowing.
+#
+# Kill switch: TRADE_SKIP_WHEN_FULL=0 disables the entire preflight
+# (always TRADE_ENABLED).
+PIPELINE_MODE="TRADE_ENABLED"
 PREFLIGHT_OUT=$($PY -m scripts.preflight_pipeline 2>&1 || true)
 PREFLIGHT_RC=$?
 echo "Preflight: $PREFLIGHT_OUT"
 case "$PREFLIGHT_OUT" in
     SKIP:*)
         REASON="${PREFLIGHT_OUT#SKIP:}"
-        echo "Pipeline SKIPPED — $REASON"
-        TG_SEND "⏭️" "Pipeline SKIPPED (no capacity)" "Reason: <code>${REASON}</code>
-No GH Actions scan triggered, no compute wasted.
+        PIPELINE_MODE="SCAN_ONLY"
+        echo "Pipeline mode: SCAN_ONLY — $REASON"
+        echo "  → GH Actions scan will run for ML data collection"
+        echo "  → auto-trade will be skipped at end"
+        TG_SEND "🔬" "Pipeline SCAN_ONLY mode" "Reason: <code>${REASON}</code>
+Scan + outcomes recording continue (ML feedback loop).
+Auto-trade skipped — no capacity.
 Kill: <code>TRADE_SKIP_WHEN_FULL=0</code>"
-        exit 0
+        # Do NOT exit — continue below to trigger scan + record outcomes
         ;;
     IB_UNAVAILABLE:*)
-        echo "Preflight inconclusive — IB unavailable. Proceeding conservatively."
-        # Fall through — better a wasted scan than a missed opportunity
+        echo "Preflight inconclusive — IB unavailable. Proceeding TRADE_ENABLED conservatively."
         ;;
     PROCEED:*)
-        echo "Preflight OK — capacity available."
+        echo "Preflight OK — capacity available (TRADE_ENABLED)."
         ;;
 esac
 
@@ -338,9 +348,19 @@ except Exception:
     MAX_OPEN=${TRADE_MAX_OPEN_POSITIONS:-2}
     if [ "$OPEN_COUNT" -ge "$MAX_OPEN" ] 2>/dev/null; then
         echo "Pre-eval: already at $OPEN_COUNT/$MAX_OPEN open — skipping trade evaluator (would reject all)"
-        TG_SEND "⏭" "Scan: capacity full ($OPEN_COUNT/$MAX_OPEN)" "Trade eval skipped — no slot for new positions until one closes."
+        TG_SEND "⏭" "Scan+record OK, trade skipped ($OPEN_COUNT/$MAX_OPEN full)" "Scan ran, outcomes recorded (ML feedback intact).
+Trade eval skipped — no free slot until a position closes."
         CAPACITY_SKIP=1
     fi
+fi
+
+# 2026-08-08 addition: honor PIPELINE_MODE=SCAN_ONLY from preflight.
+# Even if the post-scan CAPACITY_SKIP wouldn't trip (e.g. a position
+# just closed intra-cycle), we respect the initial capacity decision to
+# preserve the atomic "one-scan-per-buy" idempotency the ledger relies on.
+if [ "${PIPELINE_MODE:-TRADE_ENABLED}" = "SCAN_ONLY" ]; then
+    echo "PIPELINE_MODE=SCAN_ONLY (set at preflight) — enforcing trade skip"
+    CAPACITY_SKIP=1
 fi
 
 if [ "$CAPACITY_SKIP" -eq 0 ]; then
