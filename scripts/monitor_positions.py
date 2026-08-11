@@ -2150,7 +2150,7 @@ def _day_n_momentum_kill(tracker, client, ibkr_orders, notify):
     for pos in positions:
         ticker = pos["ticker"]
         if pos.get("day_n_kill_fired_at"):
-            continue  # already killed once
+            continue  # already killed successfully
 
         # Age
         opened_iso = pos.get("opened_at") or pos.get("entry_time") or ""
@@ -2164,6 +2164,20 @@ def _day_n_momentum_kill(tracker, client, ibkr_orders, notify):
         days_held = (now - opened_dt).total_seconds() / 86400.0
         if days_held < cutoff:
             continue
+
+        # BUG FIX 2026-08-11: retry cooldown to avoid hammering IB every 5min
+        # on persistent sub-$2k tier rejects. Only wait 30min between attempts.
+        last_attempt_iso = pos.get("day_n_kill_last_attempt_at", "")
+        if last_attempt_iso:
+            try:
+                last_attempt_dt = _dt.fromisoformat(last_attempt_iso.replace("Z", "+00:00"))
+                if last_attempt_dt.tzinfo is None:
+                    last_attempt_dt = last_attempt_dt.replace(tzinfo=_tz.utc)
+                mins_since_attempt = (now - last_attempt_dt).total_seconds() / 60.0
+                if mins_since_attempt < 30:
+                    continue  # still in cooldown
+            except Exception:
+                pass
 
         # Peak gain
         entry = float(pos.get("entry_price", 0) or 0)
@@ -2192,14 +2206,6 @@ def _day_n_momentum_kill(tracker, client, ibkr_orders, notify):
             ticker, days_held, peak_gain_pct, min_gain,
         )
 
-        # Mark fired FIRST so any concurrent cycle doesn't double-fire
-        pos["day_n_kill_fired_at"] = now.isoformat()
-        any_changed = True
-        try:
-            tracker._save_positions(positions)
-        except Exception:
-            pass
-
         # Try normal sell first
         result = None
         try:
@@ -2223,6 +2229,12 @@ def _day_n_momentum_kill(tracker, client, ibkr_orders, notify):
                 logger.error("DAY-N KILL %s: fallback exc: %s", ticker, _fe)
 
         if exit_price > 0:
+            # BUG FIX 2026-08-11: mark fired ONLY on success. Previously
+            # marked BEFORE sell attempt — sub-$2k LMT rejects then left
+            # position "fired but not sold" forever (3 positions Aug 10).
+            # Monitor is single-instance (systemd), no concurrent races.
+            pos["day_n_kill_fired_at"] = now.isoformat()
+            any_changed = True
             pnl = (exit_price - entry) * qty
             try:
                 tracker.remove_position(ticker, exit_price, "day_n_kill")
@@ -2242,15 +2254,21 @@ def _day_n_momentum_kill(tracker, client, ibkr_orders, notify):
             except Exception:
                 pass
         else:
+            # Sell FAILED — leave day_n_kill_fired_at UNSET so next cycle retries.
+            # Cooldown via a lightweight "last-attempt" stamp so we don't spam
+            # IB every 5min on a persistent rejection; retry no more than every 30min.
+            last_attempt = pos.get("day_n_kill_last_attempt_at")
+            pos["day_n_kill_last_attempt_at"] = now.isoformat()
+            any_changed = True
             status = getattr(result, "status", "?") if result else "no_result"
-            logger.warning("DAY-N KILL %s: sell status=%s — will retry next cycle",
+            logger.warning("DAY-N KILL %s: sell status=%s — will retry (30min cooldown)",
                            ticker, status)
             try:
                 notify.notify_error(
                     "DayNKill",
                     f"⏰ Day-{cutoff:.0f} kill {ticker} — sell rejected ({status}). "
                     f"Position age {days_held:.1f}d, peak +{peak_gain_pct:.2f}%. "
-                    f"TRAIL still protects; will retry."
+                    f"TRAIL still protects; will retry every 30min."
                 )
             except Exception:
                 pass
