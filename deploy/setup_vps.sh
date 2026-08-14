@@ -421,6 +421,34 @@ Persistent=true
 WantedBy=timers.target
 SVCEOF
 
+# --- Weekly followup auto-verify audit (Fri 05:00 UTC = 08:00 IL) ---
+# Runs verifiers over data/followups.json and auto-closes items whose
+# success criterion is met on live state. Prevents the 'deployed and
+# forgot' pattern (see project_bugfixes_aug14 memory for context).
+sudo tee /etc/systemd/system/stockscout-followup-audit.service > /dev/null << 'SVCEOF'
+[Unit]
+Description=StockScout weekly followup auto-verify audit
+
+[Service]
+Type=oneshot
+User=stockscout
+WorkingDirectory=/home/stockscout/stock-scout-2
+EnvironmentFile=/home/stockscout/stock-scout-2/.env.trading
+ExecStart=/home/stockscout/stock-scout-2/.venv/bin/python -m scripts.weekly_followup_audit
+SVCEOF
+
+sudo tee /etc/systemd/system/stockscout-followup-audit.timer > /dev/null << 'SVCEOF'
+[Unit]
+Description=StockScout weekly followup audit timer (Fri 05:00 UTC = 08:00 IL)
+
+[Timer]
+OnCalendar=Fri *-*-* 05:00:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+SVCEOF
+
 # --- Command Poller (long-running, polls every 15s) ---
 # Watches the `commands` branch on GitHub for entries appended by the
 # command_dispatch.yml workflow (which fires on Streamlit dispatch
@@ -500,6 +528,8 @@ echo "  6. Enable automation:   sudo systemctl enable --now stockscout-pipeline.
 echo "                          sudo systemctl enable --now stockscout-monitor"
 echo "                          sudo systemctl enable --now stockscout-healthcheck.timer"
 echo "                          sudo systemctl enable --now stockscout-telegram-bot"
+echo "                          sudo systemctl enable --now stockscout-daily-summary.timer"
+echo "                          sudo systemctl enable --now stockscout-followup-audit.timer"
 echo ""
 echo "Monitoring:"
 echo "  journalctl -u stockscout-pipeline -f"
