@@ -1212,15 +1212,38 @@ def train_and_save_bundle():
     # Check for correlated features
     _, report_lines = remove_correlated_features(full_df, features, threshold=0.95, report_lines=report_lines)
     
-    # Recommend feature selection
-    selected_features, removed_features = select_top_features(importance_df, threshold=0.001, min_features=20)
+    # Recommend feature selection. min_features lowered from 20 → 5 on
+    # 2026-08-14: the 20 floor was a stale v3.6-era constant (23 features)
+    # that defeated the threshold=0.001 filter after we shrank to 10 features
+    # in v3.9. Result: 4 permutation-negative features (Distance_From_52w_Low
+    # -0.016, Support_Strength, Tightness_Ratio, RSI_Delta_5d) were retained
+    # for 5+ weeks despite the nightly report flagging them. Setting to 5
+    # lets threshold drop harmful features naturally while keeping enough
+    # diversity for ensemble stability. Reversible: raise min_features here.
+    selected_features, removed_features = select_top_features(importance_df, threshold=0.001, min_features=5)
     report_lines.append(f"\nRecommended Features ({len(selected_features)}): {selected_features}")
     report_lines.append(f"Candidates for Removal ({len(removed_features)}): {removed_features}")
     
     # Save report
     report_path = MODELS_DIR / "feature_importance_report.txt"
     save_feature_importance_report(report_lines, importance_df, report_path)
-    
+
+    # ── APPLY feature selection to the FINAL trained model (was recommendation-only) ──
+    # Added 2026-08-14. Prior behavior: report listed removed features but
+    # the final model still trained on all inputs — 4 harmful features
+    # (Distance_From_52w_Low -0.016, Support_Strength, Tightness_Ratio,
+    # RSI_Delta_5d) lingered for 5+ weeks despite nightly reports flagging
+    # them. Now: refit X to reduced set BEFORE final calibrated training.
+    # Note: CV metrics above still reflect FULL feature set — the chicken-
+    # and-egg is intentional (we need importance to select). Bundle +
+    # metadata below record the actual features trained on, so downstream
+    # inference (ml/inference.py, feature_pipeline.py) uses the reduced set.
+    if removed_features and len(selected_features) >= 5:
+        print(f"\n🔄 Applying feature selection: {len(features)} → {len(selected_features)} features")
+        print(f"   Removed: {removed_features}")
+        features = selected_features
+        X = full_df[features]
+
     # 5. Train final model with probability calibration
     # Split: 80% for training, 20% for calibration (preserving time order)
     print("\n🧠 Training final model with probability calibration...")
