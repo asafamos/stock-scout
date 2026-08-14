@@ -1466,11 +1466,35 @@ def _take_partial_profit(tracker, client, notify):
     eligible tiers — same place because both are partial sells with
     the same day-trade and account-tier safety constraints.
     """
+    import os
     from core.trading.config import CONFIG
 
     positions = tracker.get_open_positions()
     if not positions:
         return
+
+    # SUB-$2K SUPPRESSION (added 2026-08-14). LADDER/partial submit
+    # standalone SELL orders that IB rejects sub-$2k with Error 201 /
+    # Cancelled_LimitUnfilled_SubTier every ratchet cycle. See
+    # [[sub-2k-tier-lockout]] — 31,856 rejects Apr–Jul. Positions are
+    # already protected server-side by the OCA TRAIL; the retry loop
+    # is pure log/alert noise. Auto-lifts when NetLiq crosses $2k.
+    # Env kill: TRADE_LADDER_SUBTIER_SUPPRESS=0 restores retry-and-fail.
+    _suppress = os.getenv("TRADE_LADDER_SUBTIER_SUPPRESS", "1") not in ("0", "false", "False", "")
+    if _suppress:
+        try:
+            _net_liq = float(client.get_net_liquidation() or 0)
+        except Exception:
+            _net_liq = 0.0  # fail-closed: treat as sub-2k
+        if _net_liq and _net_liq < 2000:
+            if _cooldown_ok(("ladder_subtier_suppress",), _ALERT_COOLDOWN, 86400):
+                logger.info(
+                    "LADDER/partial suppressed: account $%.0f < $2k tier — "
+                    "OCA TRAIL protects instead. TRADE_LADDER_SUBTIER_SUPPRESS=0 "
+                    "to restore retry-and-fail behavior.",
+                    _net_liq,
+                )
+            return
 
     # ACCOUNT-TIER-AWARE PRE-MARKET GUARD (added 2026-05-05).
     # Sub-$2k cash accounts get rejected by IB Error 201 on partial-sell
