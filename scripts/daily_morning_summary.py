@@ -30,9 +30,11 @@ TRADE_LOG = ROOT / "data" / "trades" / "trade_log.json"
 PORTFOLIO_SNAPSHOT = ROOT / "data" / "trades" / "portfolio_snapshot.json"
 SCAN_PARQUET = ROOT / "data" / "scans" / "latest_scan.parquet"
 PENDING_SCANS = ROOT / "data" / "outcomes" / "pending_scans.jsonl"
+FOLLOWUPS = ROOT / "data" / "followups.json"
 
 OUTCOMES_STALE_DAYS = 3   # alert if no new records in 3 trading days
 SCAN_STALE_HOURS = 36     # alert if scan parquet older than 36h
+FOLLOWUP_MAX_ITEMS = 5    # cap panel size to keep Telegram msg scannable
 
 
 def _read_json(path: Path, default=None):
@@ -99,6 +101,67 @@ def _todays_pl(positions, today_iso: str) -> tuple[float, int]:
     ]
     pnl = sum((t.get("pnl") or 0) for t in closes)
     return pnl, len(closes)
+
+
+def _followups_panel() -> list[str]:
+    """Render active followups from data/followups.json as Telegram-safe lines.
+
+    Prevents the 'deployed and forgot' pattern that let 4 harmful ML features
+    linger 5+ weeks and Day-N Kill spam accumulate. Every morning the user
+    sees what's outstanding + how many days until/since the check date.
+
+    - 🔴 overdue (delta days < 0) — leads section, sorted by most overdue
+    - 🟡 within 3 days
+    - 🟢 more than 3 days out
+    - closed items are hidden
+
+    Fail-silent: if the file is missing or malformed, return [] so the daily
+    health message still renders normally.
+    """
+    data = _read_json(FOLLOWUPS, default=None)
+    if not data or not isinstance(data, dict):
+        return []
+    items = data.get("items", []) or []
+    today = date.today()
+
+    rendered = []
+    for it in items:
+        if it.get("status") == "closed":
+            continue
+        due_str = it.get("due_date", "")
+        try:
+            due = date.fromisoformat(due_str)
+        except (ValueError, TypeError):
+            continue
+        delta = (due - today).days
+        desc = it.get("description", "?")
+        action = it.get("action", "")
+        if delta < 0:
+            emoji, when = "🔴", f"{-delta}d overdue"
+        elif delta <= 3:
+            emoji, when = "🟡", f"{delta}d away"
+        else:
+            emoji, when = "🟢", f"{delta}d away"
+        rendered.append({"delta": delta, "emoji": emoji, "when": when,
+                          "desc": desc, "action": action})
+
+    if not rendered:
+        return []
+
+    # Overdue first, then soonest — priority to user attention
+    rendered.sort(key=lambda x: (x["delta"] >= 0, x["delta"]))
+
+    lines = [f"\n<b>📋 Followups ({len(rendered)}):</b>"]
+    truncated = rendered[:FOLLOWUP_MAX_ITEMS]
+    for it in truncated:
+        lines.append(f"  {it['emoji']} {it['desc']} — {it['when']}")
+        if it['action']:
+            # italicize action so it visually recedes from the summary line
+            lines.append(f"      <i>{it['action']}</i>")
+    hidden = len(rendered) - len(truncated)
+    if hidden > 0:
+        lines.append(f"  <i>...+{hidden} more (see data/followups.json)</i>")
+    return lines
 
 
 def _last_trading_day(d: date) -> date:
@@ -204,6 +267,12 @@ def build_summary() -> str:
             f"\n<b>📈 Yesterday:</b> {closes_y} close(s), realized "
             f"P&L ${pnl_y:+.2f}"
         )
+
+    # ── Followups (deployed items awaiting verification) ────────
+    # Added 2026-08-14 to break the 'deployed and forgot' pattern that
+    # let 4 harmful ML features linger 5+ weeks. Overdue items lead
+    # the panel; the user sees them before the account/tier line.
+    lines.extend(_followups_panel())
 
     # ── Account + tier ──────────────────────────────────────────
     if net_liq > 0 or cash > 0:

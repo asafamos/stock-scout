@@ -1,0 +1,49 @@
+{
+  "_readme": "Rolling followup tracker for StockScout. Read by scripts/daily_morning_summary.py and scripts/weekly_followup_audit.py. Edit this file to add/close/update items. Auto-rendered in daily Telegram health panel + weekly audit.",
+  "_fields": {
+    "id": "kebab-case unique",
+    "description": "one-line, shown in panel",
+    "due_date": "YYYY-MM-DD when to check",
+    "action": "one-line, what to verify",
+    "status": "open | closed",
+    "closed_date": "YYYY-MM-DD (only when status=closed)",
+    "closed_note": "why closed / what was verified"
+  },
+  "items": [
+    {
+      "id": "ml-training-aug14",
+      "description": "ML training v3.9-reduced (5-feature model)",
+      "due_date": "2026-08-14",
+      "action": "Check AUC + feature_list after 17:07 UTC run. Rollback to model_20d_v3_20260814_0251.pkl if AUC drops > 0.02.",
+      "status": "open"
+    },
+    {
+      "id": "positions-close-aug24",
+      "description": "3 open positions target_date",
+      "due_date": "2026-08-24",
+      "action": "AAL/FRSH/FTNT expected to auto-close via TRAIL by target_date. Verify SELL alerts fired (VG silent-bug fixed).",
+      "status": "open"
+    },
+    {
+      "id": "analyst-pt-resolution-aug24",
+      "description": "Analyst PT records enter resolved outcomes",
+      "due_date": "2026-08-24",
+      "action": "grep -c '\"analyst_mean_pt\"' data/outcomes/scan_outcomes.jsonl should exceed 145. Enables PT veto backtest.",
+      "status": "open"
+    },
+    {
+      "id": "post-freeze-10close-review",
+      "description": "Post-freeze 10-close honest review (Aug 8 OVERDUE)",
+      "due_date": "2026-08-25",
+      "action": "Auto-close mean-return vs pre-freeze. Decide: keep / deploy Trail-by-vol (roadmap #2) / other.",
+      "status": "open"
+    },
+    {
+      "id": "ladder-suppress-verify",
+      "description": "LADDER suppression works in prod (first ratchet event ≥ +10% peak)",
+      "due_date": "2026-08-31",
+      "action": "journalctl monitor | grep ladder — no ERROR lines, one INFO 'suppressed' per day.",
+      "status": "open"
+    }
+  ]
+}
