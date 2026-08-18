@@ -1647,7 +1647,76 @@ def train_and_save_bundle():
     print(f"✅ Model saved to: {path}")
     print(f"🗂️  Latest bundle written to: {latest_dir}")
     print(f"🏆 Out-of-Sample AUC: {bundle['metrics']['oos_auc_mean']:.4f} ± {bundle['metrics']['oos_auc_std']:.4f}")
-    
+
+    # ── Model quality tracking (added 2026-08-18) ──────────────────────
+    # Append one entry per training to data/ml_history.jsonl. Enables:
+    #   1. Session-start audit: "AUC trending vs last N trainings?"
+    #   2. Regression alert: Telegram if AUC drops > 0.02 from prior.
+    # Motivation: we discovered on 2026-08-14 that 4 harmful features had
+    # lingered in the model for 5+ weeks with no visibility. Nightly report
+    # existed but nobody watched it. This creates a persistent time-series
+    # + surface anomalies proactively. Freeze-neutral (monitoring only).
+    try:
+        import json as _json
+        history_dir = Path("data")
+        history_dir.mkdir(parents=True, exist_ok=True)
+        history_path = history_dir / "ml_history.jsonl"
+
+        history_entry = {
+            "trained_at": timestamp,
+            "feature_version": bundle.get("feature_version", "unknown"),
+            "feature_count": len(features),
+            "feature_list": features,
+            "auc_mean": float(bundle["metrics"]["oos_auc_mean"]),
+            "auc_std": float(bundle["metrics"]["oos_auc_std"]),
+            "p20_mean": float(bundle["metrics"]["precision_at_20_mean"]),
+            "p50_mean": float(bundle["metrics"]["precision_at_50_mean"]),
+            "insample_auc": float(bundle["metrics"].get("insample_auc", 0.0)),
+            "samples": len(X),
+        }
+
+        # Read the last entry (if any) for regression check BEFORE we append
+        prev_entry = None
+        if history_path.exists():
+            try:
+                lines = history_path.read_text().strip().splitlines()
+                if lines:
+                    prev_entry = _json.loads(lines[-1])
+            except Exception:
+                pass
+
+        # Append the new entry (atomic-enough for a single-line JSON append)
+        with open(history_path, "a", encoding="utf-8") as fh:
+            fh.write(_json.dumps(history_entry) + "\n")
+
+        # Regression alert: AUC dropped > 0.02 vs previous training
+        if prev_entry:
+            prev_auc = float(prev_entry.get("auc_mean", 0.0) or 0.0)
+            new_auc = history_entry["auc_mean"]
+            delta = new_auc - prev_auc
+            if prev_auc > 0 and delta < -0.02:
+                try:
+                    from core.trading.notifications import _send
+                    msg = (
+                        f"⚠️ <b>ML AUC REGRESSION</b>\n"
+                        f"AUC: {prev_auc:.4f} → {new_auc:.4f} (Δ{delta:+.4f})\n"
+                        f"Features: {prev_entry.get('feature_count', '?')} → {len(features)}\n"
+                        f"Trained: {timestamp}\n\n"
+                        f"Consider rollback:\n"
+                        f"cp models/model_20d_v3_{prev_entry.get('trained_at','?')}.pkl "
+                        f"models/model_20d_v3.pkl"
+                    )
+                    _send(msg)
+                    print(f"⚠️  Telegram: sent AUC regression alert ({delta:+.4f})")
+                except Exception as _e:
+                    print(f"⚠️  AUC regression Telegram failed: {_e}")
+            elif prev_auc > 0:
+                print(f"📈 AUC delta vs previous training: {delta:+.4f} "
+                      f"({prev_auc:.4f} → {new_auc:.4f})")
+    except Exception as _e:
+        # Never let history-logging failure block the training pipeline
+        print(f"⚠️  ml_history logging failed (non-fatal): {_e}")
+
     return path, bundle
 
 if __name__ == "__main__":
