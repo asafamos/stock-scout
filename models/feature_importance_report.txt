@@ -1,42 +1,42 @@
 Feature Importance Report
-Generated: 2026-08-19 02:33:00
+Generated: 2026-08-20 02:34:33
 ============================================================
 
-Training Date: 2026-08-19 02:32:49
+Training Date: 2026-08-20 02:34:23
 Total Features: 10
-Total Training Samples: 130279
+Total Training Samples: 130985
 CV Folds: 5
-Mean OOS AUC: 0.5850 ± 0.0630
-Mean P@20: 45.0%
+Mean OOS AUC: 0.5859 ± 0.0594
+Mean P@20: 44.0%
 
 ============================================================
 📊 FEATURE IMPORTANCE ANALYSIS
 ============================================================
 
 🔹 Permutation Importance (AUC-based, Top 15):
-   ATR_Pct                      +0.0243 ± 0.0024 ████
-   Consolidation_Tightness      +0.0120 ± 0.0017 ██
-   MA50_Slope                   +0.0055 ± 0.0009 █
-   RS_vs_SPY_20d                +0.0042 ± 0.0011 
-   Distance_To_Resistance       +0.0010 ± 0.0005 
-   RSI_Delta_5d                 -0.0005 ± 0.0002 
-   Momentum_Acceleration        -0.0011 ± 0.0004 
-   Tightness_Ratio              -0.0027 ± 0.0006 
-   Support_Strength             -0.0058 ± 0.0008 
-   Distance_From_52w_Low        -0.0162 ± 0.0018 
+   ATR_Pct                      +0.0238 ± 0.0027 ████
+   Consolidation_Tightness      +0.0149 ± 0.0023 ██
+   MA50_Slope                   +0.0124 ± 0.0007 ██
+   RS_vs_SPY_20d                +0.0047 ± 0.0012 
+   Distance_To_Resistance       +0.0046 ± 0.0003 
+   Momentum_Acceleration        -0.0003 ± 0.0002 
+   RSI_Delta_5d                 -0.0013 ± 0.0004 
+   Tightness_Ratio              -0.0028 ± 0.0007 
+   Support_Strength             -0.0042 ± 0.0012 
+   Distance_From_52w_Low        -0.0098 ± 0.0018 
 
-⚠️  Harmful features (negative importance, consider removing): ['RSI_Delta_5d', 'Momentum_Acceleration', 'Tightness_Ratio', 'Support_Strength', 'Distance_From_52w_Low']
+⚠️  Harmful features (negative importance, consider removing): ['Momentum_Acceleration', 'RSI_Delta_5d', 'Tightness_Ratio', 'Support_Strength', 'Distance_From_52w_Low']
 
 🔹 Feature Importance Tiers:
-   🥇 High impact (≥0.01):     2 features
-   🥈 Medium impact (0.005-0.01): 1 features
+   🥇 High impact (≥0.01):     3 features
+   🥈 Medium impact (0.005-0.01): 0 features
    🥉 Low impact (0.001-0.005):   2 features
    ❌ Negligible (<0.001):       5 features
 
 ✅ No highly correlated features found (threshold=0.95)
 
 Recommended Features (5): ['ATR_Pct', 'Consolidation_Tightness', 'MA50_Slope', 'RS_vs_SPY_20d', 'Distance_To_Resistance']
-Candidates for Removal (5): ['RSI_Delta_5d', 'Momentum_Acceleration', 'Tightness_Ratio', 'Support_Strength', 'Distance_From_52w_Low']
+Candidates for Removal (5): ['Momentum_Acceleration', 'RSI_Delta_5d', 'Tightness_Ratio', 'Support_Strength', 'Distance_From_52w_Low']
 
 
 ============================================================
@@ -45,13 +45,13 @@ FULL PERMUTATION IMPORTANCE TABLE
 
 Feature                          Importance        Std
 -------------------------------------------------------
-ATR_Pct                           +0.024258   0.002361
-Consolidation_Tightness           +0.011964   0.001651
-MA50_Slope                        +0.005547   0.000888
-RS_vs_SPY_20d                     +0.004239   0.001117
-Distance_To_Resistance            +0.001048   0.000471
-RSI_Delta_5d                      -0.000483   0.000219
-Momentum_Acceleration             -0.001084   0.000404
-Tightness_Ratio                   -0.002742   0.000646
-Support_Strength                  -0.005789   0.000847
-Distance_From_52w_Low             -0.016159   0.001844
+ATR_Pct                           +0.023764   0.002669
+Consolidation_Tightness           +0.014874   0.002265
+MA50_Slope                        +0.012438   0.000691
+RS_vs_SPY_20d                     +0.004651   0.001245
+Distance_To_Resistance            +0.004639   0.000296
+Momentum_Acceleration             -0.000269   0.000202
+RSI_Delta_5d                      -0.001340   0.000432
+Tightness_Ratio                   -0.002775   0.000673
+Support_Strength                  -0.004215   0.001186
+Distance_From_52w_Low             -0.009833   0.001821
