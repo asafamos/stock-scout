@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "last_updated": "2026-08-22T22:59:50.402660+00:00",
+  "broadcast_seq": 291455,
+  "pipeline": {
+    "state": "idle",
+    "last_fire": null,
+    "last_outcome": null
+  },
+  "positions": [
+    {
+      "ticker": "FRSH",
+      "qty": 25,
+      "entry": 11.62,
+      "mkt": 12.97,
+      "pnl_pct": 11.62,
+      "pnl_abs": 33.75,
+      "peak_pct": 13.55,
+      "trail_pct": 5.0,
+      "target": 13.54,
+      "opened_at": "2026-08-06",
+      "earnings_date": "2026-11-03",
+      "days_to_earnings": 73
+    }
+  ],
+  "trade_log_today": [],
+  "ledger_summary": {
+    "today_realized": 0.0,
+    "lifetime_realized": null,
+    "trades_today": 0,
+    "reconciliation_delta": null,
+    "ledger_total": -177.36,
+    "pre_ledger_baseline": 0.0
+  },
+  "system_health": {
+    "stockscout-monitor": true,
+    "stockscout-pipeline.timer": true,
+    "stockscout-statusbot": true,
+    "stockscout-healthcheck.timer": true,
+    "stockscout-daily-summary.timer": true,
+    "stockscout-command-poller": true,
+    "ibgateway": true,
+    "all_active": true,
+    "scan_age_hours": 26.9,
+    "outcomes_age_days": 1,
+    "pipeline_next_fire": "2026-08-24T13:30:00+00:00"
+  },
+  "account": {
+    "net_liquidation": 832.26,
+    "cash": 508.01,
+    "tier": "sub_2k",
+    "snapshot_age_minutes": 0.4
+  },
+  "throttle": {
+    "active": false,
+    "level": "inactive",
+    "win_rate": 0.8,
+    "size_multiplier": 1.0,
+    "trades_in_window": 10
+  }
+}
