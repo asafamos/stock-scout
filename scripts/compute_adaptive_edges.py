@@ -16,7 +16,7 @@ Safeguards:
 - BASELINE preserved: falls back to hardcoded config if adaptive file missing
 - HISTORY: keeps last 30 edge snapshots for audit/rollback
 - APPROVAL_MODE: default is 'report_only' (writes recommendations but code still uses hardcoded).
-  Set ADAPTIVE_EDGES_APPLY=1 in .env.trading to actually apply.
+  Set TRADE_ADAPTIVE_EDGES_APPLY=1 in .env.trading to actually apply.
 
 Runs nightly via systemd timer (see deploy/setup_vps.sh).
 """
@@ -293,7 +293,7 @@ def main():
     print(f"  rr_cap recommended: {edges['rr_cap']['recommended_cap']}")
 
     # Telegram digest if changes are significant
-    apply = os.getenv("ADAPTIVE_EDGES_APPLY", "0") in ("1", "true", "yes")
+    apply = os.getenv("TRADE_ADAPTIVE_EDGES_APPLY", "0") in ("1", "true", "yes")
     mode = "APPLY" if apply else "REPORT-ONLY"
     try:
         from core.trading.notifications import _send
@@ -316,7 +316,7 @@ def main():
         msg += f"Mode: <b>{mode}</b>\n"
         msg += ("Ranker/gates now read this file." if apply
                 else "Ranker/gates still use hardcoded config.\n"
-                     "Enable: ADAPTIVE_EDGES_APPLY=1 in .env.trading")
+                     "Enable: TRADE_ADAPTIVE_EDGES_APPLY=1 in .env.trading")
         _send(msg)
     except Exception as e:
         print(f"[compute_adaptive_edges] telegram send failed: {e}", file=sys.stderr)
