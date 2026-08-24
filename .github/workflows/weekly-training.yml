@@ -179,6 +179,12 @@ jobs:
           [ -d "ml/bundles/latest" ] && git add ml/bundles/latest/
           # Include training reports
           git add reports/rolling_train_report_*.json 2>/dev/null || true
+          # ML history tracking (added 2026-08-24 — was written by
+          # train_rolling_ml_20d.py since 2026-08-18 but NEVER committed,
+          # so 4 nightly trainings' AUC data was silently discarded and
+          # regression-alerts couldn't fire because prev_entry didn't
+          # persist. Root-cause: ephemeral GHA runner + missing git add.)
+          [ -f data/ml_history.jsonl ] && git add data/ml_history.jsonl
           if git diff --cached --quiet; then
             echo "No model changes to commit."
           else
