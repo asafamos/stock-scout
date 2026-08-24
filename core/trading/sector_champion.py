@@ -58,7 +58,70 @@ BASELINE = dict(n=402, mean_ret=1.06, wr=51.0)
 _SCORE_BANDS = [(65, 70), (70, 75), (75, 80), (80, 85), (85, 90)]
 
 
+# ── Adaptive edges overlay (added 2026-08-25) ──────────────────────
+# When TRADE_ADAPTIVE_EDGES_APPLY=1 and data/adaptive/current_edges.json
+# exists, dynamic champions from live scan_outcomes MERGE with the
+# hardcoded _COHORTS (union: adaptive additions OVERRIDE hardcoded
+# for same sector×band). Recomputed nightly by
+# scripts/compute_adaptive_edges.py — data-driven, no more stale hardcoded.
+# Freeze-safe: env-toggleable, falls back to hardcoded on any error.
+import os as _os
+import json as _json
+from pathlib import Path as _Path
+
+_ADAPTIVE_CACHE: dict = {}
+_ADAPTIVE_MTIME: float = 0.0
+_ADAPTIVE_PATH = _Path(
+    "/home/stockscout/stock-scout-2/data/adaptive/current_edges.json"
+) if _Path("/home/stockscout").exists() else \
+    _Path(__file__).resolve().parents[2] / "data" / "adaptive" / "current_edges.json"
+
+
+def _load_adaptive_cohorts() -> dict:
+    """Load champions from current_edges.json (cached by mtime).
+
+    Returns dict keyed like _COHORTS: (sector, (lo, hi)) -> stats dict.
+    Falls back to {} on any error — hardcoded _COHORTS still work.
+    """
+    global _ADAPTIVE_CACHE, _ADAPTIVE_MTIME
+    if _os.getenv("TRADE_ADAPTIVE_EDGES_APPLY", "0") not in ("1", "true", "yes"):
+        return {}
+    try:
+        mt = _ADAPTIVE_PATH.stat().st_mtime
+        if mt == _ADAPTIVE_MTIME and _ADAPTIVE_CACHE:
+            return _ADAPTIVE_CACHE
+        with _ADAPTIVE_PATH.open() as f:
+            edges = _json.load(f)
+        out = {}
+        for c in (edges.get("champions") or []):
+            sec = c.get("sector") or ""
+            lo = int(c.get("score_min", 0))
+            hi = int(c.get("score_max", 0))
+            if sec and lo < hi:
+                out[(sec, (lo, hi))] = dict(
+                    n=int(c.get("n", 0)),
+                    mean_ret=float(c.get("mean", 0)),
+                    wr=float(c.get("wr", 0)),
+                    is_champion=True,  # by definition — passed champion filter
+                    source="adaptive",
+                )
+        _ADAPTIVE_CACHE = out
+        _ADAPTIVE_MTIME = mt
+        return out
+    except Exception:
+        return {}
+
+
 def _find_band(score: float) -> Optional[tuple]:
+    """Find band matching hardcoded _SCORE_BANDS OR adaptive bands."""
+    # First check adaptive bands (they use 5-point bands 0-5-10-... intervals)
+    if score is not None:
+        adaptive = _load_adaptive_cohorts()
+        for (_sec, band) in adaptive.keys():
+            lo, hi = band
+            if lo <= score < hi:
+                return band
+    # Fallback to hardcoded bands
     for lo, hi in _SCORE_BANDS:
         if lo <= score < hi:
             return (lo, hi)
@@ -66,15 +129,16 @@ def _find_band(score: float) -> Optional[tuple]:
 
 
 def get_cohort_stats(sector: str, score: float) -> Optional[dict]:
-    """Return the historic cohort stats for a (sector, score-band) combo.
-
-    Returns None if the combo has no historical data in our lookup.
-    """
+    """Return cohort stats — adaptive edges overlay hardcoded _COHORTS."""
     if not sector or score is None:
         return None
     band = _find_band(float(score))
     if band is None:
         return None
+    # Adaptive first — overlays if newer data
+    adaptive = _load_adaptive_cohorts()
+    if (sector, band) in adaptive:
+        return adaptive[(sector, band)]
     return _COHORTS.get((sector, band))
 
 
