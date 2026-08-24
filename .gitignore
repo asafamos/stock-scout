@@ -29,6 +29,10 @@ data/trades/ledger_baseline.json
 data/outcomes/*
 !data/outcomes/.gitkeep
 
+# Adaptive edges — recomputed nightly, dir must survive rebases.
+data/adaptive/*
+!data/adaptive/.gitkeep
+
 # Environment and secrets
 .env
 *.nev
