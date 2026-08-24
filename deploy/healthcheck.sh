@@ -167,10 +167,66 @@ if [ "$MARKET_HOURS" -eq 0 ]; then
                 DEDUP_SEC=14400  # weekend: 4h cooldown
             fi
 
+            # CIRCUIT BREAKER (added 2026-08-24): if we've already restarted
+            # the container 3+ times in the last 4h without success, STOP
+            # thrashing. The container coming up over and over WITHOUT a
+            # fresh 2FA (user asleep) can leave it in read-only mode, which
+            # is worse than being down. Wait for user to intervene manually.
+            # Root cause: Aug 24 04:15-06:15 UTC saw 10 restarts overnight,
+            # container ended up in read-only → 0 buys for 24h.
+            RESTART_STATE="${STATE_DIR}/offhours_restart_count"
+            RESTART_STATE_MAX_AGE=14400  # 4h
+            if [ -f "${RESTART_STATE}" ]; then
+                _age=$(( $(date +%s) - $(stat -c %Y "${RESTART_STATE}" 2>/dev/null || echo 0) ))
+                if [ "${_age}" -gt "${RESTART_STATE_MAX_AGE}" ]; then
+                    rm -f "${RESTART_STATE}"
+                    _count=0
+                else
+                    _count=$(cat "${RESTART_STATE}" 2>/dev/null || echo 0)
+                fi
+            else
+                _count=0
+            fi
+            if [ "${_count}" -ge 3 ]; then
+                echo "[OFF-HOURS CIRCUIT BREAKER] ${_count} restarts in ${RESTART_STATE_MAX_AGE}s — stopping auto-restart, alerting SEVERE"
+                send_alert_dedup "offhours_circuit_breaker" \
+                    "$(echo -e '\xf0\x9f\x9a\xa8') <b>CIRCUIT BREAKER — 2FA STUCK</b>
+
+Restarted ibgateway ${_count}× in last 4h without success.
+Handshake still fails (${OFFHOURS_API}).
+
+<b>Auto-restart STOPPED to prevent read-only cascade.</b>
+
+<b>ACTION REQUIRED:</b>
+1. Open IBKR Mobile → approve pending 2FA push, OR
+2. VNC: http://87.99.142.12:5800/vnc.html
+   - File → Close, re-login (ensure Read-Only NOT checked)
+3. Counter auto-resets after 4h idle
+
+Every 15min this alert repeats until fixed." \
+                    3600  # 1h dedup on SEVERE alert
+                # Skip the restart — jump past the whole restart block
+                OFF_HOURS_ISSUES=$((OFF_HOURS_ISSUES + 1))
+                # Use continue-like: emit a marker and skip the auto-heal below.
+                # Since we can't `continue` in a nested if, use a flag.
+                SKIP_AUTO_RESTART=1
+            else
+                SKIP_AUTO_RESTART=0
+                echo "${_count}" > "${RESTART_STATE}"
+                # Bump counter now — success case decrements to 0 below.
+                _new=$((_count + 1))
+                echo "${_new}" > "${RESTART_STATE}"
+            fi
+
+            if [ "${SKIP_AUTO_RESTART}" = "1" ]; then
+                # Circuit breaker fired — skip the rest of the auto-heal block
+                # (fall through to the outer `else` clause via a no-op if).
+                :
+            else
             # First attempt: auto-restart the container, give it 45s to
             # autologin + push 2FA. This usually works AFTER user has
             # approved a pending push on phone.
-            echo "[OFF-HOURS AUTO-HEAL] handshake failed (${OFFHOURS_API}) — restarting ibgateway"
+            echo "[OFF-HOURS AUTO-HEAL] handshake failed (${OFFHOURS_API}) — restarting ibgateway (attempt ${_new}/3 in current 4h window)"
             send_alert_dedup "offhours_session_dead" \
                 "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') <b>OFF-HOURS</b> IB session DEAD (handshake=${OFFHOURS_API})
 
@@ -186,6 +242,9 @@ VNC if needed: http://87.99.142.12:5800/vnc.html" \
             if [ "$OFFHOURS_API2" = "OK" ]; then
                 send_alert "$(echo -e '\xe2\x9c\x85') OFF-HOURS auto-heal SUCCESS: IB session restored"
                 clear_alert_dedup "offhours_session_dead"
+                clear_alert_dedup "offhours_circuit_breaker"
+                # Reset circuit-breaker counter on success
+                rm -f "${STATE_DIR}/offhours_restart_count" 2>/dev/null
             else
                 # Auto-heal couldn't recover (user hasn't approved push yet).
                 # Send a LOUDER one-tap-recovery alert with full instructions.
@@ -208,10 +267,14 @@ http://87.99.142.12:5800/vnc.html" \
                     ${DEDUP_SEC}
                 OFF_HOURS_ISSUES=$((OFF_HOURS_ISSUES + 1))
             fi
+            fi  # end of `if SKIP_AUTO_RESTART=1 ... else ... fi` (circuit breaker)
         else
             # Handshake OK off-hours → all clear; clear any stale alerts
             clear_alert_dedup "offhours_session_dead"
             clear_alert_dedup "offhours_2fa_needed"
+            clear_alert_dedup "offhours_circuit_breaker"
+            # Reset circuit-breaker counter on healthy handshake
+            rm -f "${STATE_DIR}/offhours_restart_count" 2>/dev/null
         fi
     fi
 
