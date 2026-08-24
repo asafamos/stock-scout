@@ -21,6 +21,14 @@ data/trades/trade_log.json
 data/trades/executions.jsonl
 data/trades/ledger_baseline.json
 
+# Outcome tracker — untracked jsonl files, but keep the directory.
+# 2026-08-24: `data/outcomes/` dir vanished mid-session (untracked +
+# no .gitkeep → possibly wiped by unclear cleanup). Files remain
+# gitignored but the directory itself is preserved via .gitkeep so
+# future scans have somewhere to write.
+data/outcomes/*
+!data/outcomes/.gitkeep
+
 # Environment and secrets
 .env
 *.nev
