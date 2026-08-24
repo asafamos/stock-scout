@@ -449,6 +449,35 @@ Persistent=true
 WantedBy=timers.target
 SVCEOF
 
+# --- Adaptive edges nightly recompute (04:00 UTC = 07:00 IL) ---
+# Runs compute_adaptive_edges.py which analyzes scan_outcomes.jsonl
+# over rolling 90-day window and writes data/adaptive/current_edges.json
+# with dynamic champion cohorts, sector blocks, ML window, RR cap.
+# REPORT-ONLY by default — set ADAPTIVE_EDGES_APPLY=1 to activate.
+sudo tee /etc/systemd/system/stockscout-adaptive-edges.service > /dev/null << 'SVCEOF'
+[Unit]
+Description=StockScout adaptive edges — nightly recompute of selection parameters
+
+[Service]
+Type=oneshot
+User=stockscout
+WorkingDirectory=/home/stockscout/stock-scout-2
+EnvironmentFile=/home/stockscout/stock-scout-2/.env.trading
+ExecStart=/home/stockscout/stock-scout-2/.venv/bin/python -m scripts.compute_adaptive_edges
+SVCEOF
+
+sudo tee /etc/systemd/system/stockscout-adaptive-edges.timer > /dev/null << 'SVCEOF'
+[Unit]
+Description=StockScout adaptive edges timer (nightly 04:00 UTC = 07:00 IL)
+
+[Timer]
+OnCalendar=*-*-* 04:00:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+SVCEOF
+
 # --- Command Poller (long-running, polls every 15s) ---
 # Watches the `commands` branch on GitHub for entries appended by the
 # command_dispatch.yml workflow (which fires on Streamlit dispatch
