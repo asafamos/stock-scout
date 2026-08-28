@@ -540,6 +540,7 @@ class OrderManager:
             state_after = get_state()
             was_rr_relaxed_before_local = bool(state_before.get("rr_relaxed_active"))
             was_ml_relaxed_before_local = bool(state_before.get("ml_relaxed_active"))
+            was_score_relaxed_before = bool(state_before.get("score_relaxed_active"))
             activated = (
                 (not was_conf_relaxed_before
                  and bool(state_after.get("confidence_relaxed_active")))
@@ -549,6 +550,8 @@ class OrderManager:
                     and bool(state_after.get("rr_relaxed_active")))
                 or (not was_ml_relaxed_before_local
                     and bool(state_after.get("ml_relaxed_active")))
+                or (not was_score_relaxed_before
+                    and bool(state_after.get("score_relaxed_active")))
             )
             return activated
         except Exception as _ae:
