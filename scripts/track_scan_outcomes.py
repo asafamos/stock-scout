@@ -174,9 +174,37 @@ def record_today():
 
     # Capture market context ONCE per record-run (cheap for the 50 tickers to share)
     ctx = _capture_market_context()
+
+    # REGIME SSOT (fix 2026-08-28): the recorder was independently classifying
+    # regime via its own SPY analysis, using a DIFFERENT taxonomy (STRONG_UPTREND,
+    # UPTREND, RANGING, DOWNTREND, PANIC, NEUTRAL) than what the trader/scan
+    # pipeline uses (SIDEWAYS, MODERATE_UP, TREND_UP, BULLISH, DISTRIBUTION,
+    # CORRECTION, BEARISH, PANIC). Result: every scan_outcomes.jsonl record was
+    # tagged with a label that didn't match what order_manager actually saw at
+    # trade time — corrupting every regime-conditioned backtest we ran.
+    # Fix: read the scan pipeline's regime directly from the scan rows (same
+    # column order_manager reads), overriding the recorder's independent guess.
+    # Keep the recorder's SPY levels (spy_close, spy_sma50_pct, etc) — those are
+    # still useful numeric context, just not the regime label.
+    _scan_regime = None
+    for _regime_key in ("Market_Regime", "market_regime", "Regime"):
+        for _row in rows:
+            _v = _row.get(_regime_key)
+            if _v:
+                _scan_regime = str(_v).strip().upper()
+                break
+        if _scan_regime:
+            break
+    if _scan_regime:
+        ctx["market_regime"] = _scan_regime
+        ctx["market_regime_source"] = "scan_pipeline_ssot"
+    else:
+        ctx["market_regime_source"] = "recorder_fallback"
+
     logger.info(
-        "Market context: regime=%s spy=%s sma50_gap=%s%% sma200_gap=%s%% vix=%s",
-        ctx.get("market_regime"), ctx.get("spy_close"),
+        "Market context: regime=%s (source=%s) spy=%s sma50_gap=%s%% sma200_gap=%s%% vix=%s",
+        ctx.get("market_regime"), ctx.get("market_regime_source"),
+        ctx.get("spy_close"),
         ctx.get("spy_sma50_pct"), ctx.get("spy_sma200_pct"),
         ctx.get("vix_proxy"),
     )
