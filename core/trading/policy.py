@@ -76,8 +76,12 @@ REGIME_MIN_SCORE: Dict[str, float] = {
     "TREND_UP": 55.0,
     "BULLISH": 55.0,
     "MODERATE_UP": 60.0,
-    "SIDEWAYS": 70.0,   # raised from 65 — in neutral markets demand higher quality
-    "NEUTRAL": 70.0,    # raised from 65
+    "SIDEWAYS": 65.0,   # 2026-08-28: reverted 70→65 after 3-day zero-buy streak.
+                        # 42K sim SIDEWAYS score <73 → +3.90% mean (n=140), so
+                        # the 70 floor (effective 75-85 window) was blocking a
+                        # real signal bucket. Original 65 was based on the same
+                        # kind of empirical evidence. See open-followups.
+    "NEUTRAL": 65.0,    # matched SIDEWAYS — same neutral-regime logic
     "DISTRIBUTION": 75.0,
     "CORRECTION": 80.0,
     "BEARISH": 80.0,
