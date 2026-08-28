@@ -501,6 +501,8 @@ class OrderManager:
             rr_threshold = int(getattr(self.cfg, "adaptive_gates_rr_threshold", 3))
             _ml_blocked = bool(getattr(self, "_adaptive_ml_blocked", False))
             ml_threshold = int(getattr(self.cfg, "adaptive_gates_ml_threshold", 5))
+            _score_blocked = bool(getattr(self, "_adaptive_score_blocked", False))
+            score_threshold = int(getattr(self.cfg, "adaptive_gates_score_threshold", 3))
             _msg = record_pipeline_outcome(
                 bought=bought_count,
                 confidence_dropped=_conf_blocked,
@@ -512,6 +514,8 @@ class OrderManager:
                 rr_threshold=rr_threshold,
                 ml_dropped=_ml_blocked,
                 ml_threshold=ml_threshold,
+                score_dropped=_score_blocked,
+                score_threshold=score_threshold,
             )
             if _msg:
                 # RESET messages (any successful buy) are positive events —
@@ -530,6 +534,7 @@ class OrderManager:
             self._adaptive_regime = ""
             self._adaptive_rr_blocked = False
             self._adaptive_ml_blocked = False
+            self._adaptive_score_blocked = False
 
             # Detect activation: any flag flipped False → True this call.
             state_after = get_state()
@@ -864,6 +869,10 @@ class OrderManager:
                 "No stocks pass score filter (%.0f-%.0f, regime=%s)",
                 _min_score, self.cfg.max_score_to_trade, cur_regime or "default",
             )
+            # Task #148: mark for adaptive-score recorder. If we saw candidates
+            # with a score in the "would have passed if floor were 5pt lower"
+            # zone, that's the dry-cycle signal.
+            self._adaptive_score_blocked = True
             return result
 
         # ML probability filter — WINDOW (2026-06-05 sweet spot 0.40-0.55).

@@ -239,6 +239,14 @@ class TradingConfig:
     adaptive_ml_relaxed_floor: float = field(
         default_factory=lambda: _env_float("ADAPTIVE_ML_RELAXED_FLOOR", 0.35)
     )
+    # NEW 2026-08-28 task #148: adaptive score gate.
+    # Observed 2026-08-25/26/27: SIDEWAYS regime, effective score floor 75,
+    # 3-day zero-buy streak. 42K sim: SIDEWAYS <73 = +3.90% (n=140) real
+    # signal being blocked. Threshold=3 (matches RR). Floor drops by 5pt
+    # (e.g. 73 → 68) after N=3 dry cycles blocked by score filter.
+    adaptive_gates_score_threshold: int = field(
+        default_factory=lambda: _env_int("ADAPTIVE_GATES_SCORE_THRESHOLD", 3)
+    )
     # NEW 2026-07-21: Sector Champion ranking bonus.
     # Validated on 402 real Supabase closes — Score×Sector cohorts with
     # WR>=70% and mean_ret>+2% (Energy 70-85, Technology 70-85, Healthcare

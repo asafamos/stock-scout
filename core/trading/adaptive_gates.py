@@ -56,6 +56,15 @@ _DEFAULTS = {
     "ml_dry_streak": 0,
     "ml_relaxed_active": False,
     "ml_relaxed_since": "",
+    # Score gate (added 2026-08-28 — task #148). SIDEWAYS-regime pattern:
+    # Aug 25-27 saw 3-day zero-buy streak because regime_score_floor pushed
+    # effective floor to 75+ in SIDEWAYS. 42K sim shows SIDEWAYS score <73
+    # = +3.90% mean (n=140) — a real signal we were blocking. Adaptive
+    # covers this like RR/ML — after N=3 dry cycles blocked by score,
+    # relax floor by 5pt (73 → 68) for next cycle. DEFAULT ON.
+    "score_dry_streak": 0,
+    "score_relaxed_active": False,
+    "score_relaxed_since": "",
 }
 
 # Regimes where Medium confidence is defensible (macro tailwind compensates
@@ -121,6 +130,25 @@ def get_adaptive_ml_relaxed() -> bool:
     return _load().get("ml_relaxed_active", False)
 
 
+def get_adaptive_score_relaxed() -> bool:
+    """True if the score gate should be relaxed by 5pt right now.
+
+    Called from policy.regime_score_floor() at every gate evaluation.
+    Reads state — no side effects. Activated after N consecutive cycles
+    blocked by score filter. See task #148 (SIDEWAYS-regime zero-buy Aug 25-27).
+    """
+    return _load().get("score_relaxed_active", False)
+
+
+def get_adaptive_score_relax_amount() -> float:
+    """How many points to drop the score floor when relaxed. Default 5."""
+    import os as _os_s
+    try:
+        return float(_os_s.getenv("ADAPTIVE_SCORE_RELAX_POINTS", "5"))
+    except (ValueError, TypeError):
+        return 5.0
+
+
 def get_adaptive_analyst_pt_relaxed() -> bool:
     """True if the analyst PT veto should switch to SOFT MODE right now.
 
@@ -145,6 +173,8 @@ def record_pipeline_outcome(
     rr_threshold: int = 3,
     ml_dropped: bool = False,
     ml_threshold: int = 5,
+    score_dropped: bool = False,
+    score_threshold: int = 3,
 ) -> Optional[str]:
     """Called at the end of every auto-trade pipeline. Updates streak state.
 
@@ -172,6 +202,9 @@ def record_pipeline_outcome(
     old_ml_relaxed = bool(state.get("ml_relaxed_active", False))
     old_ml_streak = int(state.get("ml_dry_streak", 0))
 
+    old_score_relaxed = bool(state.get("score_relaxed_active", False))
+    old_score_streak = int(state.get("score_dry_streak", 0))
+
     # Any buy → reset ALL streaks. This is the strongest signal gates are OK.
     if bought > 0:
         changes = []
@@ -192,6 +225,10 @@ def record_pipeline_outcome(
             state["ml_dry_streak"] = 0
             state["ml_relaxed_active"] = False
             changes.append(f"ML streak was {old_ml_streak}, relax was {'ON' if old_ml_relaxed else 'OFF'}")
+        if old_score_streak > 0 or old_score_relaxed:
+            state["score_dry_streak"] = 0
+            state["score_relaxed_active"] = False
+            changes.append(f"Score streak was {old_score_streak}, relax was {'ON' if old_score_relaxed else 'OFF'}")
         if changes:
             _save(state)
             return (
@@ -203,7 +240,7 @@ def record_pipeline_outcome(
 
     # 0 buys and NOTHING gate-blocked → nothing to do (rare — maybe all skipped by
     # gap/slippage/other). Skip all trackers.
-    if not confidence_dropped and not analyst_pt_dropped and not rr_dropped and not ml_dropped:
+    if not confidence_dropped and not analyst_pt_dropped and not rr_dropped and not ml_dropped and not score_dropped:
         return None
 
     is_bullish = regime.upper() in _BULLISH_REGIMES
@@ -321,12 +358,40 @@ def record_pipeline_outcome(
                 f"Next dry cycle → ACTIVATE (relax only if TRADE_ADAPTIVE_ML_ENABLED=1)."
             )
 
+    # ── Score dry-streak (independent of other gates) ──
+    # Task #148 — 2026-08-28: after SIDEWAYS 3-day zero-buy streak. Score
+    # filter blocked every candidate (regime_score_floor pushed effective
+    # floor to 75). 42K sim: SIDEWAYS score <73 = +3.90% mean (n=140), so
+    # we were blocking real signal. Adaptive relax drops the floor by
+    # ADAPTIVE_SCORE_RELAX_POINTS (default 5) after N=3 dry cycles.
+    # Applied in policy.regime_score_floor().
+    score_msg = None
+    if score_dropped:
+        new_score_streak = old_score_streak + 1
+        state["score_dry_streak"] = new_score_streak
+        if new_score_streak >= score_threshold and not old_score_relaxed:
+            state["score_relaxed_active"] = True
+            state["score_relaxed_since"] = datetime.now(timezone.utc).isoformat()
+            score_msg = (
+                f"🔓 Adaptive gate ACTIVATED (Score)\n"
+                f"{new_score_streak} consecutive dry cycles blocked by score filter.\n"
+                f"Relaxing effective score floor by 5pt for next cycle "
+                f"(e.g. 73 → 68). Will reset on any successful buy. "
+                f"Kill: TRADE_ADAPTIVE_GATES_ENABLED=0."
+            )
+        elif new_score_streak == score_threshold - 1 and not old_score_relaxed:
+            score_msg = (
+                f"⏳ Adaptive gate PRE-WARN (Score)\n"
+                f"{new_score_streak}/{score_threshold} cycles blocked by score filter.\n"
+                f"Next dry cycle → auto-relax score floor by 5pt."
+            )
+
     # Persist state changes (streaks and relax flags) regardless of whether
     # a message was generated — this cycle happened and must be recorded.
     _save(state)
 
     # Combine messages (any combination could move in the same cycle).
-    parts = [m for m in [msg, pt_msg, rr_msg, ml_msg] if m]
+    parts = [m for m in [msg, pt_msg, rr_msg, ml_msg, score_msg] if m]
     combined = "\n\n".join(parts) if parts else None
     return combined
 

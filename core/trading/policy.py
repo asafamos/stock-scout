@@ -159,7 +159,20 @@ def regime_score_floor(regime: str, cfg) -> float:
         return base
     scan_min = float(REGIME_MIN_SCORE.get(regime.upper(), base - 5.0))
     # CONFIG.min_score is the HARD FLOOR — regime can only raise it.
-    return max(scan_min + 5.0, base)
+    effective = max(scan_min + 5.0, base)
+    # Adaptive relax (task #148, added 2026-08-28): after N=3 dry cycles
+    # blocked by score, drop effective floor by 5pt for next cycle.
+    # Reset on any successful buy. Fail-silent on import errors so gates
+    # keep working if adaptive module unavailable.
+    try:
+        from core.trading.adaptive_gates import (
+            get_adaptive_score_relaxed, get_adaptive_score_relax_amount,
+        )
+        if get_adaptive_score_relaxed():
+            effective = max(0.0, effective - get_adaptive_score_relax_amount())
+    except Exception:
+        pass
+    return effective
 
 
 def confidence_floor(regime: str, cfg) -> int:
