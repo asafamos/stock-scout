@@ -617,12 +617,18 @@ class OrderManager:
                 stop_loss = pos.get("stop_loss", 0)
                 target_price = pos.get("target_price", 0)
 
-                # Calculate trailing stop % from stored stop loss
-                if stop_loss > 0 and entry_price > 0:
+                # Prefer stored trailing_stop_pct — ratchet updates it in-place, so
+                # this reflects the current effective trail (post-tightening). Falling
+                # back to computing from stop_loss can cap at 8% (below original 9%)
+                # and lose post-split/post-ratchet width entirely.
+                stored_trail = float(pos.get("trailing_stop_pct", 0) or 0)
+                if stored_trail > 0:
+                    trail_pct = stored_trail
+                elif stop_loss > 0 and entry_price > 0:
                     trail_pct = round((entry_price - stop_loss) / entry_price * 100, 1)
                     trail_pct = max(3.0, min(trail_pct, 8.0))
                 else:
-                    trail_pct = pos.get("trailing_stop_pct", self.cfg.trailing_stop_pct)
+                    trail_pct = self.cfg.trailing_stop_pct
 
                 logger.info(
                     "RESUBMIT: %s x%d | Trail: %.1f%% | Target: $%.2f",
