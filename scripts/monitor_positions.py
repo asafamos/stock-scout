@@ -1309,10 +1309,67 @@ def _verify_protections(tracker, client, ibkr_orders, notify):
         if cash_under_2k:
             _PROTECTION_MISS_COUNT[ticker] = _PROTECTION_MISS_COUNT.get(ticker, 0) + 1
             miss = _PROTECTION_MISS_COUNT[ticker]
+
+            # 2026-09-04: Previously skipped entirely (2026-05-22 "poison" concern
+            # was about cancel+replace RACING an alive-but-mid-race order). Verified
+            # on APH post-split CORPACT cancellation: client.resubmit_protective_orders
+            # places TRAIL leg cleanly sub-$2k — only LMT leg gets Error 201 rejected
+            # by design (that's what monitor's software _target_hit_pass replaces).
+            # TRAIL-only IS the sub-$2k protection model, so successful TRAIL placement
+            # is sufficient recovery. Attempt once per cooldown window.
+            if _cooldown_ok(ticker, _RESUBMIT_COOLDOWN, _RESUBMIT_COOLDOWN_SECONDS):
+                try:
+                    _qty = pos["quantity"]
+                    _trail_pct = float(pos.get("trailing_stop_pct", 5.0))
+                    _target_price = pos.get("target_price", 0)
+                    logger.info(
+                        "⚠ %s unprotected sub-$2k (miss #%d) — auto-resubmit via OCA "
+                        "(TRAIL should place, LMT will Error-201 by design)",
+                        ticker, miss,
+                    )
+                    _result = client.resubmit_protective_orders(
+                        ticker=ticker, qty=_qty, trail_pct=_trail_pct,
+                        target_price=_target_price,
+                    )
+                    _trail_res = _result.get("trailing_stop") if _result else None
+                    _trail_ok = _trail_res and getattr(_trail_res, "status", "") != "Error"
+                    if _trail_ok:
+                        _new_oca = _result.get("oca_group", "") if _result else ""
+                        _all_pos = tracker.get_open_positions()
+                        for _p in _all_pos:
+                            if _p["ticker"] == ticker:
+                                _oids = _p.get("order_ids", {}) or {}
+                                _oids["trailing_stop"] = _trail_res.order_id
+                                _oids["oca_group"] = _new_oca
+                                _ls = _result.get("limit_sell") if _result else None
+                                _oids["limit_sell"] = _ls.order_id if _ls else 0
+                                _p["order_ids"] = _oids
+                                break
+                        tracker._save_positions(_all_pos)
+                        _PROTECTION_MISS_COUNT[ticker] = 0
+                        logger.info(
+                            "✅ %s auto-recovered — TRAIL placed (oca=%s), tracker updated",
+                            ticker, _new_oca,
+                        )
+                        try:
+                            notify._send(
+                                f"🛡️ <b>Auto-recovered:</b> {ticker} TRAIL {_trail_pct:.1f}% "
+                                f"placed on {_qty}sh (sub-$2k tier: LMT target via monitor)"
+                            )
+                        except Exception:
+                            pass
+                        continue
+                    else:
+                        logger.warning(
+                            "⚠ %s auto-resubmit returned non-ok TRAIL — will retry",
+                            ticker,
+                        )
+                except Exception as _e:
+                    logger.warning("⚠ %s auto-resubmit exception: %s", ticker, _e)
+
             logger.warning(
-                "⚠ %s appears unprotected (miss #%d) but cash<$2k tier "
-                "blocks cancel+replace (Error 201). Skipping resubmit. "
-                "Will retry next cycle.",
+                "⚠ %s appears unprotected (miss #%d) — cooldown active or resubmit "
+                "failed. Will retry next cycle.",
                 ticker, miss,
             )
             # Persistent miss = real problem. Page the user after 3 cycles
@@ -1322,9 +1379,8 @@ def _verify_protections(tracker, client, ibkr_orders, notify):
                     notify.notify_error(
                         "Monitor",
                         f"⚠ {ticker} unprotected for {miss} cycles. "
-                        f"Cash<$2k tier blocks auto-resubmit (IB Error 201). "
-                        f"Send <code>/resubmit {ticker}</code> manually, or "
-                        f"transfer funds to escape the tier.",
+                        f"Auto-resubmit not succeeding. Investigate — send "
+                        f"<code>/resubmit {ticker}</code> manually, or check logs.",
                     )
                 except Exception:
                     pass
