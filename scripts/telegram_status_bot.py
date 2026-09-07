@@ -116,13 +116,22 @@ def _market_session_label() -> str:
     """Return a short label for the current US market session.
 
     Regular: 13:30-20:00 UTC. Pre-market: 08:00-13:30 UTC.
-    After-hours: 20:00-24:00 UTC (Mon-Fri). Weekend closed.
+    After-hours: 20:00-24:00 UTC (Mon-Fri). Weekend/holiday closed.
     """
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc)
     # weekday(): Mon=0, Sun=6. US markets closed Sat/Sun.
     if now.weekday() >= 5:
         return "🌙 Weekend (closed)"
+    # 2026-09-07: NYSE holiday check — was showing "🟢 Market OPEN" on
+    # Labor Day since only weekend was checked. market_calendar owns the
+    # holiday list; import defensively so a rename never bricks the bot.
+    try:
+        from scripts.market_calendar import is_market_open as _is_open_cal
+        if not _is_open_cal(now.date()):
+            return "🎌 Holiday (closed)"
+    except Exception:
+        pass
     minutes = now.hour * 60 + now.minute
     if 480 <= minutes < 810:   # 08:00-13:30 UTC → pre-market
         return "🌅 Pre-market"

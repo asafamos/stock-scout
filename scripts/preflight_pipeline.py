@@ -37,6 +37,21 @@ def main() -> int:
         print("PROCEED:dry_run_mode")
         return 0
 
+    # 2026-09-07: skip on NYSE holidays. Scans on Labor Day / Thanksgiving /
+    # etc. burn ~90min of GH Actions compute per dispatch (3x/day = ~4.5h)
+    # but risk_manager.can_open_position blocks the trade anyway because
+    # client.is_market_open() returns False. Kill switch:
+    # TRADE_SKIP_ON_HOLIDAY=0.
+    if os.getenv("TRADE_SKIP_ON_HOLIDAY", "1").strip() not in ("0", "false", "no"):
+        try:
+            from scripts.market_calendar import is_market_open as _is_open_calendar
+            if not _is_open_calendar():
+                print("SKIP:market_holiday_or_weekend")
+                return 1
+        except Exception:
+            # market_calendar import failed — proceed rather than block
+            pass
+
     try:
         from core.trading.config import CONFIG
         from core.trading.ibkr_client import IBKRClient
