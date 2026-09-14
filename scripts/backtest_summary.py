@@ -141,9 +141,10 @@ def _format_message(cur: dict, prev: dict | None, alerts: list[str]) -> str:
             return "—"
         return f"{v:{fmt}}"
 
-    header = "🚨 <b>Weekly Backtest — REGRESSION</b>" if alerts else "📊 <b>Weekly Backtest</b>"
+    header = "🚨 <b>Weekly Baseline — REGRESSION</b>" if alerts else "📊 <b>Weekly Baseline</b>"
     lines = [
         header,
+        f"<i>top-K score baseline (NOT our live strategy)</i>",
         f"<i>Period {start} → {end}, n={n} trades</i>",
         "",
         f"<b>Sharpe:</b>       {_v('sharpe')}        {_p('sharpe')}",
@@ -162,6 +163,10 @@ def _format_message(cur: dict, prev: dict | None, alerts: list[str]) -> str:
     if prev is None:
         lines.append("")
         lines.append("<i>(first run — no prior week to compare)</i>")
+    lines.append("")
+    lines.append("<i>ℹ️ Baseline = top-10 by score, held ~20d, 2xATR stop.")
+    lines.append("Does NOT apply our gates (73-85 score, sectors, ratchet, adaptive).")
+    lines.append("Use /perf for real portfolio performance.</i>")
     return "\n".join(lines)
 
 
