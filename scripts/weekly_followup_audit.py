@@ -36,7 +36,22 @@ FOLLOWUPS = ROOT / "data" / "followups.json"
 MODEL_META = ROOT / "models" / "model_20d_v3.metadata.json"
 OPEN_POSITIONS = ROOT / "data" / "trades" / "open_positions.json"
 SCAN_OUTCOMES = ROOT / "data" / "outcomes" / "scan_outcomes.jsonl"
+SCAN_OUTCOMES_ALT = ROOT / "data" / "outcomes" / "scan_outcomes_recovered.jsonl"
 LEDGER = ROOT / "data" / "trades" / "executions.jsonl"
+
+
+def _usable_outcomes_path():
+    """Pick the scan_outcomes source that actually has data. Mirrors the
+    fallback added to compute_adaptive_edges.py on 2026-09-14 —
+    `.exists()` returns True for a zero-byte file, which silently defeats
+    the fallback (see [[deep-investigation-sep14]] Phase 1)."""
+    for p in (SCAN_OUTCOMES, SCAN_OUTCOMES_ALT):
+        try:
+            if p.exists() and p.stat().st_size > 0:
+                return p
+        except Exception:
+            continue
+    return None
 
 VerifierResult = Tuple[bool, str]
 
@@ -86,16 +101,18 @@ def _v_positions_close(item: dict) -> VerifierResult:
 
 def _v_analyst_pt_resolved(item: dict) -> VerifierResult:
     """Analyst PT: scan_outcomes.jsonl PT count > 145 (baseline)."""
-    if not SCAN_OUTCOMES.exists():
-        return False, "scan_outcomes.jsonl missing"
+    src = _usable_outcomes_path()
+    if src is None:
+        return False, "scan_outcomes.jsonl missing (and no recovered fallback)"
     try:
         n = 0
-        for line in SCAN_OUTCOMES.open():
+        for line in src.open():
             if '"analyst_mean_pt"' in line:
                 n += 1
+        note_src = "" if src == SCAN_OUTCOMES else f" [via {src.name}]"
         if n > 145:
-            return True, f"{n} resolved records with analyst PT (was 145 baseline)"
-        return False, f"{n} resolved records (need > 145 baseline)"
+            return True, f"{n} resolved records with analyst PT (was 145 baseline){note_src}"
+        return False, f"{n} resolved records (need > 145 baseline){note_src}"
     except Exception as e:
         return False, f"read error: {e}"
 
