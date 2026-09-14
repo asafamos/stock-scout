@@ -119,7 +119,39 @@ def _fetch_spy_return(start_d: date, end_d: date) -> float:
         return 0.0
 
 
-def _simulate(records: list, max_positions: int) -> dict:
+def _trail_adjusted_return(max_ret: float, min_ret: float, realized: float, holding_days: int) -> tuple[float, str]:
+    """Approximate the return an OUR-trail exit would have produced.
+
+    Uses (max_return_pct, min_return_pct) from scan_outcomes to model the
+    9pct -> 5.5pct(day 7) -> T0/T1/T2/T3 ratchet trail defined in CLAUDE.md.
+
+    Limitation: scan_outcomes doesn't preserve time ordering of peak/trough,
+    so we assume conservatively that if drawdown-from-peak >= trail width,
+    the trail fired at (peak - trail). This may UNDERSTATE returns for
+    positions where the trough came BEFORE the peak (real trail wouldn't
+    have been armed yet). Best-available approximation without intraday data.
+
+    Returns (adjusted_return_pct, exit_reason).
+    """
+    if max_ret is None or min_ret is None:
+        return realized, "no_trail_data"
+
+    # Effective trail width by ratchet + time-tighten (per CLAUDE.md Trail section).
+    if   max_ret >= 30: trail, tier = 2.5, "T3"
+    elif max_ret >= 22: trail, tier = 3.5, "T2"
+    elif max_ret >= 14: trail, tier = 4.5, "T1"
+    elif max_ret >= 10: trail, tier = 5.0, "T0"
+    elif (holding_days or 0) >= 7: trail, tier = 5.5, "phase_B"
+    else: trail, tier = 9.0, "phase_A"
+
+    trail_exit = max_ret - trail
+    # Trail fires if drawdown from peak >= trail width.
+    if min_ret <= trail_exit:
+        return trail_exit, f"trail_fired@{tier}"
+    return realized, f"held_no_trail_{tier}"
+
+
+def _simulate(records: list, max_positions: int, apply_trail: bool = True) -> dict:
     """Portfolio simulation. Per scan_date, close matured positions then open
     up to (max_positions - open) new ones ranked by score, one per ticker."""
     by_date: dict = {}
@@ -158,11 +190,23 @@ def _simulate(records: list, max_positions: int) -> dict:
             hd_days = c.get("holding_days") or 20
             # Trading days ≈ calendar * 7/5 (rough — good enough for buckets)
             exit_d = scan_d + timedelta(days=max(int(hd_days) * 7 // 5, 1))
+            raw_ret = float(c["realized_return_pct"])
+            if apply_trail:
+                adj_ret, exit_reason = _trail_adjusted_return(
+                    max_ret=float(c.get("max_return_pct") or raw_ret),
+                    min_ret=float(c.get("min_return_pct") or raw_ret),
+                    realized=raw_ret,
+                    holding_days=int(hd_days),
+                )
+            else:
+                adj_ret, exit_reason = raw_ret, "no_trail"
             open_positions.append({
                 "ticker": tk,
                 "entry_date": scan_d,
                 "exit_date": exit_d,
-                "return_pct": float(c["realized_return_pct"]),
+                "return_pct": adj_ret,
+                "raw_realized_pct": raw_ret,
+                "exit_reason": exit_reason,
                 "sector": c.get("sector", ""),
                 "score": float(c.get("score", 0) or 0),
                 "ml_prob": float(c.get("ml_prob", 0) or 0),
@@ -254,6 +298,8 @@ def main() -> int:
     parser.add_argument("--capital", type=float, default=100_000)
     parser.add_argument("--outcomes", type=str, default="data/outcomes/scan_outcomes.jsonl")
     parser.add_argument("--output", type=str, default="reports/backtest_latest.json")
+    parser.add_argument("--no-trail", action="store_true",
+                        help="Use raw realized_return_pct instead of the 9pct->5.5pct->ratchet approximation (baseline check).")
     args = parser.parse_args()
 
     today = date.today()
@@ -272,7 +318,7 @@ def main() -> int:
         logger.error("No records in window — nothing to replay")
         return 1
 
-    sim = _simulate(records, max_positions=max_positions)
+    sim = _simulate(records, max_positions=max_positions, apply_trail=not args.no_trail)
     logger.info("Simulated %d trades across %d scan-dates (%d eligible cands seen)",
                 len(sim["trades"]), sim["n_scan_dates"], sim["eligible_seen"])
 
@@ -295,6 +341,7 @@ def main() -> int:
             "end_date": str(end_d),
             "apply_prod_gates": True,
             "backtest_mode": "replay",
+            "trail_simulation": not args.no_trail,  # 9pct->5.5pct->ratchet applied when true
             "max_positions": max_positions,
             "initial_capital": args.capital,
             "source": args.outcomes,
