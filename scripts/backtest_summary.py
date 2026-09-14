@@ -156,6 +156,14 @@ def _format_message(cur: dict, prev: dict | None, alerts: list[str]) -> str:
     # report came from so the Telegram header + tagline don't lie.
     cfg = cur.get("config") or {}
     prod_gates = bool(cfg.get("apply_prod_gates"))
+
+    # Suppress week-over-week deltas when the mode changed vs the prior row —
+    # comparing prod-gates output to baseline output is apples-to-oranges.
+    # The alert path already skips (_regression_alerts), but the display was
+    # still rendering misleading arrows like "▲ +4.27pp".
+    if prev is not None and bool((prev.get("config") or {}).get("apply_prod_gates")) != prod_gates:
+        prev = None  # local shadow — history append still records the row
+
     label = "Weekly Backtest (LIVE gates)" if prod_gates else "Weekly Baseline"
     tagline = ("<i>our live strategy: score 73-85, fund>=45, ML/RR window, "
                "sector blocks, max 3 positions</i>"

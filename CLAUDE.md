@@ -121,6 +121,17 @@ AI-powered stock recommendation system that scans 3,000+ US stocks using technic
 ### Safety: DRY_RUN=True by default, requires explicit override for live trading
 **Reversibility of recent changes:** all gates env-overridable (TRADE_MIN_SCORE, TRADE_MIN_ML_PROB, TRADE_MAX_ML_PROB, TRADE_MIN_RR, TRADE_MAX_RR, TRADE_MIN_ATR_PCT, TRADE_BLOCKED_SECTORS, TRADE_BLOCKED_REGIMES, TRADE_BREAK_EVEN_ENABLED, TRADE_LEDGER_ENABLED, TRADE_DAY_N_KILL_ENABLED, TRADE_SPEC_BONUS_WEIGHT, TRADE_ANALYST_VETO_OVERVALUED). Selection weights live in `order_manager.py` (need code change to revert).
 
+### Env vars discovered in the 2026-09-14 drift audit (documented here so drift-detector is authoritative)
+- `TRADE_ADAPTIVE_EDGES_APPLY=1` — turns on `sector_champion.py`'s adaptive-cohort overlay on the ranker bonus. Not a gate bypass — see the "Adaptive Edges overlay" section above.
+- `TRADE_ADAPTIVE_ML_ENABLED=1` — turns on the adaptive-ML gate relaxation (streak-based auto-loosen of `min_ml_prob` after N dry cycles, then reset on buy). Freeze-safe: relaxation floor is bounded by `adaptive_ml_relaxed_floor`.
+- `TRADE_MAX_SECTOR_POSITIONS=2` — cap of concurrent positions per sector (portfolio-level diversification guard).
+- `TRADE_MAX_VOLUME_SURGE=1.5` — cap the volume_surge feature at scoring time (prevents extreme squeezes from over-weighting the ranker).
+- `TRADE_THROTTLE_MODE=expectancy` — H2 throttle uses expectancy (not raw WR) — see H2 task history.
+- `TRADE_STARTING_CAPITAL=977.50` — persisted starting NetLiq for the "lifetime realized = NetLiq − starting_capital − open_unrealized" identity in `/pnl`.
+- `TRADE_MAX_DAILY_LOSS_PCT=5.0`, `TRADE_MAX_SLIPPAGE_PCT=3.0`, `TRADE_LEDGER_ENABLED=1`, `TRADE_PAPER_MODE=0`, `TRADE_AUTO_CONFIRM=1` — operational knobs. Documented in [[deep-investigation-sep14]] Phase 7.
+
+**Drift detector** (`scripts/check_env_vs_docs.py`, systemd timer `stockscout-drift-check.timer` daily 06:15 UTC): compares `.env.trading` against an `EXPECTED` dict at top of the script. **When you change any of the values above intentionally, update BOTH this doc AND the EXPECTED dict together** — otherwise the drift-detector will Telegram-alert until reconciled.
+
 **DRY_RUN safety (fixed 2026-07-17):**
 - `_execute_single` returns early on DRY_RUN → no tracker write, no notify_buy (prevents phantom positions blocking real slots)
 - `notify_buy` prepends `[DRY] ` tag when TRADE_DRY_RUN=1 (prevents Telegram confusion)

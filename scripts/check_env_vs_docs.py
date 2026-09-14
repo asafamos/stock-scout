@@ -27,6 +27,7 @@ from pathlib import Path
 # Frozen-state values documented in CLAUDE.md. Edit these ONLY together with
 # a matching CLAUDE.md update AND a memory writeup — never silently.
 EXPECTED = {
+    # ── Gates (the July 9 freeze) ───────────────────────────────
     "TRADE_MIN_SCORE":         "73.0",
     "TRADE_MAX_SCORE":         "85",
     "TRADE_MIN_FUNDAMENTAL_SCORE": "45",  # canonical: "min_fundamental_score" in config
@@ -35,17 +36,33 @@ EXPECTED = {
     "TRADE_MIN_RR":            "2.5",
     "TRADE_MAX_RR":            "5.0",
     "TRADE_MIN_ATR_PCT":       "0.03",
-    "TRADE_MAX_OPEN_POSITIONS":"3",
-    "TRADE_MAX_DAILY_BUYS":    "3",
-    "TRADE_MAX_POSITION_SIZE": "450",
-    "TRADE_RATCHET_T0_GAIN":   "10.0",
-    "TRADE_BREAK_EVEN_ENABLED":"0",
-    "TRADE_DAY_N_KILL_ENABLED":"0",   # currently disabled per 2026-08-13 memory
     # Sectors: order-independent set compare
     "TRADE_BLOCKED_SECTORS":   {
         "Consumer Defensive", "Utilities", "Communication",
         "Materials", "Basic Materials", "Real Estate",
     },
+    # ── Portfolio sizing ────────────────────────────────────────
+    "TRADE_MAX_OPEN_POSITIONS":"3",
+    "TRADE_MAX_DAILY_BUYS":    "3",
+    "TRADE_MAX_POSITION_SIZE": "450",
+    "TRADE_MAX_PORTFOLIO_EXPOSURE": "1350",
+    "TRADE_MAX_SECTOR_POSITIONS":   "2",
+    # ── Ratchet / trail ─────────────────────────────────────────
+    "TRADE_RATCHET_T0_GAIN":   "10.0",
+    # ── Feature toggles (see [[deep-investigation-sep14]] Phase 7) ─
+    "TRADE_BREAK_EVEN_ENABLED":"0",
+    "TRADE_DAY_N_KILL_ENABLED":"0",   # 2026-08-13 disabled — spam vs sub-$2k tier
+    "TRADE_ADAPTIVE_EDGES_APPLY": "1",
+    "TRADE_ADAPTIVE_ML_ENABLED":  "1",
+    "TRADE_LEDGER_ENABLED":       "1",
+    "TRADE_PAPER_MODE":           "0",
+    "TRADE_DRY_RUN":              "0",
+    "TRADE_THROTTLE_MODE":        "expectancy",
+    # ── Ops guards ──────────────────────────────────────────────
+    "TRADE_MAX_DAILY_LOSS_PCT":   "5.0",
+    "TRADE_MAX_SLIPPAGE_PCT":     "3.0",
+    "TRADE_MAX_VOLUME_SURGE":     "1.5",
+    "TRADE_STARTING_CAPITAL":     "977.50",
 }
 
 # Values that are optional (present in some envs, absent in others). If
