@@ -12,15 +12,15 @@ on:
   workflow_dispatch:
     inputs:
       start_date:
-        description: 'Backtest start date (YYYY-MM-DD)'
+        description: 'Backtest start date (YYYY-MM-DD, blank = 12 months ago)'
         required: false
         type: string
-        default: '2025-06-01'
+        default: ''
       end_date:
-        description: 'Backtest end date (YYYY-MM-DD)'
+        description: 'Backtest end date (YYYY-MM-DD, blank = today UTC)'
         required: false
         type: string
-        default: '2026-03-13'
+        default: ''
       ablation:
         description: 'Run ablation study'
         required: false
@@ -60,8 +60,19 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: |
-          START="${{ inputs.start_date || '2025-06-01' }}"
-          END="${{ inputs.end_date || '2026-03-13' }}"
+          # Rolling window: default to (today - 12 months) → today when the
+          # dispatch inputs are blank (or on cron). Keeps the metric relevant
+          # to CURRENT market conditions instead of drifting further from a
+          # fixed 2025-06 → 2026-03 window every week.
+          START="${{ inputs.start_date }}"
+          END="${{ inputs.end_date }}"
+          if [ -z "$START" ]; then
+            START=$(date -u -d '12 months ago' +%Y-%m-%d)
+          fi
+          if [ -z "$END" ]; then
+            END=$(date -u +%Y-%m-%d)
+          fi
+          echo "Backtest window: $START → $END"
           ABLATION_FLAG=""
           if [ "${{ inputs.ablation }}" = "true" ]; then
             ABLATION_FLAG="--ablation"
@@ -72,7 +83,25 @@ jobs:
             --output reports/backtest_latest.json \
             $ABLATION_FLAG
 
-      - name: Commit backtest results
+      - name: Send Telegram summary + regression alerts
+        # Runs BEFORE the commit so the history compare sees the prior week's
+        # row (still on disk from last run's commit), not this one.
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+          TRADE_TELEGRAM_TOKEN: ${{ secrets.TRADE_TELEGRAM_TOKEN }}
+          TRADE_TELEGRAM_CHAT_ID: ${{ secrets.TRADE_TELEGRAM_CHAT_ID }}
+        run: |
+          # Exit code 2 = regression detected + alert sent (still success for the
+          # workflow — the whole point of this step is to SURFACE that state).
+          python scripts/backtest_summary.py || rc=$?
+          if [ "${rc:-0}" = "2" ]; then
+            echo "::warning::Weekly backtest regression detected — see Telegram alert."
+          elif [ "${rc:-0}" != "0" ]; then
+            echo "::error::backtest_summary.py failed with rc=$rc"
+            exit $rc
+          fi
+
+      - name: Commit backtest results + history
         run: |
           set -e
           git config user.name "github-actions[bot]"
@@ -83,17 +112,4 @@ jobs:
           else
             git commit -m "Weekly backtest results $(date +%Y-%m-%d) [skip ci]"
             git push
-          fi
-
-      - name: Check Sharpe threshold
-        run: |
-          if [ -f reports/backtest_latest.json ]; then
-            SHARPE=$(python3 -c "
-          import json
-          with open('reports/backtest_latest.json') as f:
-              data = json.load(f)
-          sharpe = data.get('sharpe', 0)
-          print(f'{sharpe:.2f}')
-          ")
-            echo "Sharpe ratio: $SHARPE"
           fi
