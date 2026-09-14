@@ -75,9 +75,19 @@ def _p_vs_zero(rets):
 
 
 def _load_records():
-    path = IN_PATH if IN_PATH.exists() else IN_ALT
-    if not path.exists():
-        print(f"[compute_adaptive_edges] no scan_outcomes file at {path}", file=sys.stderr)
+    # 2026-09-14: previously `IN_PATH if IN_PATH.exists() else IN_ALT` — but the
+    # active file can EXIST as 0 bytes (post-Aug-24 recovery left it empty until
+    # the first matured record was appended). That silently defeated the fallback
+    # and adaptive edges recomputed on nothing for 3 weeks. Treat an empty file
+    # as missing so the recovered archive takes over.
+    def _usable(p):
+        try:
+            return p.exists() and p.stat().st_size > 0
+        except Exception:
+            return False
+    path = IN_PATH if _usable(IN_PATH) else (IN_ALT if _usable(IN_ALT) else None)
+    if path is None:
+        print(f"[compute_adaptive_edges] no non-empty scan_outcomes file at {IN_PATH} or {IN_ALT}", file=sys.stderr)
         return [], None
 
     cutoff = (datetime.now(timezone.utc) - timedelta(days=WINDOW_DAYS)).isoformat()
