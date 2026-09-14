@@ -90,6 +90,7 @@ class FullPipelineBacktest:
         enable_patterns: bool = True,
         lookback_days: int = 252,
         status_callback: Optional[Callable[[str], None]] = None,
+        apply_prod_gates: bool = False,
     ):
         self.start_date = datetime.strptime(start_date, "%Y-%m-%d").date()
         self.end_date = datetime.strptime(end_date, "%Y-%m-%d").date()
@@ -104,6 +105,27 @@ class FullPipelineBacktest:
         self.enable_patterns = enable_patterns
         self.lookback_days = lookback_days
         self.status_callback = status_callback or (lambda _: None)
+        # 2026-09-14 (deep-investigation-sep14 Phase 3): when True, the backtest
+        # applies the same score / fund / ML / RR / sector gates as the live
+        # trading pipeline (via CONFIG). Default False for backward compat with
+        # the existing baseline metric; the weekly backtest workflow flips it on.
+        self.apply_prod_gates = apply_prod_gates
+        if apply_prod_gates:
+            # Cap concurrent positions and per-rebalance selections to what the
+            # live system would actually take. Without this, prod gates filter
+            # correctly but the sim still opens up to top_k=10 / max_positions=15
+            # positions and the equity curve stops looking like ours.
+            try:
+                from core.trading.config import CONFIG as _CFG
+                _live_max = int(getattr(_CFG, "max_open_positions", 3) or 3)
+                if top_k > _live_max:
+                    logger.info("prod_gates: clamping top_k %d -> %d (CONFIG.max_open_positions)", top_k, _live_max)
+                    self.top_k = _live_max
+                if max_positions > _live_max:
+                    logger.info("prod_gates: clamping max_positions %d -> %d (CONFIG.max_open_positions)", max_positions, _live_max)
+                    self.max_positions = _live_max
+            except Exception as _e:
+                logger.warning("prod_gates: could not read CONFIG.max_open_positions: %s", _e)
 
         # Cached price data (fetched once)
         self._price_cache: Dict[str, pd.DataFrame] = {}
@@ -159,7 +181,14 @@ class FullPipelineBacktest:
                     if scored is not None and not scored.empty:
                         # Save full scored universe for weight optimization
                         self._scored_universes[day] = scored.copy()
-                        selections = scored.head(self.top_k)
+                        # Apply production gates BEFORE top-K when enabled — the
+                        # baseline path (apply_prod_gates=False) preserves the
+                        # legacy "top-K by score" behavior for A/B comparison.
+                        eligible = self._apply_production_gates(scored) if self.apply_prod_gates else scored
+                        if eligible.empty:
+                            logger.info("Rebalance %s: 0 candidates after prod gates (of %d scored)", day, len(scored))
+                            continue
+                        selections = eligible.head(self.top_k)
                         sim.open_positions(day, selections, prices_today)
                 except Exception as e:
                     logger.warning("Scoring failed for %s: %s", day, e)
@@ -187,6 +216,7 @@ class FullPipelineBacktest:
             "enable_ml": self.enable_ml,
             "enable_fundamentals": self.enable_fundamentals,
             "enable_patterns": self.enable_patterns,
+            "apply_prod_gates": self.apply_prod_gates,
         }
 
         if equity_curve.empty or len(equity_curve) < 2:
@@ -570,6 +600,101 @@ class FullPipelineBacktest:
 
         df_scored = df_scored.sort_values(score_col, ascending=False)
         return df_scored
+
+    # ------------------------------------------------------------------
+    # Production gates (opt-in; symmetrical with live pipeline)
+    # ------------------------------------------------------------------
+
+    def _apply_production_gates(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Filter the scored universe using the same gates the live pipeline
+        enforces at buy time. Returns rows that would pass the pre-filter in
+        order_manager._filter_candidates. Idempotent and column-name tolerant.
+
+        Applied gates (see CLAUDE.md 'Trade GATES'):
+          - Score:  CONFIG.min_score_to_trade .. CONFIG.max_score_to_trade
+          - Fund:   >= CONFIG.min_fundamental_score
+          - ML:     CONFIG.min_ml_prob .. CONFIG.max_ml_prob (when present)
+          - RR:     CONFIG.min_rr_to_trade .. CONFIG.max_rr_to_trade (when present + capped)
+          - ATR:    >= CONFIG.min_atr_pct (0 treated as missing pass-through)
+          - Sector: not in CONFIG.blocked_sectors_list
+        Confidence gate and adaptive relaxation are deliberately NOT applied
+        here — they depend on runtime state (SignalQuality column often absent
+        in historical scans, adaptive streaks are timepoint-specific). Leaving
+        them for the Option A follow-up.
+        """
+        try:
+            from core.trading.config import CONFIG
+        except Exception as e:
+            logger.warning("Cannot load CONFIG for production gates: %s — falling back to unfiltered", e)
+            return df
+
+        if df is None or df.empty:
+            return df
+
+        out = df.copy()
+
+        def _col(*names):
+            for n in names:
+                if n in out.columns:
+                    return n
+            return None
+
+        # --- score ---
+        sc = _col("FinalScore_20d", "final_score", "Score", "score")
+        if sc is not None:
+            lo = float(getattr(CONFIG, "min_score_to_trade", 73.0))
+            hi = float(getattr(CONFIG, "max_score_to_trade", 85.0))
+            out = out[(out[sc].astype(float) >= lo) & (out[sc].astype(float) <= hi)]
+        if out.empty: return out
+
+        # --- fund ---
+        fc = _col("fundamental_score", "Fundamental_Score", "fund_score")
+        if fc is not None:
+            lo = float(getattr(CONFIG, "min_fundamental_score", 45.0))
+            out = out[out[fc].astype(float) >= lo]
+        if out.empty: return out
+
+        # --- ML window (only when present; historical scans sometimes lack it) ---
+        mc = _col("ml_prob", "ML_Probability", "ml_probability")
+        if mc is not None:
+            lo = float(getattr(CONFIG, "min_ml_prob", 0.40))
+            hi = float(getattr(CONFIG, "max_ml_prob", 0.60))
+            # Pass-through NaN rows (not all historical rows had ML), but
+            # filter rows that HAVE ml and fall outside the window.
+            m = out[mc].astype(float)
+            keep_mask = m.isna() | ((m >= lo) & (m <= hi))
+            out = out[keep_mask]
+        if out.empty: return out
+
+        # --- RR window ---
+        rc = _col("rr", "RR", "RR_Ratio", "RewardRisk")
+        if rc is not None:
+            lo = float(getattr(CONFIG, "min_rr_to_trade", 2.5))
+            hi = float(getattr(CONFIG, "max_rr_to_trade", 5.0) or 0.0)
+            r = out[rc].astype(float)
+            keep = r.isna() | (r >= lo)
+            if hi > 0:
+                keep = keep & (r.isna() | (r <= hi))
+            out = out[keep]
+        if out.empty: return out
+
+        # --- ATR floor ---
+        ac = _col("atr_pct", "ATR_Pct")
+        if ac is not None:
+            lo = float(getattr(CONFIG, "min_atr_pct", 0.03))
+            a = out[ac].astype(float)
+            # ATR=0 or NaN treated as "unknown, don't block" per config comment
+            keep = a.isna() | (a <= 0) | (a >= lo)
+            out = out[keep]
+        if out.empty: return out
+
+        # --- Blocked sectors ---
+        blocked = getattr(CONFIG, "blocked_sectors_list", None) or []
+        if blocked:
+            sc2 = _col("sector", "Sector")
+            if sc2 is not None:
+                out = out[~out[sc2].astype(str).isin(blocked)]
+        return out
 
     # ------------------------------------------------------------------
     # Price data

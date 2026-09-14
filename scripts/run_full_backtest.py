@@ -38,6 +38,9 @@ def main() -> None:
     parser.add_argument("--universe-size", type=int, default=200, help="Universe size (fetched dynamically)")
     parser.add_argument("--ablation", action="store_true", help="Run ablation study (all variants)")
     parser.add_argument("--output", type=str, default="reports/backtest_latest.json", help="Output file")
+    parser.add_argument("--prod-gates", action="store_true",
+                        help="Apply live-pipeline gates (score/fund/ml/rr/atr/sectors) before top-K. "
+                             "When set, the backtest tests OUR strategy rather than the top-K baseline.")
     args = parser.parse_args()
 
     # Fetch universe dynamically (same source as live pipeline)
@@ -61,6 +64,7 @@ def main() -> None:
         "enable_ml": not args.no_ml,
         "enable_fundamentals": not args.no_fundamentals,
         "enable_patterns": not args.no_patterns,
+        "apply_prod_gates": args.prod_gates,
     }
     if universe:
         config["universe"] = universe

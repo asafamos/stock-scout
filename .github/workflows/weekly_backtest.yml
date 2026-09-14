@@ -77,10 +77,16 @@ jobs:
           if [ "${{ inputs.ablation }}" = "true" ]; then
             ABLATION_FLAG="--ablation"
           fi
+          # --prod-gates makes the backtest test OUR live strategy (score 73-85,
+          # fund>=45, ML window, RR window, blocked sectors, max_open_positions
+          # cap) instead of the top-K-by-score baseline. Turned on 2026-09-14
+          # after deep-investigation-sep14 Phase 3 confirmed the baseline path
+          # was misleading (report showed -3.85% while real portfolio was +).
           python scripts/run_full_backtest.py \
             --start "$START" --end "$END" \
             --universe-size 200 \
             --output reports/backtest_latest.json \
+            --prod-gates \
             $ABLATION_FLAG
 
       - name: Send Telegram summary + regression alerts

@@ -85,6 +85,7 @@ def _load_prior(history: Path, current_key: tuple) -> dict | None:
 def _append_history(history: Path, current: dict) -> None:
     """Append current run to history — small subset, one line."""
     history.parent.mkdir(parents=True, exist_ok=True)
+    cfg = current.get("config") or {}
     row = {
         "recorded_at": datetime.now(timezone.utc).isoformat(),
         "start_date":  current.get("start_date"),
@@ -98,6 +99,8 @@ def _append_history(history: Path, current: dict) -> None:
         "profit_factor":current.get("profit_factor"),
         "excess_return":current.get("excess_return"),
         "benchmark_return":current.get("benchmark_return"),
+        # Mode indicator so _regression_alerts can skip cross-mode comparisons.
+        "config": {"apply_prod_gates": bool(cfg.get("apply_prod_gates"))},
     }
     with history.open("a") as f:
         f.write(json.dumps(row) + "\n")
@@ -106,6 +109,14 @@ def _append_history(history: Path, current: dict) -> None:
 def _regression_alerts(cur: dict, prev: dict | None) -> list[str]:
     """Return a list of regression alerts vs prior week. Empty if none."""
     if prev is None:
+        return []
+    # 2026-09-14: apples-to-apples check — the engine gained a prod-gates
+    # mode. If prior week ran without it and this week with it (or vice
+    # versa), the two runs test different strategies and any diff would be
+    # noise, not a real regression. Skip alerting on mode changes.
+    cur_mode = bool((cur.get("config") or {}).get("apply_prod_gates"))
+    prev_mode = bool((prev.get("config") or {}).get("apply_prod_gates"))
+    if cur_mode != prev_mode:
         return []
     alerts = []
     dsharpe = (cur.get("sharpe") or 0) - (prev.get("sharpe") or 0)
@@ -141,10 +152,19 @@ def _format_message(cur: dict, prev: dict | None, alerts: list[str]) -> str:
             return "—"
         return f"{v:{fmt}}"
 
-    header = "🚨 <b>Weekly Baseline — REGRESSION</b>" if alerts else "📊 <b>Weekly Baseline</b>"
+    # 2026-09-14: engine gained --prod-gates mode. Detect which mode this
+    # report came from so the Telegram header + tagline don't lie.
+    cfg = cur.get("config") or {}
+    prod_gates = bool(cfg.get("apply_prod_gates"))
+    label = "Weekly Backtest (LIVE gates)" if prod_gates else "Weekly Baseline"
+    tagline = ("<i>our live strategy: score 73-85, fund>=45, ML/RR window, "
+               "sector blocks, max 3 positions</i>"
+               if prod_gates
+               else "<i>top-K score baseline (NOT our live strategy)</i>")
+    header = f"🚨 <b>{label} — REGRESSION</b>" if alerts else f"📊 <b>{label}</b>"
     lines = [
         header,
-        f"<i>top-K score baseline (NOT our live strategy)</i>",
+        tagline,
         f"<i>Period {start} → {end}, n={n} trades</i>",
         "",
         f"<b>Sharpe:</b>       {_v('sharpe')}        {_p('sharpe')}",
@@ -164,9 +184,14 @@ def _format_message(cur: dict, prev: dict | None, alerts: list[str]) -> str:
         lines.append("")
         lines.append("<i>(first run — no prior week to compare)</i>")
     lines.append("")
-    lines.append("<i>ℹ️ Baseline = top-10 by score, held ~20d, 2xATR stop.")
-    lines.append("Does NOT apply our gates (73-85 score, sectors, ratchet, adaptive).")
-    lines.append("Use /perf for real portfolio performance.</i>")
+    if prod_gates:
+        lines.append("<i>ℹ️ Backtest applies live gates; portfolio_sim still uses 2xATR "
+                     "stop (not our 9pct ratchet) — target for follow-up. "
+                     "Use /perf for real ledger.</i>")
+    else:
+        lines.append("<i>ℹ️ Baseline = top-10 by score, held ~20d, 2xATR stop.")
+        lines.append("Does NOT apply our gates (73-85 score, sectors, ratchet, adaptive).")
+        lines.append("Use /perf for real portfolio performance.</i>")
     return "\n".join(lines)
 
 
