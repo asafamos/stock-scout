@@ -193,9 +193,12 @@ def _format_message(cur: dict, prev: dict | None, alerts: list[str]) -> str:
         lines.append("<i>(first run — no prior week to compare)</i>")
     lines.append("")
     if prod_gates:
-        lines.append("<i>ℹ️ Backtest applies live gates; portfolio_sim still uses 2xATR "
-                     "stop (not our 9pct ratchet) — target for follow-up. "
-                     "Use /perf for real ledger.</i>")
+        if cfg.get("backtest_mode") == "replay" and cfg.get("trail_simulation"):
+            lines.append("<i>ℹ️ Replay backtest: live gates + 9pct->5.5pct->ratchet trail "
+                         "approximated from max/min_return_pct. Use /perf for real ledger.</i>")
+        else:
+            lines.append("<i>ℹ️ Backtest applies live gates; check config for trail model. "
+                         "Use /perf for real ledger.</i>")
     else:
         lines.append("<i>ℹ️ Baseline = top-10 by score, held ~20d, 2xATR stop.")
         lines.append("Does NOT apply our gates (73-85 score, sectors, ratchet, adaptive).")
