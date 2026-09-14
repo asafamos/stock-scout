@@ -73,21 +73,37 @@ jobs:
             END=$(date -u +%Y-%m-%d)
           fi
           echo "Backtest window: $START → $END"
-          ABLATION_FLAG=""
-          if [ "${{ inputs.ablation }}" = "true" ]; then
-            ABLATION_FLAG="--ablation"
-          fi
-          # --prod-gates makes the backtest test OUR live strategy (score 73-85,
-          # fund>=45, ML window, RR window, blocked sectors, max_open_positions
-          # cap) instead of the top-K-by-score baseline. Turned on 2026-09-14
-          # after deep-investigation-sep14 Phase 3 confirmed the baseline path
-          # was misleading (report showed -3.85% while real portfolio was +).
-          python scripts/run_full_backtest.py \
+
+          # 2026-09-14 (deep-investigation-sep14 Phase 3 v2): replay backtest
+          # over the LIVE pipeline's own scan_outcomes.jsonl instead of the
+          # 90-min compute-from-scratch engine.
+          #
+          # Why: the compute engine sampled top-200-by-market-cap and hit the
+          # score-73-85 window essentially never (n=0 with --prod-gates on the
+          # first live run). The live pipeline scans ~2000 tickers and persists
+          # every resolved record — replaying gates over that dataset matches
+          # what production actually sees, runs in seconds, and uses zero
+          # third-party API calls.
+          #
+          # scan_outcomes.jsonl lives on the VPS and only trickles into this
+          # repo via nightly commits (models/, weekly reports), so we fetch it
+          # from the VPS backup on Supabase-recovery (checked in). Fallback to
+          # the local file if it exists (older workflow revisions may have it).
+          #
+          # Ablation input is now a no-op — the replay design doesn't have a
+          # meaningful ablation. Ignored silently for backward compat.
+          # ------------------------------------------------------------
+          # NOTE ON DATA AVAILABILITY:
+          # This workflow runs on GH Actions VMs. scan_outcomes.jsonl lives on
+          # the VPS. For now we ship a snapshot of the recovered file inside
+          # the repo (data/outcomes/scan_outcomes.jsonl is gitignored, but
+          # scan_outcomes_recovered.jsonl is present in the repo history after
+          # the 2026-08-24 recovery). run_replay_backtest.py auto-falls back
+          # to the recovered file if the active one is missing/empty.
+          # ------------------------------------------------------------
+          python scripts/run_replay_backtest.py \
             --start "$START" --end "$END" \
-            --universe-size 200 \
-            --output reports/backtest_latest.json \
-            --prod-gates \
-            $ABLATION_FLAG
+            --output reports/backtest_latest.json
 
       - name: Send Telegram summary + regression alerts
         # Runs BEFORE the commit so the history compare sees the prior week's
@@ -115,7 +131,20 @@ jobs:
           git add reports/ || true
           if git diff --cached --quiet; then
             echo "No changes to commit."
-          else
-            git commit -m "Weekly backtest results $(date +%Y-%m-%d) [skip ci]"
-            git push
+            exit 0
           fi
+          git commit -m "Weekly backtest results $(date +%Y-%m-%d) [skip ci]"
+          # 2026-09-14: race protection. Between the backtest run (~1s replay)
+          # and the push, another workflow (portfolio snapshot commits every
+          # 15 min) can advance main. Try push, on rejection pull --rebase and
+          # retry. Up to 3 attempts.
+          for i in 1 2 3; do
+            if git push; then
+              echo "Push succeeded on attempt $i"
+              exit 0
+            fi
+            echo "Push rejected (attempt $i) — pulling with rebase and retrying"
+            git pull --rebase origin main || true
+          done
+          echo "::error::Push failed after 3 attempts"
+          exit 1
