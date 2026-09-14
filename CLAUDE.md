@@ -27,16 +27,17 @@ AI-powered stock recommendation system that scans 3,000+ US stocks using technic
 **⚠️ 2026-07-09 FREEZE: gates below are FROZEN until we have 10-20 new trade closes under this config. See memory `feedback_no_flipflop.md` for framework. Do NOT retune based on more simulated data — that's the anti-pattern that caused MAX_SCORE to flip 4× in a week.**
 
 **Trade GATES (RECALIBRATED 2026-07-09 evening — final freeze state):**
-- Score: **73-85** in CONFIG. **2026-07-03 (a9c6645):** runtime uses `max(REGIME_MIN_SCORE+5, CONFIG.min_score)` so CONFIG.min_score_to_trade is the HARD floor. **MAX_SCORE=85** confirmed on 2026-07-09 (commit 75d987b) after brief flip to 97 based on simulated (n=2588). REAL portfolio (n=402) says 85-89=-0.38%, 90-94=-0.48%. Framework: when sim vs real disagree, TRUST REAL. Only revisit when real n≥100 in 85+ range.
+- Score: **73-85** in CONFIG. **2026-07-03 (a9c6645):** runtime uses `max(REGIME_MIN_SCORE+5, CONFIG.min_score)` so CONFIG.min_score_to_trade is the HARD floor. **MAX_SCORE=85** confirmed on 2026-07-09 (commit 75d987b) after brief flip to 97 based on simulated (n=2588). REAL portfolio (n=402) says 85-89=-0.38%, 90-94=-0.48%. Framework: when sim vs real disagree, TRUST REAL. Only revisit when real n≥100 in 85+ range. 2026-09-14 revalidated on Supabase n=402: score 73-80 mean +3.05% WR 67.3%, score 80-85 mean +4.46% WR 70.8% — SWEET SPOT confirmed.
 - Fundamental_Score: **≥ 45** (2026-07-09 commit 3f92573, was 40). Fund 40-45=-0.04% (dead zone), 45-50=+5.67% (BEST). Both sim + real agree on monotonic direction.
-- ML probability: **0.40-0.60** (was 0.55; raised because bucket 0.55-0.60 = +4.93% mean vs in-window +3.0%)
-- R:R: **2.5-5.0** (2026-07-09 commit 9ea1174 restored max=5.0 after fresh backtest: RR 5-7 = -3.49% mean, WR 0% (n=18) — DISASTER ZONE). Floor 2.5 stable.
+- ML probability: **0.40-0.60** (was 0.55; raised because bucket 0.55-0.60 = +4.93% mean vs in-window +3.0%). **⚠️ 2026-09-14 drift-restore:** env had silently drifted to `MIN_ML=0.30, MAX_ML=0.45` — 4 of 6 post-freeze losing buys (AAL/FRSH/FTNT/CGAU, all ML 0.36-0.39) passed only because MIN was 0.30 instead of 0.40. Restored to 0.40-0.60 same day. See `deep-investigation-sep14`.
+- R:R: **2.5-5.0** (2026-07-09 commit 9ea1174 restored max=5.0 after fresh backtest: RR 5-7 = -3.49% mean, WR 0% (n=18) — DISASTER ZONE). Floor 2.5 stable. **⚠️ 2026-09-14 drift-restore:** env `TRADE_MAX_RR=0` (uncapped) had silently drifted from 5.0 — CGAU rr=3.7 wasn't affected but the drift itself was a spec violation. Restored to 5.0. n=42K sim disagreed (RR 5-7 = +2.40%) but n=13 real inconclusive (p=0.76) — per no-flipflop stays 5.0 until n≥50 real bucket evidence.
 - ATR_Pct: **≥ 0.03** (lowered from 0.04 on 2026-06-12; bucket 0.03-0.04 = +2.0% mean, was being excluded. ATR=0 treated as missing data pass-through.)
 - Min confidence: High. 2026-07-03 FIX (commit 281b74c) — CONFIG is now HARD floor. Regime relax (High→Medium in bullish) is opt-in via `TRADE_CONFIDENCE_REGIME_RELAX=1`. Default disabled. Note: gate reads `SignalQuality` field, NOT `ML_Confidence_Status` — separate metrics, latter shown in status but not enforced.
 - Min reliability: 50
 
 **Blocked sectors (6, REVISED 2026-07-17 — real data trumps sim):**
-- BLOCKED: Consumer Defensive (-3.13% p=0.006, n=22), Utilities (+0.88% borderline, kept), Communication (no real data, kept as precaution), Materials (-1.23% n=8, weak), Basic Materials (-0.80% n=28, weak), Real Estate (+1.08% n=15, borderline)
+- BLOCKED: Consumer Defensive (-3.13% p=0.006, n=22), Utilities (+0.88% borderline, kept), Communication (no real data, kept as precaution), Materials (-1.23% n=8, weak), **Basic Materials** (-0.80% n=28, weak), Real Estate (+1.08% n=15, borderline).
+- **⚠️ 2026-09-14 drift-restore:** Basic Materials had silently drifted OUT of `TRADE_BLOCKED_SECTORS` env, letting CGAU (Basic Materials, sector-blocked here) pass gates and lose -$16 on Sep 8. Restored to env same day. See `deep-investigation-sep14`. The `Materials` and `Basic Materials` labels are BOTH kept in the block list because Yahoo/FMP/Finviz label the same GICS sector differently across sources.
 - **UNBLOCKED 2026-07-17: Energy (+3.07% p<0.001 n=70)** — was blocked from stale sim (-1.59% n=304). Real data flips: 402 REAL Supabase positions Mar-Jun 2026 show Energy = 65.7% win rate. Per no-flipflop framework: TRUST REAL when sim disagrees.
 - **UNBLOCKED 2026-07-17: Financial (+3.05% p=0.062 n=6)** — small n but positive; previously blocked as ambiguous.
 - Previous unblocks kept: Consumer Cyclical, Financial Services.
@@ -53,13 +54,16 @@ AI-powered stock recommendation system that scans 3,000+ US stocks using technic
 - Then standard RATCHET tightens further as profit accumulates (T0 +10% → 5%, T1 +14% → 4.5%, T2 +22% → 3.5%, T3 +30% → 2.5%)
 - Ratchet is idempotent (only tightens, never loosens — enforced by N4 guard in `modify_trailing_pct`)
 - **DEFERRED (do NOT deploy without freeze exit)**: T-early tier at +5% peak, and T0 threshold drop to +7% (pipeline-deep-dive-jun26 suggestion). Both require 15-20 new closes as validation before deployment.
+- **⚠️ 2026-09-14 drift-restore:** env had silently deployed `TRADE_RATCHET_T0_GAIN=7.0` — the exact "DO NOT DEPLOY without freeze exit" change above. Restored to 10.0. See `deep-investigation-sep14`.
 - Reasoning: postmortem on 12 trail-fired losers showed 9/12 (75%) recovered above ENTRY within 14 days. The 5.5% trail was firing on natural intraday noise. Real-OHLC backtest: 5.5%+0d=-1.73%/trade OOS; 9%+0d=+0.42%; 9%→5.5% at day 7=+1.26% (chosen).
 - Env: TRADE_MIN_INITIAL_TRAIL_PCT, TRADE_TIME_TIGHTEN_ENABLED, TRADE_TIME_TIGHTEN_DAYS, TRADE_TIME_TIGHTEN_TARGET_PCT
 
 **BREAK_EVEN: DISABLED** (backtest showed net -$74.81/$1k/trade — was a bad anecdote-based feature)
 
-**DAY-N MOMENTUM KILL: ENABLED** (NEW 2026-07-17, `TRADE_DAY_N_KILL_ENABLED=1`)
-- Rule: if position age ≥ 2 days AND peak_gain_pct < 5% → force sell (market, with force_exit_via_trail fallback for sub-$2k Error 201)
+**DAY-N MOMENTUM KILL: DISABLED** (2026-08-13, `TRADE_DAY_N_KILL_ENABLED=0`)
+- Was enabled 2026-07-17 (see below); disabled 2026-08-13 due to spam / conflict with sub-$2k tier standalone-SELL rejection (Error 201).
+- Reactivation gated on: NetLiq ≥ $2000 (sub-$2k tier lifts standalone-SELL restriction) AND revalidation on ≥10 fresh closes.
+- Design rule (kept for reference — was): if position age ≥ 2 days AND peak_gain_pct < 5% → force sell.
 - Simulated on 16 real closed trades with Polygon 1-min bars: baseline -$50 → with kill +$30 (delta +$80). Real ledger was -$95 → sim projects +$30 (delta +$125).
 - Fires ONCE per position (marks `day_n_kill_fired_at`)
 - Rationale: losers mean hold 5.2d vs winners 8.9d; 7/10 real losers exited by day 4 with peaks +0-4%. No trail can catch these — momentum-selection layer needed.
@@ -171,6 +175,27 @@ Local `.env` has all 10 provider keys (FMP, POLYGON, FINNHUB, TIINGO, ALPHA_VANT
 ### Pipeline efficiency + smart-retry (NEW 2026-07-23)
 - **Preflight skip (task #143)**: `scripts/preflight_pipeline.py` runs BEFORE GH Actions dispatch. If `n_positions >= MAX_OPEN_POSITIONS` OR `cash < min_viable_position_usd` → skip entire scan (saves ~45min compute × wasted-empty run). Kill switch: `TRADE_SKIP_WHEN_FULL=0`. If IB unreachable → PROCEED conservatively.
 - **Immediate re-eval after adaptive activation (task #144)**: when `_record_adaptive_outcome` newly-activates a relax flag (confidence or analyst_pt), the current run recursively retries `execute_recommendations(_adaptive_retry=True)` on the SAME scan_df. This catches candidates the just-relaxed gate would allow WITHOUT waiting 1-4h for the next pipeline. Max 1 retry per invocation (loop protection). See `core/trading/order_manager.py:execute_recommendations`.
+
+### Adaptive Edges overlay (2026-09-14 documented — feature was silent before)
+- **`scripts/compute_adaptive_edges.py`** runs nightly 04:00 UTC, reads
+  `data/outcomes/scan_outcomes.jsonl` (rolling 90d, ~42K records post-recovery)
+  and produces `data/adaptive/current_edges.json` with: (a) **champions**
+  (score×sector cohorts WR≥55%, mean≥2%, p<0.05), (b) **sector auto-blocks**
+  (mean_ret<-1%, n≥100), (c) **optimal ML window**, (d) **recommended RR cap**.
+- **`sector_champion.py`** loads this file when `TRADE_ADAPTIVE_EDGES_APPLY=1`
+  and overlays the champion bonus in the ranker.
+- **⚠️ NOT AUTHORITATIVE**: adaptive edges are a *ranking signal* and
+  *watchlist for CONFIG* — they do NOT override CONFIG gates. Blocked sectors
+  in CONFIG stay blocked even if the adaptive block list is shorter. RR cap
+  in CONFIG stays enforced even if adaptive recommends higher. Champion bonus
+  is additive to ranker weight, not a gate bypass.
+- **2026-09-14 fix (deep-investigation-sep14 Phase 1)**: `_load_records`
+  now treats an empty active file as missing so the recovered-file fallback
+  activates (previously silent-zeroed after Aug 24 recovery). Also fixed the
+  same pattern in `weekly_followup_audit.py`.
+- **2026-09-14 drift-detection installed**: `scripts/check_env_vs_docs.py`
+  compares `.env.trading` against the frozen values documented above; run
+  daily by a systemd timer, alerts on divergence via Telegram.
 
 ### Adaptive RR gate (NEW 2026-07-23 EOD, task #145)
 - Extends adaptive to the RR gate — same pattern as Confidence/Analyst PT.
