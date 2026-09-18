@@ -1,6 +1,6 @@
 {
-  "timestamp": "2026-09-17T23:46:54.672580Z",
-  "universe_size": 167,
+  "timestamp": "2026-09-18T14:09:44.148840Z",
+  "universe_size": 186,
   "universe_name": "default",
   "config_version": "unknown",
   "lookback_days": 250,
@@ -185,7 +185,6 @@
     "Target_Source",
     "Stop_Source",
     "Volume_UpDown_Ratio",
-    "Volume_Penalty",
     "FinalScore",
     "VIX_Value",
     "VIX_Min_RR",
@@ -198,9 +197,9 @@
   "scan_type": "auto_github_actions",
   "universe_count": 2000,
   "provider": "Unknown",
-  "results_count": 167,
+  "results_count": 186,
   "batches_ok": 10,
   "beta_filter_enabled": true,
   "fundamental_enabled": true,
-  "runtime_seconds": 3847.61
+  "runtime_seconds": 2313.54
 }
