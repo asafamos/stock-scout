@@ -88,6 +88,11 @@ def _norm_sectors(raw: str) -> set:
 
 
 def main() -> int:
+    # --dry-run suppresses the Telegram alert on drift (still prints + exits 2).
+    # Added 2026-09-18 after my Phase D fake-drift test spammed Asaf's inbox.
+    # Systemd timer keeps default (production) behavior; humans testing pass --dry-run.
+    dry_run = "--dry-run" in sys.argv or os.getenv("DRIFT_CHECK_DRY_RUN", "0") == "1"
+
     root = Path("/home/stockscout/stock-scout-2") if Path("/home/stockscout").exists() \
            else Path(__file__).resolve().parent.parent
     env_path = root / ".env.trading"
@@ -133,6 +138,10 @@ def main() -> int:
     print("🚨 ENV DRIFT DETECTED:")
     for d in drifts:
         print(f"  • {d}")
+
+    if dry_run:
+        print("(--dry-run: skipping Telegram alert)")
+        return 2
 
     # Telegram alert
     try:
