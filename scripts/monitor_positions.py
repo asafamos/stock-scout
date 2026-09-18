@@ -318,10 +318,45 @@ def run_check():
                 and o.get("status") in ("PreSubmitted", "Submitted")
                 for o in ibkr_orders
             )
-            # Don't close if IBKR returned 0 positions (likely a sync issue)
+            # 2026-09-18 BUG FIX (APH silent-SELL): the old "IBKR returned 0
+            # positions" defensive check bailed the ENTIRE loop, blocking
+            # close-detection. When the LAST-remaining tracked position sells,
+            # IB legitimately returns 0 — indistinguishable from a sync issue
+            # at this level. APH sold Sep 15 14:39 UTC and this branch fired
+            # every 5 min for hours: no Telegram alert, no tracker cleanup.
+            # Fix: cross-check the ledger. If there's a recent SELL execution
+            # for this ticker, IB is really empty (legit close) — proceed to
+            # close-detection. Otherwise bail as before (real sync issue).
             if not ibkr_positions:
-                logger.warning("IBKR returned 0 positions — skipping close check (possible sync issue)")
-                break
+                _has_recent_sell = False
+                try:
+                    from core.trading import ledger as _lg_check
+                    from datetime import datetime, timezone, timedelta
+                    _cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+                    for _r in _lg_check.load():
+                        if (_r.get("ticker") == ticker
+                                and _r.get("side") == "SELL"):
+                            _t = _r.get("time", "")
+                            try:
+                                _dt = datetime.fromisoformat(_t.replace("Z", "+00:00")) if _t else None
+                            except Exception:
+                                _dt = None
+                            if _dt and _dt > _cutoff:
+                                _has_recent_sell = True
+                                break
+                except Exception:
+                    pass
+                if not _has_recent_sell:
+                    logger.warning(
+                        "IBKR returned 0 positions and no recent SELL ledger for %s — "
+                        "skipping close check (possible sync issue)",
+                        ticker,
+                    )
+                    break
+                logger.info(
+                    "IB empty; ledger shows recent SELL for %s — proceeding with close-detection",
+                    ticker,
+                )
             if ticker not in ibkr_positions and not CONFIG.dry_run and not has_pending_buy:
                 # Double-check: verify we have protective orders for OTHER positions
                 # If we don't see ANY positions, it's likely a connection issue, not a real close
