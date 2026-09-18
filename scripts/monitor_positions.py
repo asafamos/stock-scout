@@ -328,11 +328,15 @@ def run_check():
             # for this ticker, IB is really empty (legit close) — proceed to
             # close-detection. Otherwise bail as before (real sync issue).
             if not ibkr_positions:
+                # 7-day window: sync issues resolve in minutes-hours; a ticker
+                # with a SELL that old + IB empty + still in tracker is
+                # unambiguously a legit close the monitor missed (as happened
+                # to APH — sold Sep 15, still in tracker Sep 18 = 3 days).
                 _has_recent_sell = False
                 try:
                     from core.trading import ledger as _lg_check
                     from datetime import datetime, timezone, timedelta
-                    _cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+                    _cutoff = datetime.now(timezone.utc) - timedelta(days=7)
                     for _r in _lg_check.load():
                         if (_r.get("ticker") == ticker
                                 and _r.get("side") == "SELL"):
