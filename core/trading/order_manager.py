@@ -869,6 +869,8 @@ class OrderManager:
         from core.trading.policy import regime_score_floor
         _min_score = regime_score_floor(cur_regime, self.cfg)
         scores = pd.to_numeric(result[score_col], errors="coerce")
+        # Snapshot pre-score-filter for observability (near-miss log below).
+        _pre_score_df = result.copy()
         result = result[
             (scores >= _min_score) &
             (scores <= self.cfg.max_score_to_trade)
@@ -878,6 +880,24 @@ class OrderManager:
                 "No stocks pass score filter (%.0f-%.0f, regime=%s)",
                 _min_score, self.cfg.max_score_to_trade, cur_regime or "default",
             )
+            # 2026-09-18 Phase 4b (observability): log top-3 near-misses so we
+            # can see WHAT specifically fell short, not just "0 passed". Answers
+            # the "is the gate blocking near-misses or is the market genuinely
+            # bad?" question in-line, without needing a separate analysis run.
+            try:
+                _tk_col = next((c for c in ("ticker","Ticker","symbol","Symbol")
+                                if c in _pre_score_df.columns), None)
+                if _tk_col and score_col in _pre_score_df.columns:
+                    _top = _pre_score_df.nlargest(3, score_col)
+                    lines = []
+                    for _, _row in _top.iterrows():
+                        _s = float(_row.get(score_col, 0) or 0)
+                        _gap = _s - _min_score
+                        lines.append(f"{_row.get(_tk_col, '?')}={_s:.1f} ({_gap:+.1f} vs floor)")
+                    if lines:
+                        logger.info("  near-misses (top 3 by score): %s", " | ".join(lines))
+            except Exception as _obe:
+                logger.debug("near-miss log failed: %s", _obe)
             # Task #148: mark for adaptive-score recorder. If we saw candidates
             # with a score in the "would have passed if floor were 5pt lower"
             # zone, that's the dry-cycle signal.

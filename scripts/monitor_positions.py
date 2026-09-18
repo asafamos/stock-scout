@@ -363,11 +363,43 @@ def run_check():
                 )
             if ticker not in ibkr_positions and not CONFIG.dry_run and not has_pending_buy:
                 # Double-check: verify we have protective orders for OTHER positions
-                # If we don't see ANY positions, it's likely a connection issue, not a real close
+                # If we don't see ANY positions, it's likely a connection issue, not a real close.
+                # 2026-09-18 (Phase 4 sweep): this defensive check ALSO needs the
+                # ledger-cross reprieve — otherwise after the outer fix lets us
+                # through with an empty ibkr_positions + recent SELL, this branch
+                # fires ("no other IB positions seen") and silently drops the
+                # close-detection. Trust the ledger over the "sync issue" heuristic
+                # when we can prove a real close happened.
                 other_positions_exist = any(t != ticker for t in ibkr_positions)
                 if not other_positions_exist and len(positions) > 1:
-                    logger.warning("Only %s missing but no other IB positions seen — skipping (possible sync issue)", ticker)
-                    continue
+                    _has_recent_sell_inner = False
+                    try:
+                        from core.trading import ledger as _lg_inner
+                        from datetime import datetime as _dt_i, timezone as _tz_i, timedelta as _td_i
+                        _cut_i = _dt_i.now(_tz_i.utc) - _td_i(days=7)
+                        for _r in _lg_inner.load():
+                            if (_r.get("ticker") == ticker
+                                    and _r.get("side") == "SELL"):
+                                _t = _r.get("time", "")
+                                try:
+                                    _dd = _dt_i.fromisoformat(_t.replace("Z", "+00:00")) if _t else None
+                                except Exception:
+                                    _dd = None
+                                if _dd and _dd > _cut_i:
+                                    _has_recent_sell_inner = True
+                                    break
+                    except Exception:
+                        pass
+                    if not _has_recent_sell_inner:
+                        logger.warning(
+                            "Only %s missing but no other IB positions seen — skipping (possible sync issue)",
+                            ticker,
+                        )
+                        continue
+                    logger.info(
+                        "%s: recent SELL in ledger overrides 'sync issue' skip — proceeding",
+                        ticker,
+                    )
 
                 # Consecutive-miss guard: require N cycles of missing
                 # before treating as closed. Defends against partial
