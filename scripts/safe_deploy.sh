@@ -36,9 +36,11 @@ done
 # Code-only checkout for specific data files we DO want from git:
 # - data/scans/* (overwrites local — these are git-managed scan outputs)
 # - models/*.pkl (overwrites local — managed by ML training pipeline)
+# 2026-09-25 fix: DO NOT include latest_scan.meta.json — it doesn't exist on origin/main
+# and git checkout is atomic (one missing pathspec silently blocks the whole checkout).
+# This was the root cause of the 8-day scan-freshness bug on the VPS.
 git checkout origin/main -- data/scans/latest_scan.parquet \
-    data/scans/latest_scan.json \
-    data/scans/latest_scan.meta.json 2>/dev/null || true
+    data/scans/latest_scan.json 2>/dev/null || true
 
 # DO NOT touch:
 #   - data/trades/   (live tracker state)

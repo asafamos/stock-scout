@@ -193,7 +193,15 @@ echo "✓ New scan detected after ${WAIT_DUR}s — hash ${NEW_HASH:0:12}"
 # are independent of git so we ONLY pull the scan files.
 echo "Pulling latest scan files to VPS..."
 git fetch origin main --quiet
-git checkout origin/main -- data/scans/latest_scan.parquet data/scans/latest_scan.json data/scans/latest_scan.meta.json 2>/dev/null || true
+# CRITICAL FIX (2026-09-25): DO NOT list latest_scan.meta.json in this checkout.
+# It was removed from origin/main long ago. git checkout is ATOMIC —
+# a single missing pathspec makes the entire checkout fail with
+# "error: pathspec ... did not match any file(s) known to git" and no files
+# get updated. The `2>/dev/null || true` was hiding this error, so the pipeline
+# reported success while the working-tree parquet stayed frozen at commit
+# 7862775d (09-17) for 8 days. See project_scan_freshness_bug_sep25 memory.
+# If you ever want to re-add meta.json, guard it: `git ls-tree origin/main -- data/scans/latest_scan.meta.json`.
+git checkout origin/main -- data/scans/latest_scan.parquet data/scans/latest_scan.json 2>/dev/null || true
 # Also pull any code changes (excluding data/trades/* which we keep local)
 git checkout origin/main -- core/ scripts/ deploy/ ml/ models/ 2>/dev/null || true
 
@@ -206,7 +214,7 @@ git checkout origin/main -- core/ scripts/ deploy/ ml/ models/ 2>/dev/null || tr
 # `_load_scan_results` reads file mtime to decide staleness, so the
 # trade fired with a 4h staleness gate, then refused to execute. Touch
 # the files after checkout so mtime reflects "this VPS just received it".
-for f in data/scans/latest_scan.parquet data/scans/latest_scan.json data/scans/latest_scan.meta.json; do
+for f in data/scans/latest_scan.parquet data/scans/latest_scan.json; do
     [ -f "$f" ] && touch "$f"
 done
 
@@ -218,6 +226,37 @@ if [ ! -f "$SCAN_FILE" ]; then
 fi
 SCAN_AGE_MIN=$(( ($(date +%s) - $(stat -c %Y "$SCAN_FILE")) / 60 ))
 echo "Scan file age: ${SCAN_AGE_MIN}m"
+
+# FRESHNESS ASSERTION (2026-09-25): after checkout, verify the parquet's
+# As_Of_Date is within the last few days. This is a defense-in-depth check
+# against silent checkout failures (like the meta.json atomicity bug that
+# stole 8 days of trading). If the scan is stale, abort BEFORE trading.
+SCAN_AS_OF_DAYS_OLD=$($PY -c "
+import pandas as pd, sys
+from datetime import datetime, timezone
+try:
+    df = pd.read_parquet('$SCAN_FILE')
+    if 'As_Of_Date' not in df.columns or len(df) == 0:
+        print(999); sys.exit(0)
+    as_of = pd.Timestamp(df['As_Of_Date'].iloc[0])
+    if as_of.tz is None:
+        as_of = as_of.tz_localize('UTC')
+    days = (datetime.now(timezone.utc) - as_of.to_pydatetime()).days
+    print(days)
+except Exception:
+    print(999)
+" 2>/dev/null)
+echo "Scan As_Of_Date: ${SCAN_AS_OF_DAYS_OLD} days old"
+if [ "${SCAN_AS_OF_DAYS_OLD:-999}" -gt 5 ]; then
+    echo "FATAL: scan As_Of_Date is ${SCAN_AS_OF_DAYS_OLD} days old — refusing to trade against stale data."
+    if [ -n "${TRADE_TELEGRAM_TOKEN:-}" ]; then
+        curl -sfX POST "https://api.telegram.org/bot${TRADE_TELEGRAM_TOKEN}/sendMessage" \
+            -d "chat_id=${TRADE_TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=🚨 <b>STALE SCAN ABORT</b>%0AAs_Of_Date is ${SCAN_AS_OF_DAYS_OLD} days old.%0AVPS pipeline refusing to trade against stale data.%0ASee project_scan_freshness_bug_sep25." \
+            -d "parse_mode=HTML" >/dev/null 2>&1 || true
+    fi
+    exit 6
+fi
 
 # Record outcomes (regime-tagged JSONL for ML feedback loop).
 # Capture full output to a file (for diagnostics) AND tail to stdout.
@@ -404,8 +443,9 @@ if grep -qE "stale data|No scan results available|FATAL|Failed to connect to IBK
         echo "STALE-SCAN abort detected — refreshing scan + retrying once after 60s..."
         sleep 60
         git fetch origin main --quiet 2>/dev/null || true
-        git checkout origin/main -- data/scans/latest_scan.parquet data/scans/latest_scan.json data/scans/latest_scan.meta.json 2>/dev/null || true
-        for f in data/scans/latest_scan.parquet data/scans/latest_scan.json data/scans/latest_scan.meta.json; do
+        # See main checkout at line ~204 — DO NOT include meta.json (it doesn't exist on origin/main).
+        git checkout origin/main -- data/scans/latest_scan.parquet data/scans/latest_scan.json 2>/dev/null || true
+        for f in data/scans/latest_scan.parquet data/scans/latest_scan.json; do
             [ -f "$f" ] && touch "$f"
         done
         echo "Retrying auto-trade..."
