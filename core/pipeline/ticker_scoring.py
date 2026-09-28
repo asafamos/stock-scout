@@ -248,8 +248,12 @@ def _process_single_ticker(
         except (TypeError, ValueError):
             pass
         # 5. Volume confirmation — swing signal (weight=0.75)
+        # 2026-09-28 fix: PREFER Volume_Surge_Ratio (actual ratio in 0.4-2.0 range)
+        # over VolSurge (normalized 0-1, max ~0.82). Previously the code preferred
+        # VolSurge → threshold 1.3 was UNREACHABLE → volume bonus never fired.
+        # Empirical (real 177-stock scan today): VolSurge max=0.82, Volume_Surge_Ratio max=1.91.
         try:
-            vol_surge = float(rec_series.get("VolSurge", rec_series.get("Volume_Surge_Ratio", np.nan)))
+            vol_surge = float(rec_series.get("Volume_Surge_Ratio", rec_series.get("VolSurge", np.nan)))
             if np.isfinite(vol_surge) and vol_surge >= 1.3:
                 reasons.append("Volume surge confirmation")
                 swing_strength += 0.75

@@ -49,12 +49,15 @@ def compute_smart_position_size(
         warnings.append("🚨 Very high risk - consider skipping")
     
     # Adjust by ML confidence
-    if ml_prob >= 0.7:
-        confidence_multiplier = 1.2           # Increase 20%
-    elif ml_prob >= 0.5:
-        confidence_multiplier = 1.0           # Keep as is
+    # 2026-09-28 fix: rebased thresholds. Previous 0.7/0.5 tiers were unreachable
+    # under our max_ml_prob=0.60 gate (best-bucket 0.55-0.60 = +4.93% mean).
+    # New tiers match tradeable window + empirical BEST bucket boundary:
+    if ml_prob >= 0.55:
+        confidence_multiplier = 1.2           # Increase 20% — BEST bucket
+    elif ml_prob >= 0.45:
+        confidence_multiplier = 1.0           # Keep as is — middle
     else:
-        confidence_multiplier = 0.7           # Reduce 30%
+        confidence_multiplier = 0.7           # Reduce 30% — below threshold
         warnings.append("⚠️ Low ML confidence - reduce position")
     
     final_pct = min(base_pct * confidence_multiplier, max_position_pct)
@@ -76,10 +79,12 @@ def compute_smart_position_size(
 def categorize_risk(risk_score: float, ml_prob: float) -> str:
     """
     Categorize overall risk level.
+    2026-09-28: ML thresholds rebased 0.6/0.5 → 0.50/0.45 to be reachable
+    under our max_ml_prob=0.60 trade gate (was unreachable at 0.6).
     """
-    if risk_score <= 4 and ml_prob >= 0.6:
+    if risk_score <= 4 and ml_prob >= 0.50:
         return "🟢 LOW RISK"
-    elif risk_score <= 6 and ml_prob >= 0.5:
+    elif risk_score <= 6 and ml_prob >= 0.45:
         return "🟡 MEDIUM RISK"
     elif risk_score <= 8:
         return "🟠 HIGH RISK"

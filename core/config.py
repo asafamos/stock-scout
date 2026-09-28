@@ -81,7 +81,13 @@ class Config:
     
     # Downside Protection Filters
     max_atr_pct: float = 6.0  # Reject extreme volatility (>6% ATR)
-    min_rr_required: float = 1.5  # Minimum Risk/Reward ratio
+    # 2026-09-28: min_rr_required is defined here but NOT USED anywhere in code.
+    # For auto-trading, the AUTHORITATIVE RR floor is core/trading/config.py
+    # `min_rr_to_trade` (=2.5, TRADE_MIN_RR env-overridable). Scan-side wide
+    # filter is core/scoring_config.py HARD_FILTERS.min_rr (=1.5-2.0 VIX-adj).
+    # Keep for backward compat; do NOT reference from new code — read from
+    # the two authoritative locations instead.
+    min_rr_required: float = 1.5  # LEGACY / UNUSED — see comment above
     earnings_blackout_days: int = 7  # Skip stocks with earnings in next N days
     
     # Technical Weights — delegates to scoring_config.TECH_WEIGHTS (single source of truth)

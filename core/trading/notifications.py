@@ -123,12 +123,15 @@ def notify_buy(ticker: str, qty: int, price: float,
     if tech_score > 0:
         attr_lines.append(f"  Tech: {tech_score:.0f}")
     if ml_prob > 0:
-        # ML 0.45-0.55 "deadzone" — but neutralize the warning when the
-        # sector×score cohort has strong historical WR (Champion), since the
-        # empirical evidence overrides the ML-alone signal.
+        # 2026-09-28 fix: PREVIOUSLY flagged 0.45-0.55 as "deadzone" — but this
+        # is the EMPIRICAL BEST bucket (0.45-0.50=+5.07%, 0.55-0.60=+4.93%; n=44k).
+        # The warning contradicted the trade config. Now: mark BEST (0.45-0.60)
+        # with 💎 sweet-spot; edges of the window (0.40-0.45) as neutral.
         ml_flag = ""
-        if 0.45 <= ml_prob <= 0.55:
-            ml_flag = " (mid)" if is_champion else " ⚠️ deadzone"
+        if 0.45 <= ml_prob <= 0.60:
+            ml_flag = " 💎 sweet-spot"
+        elif 0.40 <= ml_prob < 0.45:
+            ml_flag = " (mid)"
         attr_lines.append(f"  ML: {ml_prob:.2f}{ml_flag}")
     if volume_surge > 0:
         attr_lines.append(f"  VolSurge: {volume_surge:.2f}")

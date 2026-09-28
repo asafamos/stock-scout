@@ -303,7 +303,12 @@ ATR_RULES = {
 
 # Hard filters — stocks violating these are REJECTED (SafetyBlocked=True)
 HARD_FILTERS: Dict[str, object] = {
-    "min_rr": 1.5,                      # minimum Reward:Risk ratio
+    # 2026-09-28: NOTE — this 1.5 is INTENTIONAL wide floor for the SCAN so
+    # dashboards/exploration see broad candidates. The AUTHORITATIVE trade
+    # filter is core/trading/config.py min_rr_to_trade=2.5. Scan produces
+    # RR 1.5-2.5 candidates that auto-trader rejects; that's expected.
+    # If you want auto-trade to spend less compute, raise this to 2.5.
+    "min_rr": 1.5,                      # minimum Reward:Risk ratio (SCAN-side)
     "min_roe": 5.0,                     # block ROE below 5% (was 3.0 — too lenient, let through marginal names like ANDE 3.8%, BWLP 4.8%)
     "require_fundamental_data": True,   # block if BOTH ROE and MarketCap are missing
     "max_rsi": 70.0,                    # block overbought stocks (was 72.0 — tightened to filter extended momentum like BTSG RSI 71.9)
@@ -473,13 +478,22 @@ DISTRIBUTION_VOLUME_PENALTY: Dict[str, object] = {
     "lookback_days": 20,                       # days of volume to analyze
 }
 
-# Reliability band thresholds (used by v2_risk_engine and classification)
+# Reliability band thresholds — semantic tier labels for dashboards.
+# 2026-09-28 clarification: three RELATED but DISTINCT thresholds exist for
+# reliability. They are NOT redundant — each answers a different question:
+#   RELIABILITY_BANDS.medium_min = 45   → "Is this at least medium reliability?" (display label)
+#   RELIABILITY_BANDS.high_min   = 65   → "Is this high reliability?" (display label)
+#   CORE_MIN_RELIABILITY         = 55   → "Is this eligible for CORE risk classification?"
+#   core/trading/config.py min_reliability = 50 → "Can we AUTO-TRADE this?" (execution gate)
+# All four are correct as separate concepts. If you're setting the AUTO-TRADE
+# floor, edit trading/config.py — NOT here. Historical data shows current scan
+# outputs cluster 80-100, so 50 gate is effectively always-pass — this is fine.
 RELIABILITY_BANDS: Dict[str, int] = {
     "high_min": 65,     # lowered from 75 to allow more differentiation
     "medium_min": 45,   # raised from 40
 }
 
-# Minimum reliability for CORE classification
+# Minimum reliability for CORE classification (dashboard tag, not a gate)
 CORE_MIN_RELIABILITY: float = 55.0
 
 # Advanced filter defaults (lenient so pipeline can prune later)
@@ -561,8 +575,17 @@ from core.trading.policy import REGIME_MIN_SCORE  # noqa: E402
 # Minimum FinalScore_20d for pattern-only signal bypass.
 # Prevents low-score stocks from passing solely due to marginal pattern matches.
 PATTERN_MIN_SCORE: float = 35.0
-# ML probability threshold to qualify as a candidate even if final score is lower
-ML_PROB_THRESHOLD: float = 0.70  # was 0.62 — raised because ML AUC is only 0.63, bypass should require strong conviction
+# ML probability threshold to qualify as a candidate even if final score is lower.
+# 2026-09-28: LOWERED 0.70 → 0.55. Used by TWO paths:
+#   (a) Scan bypass in runner.py:1844 — "high ML overrides low score"
+#   (b) SigHigh swing_strength ML +0.75 bonus (ticker_scoring.py:226, runner.py:2063)
+# Previous 0.70 was ABOVE the max ML_prob our trade gate allows (max=0.60), making
+# both paths functionally dead: the bypass promoted stocks the trader would reject
+# anyway, and the SigHigh ML bonus was unreachable within the tradeable window.
+# 0.55 aligns with the empirical BEST bucket (0.55-0.60 = +4.93% mean, n=44k) and
+# is reachable within the 0.40-0.60 trade window. Historical rationale about
+# "AUC 0.63, require strong conviction" no longer applies: v3.9 AUC=0.577.
+ML_PROB_THRESHOLD: float = 0.55
 
 # Regime-aware bypass policy: in strict regimes (effective_min_score >= this),
 # disable ML and pattern bypasses entirely — stocks MUST meet the regime score.

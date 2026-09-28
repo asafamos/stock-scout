@@ -2074,9 +2074,12 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
                     rr = row.get("RR")
                 if pd.notna(rr) and float(rr) >= 2.0:
                     w += 1.0; reasons.append("Favorable risk/reward ratio")
-                vol = row.get("VolSurge")
+                # 2026-09-28 fix: PREFER Volume_Surge_Ratio (actual ratio, max ~1.9)
+                # over VolSurge (normalized 0-1, max ~0.82). Previously VolSurge was
+                # preferred → threshold 1.3 was UNREACHABLE → bonus never fired.
+                vol = row.get("Volume_Surge_Ratio")
                 if pd.isna(vol):
-                    vol = row.get("Volume_Surge_Ratio")
+                    vol = row.get("VolSurge")
                 if pd.notna(vol) and float(vol) >= 1.3:
                     w += 0.75; reasons.append("Volume surge confirmation")
                 # Normalize regime — can arrive as numeric Wyckoff code, lower/upper
