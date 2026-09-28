@@ -171,8 +171,18 @@ class RiskManager:
         """
         try:
             cash = float(self.client.get_cash_balance() or 0)
-        except Exception:
-            return True, ""  # can't check — let it through (IB will reject)
+        except Exception as e:
+            # 2026-09-28 fix: fail-CLOSED. Previously fail-open ("let it through
+            # — IB will reject") but silent — no logging or alert. If IB is
+            # unreachable at gate time, blocking the trade is safer than letting
+            # it through under bad assumptions.
+            logger.error(f"check_cash_after_buy: cash balance query FAILED — {e}. Blocking trade defensively.")
+            try:
+                from core.trading import notifications as _notify
+                _notify.notify_error("Risk gate", f"Cash-balance check failed ({e}). Trade BLOCKED.")
+            except Exception:
+                pass
+            return False, f"Cash-balance check failed ({e}) — blocking trade"
 
         post_buy_cash = cash - cost
 
@@ -361,7 +371,25 @@ class RiskManager:
                 )
             return True, ""
         except Exception as e:
-            logger.debug("check_drawdown_breaker skipped: %s", e)
+            # 2026-09-28 fix: escalate from silent debug → warning + Telegram.
+            # Previously this failed OPEN with only logger.debug (invisible in
+            # production), meaning any exception silently disabled the DD gate
+            # without operator knowing. Now visible AND we track fail count so
+            # a persistent degradation surfaces after 3 consecutive failures.
+            logger.warning("check_drawdown_breaker FAILED (fail-open): %s", e)
+            cls = type(self)
+            cls._DD_FAIL_COUNT = getattr(cls, "_DD_FAIL_COUNT", 0) + 1
+            if cls._DD_FAIL_COUNT >= 3:
+                try:
+                    from core.trading import notifications as _notify
+                    _notify.notify_error(
+                        "Risk gate degraded",
+                        f"check_drawdown_breaker failing {cls._DD_FAIL_COUNT}× in a row ({e}). "
+                        f"DD gate is silently disabled — investigate."
+                    )
+                    cls._DD_FAIL_COUNT = 0  # reset after alert
+                except Exception:
+                    pass
             return True, ""  # fail-OPEN — daily-loss breaker is the safety net
 
     # Module-level earnings cache (populated lazily, persists for one day).

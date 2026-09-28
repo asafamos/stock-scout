@@ -266,8 +266,12 @@ class TradingConfig:
         default_factory=lambda: _env_float("MIN_ML_PROB", 0.40)
     )  # Was 0.33; ML 0.20-0.30 = -1.16% (n=1256), ML 0.40-0.45 = +2.58%, ML 0.45-0.50 = +5.07% (BEST)
     max_ml_prob: float = field(
-        default_factory=lambda: _env_float("MAX_ML_PROB", 0.55)
-    )  # NEW gate; ML > 0.55 underperforms (likely model over-confidence on extended stocks)
+        default_factory=lambda: _env_float("MAX_ML_PROB", 0.60)
+    )  # 2026-09-28: default RAISED 0.55 → 0.60 to match CLAUDE.md frozen state
+       # + drift-detector EXPECTED value. Previously the code default was 0.55
+       # but CLAUDE.md/scripts/check_env_vs_docs.py both say 0.60 — silent drift
+       # risk if env unset. Empirical (n=44k): bucket 0.55-0.60 = +4.93% mean
+       # (BEST). ML > 0.60 catastrophic (n=521 real: -5.58%, ML>0.70 n=6: -20%).
     min_fundamental_score: float = field(
         default_factory=lambda: _env_float("MIN_FUNDAMENTAL_SCORE", 45.0)
     )  # 2026-07-09 RAISED 40 → 45 based on 2588-trade backtest:

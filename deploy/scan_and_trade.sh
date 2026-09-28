@@ -99,8 +99,13 @@ fi
 # Kill switch: TRADE_SKIP_WHEN_FULL=0 disables the entire preflight
 # (always TRADE_ENABLED).
 PIPELINE_MODE="TRADE_ENABLED"
-PREFLIGHT_OUT=$($PY -m scripts.preflight_pipeline 2>&1 || true)
+# CRITICAL FIX (2026-09-28): DO NOT use `|| true` before `$?` — the `|| true`
+# clobbers $? to 0, making PREFLIGHT_RC always 0 regardless of crash.
+# Capture true exit code by disabling `set -e` locally.
+set +e
+PREFLIGHT_OUT=$($PY -m scripts.preflight_pipeline 2>&1)
 PREFLIGHT_RC=$?
+set -e
 echo "Preflight: $PREFLIGHT_OUT"
 case "$PREFLIGHT_OUT" in
     SKIP:*)
@@ -202,8 +207,20 @@ git fetch origin main --quiet
 # 7862775d (09-17) for 8 days. See project_scan_freshness_bug_sep25 memory.
 # If you ever want to re-add meta.json, guard it: `git ls-tree origin/main -- data/scans/latest_scan.meta.json`.
 git checkout origin/main -- data/scans/latest_scan.parquet data/scans/latest_scan.json 2>/dev/null || true
-# Also pull any code changes (excluding data/trades/* which we keep local)
-git checkout origin/main -- core/ scripts/ deploy/ ml/ models/ 2>/dev/null || true
+# Also pull any code changes (excluding data/trades/* which we keep local).
+# 2026-09-28 fix: DO NOT list multiple paths in ONE `git checkout` — it's atomic.
+# If any path (e.g. ml/ or models/) is renamed/removed on origin, the WHOLE
+# checkout no-ops silently under `2>/dev/null || true`, leaving stale code.
+# This is the exact pattern that killed us with meta.json. Guard each path.
+for _p in core/ scripts/ deploy/ ml/ models/; do
+    if git ls-tree origin/main -- "$_p" >/dev/null 2>&1 \
+        && [ -n "$(git ls-tree origin/main -- $_p)" ]; then
+        git checkout origin/main -- "$_p" 2>/dev/null || \
+            echo "WARN: checkout of $_p failed" >&2
+    else
+        echo "WARN: $_p missing on origin/main — skipping checkout" >&2
+    fi
+done
 
 # CRITICAL FIX (2026-05-05): refresh the scan file mtime to NOW.
 # `git checkout` preserves the BLOB's original mtime when the file content
@@ -410,9 +427,21 @@ if [ "$CAPACITY_SKIP" -eq 0 ]; then
 echo "Triggering auto-trade..."
 TRADE_T0=$(date +%s)
 TRADE_OUT=/tmp/trade-output-$$.log
-TRADE_LIVE_CONFIRMED=1 $PY -m scripts.run_auto_trade > "$TRADE_OUT" 2>&1 || true
+# CRITICAL FIX (2026-09-28): capture TRUE exit code. `|| true` clobbers `$?` to 0,
+# making TRADE_EXIT falsely 0 even on Python crash/OOM/segfault → all failures
+# invisible except through string-grep, and non-string-matched failures pass as
+# success. This is how "0 buys" went unnoticed during scan-freshness bug.
+set +e
+TRADE_LIVE_CONFIRMED=1 $PY -m scripts.run_auto_trade > "$TRADE_OUT" 2>&1
 TRADE_EXIT=$?
+set -e
 tail -25 "$TRADE_OUT"
+# NEW: alert on hard Python crash (non-zero exit + no known abort strings)
+if [ "$TRADE_EXIT" -ne 0 ] && ! grep -qE "stale data|No scan results available|FATAL|Failed to connect to IBKR" "$TRADE_OUT"; then
+    TAIL_MSG=$(tail -10 "$TRADE_OUT" | head -c 800)
+    TG_SEND "🚨" "Auto-trade CRASHED (exit=$TRADE_EXIT)" "<pre>${TAIL_MSG}</pre>"
+    echo "🚨 auto-trade crashed with exit $TRADE_EXIT — Telegram alerted"
+fi
 
 # ── Telegram diagnostic alerts (rewritten 2026-05-05) ──
 # Yesterday's "0 buys" went silent because (a) the trade aborted on
@@ -450,7 +479,11 @@ if grep -qE "stale data|No scan results available|FATAL|Failed to connect to IBK
         done
         echo "Retrying auto-trade..."
         TRADE_RETRY_OUT=/tmp/trade-retry-$$.log
-        TRADE_LIVE_CONFIRMED=1 $PY -m scripts.run_auto_trade > "$TRADE_RETRY_OUT" 2>&1 || true
+        # 2026-09-28: capture true exit code (see main auto-trade block above)
+        set +e
+        TRADE_LIVE_CONFIRMED=1 $PY -m scripts.run_auto_trade > "$TRADE_RETRY_OUT" 2>&1
+        TRADE_RETRY_EXIT=$?
+        set -e
         tail -25 "$TRADE_RETRY_OUT"
         if ! grep -qE "stale data|No scan results available|FATAL" "$TRADE_RETRY_OUT"; then
             echo "✓ Retry succeeded — replacing original output"

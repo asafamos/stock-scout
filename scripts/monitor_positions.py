@@ -470,7 +470,11 @@ def run_check():
                                         return fp, "target_hit"
                                     return fp, _classify_reason(fp)
                     except Exception as _e:
-                        logger.debug("Trades check failed: %s", _e)
+                        # 2026-09-28 fix: was logger.debug (invisible). Escalated to
+                        # warning because a swallowed IB exception here causes downstream
+                        # to use fallback exit price → wrong PnL → contaminates ledger
+                        # + ML training.
+                        logger.warning("Trades check failed for %s: %s (will fall back to fills)", ticker, _e)
                     return 0.0, ""
 
                 # SECONDARY: fills() gives price but not orderType — classify
@@ -484,7 +488,8 @@ def run_check():
                                 if fp > 0:
                                     return fp, _classify_reason(fp)
                     except Exception as _e:
-                        logger.debug("Fills check failed: %s", _e)
+                        # 2026-09-28 fix: escalated from debug — see _try_trades above
+                        logger.warning("Fills check failed for %s: %s (will fall back to last price)", ticker, _e)
                     return 0.0, ""
 
                 exit_price, reason_detected = _try_trades()
@@ -695,7 +700,21 @@ def run_check():
             from core.trading.portfolio_snapshot import write_snapshot
             write_snapshot(client, tracker)
         except Exception as e:
-            logger.debug("Snapshot push failed: %s", e)
+            # 2026-09-28 fix: escalated from debug. If snapshot push fails
+            # persistently, Streamlit UI + external tools reading the snapshot
+            # go stale silently. Track failure streak and alert on 3 in a row.
+            logger.warning("Snapshot push failed: %s", e)
+            globals()["_SNAP_FAIL_COUNT"] = globals().get("_SNAP_FAIL_COUNT", 0) + 1
+            if globals()["_SNAP_FAIL_COUNT"] >= 3:
+                try:
+                    notify.notify_error(
+                        "Snapshot push degraded",
+                        f"portfolio_snapshot write failing {globals()['_SNAP_FAIL_COUNT']}× "
+                        f"in a row ({e}). Streamlit UI going stale."
+                    )
+                    globals()["_SNAP_FAIL_COUNT"] = 0
+                except Exception:
+                    pass
 
         # 3. Check target date exits — but only execute in the last 30 min
         # before close (19:30-20:00 UTC = 15:30-16:00 ET). Earlier in the
