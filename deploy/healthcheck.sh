@@ -295,7 +295,14 @@ http://87.99.142.12:5800/vnc.html" \
         send_alert_dedup "offhours_monitor_down" \
             "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') OFF-HOURS: monitor daemon DOWN — restarting" \
             7200
-        sudo systemctl restart stockscout-monitor 2>/dev/null
+        # 2026-09-28 fix: was silent restart with `2>/dev/null` — if restart
+        # itself failed (perms, dep loop, sudoers), the alert said "restarting"
+        # but monitor stayed dead. Now: check restart succeeded, alert if not.
+        if ! sudo systemctl restart stockscout-monitor 2>/tmp/mon-restart-err-$$; then
+            _err=$(cat /tmp/mon-restart-err-$$ 2>/dev/null | head -c 400)
+            send_alert "$(echo -e '\xf0\x9f\x9a\xa8') OFF-HOURS: monitor restart FAILED: ${_err:-unknown-error}"
+        fi
+        rm -f /tmp/mon-restart-err-$$
     fi
 
     if [ "$OFF_HOURS_ISSUES" -eq 0 ]; then
@@ -563,11 +570,26 @@ if [ "${HOUR}" -ge 14 ] && [ "${HOUR}" -le 20 ] && [ "${DOW}" -le 5 ]; then
             echo "[snapshot-stale auto-recover] killing stuck monitor (age=${SNAPSHOT_AGE}s)"
             sudo pkill -KILL -u stockscout -f monitor_positions 2>/dev/null || true
             sleep 2
-            sudo systemctl restart stockscout-monitor 2>/dev/null || true
+            # 2026-09-28 fix: was `2>/dev/null || true` — silent restart failure.
+            # Now: capture failure + include in the auto-recover alert body so
+            # user knows if the "auto-recovered" is a lie (permissions/sudoers,
+            # like the 2026-07-17 incident where sudoers wasn't set up).
+            _restart_result="ok"
+            if ! sudo systemctl restart stockscout-monitor 2>/tmp/mon-restart-err-$$; then
+                _restart_result="FAILED: $(cat /tmp/mon-restart-err-$$ 2>/dev/null | head -c 300)"
+                echo "[snapshot-stale auto-recover] restart FAILED: $_restart_result" >&2
+            fi
+            rm -f /tmp/mon-restart-err-$$
+            # 2026-09-28: include restart outcome in the alert body so user
+            # knows if "Auto-recovered" is real or a lie.
+            _recovery_line="Auto-recovered: pkill -KILL + systemctl restart stockscout-monitor."
+            if [ "$_restart_result" != "ok" ]; then
+                _recovery_line="🚨 AUTO-RECOVER FAILED: ${_restart_result}. Monitor still DEAD. Investigate sudoers / dependencies."
+            fi
             send_alert_dedup "snapshot_stale" \
                 "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') Portfolio snapshot was STALE — last write ${SNAPSHOT_AGE}s ago (>${SNAPSHOT_STALE_SEC}s). Monitor daemon was up but its main loop was stuck.
 
-Auto-recovered: pkill -KILL + systemctl restart stockscout-monitor. Send <b>status</b> in ~30s to verify positions are tracked again.
+${_recovery_line} Send <b>status</b> in ~30s to verify positions are tracked again.
 
 Likely causes: stuck IB call, file lock, exception swallowed in cycle. If this repeats often, dig into journalctl -u stockscout-monitor around the times listed in the alert dedupe log." \
                 1800  # 30-min dedup to avoid spam while you investigate

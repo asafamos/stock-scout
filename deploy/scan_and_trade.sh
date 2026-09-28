@@ -305,22 +305,45 @@ rm -f "$OUT_LOG"
 
 # Notify Telegram that scan landed + how many candidates we'll evaluate
 # (gives the user context before the trade evaluator runs).
+# 2026-09-28 fix: previously the parquet read swallowed exceptions and printed
+# "unknown"/"?" — if the freshness-assertion gate above ever changed, this
+# would be the only signal that the parquet was unreadable, and it was silent.
+# Now: read to stderr on exception (still uses "unknown"/"?" as visible fallback,
+# but logs the error) + explicit warning + Telegram if BOTH fail.
+_SCAN_REGIME_ERR=/tmp/scan-regime-err-$$
 SCAN_REGIME=$($PY -c "
-import pandas as pd
+import pandas as pd, sys
 try:
     df = pd.read_parquet('$SCAN_FILE')
     print(df['Market_Regime'].mode().iloc[0] if 'Market_Regime' in df.columns and len(df) else 'unknown')
-except Exception:
+except Exception as e:
     print('unknown')
-" 2>/dev/null || echo "unknown")
+    print(f'PARQUET_READ_ERROR (regime): {e}', file=sys.stderr)
+" 2>"$_SCAN_REGIME_ERR")
+if [ -s "$_SCAN_REGIME_ERR" ]; then
+    echo "⚠️ $(cat "$_SCAN_REGIME_ERR")" >&2
+fi
+_SCAN_TOP_ERR=/tmp/scan-top-err-$$
 SCAN_TOP=$($PY -c "
-import pandas as pd
+import pandas as pd, sys
 try:
     df = pd.read_parquet('$SCAN_FILE')
     print(f\"{len(df)} rows, top score {df['FinalScore_20d'].max():.1f}\" if len(df) else '0 rows')
-except Exception:
+except Exception as e:
     print('?')
-" 2>/dev/null || echo "?")
+    print(f'PARQUET_READ_ERROR (top): {e}', file=sys.stderr)
+" 2>"$_SCAN_TOP_ERR")
+if [ -s "$_SCAN_TOP_ERR" ]; then
+    echo "⚠️ $(cat "$_SCAN_TOP_ERR")" >&2
+fi
+# If BOTH failed, parquet is broken — alert
+if [ "$SCAN_REGIME" = "unknown" ] && [ "$SCAN_TOP" = "?" ] && [ -n "${TRADE_TELEGRAM_TOKEN:-}" ]; then
+    curl -sf -o /dev/null -X POST "https://api.telegram.org/bot${TRADE_TELEGRAM_TOKEN}/sendMessage" \
+        -d "chat_id=${TRADE_TELEGRAM_CHAT_ID}" \
+        --data-urlencode "text=🚨 <b>PARQUET UNREADABLE</b>%0ABoth regime and top-score reads failed on $SCAN_FILE. Freshness gate passed but content broken." \
+        -d "parse_mode=HTML" >/dev/null 2>&1 || true
+fi
+rm -f "$_SCAN_REGIME_ERR" "$_SCAN_TOP_ERR"
 if [ -n "${TRADE_TELEGRAM_TOKEN:-}" ] && [ -n "${TRADE_TELEGRAM_CHAT_ID:-}" ]; then
     curl -fsS -X POST \
         "https://api.telegram.org/bot${TRADE_TELEGRAM_TOKEN}/sendMessage" \

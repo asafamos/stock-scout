@@ -31,15 +31,38 @@ BACKUP_DIR=/tmp/stockscout-pre-deploy-$(date +%s)
 cd "$REPO"
 
 echo "━━━ Step 1: Back up runtime files (so reset --hard doesn't wipe them) ━━━"
-mkdir -p "$BACKUP_DIR/trades" "$BACKUP_DIR/state"
-for f in data/trades/*.json; do
+# 2026-09-28 fix: expanded from *.json only to include non-JSON runtime artefacts
+# that `git reset --hard` would otherwise silently discard:
+#   - data/trades/*.jsonl (executions ledger — CRITICAL for P&L attribution)
+#   - data/outcomes/*.jsonl (pending scans + resolved scan_outcomes — feeds ML)
+#   - .env.trading edits made on VPS (drift-detector expects these)
+#   - data/cache/*.json (insider signals, analyst PT cache)
+#   - Anything else the VPS has locally modified
+mkdir -p "$BACKUP_DIR/trades" "$BACKUP_DIR/outcomes" "$BACKUP_DIR/state" "$BACKUP_DIR/cache" "$BACKUP_DIR/etc"
+for f in data/trades/*.json data/trades/*.jsonl; do
     [ -f "$f" ] && cp -p "$f" "$BACKUP_DIR/trades/"
+done
+for f in data/outcomes/*.jsonl; do
+    [ -f "$f" ] && cp -p "$f" "$BACKUP_DIR/outcomes/"
 done
 for f in data/state/*; do
     [ -f "$f" ] && cp -p "$f" "$BACKUP_DIR/state/"
 done
+if [ -d data/cache ]; then
+    for f in data/cache/*.json; do
+        [ -f "$f" ] && cp -p "$f" "$BACKUP_DIR/cache/"
+    done
+fi
+# .env.trading — critical config. Never in git, but VPS edits it.
+if [ -f .env.trading ]; then
+    cp -p .env.trading "$BACKUP_DIR/etc/.env.trading"
+fi
+# List every file the VPS has locally modified beyond origin/main — audit trail
+# so we know exactly what's being preserved. We DO NOT backup git-tracked local
+# edits (those are intentional divergence and reset will discard them).
+sudo -u "$SCOUT_USER" git status --short > "$BACKUP_DIR/git-status-pre-reset.txt" 2>&1 || true
 echo "  backup → $BACKUP_DIR"
-ls -la "$BACKUP_DIR/trades/" "$BACKUP_DIR/state/" 2>/dev/null | head -10
+ls -la "$BACKUP_DIR"/*/ 2>/dev/null | head -20
 
 echo ""
 echo "━━━ Step 2: Fetch + reset main ━━━"
@@ -51,16 +74,29 @@ echo "  HEAD: ${BEFORE:0:7} → ${AFTER:0:7}"
 
 echo ""
 echo "━━━ Step 3: Restore runtime files ━━━"
-mkdir -p data/trades data/state
-for f in "$BACKUP_DIR/trades"/*.json; do
+# 2026-09-28: restore same expanded set as Step 1 backup
+mkdir -p data/trades data/outcomes data/state data/cache
+for f in "$BACKUP_DIR/trades"/*.json "$BACKUP_DIR/trades"/*.jsonl; do
     [ -f "$f" ] && cp -p "$f" data/trades/
+done
+for f in "$BACKUP_DIR/outcomes"/*.jsonl; do
+    [ -f "$f" ] && cp -p "$f" data/outcomes/
 done
 for f in "$BACKUP_DIR/state"/*; do
     [ -f "$f" ] && cp -p "$f" data/state/
 done
-chown -R "$SCOUT_USER:$SCOUT_USER" data/trades data/state
+for f in "$BACKUP_DIR/cache"/*.json; do
+    [ -f "$f" ] && cp -p "$f" data/cache/
+done
+# Restore .env.trading only if the reset removed it (usually it's gitignored so
+# survives, but be defensive)
+if [ ! -f .env.trading ] && [ -f "$BACKUP_DIR/etc/.env.trading" ]; then
+    cp -p "$BACKUP_DIR/etc/.env.trading" .env.trading
+    echo "  .env.trading restored from backup (was missing after reset)"
+fi
+chown -R "$SCOUT_USER:$SCOUT_USER" data/trades data/outcomes data/state data/cache
 echo "  restored runtime state from backup:"
-ls -la data/trades/ data/state/ 2>/dev/null | head -15
+ls -la data/trades/ data/outcomes/ data/state/ 2>/dev/null | head -20
 
 echo ""
 echo "━━━ Step 4: Restart services that picked up code changes ━━━"

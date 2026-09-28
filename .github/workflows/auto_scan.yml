@@ -177,24 +177,41 @@ jobs:
                 break
               fi
               echo "Push failed (attempt $attempt/3) — rebasing and retrying..."
-              git stash --include-untracked || true
+              # 2026-09-28: replaced blanket `|| true` on each git op with
+              # explicit exit-code capture + warning log. Silent failure in
+              # this retry loop can leave conflict markers in latest_scan.json
+              # or drop the freshly-committed scan (Audit finding #2 revisited).
+              _STASHED=0
+              if git stash --include-untracked; then
+                _STASHED=1
+              else
+                echo "WARN: git stash failed — proceeding without stash (rebase may conflict on uncommitted files)"
+              fi
               # -X theirs: when rebasing OUR commits onto origin/main, prefer
               # OUR fresher scan output on binary conflicts (parquet/jsonl).
               # Confusing semantics — during rebase "theirs" = the commits
               # being replayed (us), "ours" = the branch being rebased onto
               # (origin/main). Without this, latest_scan.parquet conflicts
               # halt rebase with conflict markers we can't auto-resolve.
-              git pull --rebase -X theirs origin main || true
+              if ! git pull --rebase -X theirs origin main; then
+                echo "WARN: pull --rebase failed on attempt $attempt — will try belt-and-suspenders below"
+              fi
               # Belt-and-suspenders: if rebase still left conflicted binaries,
               # force our version and continue.
               if [ -d .git/rebase-apply ] || [ -d .git/rebase-merge ]; then
-                git checkout --theirs data/scans/ reports/ 2>/dev/null || true
-                git add data/scans/ reports/ 2>/dev/null || true
+                git checkout --theirs data/scans/ reports/ 2>/dev/null || \
+                  echo "WARN: checkout --theirs of scan/reports failed during conflict resolution"
+                git add data/scans/ reports/ 2>/dev/null || \
+                  echo "WARN: git add of scan/reports failed"
                 git rebase --continue || git rebase --abort
               fi
-              git stash pop || true
+              if [ "$_STASHED" = "1" ]; then
+                if ! git stash pop; then
+                  echo "WARN: git stash pop failed — stash may still be in stash list; check with 'git stash list'"
+                fi
+              fi
               # Re-add any files that may have been unstaged during rebase
-              git add data/scans/ reports/ || true
+              git add data/scans/ reports/ || echo "WARN: post-rebase git add failed"
               if ! git diff --cached --quiet; then
                 # Re-run integrity check AFTER rebase: if the stash pop
                 # introduced conflict markers in latest_scan.json (this

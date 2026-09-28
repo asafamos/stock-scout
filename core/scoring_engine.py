@@ -678,12 +678,18 @@ def compute_overall_score(row: pd.Series) -> Tuple[float, Dict[str, float]]:
     final_score = score_before_penalties - penalty_total
     
     # === UPDATED SAFETY CAPS & PRICE DISAGREEMENT PENALTY ===
+    # 2026-09-28: aligned fund threshold with trade gate. Previously scoring
+    # capped fund<50 to score 82 (below our max_score=85), meaning stocks with
+    # fund 45-49 (which PASS the trade gate min_fund=45) were retroactively
+    # penalized here. Now uses fund<45 to match the authoritative gate. Stocks
+    # 45-49 keep their computed score; only fund<45 (which won't trade anyway)
+    # get the safety cap.
     caps_applied: List[str] = []
-    if fund_score < 50:
+    if fund_score < 45:
         prev = final_score
         final_score = min(final_score, 82.0)
         if final_score < prev:
-            caps_applied.append("fund_lt_50_cap_82")
+            caps_applied.append("fund_lt_45_cap_82")
     if reliability < 40:
         prev = final_score
         final_score = min(final_score, 75.0)
@@ -696,8 +702,8 @@ def compute_overall_score(row: pd.Series) -> Tuple[float, Dict[str, float]]:
             caps_applied.append("rel_lt_30_cap_70")
     if fund_score < 40 and reliability < 40:
         caps_applied.append("fund_lt_40_rel_lt_40")
-    # Limit ML boost when weak inputs
-    if (reliability < 50 or fund_score < 50) and abs(ml_delta) > 5:
+    # Limit ML boost when weak inputs — same alignment: fund<45 (was <50)
+    if (reliability < 50 or fund_score < 45) and abs(ml_delta) > 5:
         original_ml_delta = ml_delta
         ml_delta = np.sign(ml_delta) * 5.0
         ml_delta_reduction = original_ml_delta - ml_delta

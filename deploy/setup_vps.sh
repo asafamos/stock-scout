@@ -262,6 +262,30 @@ StartLimitBurst=5
 WantedBy=multi-user.target
 SVCEOF
 
+# --- OnFailure notification template (2026-09-28) ---
+# Every stockscout-* service unit below has OnFailure= pointing to this
+# template. When any unit fails, this fires and Telegram-alerts the operator.
+# Prevents silent crashes — previously a crashed oneshot left no alert until
+# downstream file-age checks eventually noticed (hours later).
+sudo tee /etc/systemd/system/stockscout-notify-failure@.service > /dev/null << 'SVCEOF'
+[Unit]
+Description=Telegram alert when stockscout-%i failed
+
+[Service]
+Type=oneshot
+EnvironmentFile=/home/stockscout/stock-scout-2/.env.trading
+ExecStart=/bin/bash -c '\
+  UNIT="%i"; \
+  MSG="🚨 <b>stockscout-$UNIT FAILED</b>%0A(systemd OnFailure trigger)%0A%0ARun: <code>journalctl -u stockscout-$UNIT -n 30 --no-pager</code> for detail."; \
+  curl -sf -o /dev/null -X POST "https://api.telegram.org/bot${TRADE_TELEGRAM_TOKEN}/sendMessage" \
+    -d "chat_id=${TRADE_TELEGRAM_CHAT_ID}" \
+    --data-urlencode "text=$MSG" \
+    -d "parse_mode=HTML" || echo "telegram delivery failed" >&2'
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+
 # --- Event-driven scan→trade pipeline (replaces the old time-based ---
 #     stockscout-pipeline.timer that fired at fixed times. The fixed-time
 #     design lost ~1 trading day per week to GH Actions cron variability:
@@ -279,6 +303,7 @@ sudo tee /etc/systemd/system/stockscout-pipeline.service > /dev/null << 'SVCEOF'
 Description=StockScout atomic scan+trade pipeline
 After=ibgateway.service
 Requires=ibgateway.service
+OnFailure=stockscout-notify-failure@pipeline.service
 
 [Service]
 Type=oneshot
@@ -316,6 +341,7 @@ sudo tee /etc/systemd/system/stockscout-monitor.service > /dev/null << 'SVCEOF'
 Description=StockScout Position Monitor
 After=ibgateway.service
 Requires=ibgateway.service
+OnFailure=stockscout-notify-failure@monitor.service
 
 [Service]
 Type=simple
@@ -336,6 +362,7 @@ sudo tee /etc/systemd/system/stockscout-healthcheck.service > /dev/null << 'SVCE
 [Unit]
 Description=StockScout healthcheck
 After=ibgateway.service
+OnFailure=stockscout-notify-failure@healthcheck.service
 
 [Service]
 Type=oneshot
@@ -369,6 +396,7 @@ SVCEOF
 sudo tee /etc/systemd/system/stockscout-state-broadcaster.service > /dev/null << 'SVCEOF'
 [Unit]
 Description=StockScout state broadcaster (VPS → state-feed branch)
+OnFailure=stockscout-notify-failure@state-broadcaster.service
 
 [Service]
 Type=oneshot
@@ -400,6 +428,7 @@ SVCEOF
 sudo tee /etc/systemd/system/stockscout-daily-summary.service > /dev/null << 'SVCEOF'
 [Unit]
 Description=StockScout daily morning health summary
+OnFailure=stockscout-notify-failure@daily-summary.service
 
 [Service]
 Type=oneshot
@@ -428,6 +457,7 @@ SVCEOF
 sudo tee /etc/systemd/system/stockscout-followup-audit.service > /dev/null << 'SVCEOF'
 [Unit]
 Description=StockScout weekly followup auto-verify audit
+OnFailure=stockscout-notify-failure@followup-audit.service
 
 [Service]
 Type=oneshot
@@ -457,6 +487,7 @@ SVCEOF
 sudo tee /etc/systemd/system/stockscout-adaptive-edges.service > /dev/null << 'SVCEOF'
 [Unit]
 Description=StockScout adaptive edges — nightly recompute of selection parameters
+OnFailure=stockscout-notify-failure@adaptive-edges.service
 
 [Service]
 Type=oneshot
@@ -494,6 +525,7 @@ sudo tee /etc/systemd/system/stockscout-command-poller.service > /dev/null << 'S
 Description=StockScout command poller (commands branch -> command_bus)
 After=network-online.target
 Wants=network-online.target
+OnFailure=stockscout-notify-failure@command-poller.service
 
 [Service]
 Type=simple
@@ -519,6 +551,7 @@ sudo tee /etc/systemd/system/stockscout-telegram-bot.service > /dev/null << 'SVC
 Description=StockScout Telegram status bot (+ IB Key 2FA watchdog)
 After=network-online.target docker.service
 Wants=network-online.target
+OnFailure=stockscout-notify-failure@telegram-bot.service
 
 [Service]
 Type=simple
@@ -536,6 +569,89 @@ StandardError=append:/home/stockscout/stock-scout-2/logs/telegram_bot.log
 
 [Install]
 WantedBy=multi-user.target
+SVCEOF
+
+# ── Watchdog units (2026-09) — added after freshness+drift incidents ──
+# These were created ad-hoc on the VPS during the Sep 14-28 investigation
+# and are documented here so re-provisioning restores them.
+
+# --- Drift check (2026-09-14): compares .env.trading vs CLAUDE.md EXPECTED
+sudo tee /etc/systemd/system/stockscout-drift-check.service > /dev/null << 'SVCEOF'
+[Unit]
+Description=StockScout env-vs-docs drift check
+OnFailure=stockscout-notify-failure@drift-check.service
+
+[Service]
+Type=oneshot
+User=stockscout
+WorkingDirectory=/home/stockscout/stock-scout-2
+EnvironmentFile=/home/stockscout/stock-scout-2/.env.trading
+ExecStart=/home/stockscout/stock-scout-2/.venv/bin/python scripts/check_env_vs_docs.py
+SVCEOF
+
+sudo tee /etc/systemd/system/stockscout-drift-check.timer > /dev/null << 'SVCEOF'
+[Unit]
+Description=Daily env drift check (06:15 UTC)
+
+[Timer]
+OnCalendar=*-*-* 06:15:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+SVCEOF
+
+# --- Reconcile audit (2026-09-18): triangulates tracker ↔ ledger ↔ IB
+sudo tee /etc/systemd/system/stockscout-reconcile-audit.service > /dev/null << 'SVCEOF'
+[Unit]
+Description=StockScout tracker/ledger/IB reconciliation audit
+OnFailure=stockscout-notify-failure@reconcile-audit.service
+
+[Service]
+Type=oneshot
+User=stockscout
+WorkingDirectory=/home/stockscout/stock-scout-2
+EnvironmentFile=/home/stockscout/stock-scout-2/.env.trading
+ExecStart=/home/stockscout/stock-scout-2/.venv/bin/python scripts/reconcile_audit.py
+SVCEOF
+
+sudo tee /etc/systemd/system/stockscout-reconcile-audit.timer > /dev/null << 'SVCEOF'
+[Unit]
+Description=Daily tracker/ledger/IB reconciliation (07:00 UTC)
+
+[Timer]
+OnCalendar=*-*-* 07:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+SVCEOF
+
+# --- Scan freshness watchdog (2026-09-25): alerts if parquet As_Of_Date > 7d old
+sudo tee /etc/systemd/system/stockscout-scan-freshness.service > /dev/null << 'SVCEOF'
+[Unit]
+Description=StockScout scan-freshness watchdog
+OnFailure=stockscout-notify-failure@scan-freshness.service
+
+[Service]
+Type=oneshot
+User=stockscout
+WorkingDirectory=/home/stockscout/stock-scout-2
+EnvironmentFile=/home/stockscout/stock-scout-2/.env.trading
+ExecStart=/home/stockscout/stock-scout-2/.venv/bin/python scripts/check_scan_freshness.py
+SVCEOF
+
+sudo tee /etc/systemd/system/stockscout-scan-freshness.timer > /dev/null << 'SVCEOF'
+[Unit]
+Description=Daily scan-freshness watchdog (fires ~06:30 UTC)
+
+[Timer]
+OnCalendar=*-*-* 06:30:00
+Persistent=true
+RandomizedDelaySec=90
+
+[Install]
+WantedBy=timers.target
 SVCEOF
 
 sudo systemctl daemon-reload
