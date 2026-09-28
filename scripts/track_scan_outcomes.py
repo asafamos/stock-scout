@@ -56,14 +56,23 @@ def _read_jsonl(path: Path) -> List[Dict]:
     if not path.exists():
         return []
     out = []
-    for line in path.read_text().splitlines():
+    corrupt = 0
+    for line_num, line in enumerate(path.read_text().splitlines(), 1):
         line = line.strip()
         if not line:
             continue
         try:
             out.append(json.loads(line))
-        except Exception:
-            continue
+        except Exception as e:
+            # 2026-09-28 fix: was silent `continue` — corrupt rows lost with
+            # no counter, silently degrading ML training data. Now log first 3
+            # per read + summary count so degradation surfaces.
+            corrupt += 1
+            if corrupt <= 3:
+                logger.warning("JSONL row %d in %s corrupt (%s): skipping", line_num, path.name, e)
+    if corrupt > 3:
+        logger.warning("_read_jsonl: %d additional corrupt rows in %s (total corrupt=%d, kept=%d)",
+                       corrupt - 3, path.name, corrupt, len(out))
     return out
 
 

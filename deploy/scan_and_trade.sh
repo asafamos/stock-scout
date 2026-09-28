@@ -281,8 +281,13 @@ fi
 # don't silently lose the ML feedback loop again like 2026-04-23..27.
 echo "Recording outcomes..."
 OUT_LOG=/tmp/outcomes-record-$$.log
+# 2026-09-28 fix: script uses `set -euo pipefail`, so a nonzero exit from the
+# python call kills the script BEFORE `OUT_EXIT=$?` runs — making the Telegram
+# alert branch dead. Wrap in set +e/set -e to allow capturing exit code.
+set +e
 $PY -m scripts.track_scan_outcomes --record >"$OUT_LOG" 2>&1
 OUT_EXIT=$?
+set -e
 tail -3 "$OUT_LOG"
 if [ "$OUT_EXIT" -ne 0 ]; then
     echo "  ✗ outcomes-record FAILED (exit=$OUT_EXIT)"

@@ -930,7 +930,11 @@ class OrderManager:
                             )
                             _ml_min = _relaxed
             except Exception as _ae:
-                logger.debug("Adaptive ML lookup failed: %s", _ae)
+                # 2026-09-28 fix: was logger.debug (invisible). Adaptive-ML lookup
+                # affects selection (relaxes floor after dry streak) — a silent
+                # exception disables the safety-net that unblocks the trader
+                # during long dry periods. Escalated to warning.
+                logger.warning("Adaptive ML lookup failed (using non-relaxed floor): %s", _ae)
 
             if _ml_max > 0:
                 result = result[(ml_vals >= _ml_min) & (ml_vals <= _ml_max)]
@@ -1028,7 +1032,10 @@ class OrderManager:
                         )
                         _min_rr_effective = _relaxed_floor
         except Exception as _ae:
-            logger.debug("Adaptive RR lookup failed: %s", _ae)
+            # 2026-09-28 fix: same reasoning as adaptive ML above — escalated
+            # from debug so a broken adaptive layer becomes visible instead of
+            # silently trading with the strict floor forever.
+            logger.warning("Adaptive RR lookup failed (using non-relaxed floor): %s", _ae)
 
         def _apply_rr(rr_vals):
             if _rr_max > 0:

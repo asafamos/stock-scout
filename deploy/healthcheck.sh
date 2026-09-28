@@ -20,11 +20,23 @@ mkdir -p "${STATE_DIR}" 2>/dev/null
 send_alert() {
     local msg="$1"
     if [ -n "${TELEGRAM_TOKEN}" ] && [ -n "${CHAT_ID}" ]; then
-        curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
+        # 2026-09-28 fix: added -f so 4xx/5xx/rate-limit return nonzero,
+        # letting us see when alerts themselves fail. Previously -s alone
+        # silently swallowed Telegram errors → operator got no alert AND
+        # no alert-about-the-missing-alert.
+        local http_rc
+        http_rc=$(curl -sf -o /tmp/tg-resp-$$ -w "%{http_code}" -X POST \
+            "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
             -d chat_id="${CHAT_ID}" \
             -d text="${msg}" \
-            -d parse_mode="HTML" \
-            > /dev/null 2>&1
+            -d parse_mode="HTML" 2>/dev/null || echo "curl-failed")
+        if [ "$http_rc" != "200" ]; then
+            echo "[ALERT-DELIVERY-FAILED] Telegram returned http=$http_rc for: ${msg}" >&2
+            # Best-effort audit trail — write to state dir
+            echo "$(date -u +%Y-%m-%dT%H:%M:%SZ)|http=${http_rc}|${msg}" \
+                >> "${STATE_DIR}/telegram_failures.log" 2>/dev/null || true
+        fi
+        rm -f /tmp/tg-resp-$$ 2>/dev/null
     fi
     echo "[ALERT] ${msg}"
 }
