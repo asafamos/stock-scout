@@ -227,9 +227,20 @@ def notify_scan_complete(total: int, candidates: int, bought: int):
 
 
 def notify_error(context: str, error: str):
+    # 2026-09-28 fix: escape user-supplied strings for Telegram HTML parser.
+    # Previously `error` was passed raw \u2014 if it contained `<` (very common in
+    # skip reasons like "Industrials (XLI) down -5.5% over 30d (< -5%)"),
+    # Telegram returned 400 "Bad Request: can't parse entities: Unsupported
+    # start tag". The error was silently swallowed by _send's warning log, so
+    # DryCycle alerts were dropped without operator seeing why. Real bug:
+    # every Telegram alert containing "<" in a user-supplied string was
+    # historically failing silently.
+    import html as _html
+    _ctx = _html.escape(str(context))
+    _err = _html.escape(str(error)[:500])
     _send(
-        f"\u26a0\ufe0f <b>Error: {context}</b>\n"
-        f"  {error[:500]}"
+        f"\u26a0\ufe0f <b>Error: {_ctx}</b>\n"
+        f"  {_err}"
     )
 
 
@@ -256,4 +267,7 @@ def notify_daily_summary(positions: List[Dict], cash: float,
 
 
 def notify_emergency(message: str):
-    _send(f"\U0001f6a8 <b>EMERGENCY</b>\n{message}")
+    # 2026-09-28: same HTML-escape treatment as notify_error — untrusted
+    # `message` may contain `<` from skip reasons or tickers with special chars.
+    import html as _html
+    _send(f"\U0001f6a8 <b>EMERGENCY</b>\n{_html.escape(str(message))}")
