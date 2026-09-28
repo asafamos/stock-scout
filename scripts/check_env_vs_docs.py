@@ -54,6 +54,10 @@ EXPECTED = {
     "TRADE_DAY_N_KILL_ENABLED":"0",   # 2026-08-13 disabled — spam vs sub-$2k tier
     "TRADE_ADAPTIVE_EDGES_APPLY": "1",
     "TRADE_ADAPTIVE_ML_ENABLED":  "1",
+    # 2026-09-28: enabled after deep-bug-hunt found SigHigh gate was
+    # rejecting +0.61pp/trade cohort of tradeable candidates in bullish
+    # regimes. Env-toggle allows Medium in TREND_UP/MODERATE_UP.
+    "TRADE_CONFIDENCE_REGIME_RELAX": "1",
     "TRADE_LEDGER_ENABLED":       "1",
     "TRADE_PAPER_MODE":           "0",
     "TRADE_DRY_RUN":              "0",
