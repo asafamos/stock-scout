@@ -879,6 +879,27 @@ class OrderManager:
         entry_col = self._find_col(df, ["Entry_Price", "entry_price"])
         stop_col = self._find_col(df, ["Stop_Loss", "stop_loss"])
 
+        # ── ML DEGENERACY GUARD (2026-09-29 audit) ──
+        # If the model silently failed, the scan fills ML_20d_Prob with the neutral 0.5 (or one
+        # constant) for every row. 0.5 sits INSIDE the 0.40-0.60 window, so a broken model would
+        # PASS the ML gate for every candidate. A healthy scan has a spread (185 rows: std 0.07,
+        # 185 distinct values). Refuse to trade off a collapsed ML column.
+        if ml_col and ml_col in df.columns and len(df) >= 20:
+            _mlv = pd.to_numeric(df[ml_col], errors="coerce")
+            _half = float((_mlv == 0.5).mean())
+            if _mlv.isna().mean() > 0.5 or _half > 0.5 or _mlv.nunique() <= 3 or float(_mlv.std() or 0) < 0.005:
+                logger.error("ML degeneracy: %d rows, %.0f%% exactly 0.5, %d distinct, std %.4f — no trades",
+                             len(df), _half * 100, int(_mlv.nunique()), float(_mlv.std() or 0))
+                try:
+                    notify.notify_error(
+                        "ML model degenerate",
+                        f"Scan ML_20d_Prob collapsed ({len(df)} rows, {_half*100:.0f}% exactly 0.5, "
+                        f"{int(_mlv.nunique())} distinct values). Model probably failed silently — "
+                        f"buys BLOCKED this cycle. Check the scan job / models/ bundle.")
+                except Exception:
+                    pass
+                return pd.DataFrame()
+
         # ── R:R NORMALIZATION (revised 2026-05-14) ──
         # Forensic analysis on 8 system-bought closes showed losers had
         # AVG R:R 4.12 vs winners 2.50 — lottery-ticket pattern. Root cause:
@@ -926,7 +947,8 @@ class OrderManager:
                     "MARKET REGIME BLOCK: regime=%s is blocked — no trades today",
                     blocked[0],
                 )
-                from core.trading import notifications as notify
+                # (module-level `notify` is used; a local import here made `notify` a local
+                # name for the whole function -> UnboundLocalError anywhere else in it)
                 notify.notify_error(
                     "Market Regime",
                     f"Market regime is {blocked[0]} — auto-trade BLOCKED. No buys today."

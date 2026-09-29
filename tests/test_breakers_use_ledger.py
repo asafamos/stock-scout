@@ -78,3 +78,18 @@ def test_drawdown_size_mult_reaches_the_sizing_multiplier(monkeypatch):
     rm = _rm(trade_log=[], net=800.0)
     rm.check_drawdown_breaker()
     assert min(1.0, getattr(rm, "_dd_size_mult", 1.0)) == 0.5
+
+
+def test_throttle_can_read_ledger_when_opted_in(monkeypatch):
+    from types import SimpleNamespace as NS
+    trips = [{"ticker": f"T{i}", "realized_pnl": -8.0, "entry_price": 50.0, "shares": 4,
+              "exit_time": f"2026-09-{i+1:02d}T15:00:00+00:00"} for i in range(6)]
+    monkeypatch.setattr(ledger, "closed_round_trips", lambda cfg=None: trips)
+    rm = _rm(trade_log=[])
+    rm.cfg = NS(**{**rm.cfg.__dict__, "throttle_enabled": True, "throttle_window_trades": 10,
+                   "throttle_min_trades": 5, "throttle_mode": "expectancy",
+                   "throttle_halt_expectancy_pct": -1.5, "throttle_warn_expectancy_pct": 0.0})
+    assert rm.check_performance_throttle() == (True, "", 1.0), "default: ledger NOT used (unchanged)"
+    monkeypatch.setenv("TRADE_THROTTLE_USE_LEDGER", "1")
+    ok, reason, mult = rm.check_performance_throttle()  # -8/(50*4) = -4% avg -> HALT
+    assert ok is False and "expectancy" in reason

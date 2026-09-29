@@ -43,6 +43,8 @@ AI-powered stock recommendation system that scans 3,000+ US stocks using technic
 - Previous unblocks kept: Consumer Cyclical, Financial Services.
 - Top real performers (n=402 Supabase): **Energy +3.07% (NEW)**, Industrials +2.53% (n=53), Technology +1.95% (n=46), Communication Services +2.25% (n=26).
 
+**Drawdown breaker (2-stage, 2026-09-29, owner decision):** realized DD (ledger, vs equity at peak) ≥ `MAX_DRAWDOWN_PCT`=10% → new buys at half size (`DRAWDOWN_SIZE_MULT`=0.5); ≥ `MAX_DRAWDOWN_HALT_PCT`=25% → no new buys. Was a single hard 10% stop that could never release (dead code until 2026-09-29, then revived and blocked everything at DD 16%). A deposit shrinks the DD % automatically.
+
 **Blocked regimes: PANIC only** (CORRECTION removed — data showed +5.48%/55% WR, mean-reversion edge)
 **Reduce_regimes: DISTRIBUTION** (half-size)
 

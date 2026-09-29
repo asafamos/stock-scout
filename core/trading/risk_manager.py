@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import math
 from datetime import date, datetime
 from typing import Optional, Tuple, Dict
@@ -87,6 +88,25 @@ class RiskManager:
                 if t.get("action") == "CLOSE"
                 and (t.get("pnl") is not None)
             ]
+            # 2026-09-29 audit: in ledger mode trail/limit closes write NO trade_log CLOSE row, so
+            # this brake saw almost none of the real trades. Opt-in (env TRADE_THROTTLE_USE_LEDGER=1)
+            # because switching it on changes live behaviour: on the 2026-09-29 ledger the last 10
+            # trades average about -1.3% (WARN band, one bad trade from the -1.5% HALT). Owner call.
+            if os.getenv("TRADE_THROTTLE_USE_LEDGER", "0").strip() in ("1", "true", "True") \
+                    and getattr(self.cfg, "ledger_enabled", True):
+                try:
+                    from core.trading import ledger as _lg
+                    trips = sorted(
+                        (t for t in _lg.closed_round_trips(self.cfg) if t.get("realized_pnl") is not None),
+                        key=lambda t: str(t.get("exit_time") or ""),
+                    )
+                    closes = [
+                        {"action": "CLOSE", "pnl": float(t["realized_pnl"]),
+                         "entry_price": t.get("entry_price"), "quantity": t.get("shares")}
+                        for t in trips
+                    ]
+                except Exception as _le:
+                    logger.warning("throttle: ledger round trips unavailable (%s) — trade_log", _le)
             recent = closes[-self.cfg.throttle_window_trades:]
             n = len(recent)
             if n < self.cfg.throttle_min_trades:
@@ -782,7 +802,10 @@ class RiskManager:
                 "RewardRisk": rr,
                 "ML_20d_Prob": ml_prob,
                 "Sector": sector,
-                "SignalQuality": signal_quality or "High",  # filtered upstream
+                # 2026-09-29: was `signal_quality or "High"` — a missing quality label was
+                # silently upgraded to the best one. Pass it through; the SSOT confidence gate
+                # treats "" as unknown and rejects (the caller always supplies the label).
+                "SignalQuality": signal_quality,
                 "Market_Regime": market_regime,
                 "Reliability_Score": reliability_score,
                 "Entry_Price": price,
@@ -820,11 +843,23 @@ class RiskManager:
             if not gate_result.would_buy:
                 return False, gate_result.primary_reason
         except Exception as _gate_err:
-            # NEVER let the unification call break a trade decision.
-            # If evaluate_static_gates errors, fall through to the
-            # legacy in-line gates below. Worst case: pre-this-commit
-            # behavior.
-            logger.debug("policy.evaluate_static_gates skipped: %s", _gate_err)
+            # NEVER let the unification call break a trade decision: fall through to the
+            # legacy in-line gates below (worst case: pre-unification behaviour). But do NOT
+            # do it silently (was logger.debug): an SSOT that is throwing on every candidate
+            # means the money gate is running on its weaker backup.
+            logger.warning("policy.evaluate_static_gates FAILED for %s (legacy gates only): %r",
+                           ticker, _gate_err, exc_info=True)
+            cls = type(self)
+            cls._SSOT_FAIL_COUNT = getattr(cls, "_SSOT_FAIL_COUNT", 0) + 1
+            if cls._SSOT_FAIL_COUNT == 3:
+                try:
+                    from core.trading import notifications as _notify
+                    _notify.notify_error(
+                        "Risk gate degraded",
+                        f"policy.evaluate_static_gates raised 3x ({_gate_err!r}) — buy decisions "
+                        f"are running on the legacy in-line gates only. Investigate.")
+                except Exception:
+                    pass
 
         # 0. Trade levels sanity — refuse buys with missing/absurd stops or targets.
         # Protects against scan rows where stop_loss/target_price are missing,

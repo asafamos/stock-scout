@@ -293,6 +293,22 @@ def _load_blocked_tickers() -> Set[str]:
         return _BLOCKED_TICKERS_CACHE.get("tickers", set())
 
 
+def _finite(v: Any, default: float = 0.0) -> float:
+    """float(v), with None / '' / non-numeric / NaN / +-inf treated as MISSING -> `default`.
+
+    2026-09-29 audit: `float(nan or 0)` stays NaN (NaN is truthy) and every `x < floor` /
+    `x > cap` comparison with NaN is False, so a NaN score/RR/ML silently PASSED its gate.
+    Missing (=default, usually 0) fails the floor gates as intended. A literal 0 also maps to
+    `default` (unchanged historical behaviour of `float(x or default)`).
+    """
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return default
+    # `f == 0` -> default keeps the historical `float(x or default)` behaviour for finite values
+    return f if (math.isfinite(f) and f != 0) else default
+
+
 def evaluate_static_gates(
     row: Any,
     *,
@@ -331,9 +347,9 @@ def evaluate_static_gates(
 
     # ── Extract row fields ───────────────────────────────────────────
     ticker = str(_row_get_first(row, ["Ticker", "ticker", "Symbol"], "")).upper()
-    score = float(_row_get_first(row, ["FinalScore_20d", "Score", "final_score"], 0) or 0)
-    rr = float(_row_get_first(row, ["RewardRisk", "RR_Ratio", "RR", "rr"], 0) or 0)
-    ml_prob = float(_row_get_first(row, ["ML_20d_Prob", "ml_prob", "ML_Prob"], 0) or 0)
+    score = _finite(_row_get_first(row, ["FinalScore_20d", "Score", "final_score"], 0), 0)
+    rr = _finite(_row_get_first(row, ["RewardRisk", "RR_Ratio", "RR", "rr"], 0), 0)
+    ml_prob = _finite(_row_get_first(row, ["ML_20d_Prob", "ml_prob", "ML_Prob"], 0), 0)
     sector = str(_row_get_first(row, ["Sector", "sector"], "") or "")
     confidence = str(
         _row_get_first(
@@ -344,12 +360,12 @@ def evaluate_static_gates(
         or ""
     )
     regime = str(_row_get_first(row, ["Market_Regime", "market_regime", "Regime"], "") or "").upper()
-    reliability = float(_row_get_first(row, ["Reliability_Score", "Reliability", "reliability"], 100) or 100)
+    reliability = _finite(_row_get_first(row, ["Reliability_Score", "Reliability", "reliability"], 100), 100)
 
     # Trade-level sanity inputs (optional — only checked when present)
-    entry = float(_row_get_first(row, ["Entry_Price", "entry_price", "Close"], 0) or 0)
-    stop = float(_row_get_first(row, ["Stop_Loss", "stop_loss", "StopLoss"], 0) or 0)
-    target = float(_row_get_first(row, ["Target_Price", "target_price"], 0) or 0)
+    entry = _finite(_row_get_first(row, ["Entry_Price", "entry_price", "Close"], 0), 0)
+    stop = _finite(_row_get_first(row, ["Stop_Loss", "stop_loss", "StopLoss"], 0), 0)
+    target = _finite(_row_get_first(row, ["Target_Price", "target_price"], 0), 0)
 
     passed: List[str] = []
     failed: List[str] = []
@@ -457,7 +473,7 @@ def evaluate_static_gates(
     # Fail-OPEN when ATR is missing (let other gates decide); fail-CLOSED
     # only when ATR is a real positive number below the floor.
     min_atr = float(getattr(cfg, "min_atr_pct", 0.03))
-    atr_pct_val = float(_row_get_first(row, ["ATR_Pct", "atr_pct"], 0) or 0)
+    atr_pct_val = _finite(_row_get_first(row, ["ATR_Pct", "atr_pct"], 0), 0)
     if min_atr > 0 and atr_pct_val > 0 and atr_pct_val < min_atr:
         # Real positive ATR, but too low
         failed.append(f"ATR {atr_pct_val:.3f} < {min_atr:.2f} (low-vol drag)")
@@ -476,7 +492,7 @@ def evaluate_static_gates(
     # column missing or floor disabled (=0).
     min_fund = float(getattr(cfg, "min_fundamental_score", 30.0))
     if min_fund > 0:
-        fund_val = float(_row_get_first(row, ["Fundamental_Score","fundamental_score","FundamentalScore"], -1) or -1)
+        fund_val = _finite(_row_get_first(row, ["Fundamental_Score","fundamental_score","FundamentalScore"], -1), -1)
         if fund_val >= 0 and fund_val < min_fund:
             failed.append(f"Fundamental {fund_val:.0f} < {min_fund:.0f} (weakest cohort)")
         elif fund_val >= 0:
@@ -491,7 +507,7 @@ def evaluate_static_gates(
     # column missing or cap disabled (=0).
     max_vs = float(getattr(cfg, "max_volume_surge", 1.5))
     if max_vs > 0:
-        vs_val = float(_row_get_first(row, ["Volume_Surge","volume_surge","VolumeSurge"], 0) or 0)
+        vs_val = _finite(_row_get_first(row, ["Volume_Surge","volume_surge","VolumeSurge"], 0), 0)
         if vs_val > 0 and vs_val >= max_vs:
             failed.append(f"Volume surge {vs_val:.2f} ≥ {max_vs:.1f} (low-return cohort)")
         elif vs_val > 0:
@@ -538,8 +554,8 @@ def evaluate_static_gates(
     # because the scan row lacked vol_avg). Env: TRADE_MIN_ADDV_USD.
     min_addv = float(getattr(cfg, "min_addv_usd", 0) or 0)
     if min_addv > 0:
-        vol_avg = float(_row_get_first(row, ["vol_avg", "Vol_Avg", "AvgVolume", "avg_volume"], 0) or 0)
-        px_for_liq = entry if entry > 0 else float(_row_get_first(row, ["Close", "close", "Price"], 0) or 0)
+        vol_avg = _finite(_row_get_first(row, ["vol_avg", "Vol_Avg", "AvgVolume", "avg_volume"], 0), 0)
+        px_for_liq = entry if entry > 0 else _finite(_row_get_first(row, ["Close", "close", "Price"], 0), 0)
         if vol_avg > 0 and px_for_liq > 0:
             addv = vol_avg * px_for_liq
             if addv < min_addv:
