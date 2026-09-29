@@ -59,6 +59,7 @@ def test_blocks_trade_with_invalid_target(rm):
     """Target ≤ entry × 1.02 should be rejected."""
     allowed, reason = rm.can_open_position(
         "TEST", price=100, score=80, rr=2.5,
+        ml_prob=0.5, signal_quality="High", fundamental_score=60.0, atr_pct=0.05,
         stop_loss=95, target_price=101,  # only +1% upside
     )
     assert not allowed
@@ -69,6 +70,7 @@ def test_blocks_trade_with_invalid_stop(rm):
     """Stop ≥ entry × 0.995 should be rejected."""
     allowed, reason = rm.can_open_position(
         "TEST", price=100, score=80, rr=2.5,
+        ml_prob=0.5, signal_quality="High", fundamental_score=60.0, atr_pct=0.05,
         stop_loss=100,  # stop at entry — can never trigger
         target_price=120,
     )
@@ -87,6 +89,7 @@ def test_blocks_nan_in_trade_levels(rm):
     # NaN target
     allowed, reason = rm.can_open_position(
         "TEST", price=100, score=80, rr=2.5,
+        ml_prob=0.5, signal_quality="High", fundamental_score=60.0, atr_pct=0.05,
         stop_loss=95, target_price=float("nan"),
     )
     assert not allowed, f"NaN target should be rejected: {reason}"
@@ -95,6 +98,7 @@ def test_blocks_nan_in_trade_levels(rm):
     # NaN stop
     allowed, reason = rm.can_open_position(
         "TEST", price=100, score=80, rr=2.5,
+        ml_prob=0.5, signal_quality="High", fundamental_score=60.0, atr_pct=0.05,
         stop_loss=float("nan"), target_price=120,
     )
     assert not allowed

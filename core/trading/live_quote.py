@@ -100,3 +100,22 @@ def get_realtime_price(ticker: str) -> Optional[Tuple[float, str]]:
             + f" differ by {spread_pct:.2f}% (> {MAX_DISAGREE_PCT}%)"
         )
     return sum(fresh.values()) / len(fresh), "+".join(fresh)
+
+
+def get_exit_price(ticker: str, fallback: Optional[float] = None) -> Tuple[Optional[float], str]:
+    """Best current price for an EXIT decision (target-hit, ratchet peak, sell limit).
+
+    Fresh real-time quote (FMP/Finnhub) when available; otherwise `fallback` (the IB
+    portfolio/delayed mark, ~15 min lag on this account). Unlike the BUY path, a quote
+    disagreement does NOT block: an exit must never be refused — it just falls back to
+    the mark. Never raises.
+    """
+    try:
+        rt = get_realtime_price(ticker)
+        if rt:
+            return rt
+    except QuoteDisagreement as e:
+        logger.warning("exit price: %s — using fallback mark", e)
+    except Exception as e:
+        logger.warning("exit price lookup failed for %s: %s — using fallback mark", ticker, e)
+    return fallback, "IB-mark"

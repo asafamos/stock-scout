@@ -24,6 +24,23 @@ from contextlib import contextmanager
 from datetime import datetime, date
 
 
+def _fresh_price(ticker: str, ib_mark: float) -> float:
+    """Exit-decision price: real-time quote if fresh, else the IB portfolio mark (delayed ~15 min).
+
+    2026-09-29 (audit): target-hit, peak/ladder/ratchet tracking read ib.portfolio().marketPrice,
+    which on this account (no market-data subscription) lags — targets were declared late and
+    peaks sampled low. Falls back to the mark on any failure, so behaviour never gets worse.
+    """
+    try:
+        from core.trading.live_quote import get_exit_price
+        p, _src = get_exit_price(ticker, ib_mark)
+        if p and p > 0:
+            return float(p)
+    except Exception:
+        pass
+    return ib_mark
+
+
 # ── Cycle timeout ────────────────────────────────────────────────────
 # IB can hang indefinitely on portfolio()/fills()/openTrades() if the
 # network blips or the gateway stalls. A per-cycle alarm ensures we
@@ -1725,6 +1742,7 @@ def _take_partial_profit(tracker, client, notify):
             continue
         if not _m.isfinite(current_price) or current_price <= 0:
             continue
+        current_price = _fresh_price(ticker, current_price)
         entry = pos["entry_price"]
         if entry <= 0:
             continue
@@ -1997,6 +2015,7 @@ def _target_hit_pass(tracker, client, ibkr_orders, notify):
         current_price = float(port_item.marketPrice)
         if not _m.isfinite(current_price) or current_price <= 0:
             continue
+        current_price = _fresh_price(ticker, current_price)
 
         # Slop: 0.1% under target counts as "hit" (covers IB rounding +
         # the gap between marketPrice and actual fill price). Picked to
@@ -2541,6 +2560,7 @@ def _ratchet_stops(tracker, client, ibkr_orders, notify):
         current_price = float(port_item.marketPrice)
         if current_price <= 0:
             continue
+        current_price = _fresh_price(ticker, current_price)
 
         # Update peak tracking.
         # 2026-05-19 BUGFIX: the comparison `peak_price != pos.get("peak_price")`

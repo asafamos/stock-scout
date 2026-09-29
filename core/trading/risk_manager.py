@@ -209,6 +209,30 @@ class RiskManager:
 
         return True, ""
 
+    def _realized_today(self) -> float:
+        """Today's realized P&L = the WORSE of trade_log CLOSE rows and the broker-truth ledger.
+
+        2026-09-29 (audit): in ledger mode (default) trail-fired / limit closes go through
+        position_tracker.drop_metadata, which writes NO CLOSE row, and the loss also leaves
+        ib.portfolio() — so a trail loss was invisible to the daily-loss breaker. The ledger
+        (IB commissionReport.realizedPNL) is the source of truth. Taking the min avoids
+        double-counting the same close and is the conservative direction for a loss breaker.
+        """
+        today = date.today().isoformat()
+        from_log = sum(
+            float(t.get("pnl") or 0)
+            for t in self.tracker.get_trade_log()
+            if t.get("action") == "CLOSE" and str(t.get("timestamp", "")).startswith(today)
+        )
+        if not getattr(self.cfg, "ledger_enabled", True):
+            return from_log
+        try:
+            from core.trading import ledger
+            return min(from_log, float(ledger.realized_today(self.cfg)))
+        except Exception as e:
+            logger.warning("ledger realized_today unavailable (%s) — trade_log only", e)
+            return from_log
+
     def check_daily_loss_breaker(self) -> Tuple[bool, str]:
         """Return (allowed, reason). Blocks new buys if today's P&L < -max_daily_loss_pct.
 
@@ -220,11 +244,7 @@ class RiskManager:
             net = self.client.get_net_liquidation()
             if net <= 0:
                 return None, 0.0, 0.0, 0.0
-            today = date.today().isoformat()
-            realized = 0.0
-            for t in self.tracker.get_trade_log():
-                if t.get("action") == "CLOSE" and str(t.get("timestamp", "")).startswith(today):
-                    realized += float(t.get("pnl", 0) or 0)
+            realized = self._realized_today()
             unrealized = 0.0
             try:
                 for p in self.client._ib.portfolio():
@@ -245,13 +265,7 @@ class RiskManager:
                 # Audit finding #7: previously this fell through to "True, ''" so
                 # a broken IB connection silently disabled the loss breaker
                 # exactly when you most need it.
-                today = date.today().isoformat()
-                realized_only = sum(
-                    float(t.get("pnl") or 0)
-                    for t in self.tracker.get_trade_log()
-                    if t.get("action") == "CLOSE"
-                    and str(t.get("timestamp", "")).startswith(today)
-                )
+                realized_only = self._realized_today()
                 # Use a defensive estimated net = max_position * max_open as a
                 # rough capital-at-risk proxy; gives a sane percentage when
                 # IB is unreachable.
@@ -294,13 +308,7 @@ class RiskManager:
             # breaker exactly when you most need it. Now: realized-only check
             # FIRST, fall back to fail-OPEN only when realized is also clean.
             try:
-                today_iso = date.today().isoformat()
-                realized_only = sum(
-                    float(t.get("pnl") or 0)
-                    for t in self.tracker.get_trade_log()
-                    if t.get("action") == "CLOSE"
-                    and str(t.get("timestamp", "")).startswith(today_iso)
-                )
+                realized_only = self._realized_today()
                 est_net = self.cfg.max_position_size * self.cfg.max_open_positions
                 est_pct = (realized_only / max(est_net, 1)) * 100
                 if est_pct <= -self.cfg.max_daily_loss_pct:
@@ -350,8 +358,23 @@ class RiskManager:
                 compute_drawdown,
                 build_trade_pairs,
             )
-            log = self.tracker.get_trade_log()
-            pairs = build_trade_pairs(log)
+            # 2026-09-29 (audit): build the equity curve from broker-truth ledger round trips
+            # in ledger mode; trade_log has no CLOSE row for trail/limit closes there.
+            pairs = None
+            if getattr(self.cfg, "ledger_enabled", True):
+                try:
+                    from core.trading import ledger
+                    pairs = [
+                        {"ticker": t["ticker"], "pnl_abs": float(t["realized_pnl"]),
+                         "exit_date": str(t.get("exit_time") or ""), "entry_date": None}
+                        for t in ledger.closed_round_trips(self.cfg)
+                        if t.get("realized_pnl") is not None
+                    ]
+                except Exception as _le:
+                    logger.warning("ledger round trips unavailable for DD gate (%s) — trade_log", _le)
+                    pairs = None
+            if not pairs:
+                pairs = build_trade_pairs(self.tracker.get_trade_log())
             if not pairs or len(pairs) < 2:
                 return True, ""  # not enough history to compute peak
 

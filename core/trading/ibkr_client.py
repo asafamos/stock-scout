@@ -1750,36 +1750,49 @@ class IBKRClient:
             # market data type BEFORE reqTickers so we get a usable
             # snapshot (~15min lag, free on all IB accounts).
             ref_price = 0.0
+            # 2026-09-29: prefer a REAL-TIME quote for the sell limit reference. The delayed
+            # mark (~15 min) priced `ref*0.995` ABOVE the market when the stock had fallen
+            # >0.5% — the same failure that left PBF's buy unfilled, on the exit side (and
+            # sub-$2k accounts have no market-order fallback). Falls back to the delayed logic.
             try:
+                from core.trading.live_quote import get_exit_price
+                _rp, _rsrc = get_exit_price(ticker, None)
+                if _rp and _rp > 0:
+                    ref_price = float(_rp)
+                    logger.info("SELL %s: ref_price = %.2f (%s, real-time)", ticker, ref_price, _rsrc)
+            except Exception as _rte:
+                logger.warning("SELL %s: real-time ref failed: %s", ticker, _rte)
+            if ref_price <= 0:
                 try:
-                    self._ib.reqMarketDataType(3)  # 3 = delayed
-                except Exception:
-                    pass
-                tickers = self._ib.reqTickers(contract)
-                if tickers:
-                    t0 = tickers[0]
-                    import math as _m
-                    # delayedLast + delayedMarketPrice are the fields IB
-                    # populates under marketDataType=3. delayedClose is
-                    # YESTERDAY's close — skip it (see get_live_price
-                    # audit 2026-04-30 finding #4).
-                    for cand in (
-                        t0.marketPrice(),
-                        t0.last,
-                        getattr(t0, "delayedLast", None),
-                        getattr(t0, "delayedMarketPrice", lambda: None)()
-                            if callable(getattr(t0, "delayedMarketPrice", None))
-                            else getattr(t0, "delayedMarketPrice", None),
-                    ):
-                        try:
-                            v = float(cand) if cand is not None else 0.0
-                        except (TypeError, ValueError):
-                            continue
-                        if _m.isfinite(v) and v > 0:
-                            ref_price = v
-                            break
-            except Exception as _e:
-                logger.warning("SELL %s: reqTickers failed, will retry with 0 ref: %s", ticker, _e)
+                    try:
+                        self._ib.reqMarketDataType(3)  # 3 = delayed
+                    except Exception:
+                        pass
+                    tickers = self._ib.reqTickers(contract)
+                    if tickers:
+                        t0 = tickers[0]
+                        import math as _m
+                        # delayedLast + delayedMarketPrice are the fields IB
+                        # populates under marketDataType=3. delayedClose is
+                        # YESTERDAY's close — skip it (see get_live_price
+                        # audit 2026-04-30 finding #4).
+                        for cand in (
+                            t0.marketPrice(),
+                            t0.last,
+                            getattr(t0, "delayedLast", None),
+                            getattr(t0, "delayedMarketPrice", lambda: None)()
+                                if callable(getattr(t0, "delayedMarketPrice", None))
+                                else getattr(t0, "delayedMarketPrice", None),
+                        ):
+                            try:
+                                v = float(cand) if cand is not None else 0.0
+                            except (TypeError, ValueError):
+                                continue
+                            if _m.isfinite(v) and v > 0:
+                                ref_price = v
+                                break
+                except Exception as _e:
+                    logger.warning("SELL %s: reqTickers failed, will retry with 0 ref: %s", ticker, _e)
 
             # Last-resort fallback: use get_live_price which sets delayed
             # mode + waits longer. Costs a few seconds but avoids the
