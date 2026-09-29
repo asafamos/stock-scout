@@ -657,6 +657,50 @@ RandomizedDelaySec=90
 WantedBy=timers.target
 SVCEOF
 
+# --- Outcomes resolver (nightly). 2026-09-29: also re-resolves legacy short-window (<20 bars) rows in batches.
+sudo tee /etc/systemd/system/stockscout-outcomes-resolve.service > /dev/null << 'SVCEOF'
+[Unit]
+Description=StockScout scan outcomes resolver
+OnFailure=stockscout-notify-failure@outcomes-resolve.service
+
+[Service]
+Type=oneshot
+User=stockscout
+WorkingDirectory=/home/stockscout/stock-scout-2
+EnvironmentFile=/home/stockscout/stock-scout-2/.env.trading
+ExecStart=/home/stockscout/stock-scout-2/.venv/bin/python -m scripts.track_scan_outcomes --resolve
+ExecStartPost=/home/stockscout/stock-scout-2/.venv/bin/python -m scripts.track_scan_outcomes --reresolve-short --reresolve-limit 300
+TimeoutStartSec=3000
+SVCEOF
+
+# --- Shadow selector (2026-09-29): logs the whole scan + pre-registered rule flags, resolves 20-session
+# outcomes, writes data/outcomes/shadow_report.txt. Additive — trades nothing.
+sudo tee /etc/systemd/system/stockscout-shadow.service > /dev/null << 'SVCEOF'
+[Unit]
+Description=StockScout shadow selector (log + resolve + report)
+OnFailure=stockscout-notify-failure@shadow.service
+
+[Service]
+Type=oneshot
+User=stockscout
+WorkingDirectory=/home/stockscout/stock-scout-2
+EnvironmentFile=/home/stockscout/stock-scout-2/.env.trading
+ExecStart=/bin/bash /home/stockscout/stock-scout-2/deploy/shadow_daily.sh
+TimeoutStartSec=1500
+SVCEOF
+
+sudo tee /etc/systemd/system/stockscout-shadow.timer > /dev/null << 'SVCEOF'
+[Unit]
+Description=Daily shadow selector (after the US close, DST-aware)
+
+[Timer]
+OnCalendar=Mon..Fri 17:30:00 America/New_York
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+SVCEOF
+
 sudo systemctl daemon-reload
 
 echo ""

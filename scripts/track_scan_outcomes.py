@@ -28,6 +28,7 @@ The resulting JSONL is the feed for the next retraining cycle.
 from __future__ import annotations
 
 import argparse
+import os
 import json
 import logging
 from datetime import date, datetime, timedelta
@@ -310,7 +311,32 @@ def record_today():
     return len(new_records)
 
 
-def _resolve_one(rec: Dict) -> Dict:
+RESOLVER_VERSION = 2
+# Round-trip trading cost assumed when reporting net returns (slippage + commissions), in %.
+# Measured live slippage was ~1.8% mean before the real-time-quote fix; 0.5% is a deliberately
+# modest post-fix estimate. Gross fields are kept untouched.
+MODEL_COST_PCT = float(os.getenv("TRADE_MODEL_COST_PCT", "0.5"))
+
+
+def _fetch_hist(ticker: str, start: date, end: date):
+    """Daily bars on the CURRENT share basis, dividends NOT folded into prices."""
+    import yfinance as yf
+    return yf.Ticker(ticker).history(
+        start=start.isoformat(), end=end.isoformat(), interval="1d",
+        auto_adjust=False, actions=True,
+    )
+
+
+def _bars_after(hist, scan_date: date):
+    """Bars strictly after `scan_date` (index may be tz-aware)."""
+    import pandas as pd
+    idx = hist.index
+    if getattr(idx, "tz", None) is not None:
+        idx = idx.tz_localize(None)
+    return hist[idx.normalize() > pd.Timestamp(scan_date)]
+
+
+def _resolve_one(rec: Dict, hist=None) -> Dict:
     """Look up actual outcome for a pending scan record using yfinance.
 
     Success criteria:
@@ -318,10 +344,18 @@ def _resolve_one(rec: Dict) -> Dict:
       hit_stop   = low  <= stop_loss within holding_days
       (if both, whichever triggered first wins — approximated via day-level OHLC)
 
+    2026-09-29 (measurement audit), resolver v2:
+      * needs the FULL `holding_days` trading bars. v1 resolved at 20 CALENDAR days and
+        silently used the ~14 bars that existed, labelling them "20d" outcomes;
+      * yfinance history is on today's share basis, the recorded entry/stop/target are on the
+        scan-day basis -> a split in the window (APH 2:1) fabricated a -50% "return". Levels
+        are now rescaled by the splits that happened after the scan date;
+      * dividends are no longer folded into prices (auto_adjust=False);
+      * adds net_* fields (gross minus MODEL_COST_PCT) so cost is explicit, not implied.
+
     Adds fields: max_return_pct, min_return_pct, final_return_pct,
                  hit_target, hit_stop, resolved=True, resolved_at
     """
-    import yfinance as yf
     ticker = rec["ticker"]
     scan_date = datetime.fromisoformat(rec["scan_date"]).date()
     holding_days = int(rec.get("holding_days", 20))
@@ -331,22 +365,33 @@ def _resolve_one(rec: Dict) -> Dict:
     end_date = scan_date + timedelta(days=int(holding_days * 1.6) + 5)  # buffer for weekends
 
     try:
-        # +1 day start to skip the scan-close entry bar
-        hist = yf.Ticker(ticker).history(
-            start=(scan_date + timedelta(days=1)).isoformat(),
-            end=end_date.isoformat(),
-            interval="1d",
-        )
+        if hist is None:
+            # +1 day start to skip the scan-close entry bar
+            hist = _fetch_hist(ticker, scan_date + timedelta(days=1), end_date)
+        else:
+            hist = _bars_after(hist, scan_date)
         if hist is None or len(hist) == 0:
             return {**rec, "resolved": False, "resolve_error": "no_history"}
 
-        # Truncate to N trading days
+        # Truncate to N trading days — and require them all
         hist = hist.head(holding_days)
+        if len(hist) < holding_days:
+            return {**rec, "resolved": False,
+                    "resolve_error": f"insufficient_bars({len(hist)}<{holding_days})"}
         highs = hist["High"].to_list()
         lows = hist["Low"].to_list()
         closes = hist["Close"].to_list()
         if not closes:
             return {**rec, "resolved": False, "resolve_error": "empty_ohlc"}
+
+        # Rebase the scan-day levels onto today's share basis (post-scan splits only)
+        split_factor = 1.0
+        if "Stock Splits" in hist.columns:
+            for ratio in hist["Stock Splits"].to_list():
+                if ratio and ratio > 0:
+                    split_factor *= float(ratio)
+        if split_factor != 1.0:
+            entry, target, stop = entry / split_factor, target / split_factor, stop / split_factor
 
         max_h = max(highs)
         min_l = min(lows)
@@ -379,10 +424,14 @@ def _resolve_one(rec: Dict) -> Dict:
             **rec,
             "resolved": True,
             "resolved_at": datetime.utcnow().isoformat(),
+            "resolver_version": RESOLVER_VERSION,
             "max_return_pct": round(max_ret_pct, 2),
             "min_return_pct": round(min_ret_pct, 2),
             "final_return_pct": round(final_ret_pct, 2),
             "realized_return_pct": round(realized_ret, 2),
+            "net_final_return_pct": round(final_ret_pct - MODEL_COST_PCT, 2),
+            "net_realized_return_pct": round(realized_ret - MODEL_COST_PCT, 2),
+            "split_factor": split_factor,
             "outcome": outcome,
             "hit_target": hit_target,
             "hit_stop": hit_stop,
@@ -392,7 +441,7 @@ def _resolve_one(rec: Dict) -> Dict:
         return {**rec, "resolved": False, "resolve_error": str(e)[:120]}
 
 
-def resolve_matured(min_age_days: int = 20, max_per_run: int = 200) -> int:
+def resolve_matured(min_age_days: int = 29, max_per_run: int = 200) -> int:
     """Find unresolved scan records ≥ min_age_days old and try to resolve them.
 
     Writes resolved records to scan_outcomes.jsonl. Keeps unresolved ones
@@ -451,6 +500,58 @@ def resolve_matured(min_age_days: int = 20, max_per_run: int = 200) -> int:
     logger.info("Resolved %d, still pending %d (total kept %d)",
                 len(resolved), len(still_pending), len(keep_records))
     return len(resolved)
+
+
+def reresolve_short(max_tickers: int = 150) -> int:
+    """Re-resolve legacy outcomes whose window had fewer than `holding_days` bars (resolver v1).
+
+    Grouped per ticker (one download each, bars sliced per record). Rewrites scan_outcomes.jsonl
+    atomically; records that cannot be fully resolved yet are left exactly as they were.
+    Idempotent: v2 records carry resolver_version and are skipped.
+    """
+    rows = _read_jsonl(RESOLVED_PATH)
+    today = date.today()
+
+    def _short(r):
+        return (r.get("resolver_version", 1) < RESOLVER_VERSION
+                and int(r.get("trading_days_data") or 0) < int(r.get("holding_days", 20))
+                and r.get("scan_date")
+                and (today - datetime.fromisoformat(r["scan_date"]).date()).days >= 29)
+
+    by_ticker: Dict[str, List[int]] = {}
+    for i, r in enumerate(rows):
+        if _short(r):
+            by_ticker.setdefault(r["ticker"], []).append(i)
+    if not by_ticker:
+        logger.info("reresolve_short: nothing to do")
+        return 0
+    tickers = sorted(by_ticker)[:max_tickers]
+    logger.info("reresolve_short: %d tickers pending, doing %d", len(by_ticker), len(tickers))
+    changed = 0
+    for tkr in tickers:
+        idxs = by_ticker[tkr]
+        dates = [datetime.fromisoformat(rows[i]["scan_date"]).date() for i in idxs]
+        try:
+            hist = _fetch_hist(tkr, min(dates) + timedelta(days=1), max(dates) + timedelta(days=40))
+        except Exception as e:
+            logger.warning("reresolve_short %s: fetch failed: %s", tkr, e)
+            continue
+        if hist is None or len(hist) == 0:
+            continue
+        for i in idxs:
+            base = {k: v for k, v in rows[i].items() if k not in ("resolve_error",)}
+            out = _resolve_one(base, hist=hist)
+            if out.get("resolved"):
+                rows[i] = out
+                changed += 1
+    if changed:
+        tmp = RESOLVED_PATH.with_suffix(".tmp")
+        with open(tmp, "w") as f:
+            for r in rows:
+                f.write(json.dumps(r, default=str) + "\n")
+        tmp.replace(RESOLVED_PATH)
+    logger.info("reresolve_short: %d records rewritten", changed)
+    return changed
 
 
 def summarize():
@@ -541,14 +642,20 @@ def main():
     p.add_argument("--record", action="store_true", help="Record today's scan candidates")
     p.add_argument("--resolve", action="store_true", help="Resolve matured (≥20d) outcomes")
     p.add_argument("--summarize", action="store_true", help="Show outcome stats")
-    p.add_argument("--min-age", type=int, default=20, help="Min days before resolving")
+    p.add_argument("--min-age", type=int, default=29,
+                   help="Min CALENDAR days before resolving (20 trading days ~ 28 calendar days)")
+    p.add_argument("--reresolve-short", action="store_true",
+                   help="Re-resolve legacy outcomes that used fewer than holding_days bars (v1 bug)")
+    p.add_argument("--reresolve-limit", type=int, default=150, help="Max tickers per run for --reresolve-short")
     args = p.parse_args()
 
     if args.record:
         record_today()
     if args.resolve:
         resolve_matured(min_age_days=args.min_age)
-    if args.summarize or not (args.record or args.resolve):
+    if args.reresolve_short:
+        reresolve_short(max_tickers=args.reresolve_limit)
+    if args.summarize or not (args.record or args.resolve or args.reresolve_short):
         summarize()
 
 
