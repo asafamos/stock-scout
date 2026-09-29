@@ -611,6 +611,33 @@ class IBKRClient:
         # 9:30 AM ET = 13:30 UTC (EDT) — use 9:31 to be safe
         return d.strftime("%Y%m%d 09:31:00 US/Eastern")
 
+    def get_open_buy_symbols(self) -> set:
+        """IB symbols with an ACTIVE BUY order, from ANY clientId (reqAllOpenOrders)."""
+        active = ("PendingSubmit", "ApiPending", "PreSubmitted", "Submitted", "PendingCancel")
+        try:
+            try:
+                trades = self._ib.reqAllOpenOrders()
+            except Exception:
+                trades = self._ib.openTrades()
+            return {
+                t.contract.symbol for t in (trades or [])
+                if getattr(t.order, "action", "") == "BUY" and t.orderStatus.status in active
+            }
+        except Exception as e:
+            logger.warning("get_open_buy_symbols failed: %s", e)
+            return set()
+
+    def _held_qty(self, ticker: str) -> int:
+        """Shares of `ticker` IB currently reports (ground truth), 0 on none/error."""
+        try:
+            sym = _ib_symbol(ticker)
+            for p in self._ib.positions():
+                if getattr(p.contract, "symbol", "") == sym and float(p.position) > 0:
+                    return int(p.position)
+        except Exception as e:
+            logger.warning("_held_qty(%s) failed: %s", ticker, e)
+        return 0
+
     def buy_with_bracket(
         self,
         ticker: str,
@@ -650,6 +677,7 @@ class IBKRClient:
                                           order_type="LMT", quantity=qty,
                                           filled_price=0.0, status="DRY_RUN"),
             }
+        buy_trade = None  # set once the parent BUY is placed (used by the except handler)
         try:
             from ib_insync import Stock, Order
             import time as _time
@@ -708,33 +736,61 @@ class IBKRClient:
                 if buy_trade.orderStatus.status in ("Cancelled", "Inactive", "ApiCancelled"):
                     break
 
-            # LIMIT no-chase: if a marketable limit didn't fully fill in the
-            # window, cancel the remainder. A partial fill is kept (the
-            # protective-order qty is truncated to filled_qty below); a zero
-            # fill returns the standard unfilled path (caller skips position).
-            if use_limit and buy_trade.orderStatus.status not in (
-                "Filled", "Cancelled", "Inactive", "ApiCancelled"
-            ):
+            # No-chase: if the parent order is not in a terminal state after the
+            # window (marketable LIMIT that the price ran away from, or a MARKET that
+            # stalled), cancel the remainder and WAIT FOR THE CANCEL TO BE CONFIRMED.
+            # 2026-09-29 (audit): a fixed 1s sleep left the order in PendingCancel, so a
+            # late fill could land on shares already reported as unfilled — an
+            # untracked, unprotected position. Any fill that did happen is a real
+            # (partial) position and continues below with qty=filled_qty.
+            _TERMINAL = ("Filled", "Cancelled", "Inactive", "ApiCancelled")
+            if buy_trade.orderStatus.status not in _TERMINAL:
                 _filled_so_far = int(buy_trade.orderStatus.filled or 0)
                 logger.warning(
-                    "BUY LMT %s unfilled after %ds (price ran above $%.2f) — "
-                    "cancelling remainder (filled %d/%d, no-chase)",
-                    ticker, _fill_wait, buy_order.lmtPrice, _filled_so_far, qty,
+                    "BUY %s %s not complete after %ds (limit $%.2f) — cancelling "
+                    "remainder (filled %d/%d, no-chase)",
+                    "LMT" if use_limit else "MKT", ticker, _fill_wait,
+                    getattr(buy_order, "lmtPrice", 0.0) or 0.0, _filled_so_far, qty,
                 )
                 try:
-                    self._ib.cancelOrder(buy_order)
-                    self._ib.sleep(1)
-                except Exception:
-                    pass
+                    self._ib.cancelOrder(buy_trade.order)
+                except Exception as _ce:
+                    logger.warning("cancelOrder(%s) raised: %s", ticker, _ce)
+                for _ in range(16):  # up to 8s for the cancel to be confirmed
+                    self._ib.sleep(0.5)
+                    if buy_trade.orderStatus.status in _TERMINAL:
+                        break
 
             filled = buy_trade.orderStatus.avgFillPrice or 0.0
             filled_qty = int(buy_trade.orderStatus.filled or 0)
             buy_status = buy_trade.orderStatus.status
 
-            # Hard reject if buy didn't fill — return status=Error so the
-            # caller skips add_position and skips placing protective orders
-            # for shares we don't own.
-            if buy_status != "Filled" or filled_qty <= 0 or filled <= 0:
+            # Cancel still unconfirmed → the final state is unknown. IB positions are
+            # the ground truth: adopt whatever is actually held, otherwise report a
+            # DISTINCT error and alert so a late fill is not silently orphaned.
+            if buy_status not in _TERMINAL:
+                _held = self._held_qty(ticker)
+                logger.error(
+                    "BUY %s: cancel NOT confirmed (status=%s) — IB holds %d sh", ticker, buy_status, _held
+                )
+                if _held > 0:
+                    filled_qty = _held
+                    filled = filled or float(buy_trade.orderStatus.lastFillPrice or 0.0) or float(limit_price or 0.0)
+                else:
+                    try:
+                        from core.trading import notifications as _nf
+                        _nf.notify_error(
+                            f"BUY {ticker} cancel unconfirmed",
+                            f"Order state unknown (status={buy_status}); IB shows no position yet. "
+                            f"A late fill would be UNPROTECTED — check IB and the tracker.",
+                        )
+                    except Exception:
+                        pass
+
+            # A partial fill (order later Cancelled with filled>0) is a REAL position:
+            # success is "shares were bought", not "status == Filled". Zero fill →
+            # standard unfilled path (caller skips the position).
+            if filled_qty <= 0 or filled <= 0:
                 err = (
                     f"buy did not fill: status={buy_status}, "
                     f"filled_qty={filled_qty}, avg_price={filled}"
@@ -970,6 +1026,39 @@ class IBKRClient:
             }
         except Exception as e:
             logger.error("BRACKET order failed for %s: %s", ticker, e)
+            # 2026-09-29 (audit): an exception AFTER the parent BUY was placed used to
+            # return Error with no cleanup even if the buy had filled → shares held with
+            # no stop and no tracker row. Cancel any live remainder, ask IB (ground
+            # truth) what is actually held, and if shares exist try to protect them
+            # (existing resubmit path) and alert loudly.
+            if buy_trade is not None:
+                try:
+                    if buy_trade.orderStatus.status not in ("Filled", "Cancelled", "Inactive", "ApiCancelled"):
+                        self._ib.cancelOrder(buy_trade.order)
+                        for _ in range(10):
+                            self._ib.sleep(0.5)
+                            if buy_trade.orderStatus.status in ("Filled", "Cancelled", "Inactive", "ApiCancelled"):
+                                break
+                    _held = self._held_qty(ticker)
+                    if _held > 0:
+                        _prot = "not attempted"
+                        try:
+                            _r = self.resubmit_protective_orders(ticker, _held, trail_pct, target_price, same_day_guard=True)
+                            _prot = f"resubmit result: {str(_r)[:160]}"
+                        except Exception as _pe:
+                            _prot = f"resubmit FAILED: {_pe}"
+                        logger.critical("POSITION HELD BUT ORDER FLOW FAILED: %s x%d — %s", ticker, _held, _prot)
+                        try:
+                            from core.trading import notifications as _nf
+                            _nf.notify_error(
+                                f"UNTRACKED POSITION {ticker}",
+                                f"Exception after BUY: {e}. IB holds {_held} sh of {ticker}. "
+                                f"Protection: {_prot}. Tracker has NO row — verify stops on IB now.",
+                            )
+                        except Exception:
+                            pass
+                except Exception as _cleanup_err:
+                    logger.error("post-exception cleanup for %s failed: %s", ticker, _cleanup_err)
             return {
                 "buy": TradeResult(ticker=ticker, action="BUY", order_type="MKT",
                                    quantity=qty, filled_price=0.0, status="Error",

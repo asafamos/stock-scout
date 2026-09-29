@@ -182,6 +182,52 @@ def _cap_target_with_analysts(ticker: str, current_price: float,
     return round(capped, 2)
 
 
+_TRADE_LOCK_PATH = "/tmp/stockscout-trade.lock"
+
+
+def _acquire_trade_lock(path: str = _TRADE_LOCK_PATH):
+    """Non-blocking exclusive flock; returns an open handle, or None if another run holds it.
+
+    Lock-infrastructure failures (unwritable path) log loudly and proceed — a broken lock
+    file must not silently stop all trading; the held/open-order filters still apply.
+    """
+    import fcntl, os
+    try:
+        fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o666)
+        try:
+            os.chmod(path, 0o666)  # root and stockscout may both run trades
+        except OSError:
+            pass
+        fh = os.fdopen(fd, "r+")
+    except OSError as e:
+        logger.error("trade lock unavailable (%s) — proceeding WITHOUT lock", e)
+        return _NoLock()
+    try:
+        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        fh.close()
+        return None
+    return fh
+
+
+class _NoLock:
+    def close(self):
+        pass
+
+
+def _release_trade_lock(fh) -> None:
+    import fcntl
+    try:
+        if not isinstance(fh, _NoLock):
+            fcntl.flock(fh, fcntl.LOCK_UN)
+    except Exception:
+        pass
+    try:
+        fh.close()
+    except Exception:
+        pass
+
+
 class OrderManager:
     """Orchestrates scan → risk check → order execution → tracking."""
 
@@ -192,6 +238,30 @@ class OrderManager:
         self.risk = RiskManager(self.client, self.tracker, self.cfg)
 
     def execute_recommendations(
+        self,
+        scan_df: Optional[pd.DataFrame] = None,
+        _adaptive_retry: bool = False,
+    ) -> List[Dict]:
+        """Locked entry point — see `_execute_recommendations_locked` for the logic.
+
+        2026-09-29 (audit): the only process lock lived in deploy/scan_and_trade.sh, so a
+        manual `run_auto_trade` or the monitor's opportunistic buy could overlap a pipeline
+        run; both passed the held-ticker check before either had filled -> double buy.
+        The lock is taken here, covering every caller. The adaptive retry (same process,
+        `_adaptive_retry=True`) runs INSIDE the outer call and must not re-lock.
+        """
+        if _adaptive_retry or getattr(self.cfg, "dry_run", False):
+            return self._execute_recommendations_locked(scan_df, _adaptive_retry)
+        lock_fh = _acquire_trade_lock()
+        if lock_fh is None:
+            logger.error("Another trade run holds the trade lock — aborting this run to avoid a double buy")
+            return []
+        try:
+            return self._execute_recommendations_locked(scan_df, _adaptive_retry)
+        finally:
+            _release_trade_lock(lock_fh)
+
+    def _execute_recommendations_locked(
         self,
         scan_df: Optional[pd.DataFrame] = None,
         _adaptive_retry: bool = False,
@@ -1176,9 +1246,18 @@ class OrderManager:
                     ibkr_held.add(p.ticker)
         except Exception:
             pass  # If not connected yet, rely on tracker only
+        # 2026-09-29 (audit): also skip tickers with an ACTIVE BUY order on IB (any clientId) —
+        # covers an overlapping/manual run whose order has been sent but not yet filled.
+        try:
+            from core.trading.ibkr_client import _ib_symbol as _ibsym
+            _open_buys = self.client.get_open_buy_symbols()
+        except Exception as _ob_err:
+            logger.warning("open-BUY-order check unavailable: %s", _ob_err)
+            _ibsym, _open_buys = (lambda t: t), set()
         result = result[
             ~result[ticker_col].apply(
                 lambda t: self.tracker.is_holding(t) or t in ibkr_held
+                or _ibsym(t) in _open_buys
             )
         ]
 
@@ -1995,12 +2074,23 @@ class OrderManager:
                 ticker, buy_result.error,
             )
             try:
+                # 2026-09-29: the old text always guessed "cash<$2k rule / buying power /
+                # account restriction", even for the ordinary no-chase case (limit
+                # cancelled because the price ran away) — misleading. State the recorded
+                # facts and only name a restriction when IB actually said so.
+                _err = str(buy_result.error or "")
+                if "status=Cancelled" in _err and "filled_qty=0" in _err:
+                    _why = ("Limit order cancelled unfilled (price moved above the "
+                            "entry limit — no-chase). This is normal, not an account problem.")
+                elif "cancel NOT confirmed" in _err or "cancel_unconfirmed" in _err:
+                    _why = "Cancel not confirmed by IB — verify positions/orders manually."
+                else:
+                    _why = "Check the IB log line above (rejection code) for the cause."
                 notify.notify_error(
                     "Buy unfilled",
-                    f"⚠️ {ticker} ${price:.2f} buy did not fill: "
-                    f"{buy_result.error}. No position recorded; no protective "
-                    f"orders placed (correctly). Likely cause: cash<$2k rule, "
-                    f"insufficient buying power, or IB account restriction."
+                    f"⚠️ {ticker} ${price:.2f} buy did not fill: {_err}. "
+                    f"No position recorded; no protective orders placed (correct for a zero fill). "
+                    f"{_why}"
                 )
             except Exception:
                 pass
