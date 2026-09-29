@@ -581,6 +581,16 @@ TRADE_DUR=$(( $(date +%s) - TRADE_T0 ))
 echo "Trade finished (exit=$TRADE_EXIT, duration=${TRADE_DUR}s)"
 fi  # end CAPACITY_SKIP guard
 
+# 2026-09-29: record extra per-candidate features (analyst trend, earnings
+# surprise/date, insider sentiment) for FUTURE backtests. Runs AFTER the trade
+# step, is append-only into its own file, changes no gate/ranker, and can never
+# fail the pipeline (timeout + non-fatal).
+echo "Collecting extra features (post-trade, non-fatal)..."
+timeout 300 $PY -m scripts.collect_extra_features > /tmp/extra-features-$$.log 2>&1 \
+    || echo "  extra-features collection failed/timed out (non-fatal)"
+tail -2 /tmp/extra-features-$$.log 2>/dev/null || true
+rm -f /tmp/extra-features-$$.log
+
 echo "═══════════════════════════════════════════════════════"
 echo "Pipeline complete: wait=${WAIT_DUR}s${CAPACITY_SKIP:+ (capacity-skip)}"
 echo "═══════════════════════════════════════════════════════"

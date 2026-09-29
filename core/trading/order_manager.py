@@ -1694,8 +1694,15 @@ class OrderManager:
         # market and left PBF unfilled twice. IB delayed stays as the fallback.
         live_price = None
         try:
-            from core.trading.live_quote import get_realtime_price
-            _rt = get_realtime_price(ticker)
+            from core.trading.live_quote import get_realtime_price, QuoteDisagreement
+            try:
+                _rt = get_realtime_price(ticker)
+            except QuoteDisagreement as _qd:
+                # Two fresh sources disagree — a doubtful price is worse than no
+                # trade. Skip (do NOT fall back to the delayed feed here).
+                logger.warning("QUOTE DISAGREEMENT — skipping: %s", _qd)
+                return {"ticker": ticker, "status": "skipped",
+                        "reason": f"Real-time quote sources disagree ({_qd})"}
             if _rt:
                 live_price = _rt[0]
                 logger.info("Real-time quote %s: $%.2f (%s)", ticker, _rt[0], _rt[1])
