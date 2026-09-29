@@ -298,7 +298,7 @@ def get_portfolio_status() -> str:
         return "\n".join(lines)
 
     except Exception as e:
-        return f"⚠️ Cannot connect to IB Gateway: {e}\n\nTry: http://87.99.142.12:5800/vnc.html"
+        return f"⚠️ Cannot connect to IB Gateway: {e}\n\nTry: http://localhost:5800/vnc.html (first: ssh -L 5800:localhost:5800 root@87.99.142.12)"
 
 
 def _fetch_ib_unrealized_and_netliq() -> tuple:

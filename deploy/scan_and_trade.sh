@@ -401,7 +401,7 @@ if ! timeout 5 nc -z 127.0.0.1 7496 2>/dev/null; then
     docker restart ibgateway >/dev/null 2>&1 || true
     sleep 45
     if ! timeout 5 nc -z 127.0.0.1 7496 2>/dev/null; then
-        TG_SEND "🚨" "PIPELINE ABORTED — IB unreachable" "Port 7496 still down after auto-restart. Manual: <a href=\"http://87.99.142.12:5800/vnc.html\">VNC</a>"
+        TG_SEND "🚨" "PIPELINE ABORTED — IB unreachable" "Port 7496 still down after auto-restart. Manual: VNC (now private): run <code>ssh -L 5800:localhost:5800 root@87.99.142.12</code> then open http://localhost:5800/vnc.html"
         echo "FATAL: IB port still down after restart — aborting"
         exit 6
     fi
@@ -417,7 +417,7 @@ if [ "$PRE_HANDSHAKE" != "OK" ]; then
     sleep 45
     PRE_HANDSHAKE2=$(_ib_check_handshake)
     if [ "$PRE_HANDSHAKE2" != "OK" ]; then
-        TG_SEND "🚨" "PIPELINE ABORTED — IB session dead" "Handshake: ${PRE_HANDSHAKE2}. Likely needs IB Key 2FA approval. <a href=\"http://87.99.142.12:5800/vnc.html\">VNC</a>"
+        TG_SEND "🚨" "PIPELINE ABORTED — IB session dead" "Handshake: ${PRE_HANDSHAKE2}. Likely needs IB Key 2FA approval. VNC (now private): run <code>ssh -L 5800:localhost:5800 root@87.99.142.12</code> then open http://localhost:5800/vnc.html"
         echo "FATAL: handshake still failing — aborting"
         exit 6
     fi

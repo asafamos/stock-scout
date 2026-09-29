@@ -123,7 +123,7 @@ if [ "$DOW" -eq 7 ] && [ "$HOUR" -eq 15 ]; then
 
 IB Gateway needs re-authentication before market opens Monday.
 
-1. Open: http://87.99.142.12:5800/vnc.html
+1. Open: http://localhost:5800/vnc.html (first: ssh -L 5800:localhost:5800 root@87.99.142.12)
 2. Click Connect
 3. Select IB Key in 2FA dialog
 4. Approve on IBKR Mobile app
@@ -211,7 +211,7 @@ Handshake still fails (${OFFHOURS_API}).
 
 <b>ACTION REQUIRED:</b>
 1. Open IBKR Mobile → approve pending 2FA push, OR
-2. VNC: http://87.99.142.12:5800/vnc.html
+2. VNC: http://localhost:5800/vnc.html (first: ssh -L 5800:localhost:5800 root@87.99.142.12)
    - File → Close, re-login (ensure Read-Only NOT checked)
 3. Counter auto-resets after 4h idle
 
@@ -258,7 +258,7 @@ Container is up but the IBKR session expired (weekly maintenance window).
 Auto-restarting now — you should see a fresh 2FA push on IBKR Mobile.
 Approve it to re-authenticate.
 
-VNC if needed: http://87.99.142.12:5800/vnc.html" \
+VNC if needed: http://localhost:5800/vnc.html (first: ssh -L 5800:localhost:5800 root@87.99.142.12)" \
                 ${DEDUP_SEC}
             docker restart ibgateway >/dev/null 2>&1
             sleep 45
@@ -288,7 +288,7 @@ ssh root@87.99.142.12 'docker restart ibgateway'
 (triggers fresh push)
 
 <b>Manual via browser:</b>
-http://87.99.142.12:5800/vnc.html" \
+http://localhost:5800/vnc.html (first: ssh -L 5800:localhost:5800 root@87.99.142.12)" \
                     ${DEDUP_SEC}
                 OFF_HOURS_ISSUES=$((OFF_HOURS_ISSUES + 1))
             fi
@@ -344,7 +344,7 @@ fi
 if ! nc -z 127.0.0.1 ${IB_PORT} 2>/dev/null; then
     send_alert_dedup "port_down" "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') IB Gateway port ${IB_PORT} not responding — may need 2FA approval
 
-Open: http://87.99.142.12:5800/vnc.html"
+Open: http://localhost:5800/vnc.html (first: ssh -L 5800:localhost:5800 root@87.99.142.12)"
     ISSUES=$((ISSUES + 1))
 else
     clear_alert_dedup "port_down"
