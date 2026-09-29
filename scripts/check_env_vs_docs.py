@@ -58,6 +58,8 @@ EXPECTED = {
     # rejecting +0.61pp/trade cohort of tradeable candidates in bullish
     # regimes. Env-toggle allows Medium in TREND_UP/MODERATE_UP.
     "TRADE_CONFIDENCE_REGIME_RELAX": "1",
+    # 2026-09-29: cohort veto OFF — failed out-of-sample test on real positions.
+    "TRADE_COHORT_VETO_ENABLED": "0",
     "TRADE_LEDGER_ENABLED":       "1",
     "TRADE_PAPER_MODE":           "0",
     "TRADE_DRY_RUN":              "0",
