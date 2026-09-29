@@ -248,7 +248,14 @@ echo "Scan file age: ${SCAN_AGE_MIN}m"
 # As_Of_Date is within the last few days. This is a defense-in-depth check
 # against silent checkout failures (like the meta.json atomicity bug that
 # stole 8 days of trading). If the scan is stale, abort BEFORE trading.
-SCAN_AS_OF_DAYS_OLD=$($PY -c "
+# 2026-09-29: the python probe CRASHED once (SIGABRT, exit 134) on this 1.9GB VPS
+# under memory pressure; under `set -e` the failed command substitution killed the
+# WHOLE pipeline right after a valid scan landed (missed the 15:00 UTC trade
+# window). Now: the probe runs inside an `if`, is retried, and if it can't run at
+# all we fall back to the git commit age of the parquet (no python needed).
+SCAN_AS_OF_DAYS_OLD=999
+for _try in 1 2 3; do
+    if _probe=$($PY -c "
 import pandas as pd, sys
 from datetime import datetime, timezone
 try:
@@ -262,14 +269,27 @@ try:
     print(days)
 except Exception:
     print(999)
-" 2>/dev/null)
+" 2>/dev/null) && [ -n "$_probe" ] && [ "$_probe" != "999" ]; then
+        SCAN_AS_OF_DAYS_OLD="$_probe"
+        break
+    fi
+    echo "freshness probe attempt ${_try}/3 failed or unreadable — retrying" >&2
+    sleep 3
+done
+if [ "$SCAN_AS_OF_DAYS_OLD" = "999" ]; then
+    _commit_ts=$(git log -1 --format=%ct -- data/scans/latest_scan.parquet 2>/dev/null || true)
+    if [ -n "${_commit_ts:-}" ]; then
+        SCAN_AS_OF_DAYS_OLD=$(( ($(date +%s) - _commit_ts) / 86400 ))
+        echo "freshness probe unavailable — using git commit age of parquet instead: ${SCAN_AS_OF_DAYS_OLD}d" >&2
+    fi
+fi
 echo "Scan As_Of_Date: ${SCAN_AS_OF_DAYS_OLD} days old"
 if [ "${SCAN_AS_OF_DAYS_OLD:-999}" -gt 5 ]; then
     echo "FATAL: scan As_Of_Date is ${SCAN_AS_OF_DAYS_OLD} days old — refusing to trade against stale data."
     if [ -n "${TRADE_TELEGRAM_TOKEN:-}" ]; then
         curl -sfX POST "https://api.telegram.org/bot${TRADE_TELEGRAM_TOKEN}/sendMessage" \
             -d "chat_id=${TRADE_TELEGRAM_CHAT_ID}" \
-            --data-urlencode "text=🚨 <b>STALE SCAN ABORT</b>%0AAs_Of_Date is ${SCAN_AS_OF_DAYS_OLD} days old.%0AVPS pipeline refusing to trade against stale data.%0ASee project_scan_freshness_bug_sep25." \
+            --data-urlencode "text=$(printf '🚨 <b>STALE SCAN ABORT</b>\nAs_Of_Date is %s days old.\nVPS pipeline refusing to trade against stale data.' "${SCAN_AS_OF_DAYS_OLD}")" \
             -d "parse_mode=HTML" >/dev/null 2>&1 || true
     fi
     exit 6
@@ -340,7 +360,7 @@ fi
 if [ "$SCAN_REGIME" = "unknown" ] && [ "$SCAN_TOP" = "?" ] && [ -n "${TRADE_TELEGRAM_TOKEN:-}" ]; then
     curl -sf -o /dev/null -X POST "https://api.telegram.org/bot${TRADE_TELEGRAM_TOKEN}/sendMessage" \
         -d "chat_id=${TRADE_TELEGRAM_CHAT_ID}" \
-        --data-urlencode "text=🚨 <b>PARQUET UNREADABLE</b>%0ABoth regime and top-score reads failed on $SCAN_FILE. Freshness gate passed but content broken." \
+        --data-urlencode "text=$(printf '🚨 <b>PARQUET UNREADABLE</b>\nBoth regime and top-score reads failed on %s.' "$SCAN_FILE")" \
         -d "parse_mode=HTML" >/dev/null 2>&1 || true
 fi
 rm -f "$_SCAN_REGIME_ERR" "$_SCAN_TOP_ERR"

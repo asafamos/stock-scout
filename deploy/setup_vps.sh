@@ -276,7 +276,7 @@ Type=oneshot
 EnvironmentFile=/home/stockscout/stock-scout-2/.env.trading
 ExecStart=/bin/bash -c '\
   UNIT="%i"; \
-  MSG="🚨 <b>stockscout-$UNIT FAILED</b>%0A(systemd OnFailure trigger)%0A%0ARun: <code>journalctl -u stockscout-$UNIT -n 30 --no-pager</code> for detail."; \
+  MSG="🚨 <b>stockscout-$UNIT FAILED</b> (systemd OnFailure trigger) — run: <code>journalctl -u stockscout-$UNIT -n 30 --no-pager</code>"; \
   curl -sf -o /dev/null -X POST "https://api.telegram.org/bot${TRADE_TELEGRAM_TOKEN}/sendMessage" \
     -d "chat_id=${TRADE_TELEGRAM_CHAT_ID}" \
     --data-urlencode "text=$MSG" \

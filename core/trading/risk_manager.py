@@ -341,13 +341,17 @@ class RiskManager:
             if cap <= 0:
                 return True, ""  # disabled
 
+            # 2026-09-29: was importing `pair_buy_sell_events`, which does not
+            # exist in analytics.py (only build_trade_pairs does). The ImportError
+            # was swallowed at logger.debug, so this DD gate was dead — surfaced
+            # only when the T1.3 escalation to warning+Telegram went live.
             from core.trading.analytics import (
                 build_equity_curve,
                 compute_drawdown,
-                pair_buy_sell_events,
+                build_trade_pairs,
             )
             log = self.tracker.get_trade_log()
-            pairs = pair_buy_sell_events(log)
+            pairs = build_trade_pairs(log)
             if not pairs or len(pairs) < 2:
                 return True, ""  # not enough history to compute peak
 
