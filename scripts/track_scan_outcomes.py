@@ -359,9 +359,13 @@ def _resolve_one(rec: Dict, hist=None) -> Dict:
     ticker = rec["ticker"]
     scan_date = datetime.fromisoformat(rec["scan_date"]).date()
     holding_days = int(rec.get("holding_days", 20))
-    entry = float(rec["entry_price"])
-    target = float(rec["target_price"])
-    stop = float(rec["stop_loss"])
+    try:
+        entry = float(rec["entry_price"])
+    except (KeyError, TypeError, ValueError):
+        return {**rec, "resolved": False, "resolve_error": "no_entry_price"}
+    # legacy rows may lack target/stop: 0 disables that leg (hit_target/hit_stop stay False)
+    target = float(rec.get("target_price") or 0)
+    stop = float(rec.get("stop_loss") or 0)
     end_date = scan_date + timedelta(days=int(holding_days * 1.6) + 5)  # buffer for weekends
 
     try:
