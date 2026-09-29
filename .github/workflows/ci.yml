@@ -96,6 +96,9 @@ jobs:
             tests/test_phase2_gates.py \
             tests/test_no_real_telegram.py \
             tests/test_no_undefined_names.py \
+            tests/test_no_shadowed_imports.py \
+            tests/test_market_hours.py \
+            tests/test_tracker_merge_save.py \
             | tee /tmp/money.txt
           if grep -qE "[0-9]+ skipped" /tmp/money.txt; then echo "A money-path test was SKIPPED — that hides regressions"; exit 1; fi
 

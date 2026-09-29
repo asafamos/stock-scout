@@ -126,3 +126,49 @@ def test_exception_after_buy_with_held_shares_attempts_protection(monkeypatch):
     res = client.buy_with_bracket("PBF", 8, 9.0, 84.0, limit_price=75.56)
     assert res["buy"].status == "Error"  # caller still must not record a tracker row
     assert calls == [("PBF", 8)], "held shares must be auto-protected via the resubmit path"
+
+
+def test_resubmit_preserves_high_water_mark(monkeypatch):
+    """A resubmitted TRAIL must start from the old peak, not from the current price."""
+    fake = FakeIB(buy_status="Filled", buy_filled=5, buy_avg=100.0)
+    fake.openTrades = lambda: []
+    fake.reqAllOpenOrders = lambda: None
+    fake.portfolio = lambda: []
+    client = make_client(fake)
+    monkeypatch.setattr("core.trading.live_quote.get_exit_price", lambda t, f=None: (110.0, "test"))
+    res = client.resubmit_protective_orders("PBF", 5, 5.5, 130.0, peak_price=115.0)
+    trail = fake.placed[0]
+    assert trail.orderType == "TRAIL" and trail.trailStopPrice == pytest.approx(115.0 * 0.945, abs=0.01)
+    assert res["trailing_stop"].status != "Error"
+
+
+def test_resubmit_skips_peak_stop_when_it_would_fire_immediately(monkeypatch):
+    fake = FakeIB(buy_status="Filled", buy_filled=5, buy_avg=100.0)
+    fake.openTrades = lambda: []
+    fake.reqAllOpenOrders = lambda: None
+    fake.portfolio = lambda: []
+    client = make_client(fake)
+    monkeypatch.setattr("core.trading.live_quote.get_exit_price", lambda t, f=None: (105.0, "test"))
+    client.resubmit_protective_orders("PBF", 5, 5.5, 130.0, peak_price=115.0)  # init 108.7 > last
+    assert fake.placed[0].trailStopPrice > 1e300, "left unset (IB UNSET_DOUBLE) -> IB starts fresh"
+
+
+def test_resubmit_falls_back_to_plain_trail_if_ib_refuses_preset_stop(monkeypatch):
+    fake = FakeIB(buy_status="Filled", buy_filled=5, buy_avg=100.0)
+    fake.openTrades = lambda: []
+    fake.reqAllOpenOrders = lambda: None
+    fake.portfolio = lambda: []
+    orig = fake.placeOrder
+
+    def place(contract, order):
+        t = orig(contract, order)
+        if order.orderType == "TRAIL" and order.trailStopPrice < 1e300:
+            t.orderStatus.status = "Inactive"      # IB refuses the preset stop price
+        return t
+    fake.placeOrder = place
+    client = make_client(fake)
+    monkeypatch.setattr("core.trading.live_quote.get_exit_price", lambda t, f=None: (110.0, "test"))
+    res = client.resubmit_protective_orders("PBF", 5, 5.5, 130.0, peak_price=115.0)
+    trails = [o for o in fake.placed if o.orderType == "TRAIL"]
+    assert len(trails) == 2 and trails[1].trailStopPrice > 1e300
+    assert res["trailing_stop"].status == "Submitted"

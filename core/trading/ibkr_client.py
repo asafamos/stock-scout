@@ -1081,6 +1081,27 @@ class IBKRClient:
                                           filled_price=0.0, status="Error"),
             }
 
+    def _initial_trail_stop(self, ticker: str, peak_price: float, trail_pct: float) -> float:
+        """Stop price that preserves the old high-water mark, or 0.0 to let IB start fresh."""
+        try:
+            if not peak_price or peak_price <= 0 or not trail_pct or trail_pct <= 0:
+                return 0.0
+            init = round(float(peak_price) * (1 - float(trail_pct) / 100.0), 2)
+            from core.trading.live_quote import get_exit_price
+            last, _src = get_exit_price(ticker, None)
+            if not last or last <= 0:
+                for p in self._ib.portfolio():
+                    if p.contract.symbol == ticker and p.marketPrice and p.marketPrice > 0:
+                        last = float(p.marketPrice)
+                        break
+            if not last or init > last * 0.998:
+                logger.info("resubmit %s: not preserving peak stop (init %.2f vs last %s)", ticker, init, last)
+                return 0.0
+            return init
+        except Exception as e:
+            logger.warning("initial trail stop calc failed for %s: %s", ticker, e)
+            return 0.0
+
     def resubmit_protective_orders(
         self,
         ticker: str,
@@ -1088,8 +1109,15 @@ class IBKRClient:
         trail_pct: float,
         target_price: float,
         same_day_guard: bool = False,
+        peak_price: float = 0.0,
     ) -> dict:
         """Re-submit trailing stop + limit sell as OCA for an existing position.
+
+        peak_price (optional): the position's tracked high-water mark. A brand-new IB TRAIL
+        starts trailing from the price at submission, so resubmitting after e.g. a +12% run and
+        a 3% pullback silently LOOSENED the stop to (now - trail%) instead of (peak - trail%).
+        When given, the new order carries trailStopPrice = peak*(1-trail%) (only if that is
+        safely below the last price, else IB would fire it immediately).
 
         If same_day_guard=True, adds goodAfterTime=next market open to prevent
         day-trade violations (for positions opened today).
@@ -1152,6 +1180,9 @@ class IBKRClient:
             trail_order.totalQuantity = qty
             trail_order.orderType = "TRAIL"
             trail_order.trailingPercent = trail_pct
+            _init_stop = self._initial_trail_stop(ticker, peak_price, trail_pct)
+            if _init_stop:
+                trail_order.trailStopPrice = _init_stop
             trail_order.tif = "GTC"
             if _gat:
                 trail_order.goodAfterTime = _gat
@@ -1177,6 +1208,21 @@ class IBKRClient:
                 limit_trade = self._ib.placeOrder(contract, limit_order)
 
             self._ib.sleep(2)
+
+            # Safety net: protection matters more than preserving the peak. If IB refuses the
+            # order because of the preset stop price, place it again the plain way.
+            if _init_stop and trail_trade.orderStatus.status in ("Error", "Cancelled", "Inactive", "ApiCancelled"):
+                logger.warning("resubmit %s: TRAIL with trailStopPrice=%.2f was refused (%s) — "
+                               "retrying without it", ticker, _init_stop, trail_trade.orderStatus.status)
+                from ib_insync import Order as _Order
+                plain = _Order()
+                plain.action, plain.totalQuantity, plain.orderType = "SELL", qty, "TRAIL"
+                plain.trailingPercent, plain.tif = trail_pct, "GTC"
+                if _gat:
+                    plain.goodAfterTime = _gat
+                plain.ocaGroup, plain.ocaType, plain.transmit = oca_group, 1, True
+                trail_trade = self._ib.placeOrder(contract, plain)
+                self._ib.sleep(2)
 
             return {
                 "trailing_stop": TradeResult(
@@ -1209,13 +1255,15 @@ class IBKRClient:
         self, ticker: str, qty: int, trail_pct: float,
         target_price: float, max_attempts: int = 3,
         same_day_guard: bool = False,
+        peak_price: float = 0.0,
     ) -> dict:
         """Resubmit protective orders with retry on transient failures."""
         import time as _time
         last_result = None
         for attempt in range(1, max_attempts + 1):
             result = self.resubmit_protective_orders(
-                ticker, qty, trail_pct, target_price, same_day_guard=same_day_guard
+                ticker, qty, trail_pct, target_price, same_day_guard=same_day_guard,
+                peak_price=peak_price,
             )
             trail_ok = result["trailing_stop"].status not in ("Error", "Cancelled", "Inactive")
             limit_ok = result["limit_sell"].status not in ("Error", "Cancelled", "Inactive")
@@ -2091,8 +2139,14 @@ class IBKRClient:
                 error=str(e),
             )
 
-    def get_open_orders(self) -> List[dict]:
+    def get_open_orders(self, strict: bool = False) -> List[dict]:
         """Get all open/pending orders across ALL clients.
+
+        strict=True re-raises IB errors instead of returning []. A silent [] is
+        indistinguishable from "no protective orders exist" — the monitor would then
+        treat a healthy TRAIL as missing and cancel/re-place it (2026-09-29 audit).
+        Monitor passes strict=True; the default keeps the old lenient behaviour for
+        one-off scripts.
 
         IMPORTANT: openTrades() alone only returns orders from the current
         clientId. After a reconnect / monitor restart, protective orders
@@ -2134,6 +2188,8 @@ class IBKRClient:
             ]
         except Exception as e:
             logger.error("Failed to get open orders: %s", e)
+            if strict:
+                raise
             return []
 
     def sync_positions(self) -> List[Position]:
@@ -2153,37 +2209,14 @@ class IBKRClient:
             logger.error("Failed to cancel all orders: %s", e)
             return False
 
-    # US stock market holidays (static list — add new years as needed).
-    # Keeps the monitor from running on NYSE holidays where portfolio()
-    # returns stale data and no orders will fill.
-    _US_MARKET_HOLIDAYS_2026 = {
-        "2026-01-01",  # New Year's Day
-        "2026-01-19",  # MLK Day
-        "2026-02-16",  # Presidents' Day
-        "2026-04-03",  # Good Friday
-        "2026-05-25",  # Memorial Day
-        "2026-06-19",  # Juneteenth
-        "2026-07-03",  # Independence Day (observed)
-        "2026-09-07",  # Labor Day
-        "2026-11-26",  # Thanksgiving
-        "2026-12-25",  # Christmas
-    }
-
     def is_market_open(self) -> bool:
         """Check if US regular trading hours are active.
 
-        Regular session only: Mon-Fri, 9:30-16:00 ET, excluding NYSE holidays.
-        Does NOT include pre-market (4:00-9:30 ET) or after-hours (16:00-20:00 ET)
-        because our OCA trailing stops don't fill reliably outside RTH, and
-        price data during extended hours is misleading for ratchet logic.
+        Regular session only (9:30-16:00 ET, 13:00 on early-close days), excluding
+        NYSE holidays. Does NOT include pre-market or after-hours because our OCA
+        trailing stops don't fill reliably outside RTH, and price data during
+        extended hours is misleading for ratchet logic. Evaluated in
+        America/New_York so the DST change is handled (see core/trading/market_hours.py).
         """
-        now = datetime.utcnow()
-        if now.weekday() >= 5:
-            return False
-        if now.strftime("%Y-%m-%d") in self._US_MARKET_HOLIDAYS_2026:
-            return False
-        # 13:30-20:00 UTC = 9:30-16:00 ET during US Eastern Daylight Time.
-        # Note: during standard time (Nov-Mar), this is 14:30-21:00 UTC; the
-        # daemon's 5-min cadence tolerates this 1-hour approximation.
-        hour_min = now.hour * 100 + now.minute
-        return 1330 <= hour_min <= 2000
+        from core.trading.market_hours import is_regular_session
+        return is_regular_session()

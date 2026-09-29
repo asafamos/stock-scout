@@ -322,11 +322,14 @@ sudo tee /etc/systemd/system/stockscout-pipeline.timer > /dev/null << 'SVCEOF'
 Description=StockScout pipeline timer (event-driven scan→trade)
 
 [Timer]
-# Pre-market scan (cron 13:30 UTC) — pipeline fires at 13:30 to dispatch
-# the workflow and poll for results.
-OnCalendar=Mon..Fri 13:30:00 UTC
-# Afternoon scan (cron 17:30 UTC)
-OnCalendar=Mon..Fri 17:30:00 UTC
+# Schedule is defined in NEW YORK time so it follows DST (2026-09-29 audit: the
+# old fixed-UTC times drift an hour vs the market from 2026-11-01 — the 13:30 UTC
+# run would land at 08:30 ET, pre-market, and its buys would be refused).
+# #1 MARKET OPEN 09:30 ET (16:30 IL), #2 OPENING-RANGE BREAKOUT 11:00 ET,
+# #3 POWER HOUR 15:15 ET.
+OnCalendar=Mon..Fri 09:30:00 America/New_York
+OnCalendar=Mon..Fri 11:00:00 America/New_York
+OnCalendar=Mon..Fri 15:15:00 America/New_York
 Persistent=true
 
 [Install]

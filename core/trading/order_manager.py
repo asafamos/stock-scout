@@ -754,7 +754,7 @@ class OrderManager:
             if p["ticker"] == ticker:
                 p["order_ids"] = new_order_ids
                 break
-        self.tracker._save_positions(positions)
+        self.tracker.merge_save(positions)
 
     def emergency_close_all(self) -> bool:
         """Kill switch: cancel all open orders."""
@@ -2271,7 +2271,7 @@ class OrderManager:
                     _p["entry_ml_prob"] = ml_prob
                     _p["entry_atr_pct"] = atr_pct
                     break
-            self.tracker._save_positions(_all)
+            self.tracker.merge_save(_all)
         except Exception:
             pass
 

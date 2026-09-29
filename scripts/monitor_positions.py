@@ -262,6 +262,7 @@ def _try_opportunistic_buy(client, tracker, notify, reason: str = "manual"):
 # before we treat a position as genuinely closed. One transient
 # missing cycle is now invisible to the user; two in a row trips
 # the close path.
+_OPEN_ORDERS_FAILS = [0]  # consecutive get_open_orders failures
 _MISSING_COUNT: dict = {}
 _MISS_THRESHOLD = 2  # Need 2 consecutive missing cycles to close
 
@@ -304,7 +305,20 @@ def run_check():
     try:
         # 1. Sync with IBKR — check what's still held
         ibkr_positions = {p.ticker: p for p in client.sync_positions()}
-        ibkr_orders = client.get_open_orders()
+        # strict: an IB error must NOT look like "no protective orders" (that makes the
+        # protection/drift passes cancel + re-place healthy stops). Skip the cycle instead.
+        try:
+            ibkr_orders = client.get_open_orders(strict=True)
+            _OPEN_ORDERS_FAILS[0] = 0
+        except Exception as _oo_e:
+            _OPEN_ORDERS_FAILS[0] += 1
+            logger.error("open-orders fetch failed (%d in a row) — skipping cycle: %s",
+                         _OPEN_ORDERS_FAILS[0], _oo_e)
+            if _OPEN_ORDERS_FAILS[0] == 3:
+                notify.notify_error(
+                    "Monitor", "IB open-orders query failed 3 cycles in a row — protection "
+                    "checks are paused (positions keep their IB-side stops). Check IB Gateway.")
+            return
 
         # 1a. Ledger ingest (deep fix for tracker↔IB drift). Idempotently
         # record IB's OWN executions, keyed by execId. This is the event
@@ -352,14 +366,18 @@ def run_check():
                 _has_recent_sell = False
                 try:
                     from core.trading import ledger as _lg_check
-                    from datetime import datetime, timezone, timedelta
-                    _cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+                    # NB: aliased. A bare `from datetime import datetime` here made `datetime`
+                    # function-local for the WHOLE cycle, so `datetime.utcnow()` further down
+                    # raised UnboundLocalError whenever this branch was not taken (i.e. every
+                    # cycle with a held position). Latent since 2026-09-18; found 2026-09-29.
+                    from datetime import datetime as _dtc, timezone, timedelta
+                    _cutoff = _dtc.now(timezone.utc) - timedelta(days=7)
                     for _r in _lg_check.load():
                         if (_r.get("ticker") == ticker
                                 and _r.get("side") == "SELL"):
                             _t = _r.get("time", "")
                             try:
-                                _dt = datetime.fromisoformat(_t.replace("Z", "+00:00")) if _t else None
+                                _dt = _dtc.fromisoformat(_t.replace("Z", "+00:00")) if _t else None
                             except Exception:
                                 _dt = None
                             if _dt and _dt > _cutoff:
@@ -744,14 +762,14 @@ def run_check():
         # for the position to hit target_price first.
         expired = tracker.check_target_date_exits()
         now_utc = datetime.utcnow()
-        # Close window: 19:30-20:00 UTC (last 30 min of regular session)
-        in_close_window = (
-            now_utc.hour == 19 and now_utc.minute >= 30
-        ) or now_utc.hour >= 20
+        # Close window: last 30 min of the regular session. DST-aware (was a fixed
+        # 19:30-20:00 UTC, wrong by an hour after 2026-11-01 and on early-close days).
+        from core.trading.market_hours import in_close_window as _in_close_window
+        in_close_window = _in_close_window()
         if expired and not in_close_window:
             logger.info(
                 "Target-date exit pending for %s but NOT in close window yet "
-                "(now %02d:%02d UTC, window 19:30-20:00) — waiting for trail/target to work",
+                "(now %02d:%02d UTC, window = last 30 min of session) — waiting for trail/target to work",
                 expired, now_utc.hour, now_utc.minute,
             )
             expired = []  # skip this cycle, will retry in 5 min
@@ -767,6 +785,7 @@ def run_check():
                 )
                 # Cancel existing protective orders first
                 oca = pos.get("order_ids", {}).get("oca_group", "")
+                _cancelled_any = False
                 if oca:
                     for o in ibkr_orders:
                         if o.get("oca_group") == oca:
@@ -774,6 +793,7 @@ def run_check():
                                 for t in client._ib.openTrades():
                                     if t.order.orderId == o["order_id"]:
                                         client._ib.cancelOrder(t.order)
+                                        _cancelled_any = True
                                         break
                             except Exception:
                                 pass
@@ -782,18 +802,48 @@ def run_check():
                 result = client._sell_market(ticker, pos["quantity"])
                 exit_price = result.filled_price if result.status == "Filled" else 0.0
                 reason = "target_date_exit"
+                if exit_price <= 0 and _cancelled_any:
+                    # 2026-09-29 audit: the sell failed (sub-$2k Error 201 is the usual cause)
+                    # AFTER we cancelled TRAIL+LMT -> the position sat unprotected, overnight
+                    # if this was the last cycle before close. Restore protection first, then
+                    # use the restored TRAIL to force the exit (same fallback as target-hit).
+                    _prot = "restore not attempted"
+                    try:
+                        _rr = client.resubmit_protective_orders_retry(
+                            ticker, pos["quantity"],
+                            float(pos.get("trailing_stop_pct", 5.0) or 5.0),
+                            float(pos.get("target_price", 0) or 0),
+                            peak_price=float(pos.get("peak_price", 0) or 0),
+                        )
+                        _ts = _rr["trailing_stop"].status
+                        _prot = ("TRAIL restored" if _ts not in ("Error", "Cancelled", "Inactive")
+                                 else f"RESTORE FAILED (trail={_ts}) — POSITION UNPROTECTED")
+                        if _ts not in ("Error", "Cancelled", "Inactive"):
+                            _fb = client.force_exit_via_trail(ticker, aggressive=True)
+                            if _fb.status == "Filled":
+                                result, exit_price = _fb, _fb.filled_price
+                    except Exception as _re:
+                        _prot = f"RESTORE FAILED ({_re}) — POSITION UNPROTECTED"
+                    logger.warning("Target-date exit %s: sell not filled — protection: %s", ticker, _prot)
+                    if exit_price <= 0:
+                        notify.notify_error(
+                            "Monitor",
+                            f"Target-date exit for {ticker} did not fill ({result.status}). Protection: {_prot}.")
                 if exit_price > 0:
                     tracker.remove_position(ticker, exit_price, reason)
                     pnl = (exit_price - pos["entry_price"]) * pos["quantity"]
                     notify.notify_sell(ticker, pos["quantity"], exit_price, reason, pnl)
                 else:
                     logger.warning("Target date sell for %s not filled: %s", ticker, result.status)
-                    notify.notify_error("Monitor",
-                        f"Target date sell for {ticker} failed: {result.status}")
+                    if not _cancelled_any:  # (the restore branch above already alerted)
+                        notify.notify_error("Monitor",
+                            f"Target date sell for {ticker} failed: {result.status}")
 
-        # 4. Daily summary (at ~4:00-4:10 PM ET = 20:00-20:10 UTC, after market close)
-        now = datetime.utcnow()
-        if now.hour == 20 and now.minute < 10:
+        # 4. Daily summary (first 10 min after the close; DST-aware — was hour==20 UTC,
+        # which after 2026-11-01 is 3:00 PM ET, an hour BEFORE the close)
+        from core.trading.market_hours import minutes_after_close as _mac
+        _m_after = _mac()
+        if _m_after is not None and _m_after < 10:
             cash = client.get_cash_balance()
             net = client.get_net_liquidation()
             notify.notify_daily_summary(
@@ -864,6 +914,7 @@ def _earnings_exit_pass(tracker, client, ibkr_orders, notify):
         if t and o.get("status") in ("Submitted", "PreSubmitted"):
             orders_by_ticker.setdefault(t, []).append(o)
 
+    _earnings_changed = False
     for pos in positions:
         ticker = pos["ticker"]
         try:
@@ -914,6 +965,7 @@ def _earnings_exit_pass(tracker, client, ibkr_orders, notify):
             pos["trailing_stop_pct"] = target_pct
             pos["earnings_tightened"] = True
             pos["earnings_band"] = band
+            _earnings_changed = True
             try:
                 # Emoji escalates with band severity
                 emoji = {"WARN": "📅", "MID": "⚠️", "FINAL": "🚨"}.get(band, "⚠️")
@@ -930,6 +982,15 @@ def _earnings_exit_pass(tracker, client, ibkr_orders, notify):
                 "Earnings tighten %s (band=%s) FAILED: %s",
                 ticker, band, getattr(result, "error", "")
             )
+
+    # 2026-09-29 audit: these mutations (trailing_stop_pct / earnings_band) were never
+    # written back, so every 5-min cycle re-saw "not yet at band", re-modified the IB trail
+    # and re-sent the same Telegram alert. Persist once at the end (same as the other passes).
+    if _earnings_changed:
+        try:
+            tracker.merge_save(positions)
+        except Exception as _se:
+            logger.warning("EARNINGS: failed to persist tracker changes: %s", _se)
 
 
 def _try_adopt_ib_only(sym, qty, ibkr_orders, ib_pos_obj, tracker, notify):
@@ -1387,7 +1448,7 @@ def _verify_protections(tracker, client, ibkr_orders, notify):
                         oids["oca_group"] = adopted_oca
                         p["order_ids"] = oids
                         break
-                tracker._save_positions(all_pos)
+                tracker.merge_save(all_pos)
                 continue
             logger.warning("⚠ %s has NO protective orders — resubmitting", ticker)
 
@@ -1437,6 +1498,7 @@ def _verify_protections(tracker, client, ibkr_orders, notify):
                     _result = client.resubmit_protective_orders(
                         ticker=ticker, qty=_qty, trail_pct=_trail_pct,
                         target_price=_target_price,
+                        peak_price=float(pos.get("peak_price", 0) or 0),
                     )
                     _trail_res = _result.get("trailing_stop") if _result else None
                     _trail_ok = _trail_res and getattr(_trail_res, "status", "") != "Error"
@@ -1452,7 +1514,7 @@ def _verify_protections(tracker, client, ibkr_orders, notify):
                                 _oids["limit_sell"] = _ls.order_id if _ls else 0
                                 _p["order_ids"] = _oids
                                 break
-                        tracker._save_positions(_all_pos)
+                        tracker.merge_save(_all_pos)
                         _PROTECTION_MISS_COUNT[ticker] = 0
                         logger.info(
                             "✅ %s auto-recovered — TRAIL placed (oca=%s), tracker updated",
@@ -1543,6 +1605,7 @@ def _verify_protections(tracker, client, ibkr_orders, notify):
             target_price=target_price,
             max_attempts=3,
             same_day_guard=_same_day,
+            peak_price=float(pos.get("peak_price", 0) or 0),
         )
 
         trail_ok = result["trailing_stop"].status not in ("Error", "Cancelled", "Inactive")
@@ -1561,7 +1624,7 @@ def _verify_protections(tracker, client, ibkr_orders, notify):
                 if p["ticker"] == ticker:
                     p["order_ids"] = new_ids
                     break
-            tracker._save_positions(all_pos)
+            tracker.merge_save(all_pos)
 
             logger.info("✓ %s protections resubmitted successfully", ticker)
             # Use the dedicated resubmit notification — it shows the ACTUAL
@@ -1951,7 +2014,7 @@ def _take_partial_profit(tracker, client, notify):
                     pass
 
     if changed:
-        tracker._save_positions(positions)
+        tracker.merge_save(positions)
 
 
 def _target_hit_pass(tracker, client, ibkr_orders, notify):
@@ -2047,7 +2110,7 @@ def _target_hit_pass(tracker, client, ibkr_orders, notify):
         pos["target_hit_initiated_at"] = _dt.utcnow().isoformat() + "Z"
         changed = True
         try:
-            tracker._save_positions(positions)
+            tracker.merge_save(positions)
         except Exception:
             pass
 
@@ -2137,7 +2200,9 @@ def _target_hit_pass(tracker, client, ibkr_orders, notify):
             if cancelled:
                 try:
                     _tp = float(pos.get("trailing_stop_pct", 5.0) or 5.0)
-                    _rr = client.resubmit_protective_orders_retry(ticker, qty, _tp, target)
+                    _rr = client.resubmit_protective_orders_retry(
+                        ticker, qty, _tp, target,
+                        peak_price=float(pos.get("peak_price", 0) or 0))
                     _trail_status = _rr["trailing_stop"].status
                     if _trail_status not in ("Error", "Cancelled", "Inactive"):
                         _protection = f"TRAIL restored ({_tp:.1f}%)"
@@ -2173,7 +2238,7 @@ def _target_hit_pass(tracker, client, ibkr_orders, notify):
                     pos["last_stuck_notify_at"] = now_iso
                     changed = True
                     try:
-                        tracker._save_positions(positions)
+                        tracker.merge_save(positions)
                     except Exception:
                         pass
             except Exception as _ne:
@@ -2310,7 +2375,7 @@ def _time_tighten_stops(tracker, client, ibkr_orders, notify):
     # Persist mutations once at the end (matches _ratchet_stops pattern)
     if any_changes:
         try:
-            tracker._save_positions(positions)
+            tracker.merge_save(positions)
         except Exception as _se:
             logger.warning("TIME-TIGHTEN: failed to persist tracker changes: %s", _se)
 
@@ -2482,7 +2547,7 @@ def _day_n_momentum_kill(tracker, client, ibkr_orders, notify):
 
     if any_changed:
         try:
-            tracker._save_positions(positions)
+            tracker.merge_save(positions)
         except Exception as _se:
             logger.warning("DAY-N KILL: save failed: %s", _se)
 
@@ -2849,7 +2914,7 @@ def _ratchet_stops(tracker, client, ibkr_orders, notify):
                 )
 
     if changed:
-        tracker._save_positions(positions)
+        tracker.merge_save(positions)
 
 
 def daemon_loop():

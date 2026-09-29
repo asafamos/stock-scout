@@ -540,6 +540,27 @@ class PositionTracker:
         with _file_lock(self._positions_path):
             _atomic_write_json(self._positions_path, positions)
 
+    def merge_save(self, positions: List[dict]):
+        """Save mutated position dicts WITHOUT clobbering concurrent changes.
+
+        Monitor passes read the whole list, spend seconds-minutes on IB calls, then wrote the
+        whole list back — silently dropping any position the pipeline added (or resurrecting one
+        another writer closed) in between (2026-09-29 audit: tracker lost-update race).
+        Here, under the file lock, we re-read the CURRENT file and replace only entries whose
+        ticker is in `positions`; entries added meanwhile are kept, entries removed meanwhile
+        are NOT resurrected.
+        """
+        updates = {p.get("ticker"): p for p in positions if isinstance(p, dict)}
+        with _file_lock(self._positions_path):
+            try:
+                current = json.loads(self._positions_path.read_text() or "[]")
+            except FileNotFoundError:
+                current = []
+            except Exception as e:
+                raise TrackerUnreadable(f"open_positions.json unreadable: {e}") from e
+            merged = [updates.get(c.get("ticker"), c) for c in current]
+            _atomic_write_json(self._positions_path, merged)
+
     def _write_attribution(self, pos: dict, exit_price: float, pnl: float, reason: str):
         """Append a rich per-close record to data/trades/attribution.jsonl.
 

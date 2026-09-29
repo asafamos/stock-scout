@@ -25,7 +25,7 @@ class _Notify:
 def _harness(resubmit_status="Submitted", resubmit_raises=False):
     pos = {"ticker": "PBF", "entry_price": 70.0, "target_price": 80.0, "quantity": 8,
            "trailing_stop_pct": 5.5, "order_ids": {"oca_group": "SS_PBF_1"}}
-    tracker = SimpleNamespace(get_open_positions=lambda: [pos], _save_positions=lambda p: None)
+    tracker = SimpleNamespace(get_open_positions=lambda: [pos], _save_positions=lambda p: None, merge_save=lambda p: None)
     live = SimpleNamespace(order=SimpleNamespace(orderId=11))
     cancelled, resubmits = [], []
     ib = SimpleNamespace(

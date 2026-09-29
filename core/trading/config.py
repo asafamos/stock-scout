@@ -100,7 +100,13 @@ class TradingConfig:
     )  # Stop new buys if today's realized+unrealized P&L < -X% of portfolio
     max_drawdown_pct: float = field(
         default_factory=lambda: _env_float("MAX_DRAWDOWN_PCT", 10.0)
-    )  # Pause trading if portfolio is down >X% from peak
+    )  # Realized DD >= X% from peak -> trade at drawdown_size_mult size (see risk_manager)
+    max_drawdown_halt_pct: float = field(
+        default_factory=lambda: _env_float("MAX_DRAWDOWN_HALT_PCT", 25.0)
+    )  # Realized DD >= X% from peak -> stop opening positions
+    drawdown_size_mult: float = field(
+        default_factory=lambda: _env_float("DRAWDOWN_SIZE_MULT", 0.5)
+    )
 
     # ── Sector Concentration ─────────────────────────────────────
     # 2026-05-19: tightened from 2 → 1 after Monday's run produced

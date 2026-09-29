@@ -47,11 +47,34 @@ def test_daily_loss_breaker_uses_worse_of_ledger_and_trade_log(monkeypatch):
     assert ok is False, "a legacy CLOSE row alone must still count"
 
 
-def test_drawdown_breaker_sees_ledger_round_trips(monkeypatch):
-    trips = [
-        {"ticker": "A", "realized_pnl": 60.0, "exit_time": "2026-09-01T15:00:00+00:00"},
-        {"ticker": "B", "realized_pnl": -120.0, "exit_time": "2026-09-05T15:00:00+00:00"},
-    ]
-    monkeypatch.setattr(ledger, "closed_round_trips", lambda cfg=None: trips)
-    ok, reason = _rm(trade_log=[], net=800.0).check_drawdown_breaker()
-    assert ok is False and "Drawdown" in reason, "a -$120 loss after a +$60 peak on ~$800 is >10% DD"
+def _trips(*pnls):
+    return [{"ticker": f"T{i}", "realized_pnl": p, "exit_time": f"2026-09-{i+1:02d}T15:00:00+00:00"}
+            for i, p in enumerate(pnls)]
+
+
+def test_drawdown_reduces_size_between_cap_and_halt(monkeypatch):
+    # +60 peak then -120 -> $120 below peak; on ~$800 NetLiq that is 13% (>10% cap, <25% halt)
+    monkeypatch.setattr(ledger, "closed_round_trips", lambda cfg=None: _trips(60.0, -120.0))
+    rm = _rm(trade_log=[], net=800.0)
+    ok, _ = rm.check_drawdown_breaker()
+    assert ok is True and rm._dd_size_mult == 0.5, "must keep trading, at half size"
+
+
+def test_drawdown_halts_beyond_halt_pct(monkeypatch):
+    monkeypatch.setattr(ledger, "closed_round_trips", lambda cfg=None: _trips(60.0, -300.0))
+    ok, reason = _rm(trade_log=[], net=650.0).check_drawdown_breaker()  # $300/(650+300)=31.6%
+    assert ok is False and "halt" in reason
+
+
+def test_drawdown_recovers_after_deposit_and_matches_real_ledger_shape(monkeypatch):
+    monkeypatch.setattr(ledger, "closed_round_trips", lambda cfg=None: _trips(60.0, -120.0))
+    rm = _rm(trade_log=[], net=2000.0)  # deposit lifts NetLiq: 120/2120 = 5.7%
+    ok, _ = rm.check_drawdown_breaker()
+    assert ok is True and rm._dd_size_mult == 1.0
+
+
+def test_drawdown_size_mult_reaches_the_sizing_multiplier(monkeypatch):
+    monkeypatch.setattr(ledger, "closed_round_trips", lambda cfg=None: _trips(60.0, -120.0))
+    rm = _rm(trade_log=[], net=800.0)
+    rm.check_drawdown_breaker()
+    assert min(1.0, getattr(rm, "_dd_size_mult", 1.0)) == 0.5

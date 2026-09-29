@@ -14,25 +14,10 @@ Usage:
 from datetime import date, datetime, time
 from typing import Set
 
-# US Market Holidays 2026 (update annually)
-# Source: NYSE Holiday Schedule
-US_MARKET_HOLIDAYS_2026: Set[date] = {
-    date(2026, 1, 1),   # New Year's Day
-    date(2026, 1, 19),  # Martin Luther King Jr. Day
-    date(2026, 2, 16),  # Presidents' Day
-    date(2026, 4, 3),   # Good Friday
-    date(2026, 5, 25),  # Memorial Day
-    date(2026, 7, 3),   # Independence Day (observed - July 4 is Saturday)
-    date(2026, 9, 7),   # Labor Day
-    date(2026, 11, 26), # Thanksgiving Day
-    date(2026, 12, 25), # Christmas Day
-}
-
-# Early close days (1:00 PM ET close instead of 4:00 PM)
-US_MARKET_EARLY_CLOSE_2026: Set[date] = {
-    date(2026, 11, 27), # Day after Thanksgiving
-    date(2026, 12, 24), # Christmas Eve
-}
+# Holiday / early-close tables live in core/trading/market_hours.py (single source;
+# the two copies had drifted — this one lacked Juneteenth 2026).
+from core.trading.market_hours import HOLIDAYS as US_MARKET_HOLIDAYS_2026  # noqa: E402
+from core.trading.market_hours import EARLY_CLOSES as US_MARKET_EARLY_CLOSE_2026  # noqa: E402
 
 # NYSE Regular Trading Hours (Eastern Time)
 NYSE_OPEN_ET = time(9, 30)   # 9:30 AM ET

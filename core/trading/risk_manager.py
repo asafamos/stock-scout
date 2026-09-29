@@ -345,6 +345,7 @@ class RiskManager:
         daily-loss breaker still covers fresh damage in that window.
         """
         try:
+            self._dd_size_mult = 1.0
             cap = float(getattr(self.cfg, "max_drawdown_pct", 10.0))
             if cap <= 0:
                 return True, ""  # disabled
@@ -353,11 +354,7 @@ class RiskManager:
             # exist in analytics.py (only build_trade_pairs does). The ImportError
             # was swallowed at logger.debug, so this DD gate was dead — surfaced
             # only when the T1.3 escalation to warning+Telegram went live.
-            from core.trading.analytics import (
-                build_equity_curve,
-                compute_drawdown,
-                build_trade_pairs,
-            )
+            from core.trading.analytics import build_trade_pairs
             # 2026-09-29 (audit): build the equity curve from broker-truth ledger round trips
             # in ledger mode; trade_log has no CLOSE row for trail/limit closes there.
             pairs = None
@@ -378,23 +375,39 @@ class RiskManager:
             if not pairs or len(pairs) < 2:
                 return True, ""  # not enough history to compute peak
 
-            # Use net liquidation as starting equity; falls back to a sane
-            # default if IB is unreachable.
+            # Realized drawdown = peak-to-current of the cumulative realized P&L (starting at 0).
+            # Expressed against the equity AT THE PEAK on today's base (NetLiq + drawdown $), so
+            # a deposit shrinks it naturally and no starting-capital bookkeeping is needed.
+            # (2026-09-29: the old code used today's NetLiq as the curve's *starting* balance,
+            # which overstated DD — 19.4% vs the true ~16%.)
             try:
-                start_eq = float(self.client.get_net_liquidation() or 0)
+                net = float(self.client.get_net_liquidation() or 0)
             except Exception:
-                start_eq = 0.0
-            if start_eq <= 0:
-                start_eq = self.cfg.max_position_size * self.cfg.max_open_positions
+                net = 0.0
+            if net <= 0:
+                net = self.cfg.max_position_size * self.cfg.max_open_positions
+            cum, peak = 0.0, 0.0
+            for pr in sorted(pairs, key=lambda x: str(x.get("exit_date") or "")):
+                cum += float(pr.get("pnl_abs") or 0.0)
+                peak = max(peak, cum)
+            dd_abs = max(0.0, peak - cum)
+            current_dd = dd_abs / (net + dd_abs) * 100.0 if (net + dd_abs) > 0 else 0.0
 
-            curve = build_equity_curve(pairs, starting_balance=start_eq)
-            dd = compute_drawdown(curve)
-            current_dd = float(dd.get("current_dd_pct", 0) or 0)
-
-            if current_dd >= cap:
+            # Two-stage breaker (owner decision 2026-09-29). A single hard stop at 10% with no
+            # way back locked the account forever: no trades -> no gains -> DD never recovers.
+            #   cap  <= DD < halt : keep trading at reduced size (drawdown_size_mult, default 0.5)
+            #   DD >= halt        : stop opening positions
+            halt = float(getattr(self.cfg, "max_drawdown_halt_pct", 25.0))
+            if current_dd >= max(halt, cap):
                 return False, (
-                    f"Drawdown breaker: current DD {current_dd:.1f}% "
-                    f">= cap {cap:.1f}% (peak ${start_eq + dd.get('max_dd_abs',0):.0f})"
+                    f"Drawdown breaker: realized DD {current_dd:.1f}% >= halt {halt:.1f}% "
+                    f"(${dd_abs:.0f} below realized peak)"
+                )
+            if current_dd >= cap:
+                self._dd_size_mult = float(getattr(self.cfg, "drawdown_size_mult", 0.5))
+                logger.info(
+                    "Drawdown breaker: realized DD %.1f%% >= %.1f%% — reduced size x%.2f (halt at %.1f%%)",
+                    current_dd, cap, self._dd_size_mult, halt,
                 )
             return True, ""
         except Exception as e:
@@ -897,7 +910,8 @@ class RiskManager:
         if not allowed:
             return False, reason
         # Stash mult for the sizing call below (avoid recomputing)
-        self._last_throttle_mult = _throttle_mult
+        # Reduced-size stage of the drawdown breaker stacks with the throttle (min, not product).
+        self._last_throttle_mult = min(_throttle_mult, getattr(self, "_dd_size_mult", 1.0))
 
         # 1b. Cash-after-buy minimum gate (only enforced for the $2k tier
         # boundary). If we'd drop cash below $2k by buying, IB will accept
