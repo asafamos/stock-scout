@@ -1689,11 +1689,24 @@ class OrderManager:
         # IB and use it as our entry price, then re-derive stop/target
         # PROPORTIONALLY so R:R stays as the scan intended.
         # Falls back to scan price on any quote failure.
+        # 2026-09-29: prefer a REAL-TIME quote (FMP → Finnhub, age-checked) over
+        # IB's 15-min-delayed feed, which priced marketable limits below the real
+        # market and left PBF unfilled twice. IB delayed stays as the fallback.
+        live_price = None
         try:
-            live_price = self.client.get_live_price(ticker)
-        except Exception as _live_err:
-            logger.debug("live price fetch raised for %s: %s", ticker, _live_err)
-            live_price = None
+            from core.trading.live_quote import get_realtime_price
+            _rt = get_realtime_price(ticker)
+            if _rt:
+                live_price = _rt[0]
+                logger.info("Real-time quote %s: $%.2f (%s)", ticker, _rt[0], _rt[1])
+        except Exception as _rt_err:
+            logger.warning("real-time quote lookup raised for %s: %s", ticker, _rt_err)
+        if not live_price:
+            try:
+                live_price = self.client.get_live_price(ticker)
+            except Exception as _live_err:
+                logger.debug("live price fetch raised for %s: %s", ticker, _live_err)
+                live_price = None
         if live_price and live_price > 0 and scan_price > 0:
             move_pct = (live_price - scan_price) / scan_price * 100
 
