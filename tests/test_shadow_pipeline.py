@@ -69,11 +69,25 @@ def test_bar_on_scan_date_is_not_used_for_entry():
     assert r["entry_open"] == 100.5             # second bar's open
 
 
+def test_s2_prefers_volatile_small_caps_and_skips_blocked(tmp_path):
+    rows = [
+        {"ticker": "BIGCALM", "close": 50.0, "atr_pct": 0.01, "market_cap": 5e11, "sector": "Technology"},
+        {"ticker": "SMALLWILD", "close": 5.0, "atr_pct": 0.09, "market_cap": 3e8, "sector": "Technology"},
+        {"ticker": "MIDWILD", "close": 20.0, "atr_pct": 0.07, "market_cap": 5e9, "sector": "Energy"},
+        {"ticker": "SMALLCALM", "close": 9.0, "atr_pct": 0.02, "market_cap": 4e8, "sector": "Technology"},
+        {"ticker": "UTILWILD", "close": 9.0, "atr_pct": 0.10, "market_cap": 1e8, "sector": "Utilities"},
+        {"ticker": "NOCAP", "close": 9.0, "atr_pct": 0.10, "market_cap": None, "sector": "Technology"},
+    ]
+    ranks = shadow_log.select_s2(rows, {"Utilities"})
+    assert list(ranks)[0] == "SMALLWILD" and "UTILWILD" not in ranks and "NOCAP" not in ranks
+    assert len(ranks) == 3
+
+
 def test_report_refuses_a_verdict_with_few_dates():
     picks = [{"scan_date": "2026-08-03", "ticker": "AAA", "s1_rank": 1, "live_gate_pass": True}]
     outs = [{"scan_date": "2026-08-03", "ticker": "AAA", "ret_pct": 10.0, "spy_ret_pct": 1.0}]
     txt = shadow_report.report(picks, outs, 0.5)
-    assert "VERDICT: CONTINUE" in txt and "1/60" in txt
+    assert "S1: CONTINUE" in txt and "1/60" in txt
 
 
 def test_report_can_pass_with_enough_consistent_dates():
@@ -84,4 +98,4 @@ def test_report_can_pass_with_enough_consistent_dates():
             picks.append({"scan_date": d, "ticker": t, "s1_rank": rank, "live_gate_pass": t == "CCC"})
             outs.append({"scan_date": d, "ticker": t, "ret_pct": ret + (i % 3) * 0.1, "spy_ret_pct": 0.5})
     txt = shadow_report.report(picks, outs, 0.5)
-    assert "S1 PASSES" in txt
+    assert "S1: PASSES" in txt

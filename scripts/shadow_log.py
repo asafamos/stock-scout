@@ -11,6 +11,10 @@ Nothing here feeds a gate, the ranker or an order. Removing it changes nothing l
 Rules (frozen — change = new RULE id, never edit in place):
   S1_v1  universe: Fundamental_Score finite and >= 45, sector not in CONFIG.blocked_sectors_list,
          Close > 0.  Rank: Fundamental_Score desc, ties by ticker asc.  Pick: top 3.
+  S2_v1  (EXPLORATORY, added 2026-09-29 after the offline 7-year test showed the only OOS signal in
+         the technical+fundamental set was a volatility/size tilt)  universe: Close > 0, ATR_Pct > 0,
+         market_cap > 0, sector not blocked.  Score = rank_pct(ATR_Pct) + rank_pct(-market_cap) among
+         the universe of that day.  Pick: top 3 (ties by ticker asc).  No other gates.
   LIVE   `live_gate_pass`: policy.evaluate_static_gates(row) with the production CONFIG at log
          time (score/ML/RR/ATR/fund/confidence/sector/regime/reliability gates). Not the
          IB-dependent gates (cash, slots, quote drift) and not the ranker.
@@ -75,6 +79,26 @@ def select_s1(rows: List[Dict], blocked_sectors: set) -> Dict[str, int]:
     return {r["ticker"]: i + 1 for i, r in enumerate(universe[:S1_TOP_N])}
 
 
+def select_s2(rows: List[Dict], blocked_sectors: set) -> Dict[str, int]:
+    """Return {ticker: rank} (1-based) for the S2_v1 picks (vol + small-size tilt)."""
+    uni = [r for r in rows
+           if r.get("close") and r["close"] > 0 and r.get("atr_pct") and r["atr_pct"] > 0
+           and r.get("market_cap") and r["market_cap"] > 0
+           and (r.get("sector") or "") not in blocked_sectors]
+    if not uni:
+        return {}
+    def pct_rank(vals):
+        order = sorted(range(len(vals)), key=lambda i: vals[i])
+        rk = [0.0] * len(vals)
+        for pos, i in enumerate(order):
+            rk[i] = (pos + 1) / len(vals)
+        return rk
+    a = pct_rank([r["atr_pct"] for r in uni])
+    m = pct_rank([-r["market_cap"] for r in uni])
+    scored = sorted(range(len(uni)), key=lambda i: (-(a[i] + m[i]), uni[i]["ticker"]))
+    return {uni[i]["ticker"]: k + 1 for k, i in enumerate(scored[:S1_TOP_N])}
+
+
 def log_scan(parquet: Path = DEFAULT_PARQUET, picks_path: Path = PICKS_PATH,
              scans_path: Path = SCANS_PATH, cfg=None) -> int:
     import pandas as pd
@@ -136,8 +160,10 @@ def log_scan(parquet: Path = DEFAULT_PARQUET, picks_path: Path = PICKS_PATH,
 
     blocked = {x.strip() for x in getattr(cfg, "blocked_sectors_list", []) if x.strip()}
     ranks = select_s1(rows, blocked)
+    ranks2 = select_s2(rows, blocked)
     for rec in rows:
         rec["s1_rank"] = ranks.get(rec["ticker"])
+        rec["s2_rank"] = ranks2.get(rec["ticker"])
         rec["rule_id"] = RULE_ID
 
     logged_at = datetime.now(timezone.utc).isoformat()
@@ -149,7 +175,7 @@ def log_scan(parquet: Path = DEFAULT_PARQUET, picks_path: Path = PICKS_PATH,
         f.write(json.dumps({
             "scan_date": scan_date, "logged_at": logged_at, "rule_id": RULE_ID, "n_rows": len(rows),
             "s1_min_fund": S1_MIN_FUND, "s1_top_n": S1_TOP_N, "blocked_sectors": sorted(blocked),
-            "s1_picks": list(ranks), "n_live_pass": sum(1 for r in rows if r.get("live_gate_pass")),
+            "s1_picks": list(ranks), "s2_picks": list(ranks2), "n_live_pass": sum(1 for r in rows if r.get("live_gate_pass")),
         }) + "\n")
     logger.info("shadow_log: %s — %d rows, S1 picks %s, %d pass live gates",
                 scan_date, len(rows), list(ranks), sum(1 for r in rows if r.get("live_gate_pass")))

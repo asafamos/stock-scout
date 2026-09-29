@@ -12,7 +12,7 @@ permissions:
 on:
   schedule:
     # Nightly on weekdays at 22:00 UTC (after US market close)
-    - cron: '0 22 * * 1-5'
+    - cron: '0 22 * * 5'  # weekly (Fri 22:00 UTC). Was nightly Mon-Fri: 2026-09-29 walk-forward test showed no gain from retraining (5-feature model == ATR proxy), each run = 4h15m + a 7.6MB bundle commit (.git is 1.1GB)
   workflow_dispatch: {}  # Manual trigger for testing
 
 concurrency:

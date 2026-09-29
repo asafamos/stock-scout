@@ -80,16 +80,18 @@ def test_drawdown_size_mult_reaches_the_sizing_multiplier(monkeypatch):
     assert min(1.0, getattr(rm, "_dd_size_mult", 1.0)) == 0.5
 
 
-def test_throttle_can_read_ledger_when_opted_in(monkeypatch):
-    from types import SimpleNamespace as NS
-    trips = [{"ticker": f"T{i}", "realized_pnl": -8.0, "entry_price": 50.0, "shares": 4,
-              "exit_time": f"2026-09-{i+1:02d}T15:00:00+00:00"} for i in range(6)]
+def test_performance_guard_never_blocks_and_reads_the_ledger(monkeypatch, tmp_path):
+    from core.trading import performance_guard as pg
+    monkeypatch.setattr(pg, "STATE_PATH", tmp_path / "pg.json")
+    monkeypatch.setattr("core.trading.notifications.notify_error", lambda *a, **k: None)
+    # 25 clearly losing closes (-4% each) recorded ONLY in the ledger
+    trips = [{"ticker": f"T{i}", "realized_pnl": -8.0 - (i % 3), "entry_price": 50.0, "shares": 4,
+              "exit_time": f"2026-09-{i+1:02d}T15:00:00+00:00"} for i in range(25)]
     monkeypatch.setattr(ledger, "closed_round_trips", lambda cfg=None: trips)
     rm = _rm(trade_log=[])
-    rm.cfg = NS(**{**rm.cfg.__dict__, "throttle_enabled": True, "throttle_window_trades": 10,
-                   "throttle_min_trades": 5, "throttle_mode": "expectancy",
-                   "throttle_halt_expectancy_pct": -1.5, "throttle_warn_expectancy_pct": 0.0})
-    assert rm.check_performance_throttle() == (True, "", 1.0), "default: ledger NOT used (unchanged)"
-    monkeypatch.setenv("TRADE_THROTTLE_USE_LEDGER", "1")
-    ok, reason, mult = rm.check_performance_throttle()  # -8/(50*4) = -4% avg -> HALT
-    assert ok is False and "expectancy" in reason
+    rm.cfg.throttle_enabled = True
+    ok, _, mult = rm.check_performance_throttle()
+    assert ok is True and mult == 1.0, "default alert mode: never blocks, never resizes"
+    monkeypatch.setenv("TRADE_PERF_GUARD_MODE", "size")
+    ok, _, mult = rm.check_performance_throttle()
+    assert ok is True and mult == 0.5, "size mode: half size while confidently negative — but still trades"

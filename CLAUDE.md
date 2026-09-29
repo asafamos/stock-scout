@@ -128,7 +128,8 @@ AI-powered stock recommendation system that scans 3,000+ US stocks using technic
 - `TRADE_ADAPTIVE_ML_ENABLED=1` — turns on the adaptive-ML gate relaxation (streak-based auto-loosen of `min_ml_prob` after N dry cycles, then reset on buy). Freeze-safe: relaxation floor is bounded by `adaptive_ml_relaxed_floor`.
 - `TRADE_MAX_SECTOR_POSITIONS=2` — cap of concurrent positions per sector (portfolio-level diversification guard).
 - `TRADE_MAX_VOLUME_SURGE=1.5` — cap the volume_surge feature at scoring time (prevents extreme squeezes from over-weighting the ranker).
-- `TRADE_THROTTLE_MODE=expectancy` — H2 throttle uses expectancy (not raw WR) — see H2 task history.
+- `TRADE_THROTTLE_MODE=expectancy` — LEGACY, no longer read (the rolling-window throttle was replaced 2026-09-29 by `core/trading/performance_guard.py`; kept in `.env.trading` so the drift-detector stays quiet).
+- `TRADE_PERF_GUARD_MODE=alert|size|off` (default alert) — performance guard: 30-trade window (min 20), `degraded` only when mean + 1.645·SE < 0; NEVER halts; `size` mode halves size while degraded; Telegram on level change. Replaced the throttle because on 402 real closes it tripped by chance ~15%/window, had no predictive power at decision time, and could lock trading permanently.
 - `TRADE_STARTING_CAPITAL=977.50` — persisted starting NetLiq for the "lifetime realized = NetLiq − starting_capital − open_unrealized" identity in `/pnl`.
 - `TRADE_MAX_DAILY_LOSS_PCT=5.0`, `TRADE_MAX_SLIPPAGE_PCT=3.0`, `TRADE_LEDGER_ENABLED=1`, `TRADE_PAPER_MODE=0`, `TRADE_AUTO_CONFIRM=1` — operational knobs. Documented in [[deep-investigation-sep14]] Phase 7.
 

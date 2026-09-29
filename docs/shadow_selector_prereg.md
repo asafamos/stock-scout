@@ -40,3 +40,29 @@ No verdict before **60 resolved scan dates** (≈ mid-January 2027). Then:
 ## Known limits
 Same-day picks are correlated (handled by clustering on date); 20-session windows of consecutive dates
 overlap (CI is optimistic — treat borderline passes as fails); a 3-month regime is one regime.
+
+---
+## Addendum A (2026-09-29 evening — still before any forward result; 1 scan logged)
+
+**Offline evidence that changes the prior for S1.** Point-in-time test on 431 large/mid-cap tickers,
+FMP quarterly statements lagged to `acceptedDate`+1, daily FMP market cap, 2019-06 → 2026-08, 92
+non-overlapping 20-session windows:
+* Quality / valuation / growth factors (ROE, margins, FCF yield, earnings yield, B/P, leverage,
+  accruals) have rank IC ≈ 0 (|t| < 2.3, several with the "wrong" sign). Revenue growth is weakly positive (t≈1.8).
+* The only stable signals were a volatility premium (`ATR_Pct` IC +0.05) and a small-size premium
+  (`log_mcap` IC −0.05, t −4.4) — both risk premia, both inflated by survivorship (universe = today's large caps).
+* Walk-forward (purged, expanding, test years 2021–2026): a 16-feature fundamental model IC ≈ 0.00; the
+  5-feature technical model like the live one ≈ ATR alone (IC 0.03, t 1.3); "technical + size" is best
+  (IC 0.036, t 2.1, top-decile excess +1.8%/20d, t 3.5) — and that is just the vol/size tilt.
+* **Correction of the audit's earlier claim** that Fundamental_Score was "the only robust signal
+  (t=6.6)": that t-stat treated 85 overlapping scan days as independent; they cover ≈ 9 independent
+  20-session windows, and the point-in-time store shows the effect flipping sign between January and
+  February 2026. Treat fundamentals-first (S1) as a low-prior hypothesis. It stays in the test because
+  the live universe (≈2000 names incl. small caps) differs from the offline one.
+
+**New exploratory rule `S2_v1`** (vol + small-size tilt, see `scripts/shadow_log.py`) is added to the
+log from 2026-09-29 (the one scan already logged was re-logged with the flag). Because two rules are now
+tested, each needs one-sided P(mean ≤ 0) < **0.025** (Bonferroni) for both "net excess vs SPY" and
+"beats ALL" — the bootstrap CI text in the report is unchanged, the verdict thresholds are not.
+S2 is inherently a higher-risk selector (small, volatile names); a pass means "propose", never "apply".
+Everything else (entry/exit, cost, 60-date minimum, no peeking-driven changes) is unchanged.

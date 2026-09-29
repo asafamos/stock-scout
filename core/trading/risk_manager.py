@@ -61,116 +61,29 @@ class RiskManager:
         return TIER_25K_PLUS, net
 
     def check_performance_throttle(self) -> Tuple[bool, str, float]:
-        """Rolling-window safety brake. Returns (allowed, reason, size_multiplier).
+        """Performance guard (was: rolling-window throttle). Returns (allowed, reason, size_multiplier).
 
-        Two modes (cfg.throttle_mode):
-          - "winrate" (default, backward-compat): WR < halt → halt;
-            WR < warn → halve. WR thresholds default 0.20 / 0.30.
-          - "expectancy" (audit H2, 2026-05-01): avg_pnl_pct < halt
-            → halt; avg_pnl_pct < warn → halve. Better for 2.0+ R:R
-            strategies where 30% WR is normal. Defaults: warn=0,
-            halt=-1.5%.
-
-        Skips throttle when there are fewer than `throttle_min_trades`
-        closed trades (avoid early-sample false alarms).
-
-        This is a SAFETY brake against regime change / model drift —
-        it doesn't replace risk gates, it adds a portfolio-level circuit
-        breaker that fires when live performance diverges from expected.
+        NEVER blocks (the old throttle could halt permanently and tripped by chance ~15% of the
+        time on a strategy with a real edge; see core/trading/performance_guard.py for the numbers).
+        Default mode is alert-only; TRADE_PERF_GUARD_MODE=size halves size while the edge is
+        statistically confirmed negative; =off disables. Kept under the old method name because
+        can_open_position and the sizing path call it.
         """
         if not self.cfg.throttle_enabled:
             return True, "", 1.0
         try:
-            log = self.tracker.get_trade_log()
-            # Only look at REAL closes — skip RECONCILE_DROP and PARTIAL
-            closes = [
-                t for t in log
-                if t.get("action") == "CLOSE"
-                and (t.get("pnl") is not None)
-            ]
-            # 2026-09-29 audit: in ledger mode trail/limit closes write NO trade_log CLOSE row, so
-            # this brake saw almost none of the real trades. Opt-in (env TRADE_THROTTLE_USE_LEDGER=1)
-            # because switching it on changes live behaviour: on the 2026-09-29 ledger the last 10
-            # trades average about -1.3% (WARN band, one bad trade from the -1.5% HALT). Owner call.
-            if os.getenv("TRADE_THROTTLE_USE_LEDGER", "0").strip() in ("1", "true", "True") \
-                    and getattr(self.cfg, "ledger_enabled", True):
-                try:
-                    from core.trading import ledger as _lg
-                    trips = sorted(
-                        (t for t in _lg.closed_round_trips(self.cfg) if t.get("realized_pnl") is not None),
-                        key=lambda t: str(t.get("exit_time") or ""),
-                    )
-                    closes = [
-                        {"action": "CLOSE", "pnl": float(t["realized_pnl"]),
-                         "entry_price": t.get("entry_price"), "quantity": t.get("shares")}
-                        for t in trips
-                    ]
-                except Exception as _le:
-                    logger.warning("throttle: ledger round trips unavailable (%s) — trade_log", _le)
-            recent = closes[-self.cfg.throttle_window_trades:]
-            n = len(recent)
-            if n < self.cfg.throttle_min_trades:
+            from core.trading import performance_guard as pg
+            if pg.mode() == "off":
                 return True, "", 1.0
-
-            mode = str(getattr(self.cfg, "throttle_mode", "winrate")).lower()
-
-            if mode == "expectancy":
-                # Average pnl % per trade. Computed against entry_price
-                # × qty when those are available; falls back to absolute
-                # pnl when not (older trade_log rows pre-feature-engineering).
-                pnl_pcts = []
-                for t in recent:
-                    entry = float(t.get("entry_price") or 0)
-                    qty = float(t.get("quantity") or 0)
-                    pnl = float(t.get("pnl") or 0)
-                    if entry > 0 and qty > 0:
-                        pct = (pnl / (entry * qty)) * 100
-                    else:
-                        # Absolute fallback: use $300 base as "expected"
-                        # cost basis. Less precise but never wildly off.
-                        pct = (pnl / 300.0) * 100
-                    pnl_pcts.append(pct)
-                avg_pct = sum(pnl_pcts) / max(len(pnl_pcts), 1)
-                halt_thr = float(self.cfg.throttle_halt_expectancy_pct)
-                warn_thr = float(self.cfg.throttle_warn_expectancy_pct)
-                if avg_pct <= halt_thr:
-                    return (
-                        False,
-                        f"Performance throttle HALT (expectancy): "
-                        f"avg {avg_pct:+.2f}% per trade <= {halt_thr:+.2f}% "
-                        f"({n} trades) — strategy is bleeding",
-                        0.0,
-                    )
-                if avg_pct < warn_thr:
-                    logger.warning(
-                        "Performance throttle WARN (expectancy): avg %+.2f%% "
-                        "per trade < %+.2f%% (%d trades) — halving sizes",
-                        avg_pct, warn_thr, n,
-                    )
-                    return True, "", 0.5
-                return True, "", 1.0
-
-            # Default: winrate mode (legacy, backward compatible)
-            wins = sum(1 for t in recent if (t.get("pnl") or 0) > 0)
-            win_rate = wins / n
-            if win_rate < self.cfg.throttle_halt_winrate:
-                return (
-                    False,
-                    f"Performance throttle HALT: win rate {win_rate:.0%} "
-                    f"({wins}/{n}) < {self.cfg.throttle_halt_winrate:.0%} threshold "
-                    f"— possible model drift or regime change",
-                    0.0,
-                )
-            if win_rate < self.cfg.throttle_warn_winrate:
-                logger.warning(
-                    "Performance throttle WARN: win rate %.0f%% (%d/%d) — "
-                    "halving position size",
-                    win_rate * 100, wins, n,
-                )
-                return True, "", 0.5
-            return True, "", 1.0
+            if getattr(self.cfg, "ledger_enabled", True):
+                rets = pg.returns_from_ledger(self.cfg)
+            else:
+                rets = pg.returns_from_trade_log(self.tracker.get_trade_log())
+            res = pg.assess(rets)
+            pg.maybe_alert(res)
+            return True, "", pg.size_multiplier(res["level"])
         except Exception as e:
-            logger.debug("throttle check skipped: %s", e)
+            logger.warning("performance guard skipped: %s", e)
             return True, "", 1.0
 
     def check_cash_after_buy(self, cost: float) -> Tuple[bool, str]:

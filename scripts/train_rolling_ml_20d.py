@@ -1162,7 +1162,10 @@ def train_and_save_bundle():
     mean_p50 = np.mean(oos_p50) if oos_p50 else 0.0
     
     # Calculate baseline and lift
-    baseline_precision = 0.20  # Since we label top 20% as winners
+    # 2026-09-29: was hard-coded 0.20, but rank labels keep only top-20% (=1) and bottom-40% (=0) and
+    # drop the middle, so the real base rate is 0.2/0.6 = 0.333 and the reported "lift 2.35" was really
+    # ~1.4. Use the actual positive rate of the training labels.
+    baseline_precision = float(y.mean()) if len(y) else 0.20
     lift_20 = mean_p20 / baseline_precision if baseline_precision > 0 else 0
     lift_50 = mean_p50 / baseline_precision if baseline_precision > 0 else 0
     

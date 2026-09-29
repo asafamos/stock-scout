@@ -359,28 +359,29 @@ def _build_today_log() -> List[Dict]:
 
 
 def _build_throttle_state() -> Dict:
-    """Compute current throttle state without IB connection."""
-    log = _read_json(TRADE_LOG, default=[]) or []
-    closes = [t for t in log if t.get("action") == "CLOSE" and t.get("pnl") is not None]
-    recent = closes[-10:]  # match config default window
-    n = len(recent)
-    if n < 5:
-        return {"active": False, "level": "inactive",
-                "win_rate": None, "size_multiplier": 1.0,
-                "trades_in_window": n}
-    wins = sum(1 for t in recent if (t.get("pnl") or 0) > 0)
-    win_rate = wins / n
-    if win_rate < 0.20:
-        return {"active": True, "level": "halt",
-                "win_rate": round(win_rate, 3), "size_multiplier": 0.0,
-                "trades_in_window": n}
-    if win_rate < 0.30:
-        return {"active": True, "level": "warn",
-                "win_rate": round(win_rate, 3), "size_multiplier": 0.5,
-                "trades_in_window": n}
-    return {"active": False, "level": "inactive",
-            "win_rate": round(win_rate, 3), "size_multiplier": 1.0,
-            "trades_in_window": n}
+    """Dashboard view of the performance guard (same numbers the trader uses; no IB connection).
+
+    2026-09-29: was a THIRD, separate win-rate implementation (halt <20% WR over 10 trades) that
+    could show "HALT" while the trader did something else. The guard never halts; `level` is one
+    of insufficient / ok / watch / degraded, `size_multiplier` reflects TRADE_PERF_GUARD_MODE.
+    """
+    try:
+        from core.trading import performance_guard as pg
+        from core.trading.config import CONFIG
+        if getattr(CONFIG, "ledger_enabled", True):
+            rets = pg.returns_from_ledger(CONFIG)
+        else:
+            rets = pg.returns_from_trade_log(_read_json(TRADE_LOG, default=[]) or [])
+        res = pg.assess(rets)
+        mult = pg.size_multiplier(res["level"])
+        return {"active": mult < 1.0, "level": res["level"], "mode": pg.mode(),
+                "win_rate": None, "size_multiplier": mult, "trades_in_window": res["n"],
+                "mean_pct": None if res["mean"] is None else round(res["mean"], 2),
+                "upper95_pct": None if res["upper95"] is None else round(res["upper95"], 2)}
+    except Exception as e:  # never break the broadcaster
+        logger.warning("performance guard state unavailable: %s", e)
+        return {"active": False, "level": "inactive", "win_rate": None,
+                "size_multiplier": 1.0, "trades_in_window": 0}
 
 
 def _build_health() -> Dict:
