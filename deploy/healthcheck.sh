@@ -238,6 +238,18 @@ Every 15min this alert repeats until fixed." \
             # First attempt: auto-restart the container, give it 45s to
             # autologin + push 2FA. This usually works AFTER user has
             # approved a pending push on phone.
+            # 2026-09-29: BEFORE restart, check if container already waiting
+            # for 2FA. Restarting cancels pending push → user confusion cascade.
+            WAITING_2FA_OFF=$(docker logs ibgateway --tail 50 2>&1 | grep -c "waiting for two-factor authentication" || echo 0)
+            if [ "${WAITING_2FA_OFF:-0}" -gt 0 ]; then
+                echo "[OFF-HOURS AUTO-HEAL SKIPPED] Already waiting for 2FA — NOT restarting"
+                send_alert_dedup "offhours_waiting_2fa" \
+                    "$(echo -e '\xe2\x8f\xb3') <b>OFF-HOURS</b> IB Gateway waiting for <b>your 2FA approval</b>.
+
+Do NOT restart (each restart cancels the pending push). Just approve the push on IBKR Mobile — auto-recovery will follow." \
+                    900  # 15-min dedup
+                :
+            else
             echo "[OFF-HOURS AUTO-HEAL] handshake failed (${OFFHOURS_API}) — restarting ibgateway (attempt ${_new}/3 in current 4h window)"
             send_alert_dedup "offhours_session_dead" \
                 "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') <b>OFF-HOURS</b> IB session DEAD (handshake=${OFFHOURS_API})
@@ -250,6 +262,7 @@ VNC if needed: http://87.99.142.12:5800/vnc.html" \
                 ${DEDUP_SEC}
             docker restart ibgateway >/dev/null 2>&1
             sleep 45
+            fi  # end of NOT-waiting-2FA block
             OFFHOURS_API2=$(run_handshake_check)
             if [ "$OFFHOURS_API2" = "OK" ]; then
                 send_alert "$(echo -e '\xe2\x9c\x85') OFF-HOURS auto-heal SUCCESS: IB session restored"
@@ -340,25 +353,49 @@ else
     # Try an actual ib_insync handshake; timeout fast (10s).
     API_CHECK=$(run_handshake_check)
     if [ "$API_CHECK" != "OK" ]; then
-        # SELF-HEAL: session died but container is up. Most of the time a
-        # `docker restart ibgateway` brings it back — the Gateway's autologin
-        # then triggers a fresh 2FA push to IBKR Mobile, which can be approved
-        # from the phone. Only alert if the restart fails to recover.
-        echo "[AUTO-HEAL] handshake failed (${API_CHECK}) — restarting ibgateway container"
-        docker restart ibgateway >/dev/null 2>&1
-        # IB Gateway is slow to boot + autologin; give it enough time.
-        sleep 45
-        API_CHECK2=$(run_handshake_check)
-        if [ "$API_CHECK2" = "OK" ]; then
-            send_alert "$(echo -e '\xe2\x9c\x85') IB Gateway auto-recovered after handshake failure (was: ${API_CHECK})"
-            clear_alert_dedup "handshake_failed"
-        else
-            send_alert_dedup "handshake_failed" "$(echo -e '\xf0\x9f\x9a\xa8') IB API handshake FAILED (${API_CHECK2}) — auto-restart did not recover.
+        # 2026-09-29 fix: BEFORE restarting, check if the container is already
+        # waiting for 2FA. If YES → do NOT restart (each restart cancels the
+        # pending push notification → user gets flooded with pushes, wrong ones
+        # get approved, confusion cascade). Instead: alert ONCE and wait for
+        # user action. This ends the "restart storm" pattern where healthcheck
+        # kept restarting while user was trying to approve the last push.
+        WAITING_2FA=$(docker logs ibgateway --tail 50 2>&1 | grep -c "waiting for two-factor authentication" || echo 0)
+        if [ "${WAITING_2FA:-0}" -gt 0 ]; then
+            echo "[AUTO-HEAL SKIPPED] Container is waiting for 2FA (${WAITING_2FA} recent messages) — NOT restarting to avoid canceling pending push."
+            send_alert_dedup "waiting_2fa" "$(echo -e '\xe2\x8f\xb3') IB Gateway is waiting for your <b>2FA approval</b> — do NOT restart, just approve the push on IBKR Mobile.
 
-Session needs IB Key re-approval. From phone: open IBKR Mobile and approve the pending push (container was just restarted, push should be waiting).
+The healthcheck will NOT restart the container while 2FA is pending (each restart cancels the previous push and causes confusion). Once you approve, it recovers automatically.
 
-If no push arrived: ssh root@87.99.142.12 'docker restart ibgateway' to re-trigger autologin."
+If no push arrived after 5 min: <code>ssh root@87.99.142.12 'docker restart ibgateway'</code> to trigger a new one." 900  # 15-min dedup
             ISSUES=$((ISSUES + 1))
+        else
+            # SELF-HEAL: session died but container is up. Most of the time a
+            # `docker restart ibgateway` brings it back — the Gateway's autologin
+            # then triggers a fresh 2FA push to IBKR Mobile, which can be approved
+            # from the phone. Only alert if the restart fails to recover.
+            echo "[AUTO-HEAL] handshake failed (${API_CHECK}) — restarting ibgateway container"
+            docker restart ibgateway >/dev/null 2>&1
+            # IB Gateway is slow to boot + autologin; give it enough time.
+            sleep 45
+            API_CHECK2=$(run_handshake_check)
+            if [ "$API_CHECK2" = "OK" ]; then
+                send_alert "$(echo -e '\xe2\x9c\x85') IB Gateway auto-recovered after handshake failure (was: ${API_CHECK})"
+                clear_alert_dedup "handshake_failed"
+            else
+                # After restart, container might now be in 2FA-waiting state.
+                # Check again before alerting so message is accurate.
+                WAITING_2FA_POST=$(docker logs ibgateway --tail 20 2>&1 | grep -c "waiting for two-factor authentication" || echo 0)
+                if [ "${WAITING_2FA_POST:-0}" -gt 0 ]; then
+                    send_alert_dedup "waiting_2fa" "$(echo -e '\xe2\x8f\xb3') IB Gateway restarted and is <b>waiting for 2FA approval</b> — check IBKR Mobile for one push and approve. Auto-recovery will follow." 900
+                else
+                    send_alert_dedup "handshake_failed" "$(echo -e '\xf0\x9f\x9a\xa8') IB API handshake FAILED (${API_CHECK2}) — auto-restart did not recover.
+
+Session may need IB Key re-approval. From phone: open IBKR Mobile and approve the pending push.
+
+If no push arrived: <code>ssh root@87.99.142.12 'docker restart ibgateway'</code> to re-trigger autologin."
+                fi
+                ISSUES=$((ISSUES + 1))
+            fi
         fi
     else
         clear_alert_dedup "handshake_failed"
