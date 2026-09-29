@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import math
 from datetime import date, datetime
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict
 
 from core.trading.config import CONFIG
 from core.trading.ibkr_client import IBKRClient
@@ -1063,7 +1063,7 @@ class RiskManager:
                 "INVARIANT: single-position cap violated for %s: "
                 "qty %d × $%.2f = $%.2f > cap $%.2f. "
                 "REFUSING TRADE — bug in calculate_qty.",
-                row.get("Ticker", "?"), qty_est, price, actual_cost, single_cap,
+                ticker, qty_est, price, actual_cost, single_cap,
             )
             return False, (
                 f"Internal: position size ${actual_cost:.0f} exceeds 1.5× cap ${single_cap:.0f} "
