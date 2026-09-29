@@ -62,3 +62,47 @@ jobs:
           from app_config import CONFIG
           print('All core imports verified')
           "
+
+  trading-money-path:
+    # 2026-09-29: none of the trading tests ran in CI (ci.yml covered ~5% of the suite). These are the
+    # money-path regression tests — buy fills / locks / fail-closed dedup / breakers / exit prices /
+    # config consistency. No network, no keys. ib_insync is installed here (it is deliberately NOT in
+    # requirements.txt for Streamlit Cloud) so the fill tests are not silently skipped.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONPATH: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-timeout ib_insync
+      - name: Money-path tests (skips are failures)
+        run: |
+          pytest -q --timeout=60 -o addopts="" -rs \
+            tests/test_buy_bracket_fills.py \
+            tests/test_trade_lock_and_dedup.py \
+            tests/test_failclosed_dedup.py \
+            tests/test_breakers_use_ledger.py \
+            tests/test_exit_prices_realtime.py \
+            tests/test_target_hit_failed_sell.py \
+            tests/test_config_consistency.py \
+            tests/test_phase2_gates.py \
+            | tee /tmp/money.txt
+          if grep -qE "[0-9]+ skipped" /tmp/money.txt; then echo "A money-path test was SKIPPED — that hides regressions"; exit 1; fi
+
+  shellcheck:
+    # Informational until the baseline is known (not blocking): the deploy scripts have had silent-failure
+    # bugs (`|| true` clobbering $?, atomic git checkout hidden by 2>/dev/null).
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck deploy scripts
+        run: shellcheck -S warning deploy/*.sh

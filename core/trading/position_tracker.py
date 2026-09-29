@@ -70,6 +70,10 @@ def _atomic_write_json(path: Path, data) -> None:
         raise
 
 
+class TrackerUnreadable(RuntimeError):
+    """open_positions.json exists but cannot be read/parsed — 'no positions' would be a LIE."""
+
+
 class PositionTracker:
     """File-backed position and trade log manager."""
 
@@ -105,6 +109,20 @@ class PositionTracker:
     # log the actual error at WARNING so silent JSON corruption doesn't
     # hide. "Returning []" has two wildly different meanings (no trades
     # vs. file corrupted), and the previous bare-except hid the second.
+
+    def get_open_positions_strict(self) -> List[dict]:
+        """Like get_open_positions() but RAISES TrackerUnreadable on a corrupt/unreadable file.
+
+        2026-09-29 (audit): the lenient reader returns [] on corruption, which the BUY path
+        reads as "nothing held, all slots free" -> duplicate buys / over-allocation. Buy-side
+        dedup uses this strict reader and fails CLOSED. A missing file is a legitimate [].
+        """
+        try:
+            return json.loads(self._positions_path.read_text() or "[]")
+        except FileNotFoundError:
+            return []
+        except Exception as e:
+            raise TrackerUnreadable(f"open_positions.json unreadable: {e}") from e
 
     def get_open_positions(self) -> List[dict]:
         try:
@@ -276,7 +294,7 @@ class PositionTracker:
         # sense in a long-only swing system (we don't open and close the
         # same name twice in one day; the day-trade gate refuses re-buys).
         try:
-            today_iso = date.today().isoformat()
+            today_iso = datetime.utcnow().date().isoformat()  # tracker timestamps are UTC
             log = self.get_trade_log()
             for entry in log:
                 if (
@@ -501,7 +519,7 @@ class PositionTracker:
     # ── Daily Buy Counter ────────────────────────────────────
 
     def daily_buy_count(self) -> int:
-        today = date.today().isoformat()
+        today = datetime.utcnow().date().isoformat()  # timestamps are UTC (was local date.today())
         return sum(
             1 for t in self.get_trade_log()
             if t.get("action") == "OPEN"

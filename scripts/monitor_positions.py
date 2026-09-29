@@ -2128,6 +2128,24 @@ def _target_hit_pass(tracker, client, ibkr_orders, notify):
             # failure and can intervene.
             # Dedup: only notify if we haven't already sent one in the last
             # 30 min (persisted via last_stuck_notify_at on the position).
+            # 2026-09-29 (audit): the OCA (TRAIL+LMT) was cancelled a few lines above to make
+            # room for the sell. When the sell then fails, force_exit_via_trail finds no active
+            # TRAIL and the position sat UNPROTECTED until the next monitor cycle — while the
+            # alert below claimed "TRAIL still protecting downside" (false). Restore protection
+            # NOW (resubmit cancels any leftover SELL first, so it cannot double up).
+            _protection = "no protective orders had been cancelled"
+            if cancelled:
+                try:
+                    _tp = float(pos.get("trailing_stop_pct", 5.0) or 5.0)
+                    _rr = client.resubmit_protective_orders_retry(ticker, qty, _tp, target)
+                    _trail_status = _rr["trailing_stop"].status
+                    if _trail_status not in ("Error", "Cancelled", "Inactive"):
+                        _protection = f"TRAIL restored ({_tp:.1f}%)"
+                    else:
+                        _protection = f"RESTORE FAILED (trail status={_trail_status}) — POSITION UNPROTECTED"
+                except Exception as _re:
+                    _protection = f"RESTORE FAILED ({_re}) — POSITION UNPROTECTED"
+                logger.warning("Target-hit %s: sell did not fill — protection: %s", ticker, _protection)
             try:
                 last_stuck = pos.get("last_stuck_notify_at")
                 now_iso = _dt.now(_tz.utc).isoformat()
@@ -2148,7 +2166,7 @@ def _target_hit_pass(tracker, client, ibkr_orders, notify):
                             f"Target ${target:.2f} HIT (current ${current_price:.2f}, +{gain_pct:.2f}%)\n"
                             f"But SELL rejected: status={status}\n"
                             f"Likely IB sub-$2k tier lockout (Error 201).\n"
-                            f"TRAIL still protecting downside. Position needs manual close "
+                            f"Protection: {_protection}. Position needs manual close "
                             f"OR account deposit to >$2k tier."
                         ),
                     )

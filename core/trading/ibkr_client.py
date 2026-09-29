@@ -287,6 +287,16 @@ class IBKRClient:
             logger.error("Failed to get positions: %s", e)
             return []
 
+    def get_positions_strict(self) -> List[Position]:
+        """Like get_positions() but lets IB errors propagate (get_positions swallows them
+        and returns [], which the BUY dedup would read as 'we hold nothing')."""
+        if self.cfg.dry_run:
+            return []
+        return [
+            Position(ticker=p.contract.symbol, quantity=p.position, avg_cost=p.avgCost)
+            for p in self._ib.positions() if p.position != 0
+        ]
+
     def get_fills(self) -> List[dict]:
         """Return this session's executions as normalized dicts.
 

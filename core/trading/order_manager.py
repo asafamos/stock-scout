@@ -852,6 +852,11 @@ class OrderManager:
             logger.error("Failed to load scan results from %s: %s", best_path, e)
             return None
 
+    def _strict_held_tickers(self) -> set:
+        """Tickers IB says we hold. RAISES if the tracker file or IB positions are unreadable."""
+        self.tracker.get_open_positions_strict()  # raises TrackerUnreadable on a corrupt file
+        return {p.ticker for p in self.client.get_positions_strict() if p.quantity > 0}
+
     def _filter_candidates(self, df: pd.DataFrame) -> pd.DataFrame:
         """Apply portfolio-informed smart filters for auto-trading.
 
@@ -1239,13 +1244,19 @@ class OrderManager:
                 return result
 
         # Remove already-held tickers (check both tracker AND live IBKR positions)
-        ibkr_held = set()
+        # 2026-09-29 (audit): FAIL CLOSED. Both readers used to swallow errors and return [],
+        # so an IB hiccup or a corrupt open_positions.json made every ticker look buyable and
+        # every slot free. Without trustworthy dedup data we do not buy this cycle.
         try:
-            for p in self.client.get_positions():
-                if p.quantity > 0:
-                    ibkr_held.add(p.ticker)
-        except Exception:
-            pass  # If not connected yet, rely on tracker only
+            ibkr_held = self._strict_held_tickers()
+        except Exception as _dd_err:
+            logger.error("DEDUP DATA UNAVAILABLE (%s) — refusing to trade this cycle (fail-closed)", _dd_err)
+            try:
+                from core.trading import notifications as _nf
+                _nf.notify_error("Buy path blocked", f"Held-position data unavailable ({_dd_err}). No buys this cycle.")
+            except Exception:
+                pass
+            return result.iloc[0:0]
         # 2026-09-29 (audit): also skip tickers with an ACTIVE BUY order on IB (any clientId) —
         # covers an overlapping/manual run whose order has been sent but not yet filled.
         try:

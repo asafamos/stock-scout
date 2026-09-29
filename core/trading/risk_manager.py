@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import math
-from datetime import date
+from datetime import date, datetime
 from typing import Optional, Tuple
 
 from core.trading.config import CONFIG
@@ -218,7 +218,7 @@ class RiskManager:
         (IB commissionReport.realizedPNL) is the source of truth. Taking the min avoids
         double-counting the same close and is the conservative direction for a loss breaker.
         """
-        today = date.today().isoformat()
+        today = datetime.utcnow().date().isoformat()  # trade_log timestamps are UTC
         from_log = sum(
             float(t.get("pnl") or 0)
             for t in self.tracker.get_trade_log()
@@ -554,6 +554,17 @@ class RiskManager:
             return "none"
         except Exception:
             return "none"
+
+    def check_tracker_readable(self) -> Tuple[bool, str]:
+        """Fail CLOSED if open_positions.json is corrupt (lenient readers would report 0 held)."""
+        strict = getattr(self.tracker, "get_open_positions_strict", None)
+        if strict is None:
+            return True, ""
+        try:
+            strict()
+            return True, ""
+        except Exception as e:
+            return False, f"Tracker unreadable ({e}) — refusing to open a position"
 
     def check_sector_concentration(self, new_sector: str) -> Tuple[bool, str]:
         """Block if we'd exceed max_sector_positions in same sector."""
@@ -997,6 +1008,9 @@ class RiskManager:
             return False, reason
 
         # 1. Already holding
+        _ok, _why = self.check_tracker_readable()
+        if not _ok:
+            return False, _why
         if self.tracker.is_holding(ticker):
             return False, f"Already holding {ticker}"
 
