@@ -961,6 +961,31 @@ class OrderManager:
                 logger.info("Sector filter dropped %d stocks (blocked: %s)",
                             dropped, blocked)
 
+        # 2026-09-29: COHORT VETO — reject sector×score sub-buckets that pass
+        # single-var gates but historically LOSE. Empirical n=44K attribution
+        # found 5 buckets (Financial Services 78-84, Consumer Cyclical 72-75,
+        # Healthcare 72-78, Communication Services 75-78, Industrials 81-84)
+        # with mean_return < -1% AND n >= 30. Removing them lifts expected
+        # return from +1.09% to +2.90% (+1.82pp/trade) while cutting 38% of
+        # trades. Env-toggle: TRADE_COHORT_VETO_ENABLED=0 to disable.
+        if sector_col and sector_col in result.columns and score_col in result.columns:
+            from core.trading.cohort_veto import get_veto_reason
+            before = len(result)
+            def _cohort_check(row):
+                return get_veto_reason(str(row.get(sector_col, "")), float(row.get(score_col, 0) or 0))
+            veto_reasons = result.apply(_cohort_check, axis=1)
+            vetoed_mask = veto_reasons.astype(bool)
+            if vetoed_mask.any():
+                # Log which tickers got vetoed + why (helps operator understand)
+                vetoed_rows = result[vetoed_mask]
+                for _, vr in vetoed_rows.iterrows():
+                    tk = vr.get(ticker_col, "?")
+                    reason = veto_reasons.loc[vr.name]
+                    logger.info("Cohort veto: %s — %s", tk, reason)
+                result = result[~vetoed_mask]
+                logger.info("Cohort-veto dropped %d stocks (see per-ticker reasons above)",
+                            before - len(result))
+
         # ── MOMENTUM-vs-SPY FILTER (added 2026-05-14 from SPY comparison) ──
         # 31-day forensic showed StockScout underperformed SPY by -1.41pp
         # despite a healthy PF 2.42. Root cause: our ranking favored
