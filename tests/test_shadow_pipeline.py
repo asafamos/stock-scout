@@ -99,3 +99,37 @@ def test_report_can_pass_with_enough_consistent_dates():
             outs.append({"scan_date": d, "ticker": t, "ret_pct": ret + (i % 3) * 0.1, "spy_ret_pct": 0.5})
     txt = shadow_report.report(picks, outs, 0.5)
     assert "S1: PASSES" in txt
+
+
+def _bars_dl(tickers, lo, hi):
+    """Fake downloader: 120 flat-then-rising sessions from 2026-06-01 for every ticker."""
+    idx = pd.bdate_range("2026-06-01", periods=120)
+    o = [100 + 0.2 * i for i in range(120)]
+    df = pd.DataFrame({"Open": o, "High": [x + 1.5 for x in o], "Low": [x - 1.5 for x in o],
+                       "Close": [x + 0.3 for x in o]}, index=idx)
+    return {t: df for t in tickers}
+
+
+def test_exit_resolver_writes_finished_policies_once(tmp_path, monkeypatch):
+    picks = tmp_path / "picks.jsonl"
+    picks.write_text(json.dumps({"scan_date": "2026-06-12", "ticker": "AAA", "s1_rank": 1, "s2_rank": None,
+                                 "live_gate_pass": True}) + "\n")
+    out = tmp_path / "exits.jsonl"
+    monkeypatch.setattr("scripts.shadow_resolve.date", type("D", (date,), {"today": staticmethod(lambda: date(2026, 11, 20))}))
+    n = shadow_resolve.resolve_exits(29, 100, picks, out, downloader=_bars_dl)
+    rows = [json.loads(x) for x in out.read_text().splitlines()]
+    pols = {r["policy"] for r in rows}
+    assert n == len(rows) and {"LEGACY", "HOLD20", "CANARY", "HOLD60"} <= pols
+    assert all(r["ret_pct"] > 0 for r in rows), "a steadily rising stock is a winner under every policy"
+    assert shadow_resolve.resolve_exits(29, 100, picks, out, downloader=_bars_dl) == 0, "idempotent"
+
+
+def test_exit_report_pairs_against_legacy():
+    picks = [{"scan_date": f"2026-0{1 + i // 28}-{1 + i % 28:02d}", "ticker": "AAA", "s1_rank": 1, "s2_rank": None,
+              "live_gate_pass": True} for i in range(20)]
+    exits = []
+    for p in picks:
+        exits.append({"scan_date": p["scan_date"], "ticker": "AAA", "policy": "LEGACY", "ret_pct": 0.5, "days": 10, "reason": "stop"})
+        exits.append({"scan_date": p["scan_date"], "ticker": "AAA", "policy": "CANARY", "ret_pct": 2.5, "days": 25, "reason": "time"})
+    txt = shadow_report.exit_report(picks, exits, 0.5)
+    assert "CANARY" in txt and "vs LEGACY +2.00pp" in txt

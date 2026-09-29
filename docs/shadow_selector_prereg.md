@@ -66,3 +66,25 @@ tested, each needs one-sided P(mean ≤ 0) < **0.025** (Bonferroni) for both "ne
 "beats ALL" — the bootstrap CI text in the report is unchanged, the verdict thresholds are not.
 S2 is inherently a higher-risk selector (small, volatile names); a pass means "propose", never "apply".
 Everything else (entry/exit, cost, 60-date minimum, no peeking-driven changes) is unchanged.
+
+---
+## Addendum B (2026-09-29 night — before any forward result): exit policies and the CANARY
+
+Offline exit study (1,780 random entries 2019-2026, net of 0.5% cost, paired vs LEGACY over 356 date
+clusters): the legacy exit (trail 9% for 7 sessions then 5.5%, ≤20 sessions) was the worst tested policy
+in every calendar year; every ATR-scaled alternative beat it with CI lower bound > 0 (CANARY = trail
+clip(4×ATR%, 8, 20)% for ≤30 sessions: +1.45pp/trade, CI lo +0.95). Caveats: survivorship-biased
+universe, bull-tilted sample, ratchet tiers and targets not modelled.
+
+Forward test, added to the daily shadow job (`shadow_resolve.resolve_exits` → `shadow_exit_outcomes.jsonl`,
+report section "Exit-policy comparison"): every logged scan row is run through the policies in
+`core/trading/exit_sim.POLICIES` (LEGACY, HOLD20, CANARY, ATR4_60, ATR5_60, TRAIL15_60, HOLD60), entry =
+next open, gross of cost (0.5% applied in the report), unit = scan date.
+**Canary criterion:** after ≥ 60 resolved dates, CANARY − LEGACY on the ALL arm must have one-sided
+P(mean ≤ 0) < 0.025; otherwise the canary is rolled back (`TRADE_EXIT_PROFILE=legacy`). The other policies
+are descriptive (they show whether CANARY is a knife-edge choice) and carry no decision weight.
+
+Live: the canary (`TRADE_EXIT_PROFILE=atr_wide`) applies to NEW buys only, with risk-based size
+(a full initial-trail loss ≤ 4% of NetLiq — at ~$800 NetLiq that is roughly half the legacy size), no
+ratchet/time-tighten/partial-profit, time exit 42 calendar days (earnings-aware cap still applies).
+Live closes are far too few to validate (≈170 trades for a 1%/trade edge); they are monitored, not judged.

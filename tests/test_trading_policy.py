@@ -227,8 +227,8 @@ class TestRegimeScoreFloor:
         # cfg default min_score = 73 in fixture.
         # MODERATE_UP: max(60+5, 73) = 73
         assert regime_score_floor("MODERATE_UP", cfg) == pytest.approx(73.0)
-        # SIDEWAYS: max(70+5, 73) = 75 (regime wins)
-        assert regime_score_floor("SIDEWAYS", cfg) == pytest.approx(75.0)
+        # SIDEWAYS: table 65 since 2026-08-28 (was 70) -> max(65+5, 73) = 73 (CONFIG wins)
+        assert regime_score_floor("SIDEWAYS", cfg) == pytest.approx(73.0)
         # TREND_UP: max(55+5, 73) = 73 (CONFIG wins)
         assert regime_score_floor("TREND_UP", cfg) == pytest.approx(73.0)
 
@@ -398,7 +398,7 @@ class TestParityContract:
     @pytest.mark.parametrize("regime,expected_floor", [
         ("TREND_UP", 73.0),       # max(55+5, 73)  → CONFIG wins
         ("MODERATE_UP", 73.0),    # max(60+5, 73)  → CONFIG wins
-        ("SIDEWAYS", 75.0),       # max(70+5, 73)  → regime wins
+        ("SIDEWAYS", 73.0),       # max(65+5, 73)  → CONFIG wins (table 70→65 on 2026-08-28)
         ("DISTRIBUTION", 80.0),   # max(75+5, 73)  → regime wins
         ("CORRECTION", 85.0),     # max(80+5, 73)  → regime wins
         ("PANIC", 105.0),         # max(100+5, 73) → regime wins

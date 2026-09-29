@@ -89,11 +89,47 @@ def report(picks: List[Dict], outcomes: List[Dict], cost_pct: float = 0.5) -> st
     return "\n".join(lines)
 
 
+def exit_report(picks: List[Dict], exits: List[Dict], cost_pct: float = 0.5) -> str:
+    """Exit-policy comparison on the logged scans (net of cost), paired against LEGACY, per arm."""
+    from scripts.outcome_stats import cluster_bootstrap_mean, date_means, paired_diff
+    by_key: Dict[tuple, Dict[str, Dict]] = {}
+    for x in exits:
+        by_key.setdefault((x["scan_date"], x["ticker"]), {})[x["policy"]] = x
+    arms = {"ALL": lambda p: True, "S1": lambda p: bool(p.get("s1_rank")),
+            "S2": lambda p: bool(p.get("s2_rank")), "LIVE": lambda p: bool(p.get("live_gate_pass"))}
+    lines = ["", "Exit-policy comparison (net of %.2f%% cost; paired vs LEGACY; unit = scan date)" % cost_pct]
+    if not exits:
+        return "\n".join(lines + ["  no finished exit simulations yet"])
+    policies = sorted({x["policy"] for x in exits})
+    for arm, pred in arms.items():
+        per_pol: Dict[str, Dict[str, float]] = {}
+        for pol in policies:
+            d, v = [], []
+            for p in picks:
+                if not pred(p):
+                    continue
+                r = by_key.get((p["scan_date"], p["ticker"]), {}).get(pol)
+                if r:
+                    d.append(p["scan_date"]); v.append(r["ret_pct"] - cost_pct)
+            per_pol[pol] = date_means(d, v)
+        if not per_pol.get("LEGACY"):
+            continue
+        lines.append(f"  arm {arm}:")
+        for pol in policies:
+            r = cluster_bootstrap_mean(per_pol[pol])
+            dd = paired_diff(per_pol[pol], per_pol["LEGACY"]) if pol != "LEGACY" else None
+            extra = "" if dd is None else f"   vs LEGACY {dd['mean']:+.2f}pp [{dd['lo']:+.2f}, {dd['hi']:+.2f}] P(<=0)={dd['p_le_0']:.3f}"
+            lines.append(f"    {pol:10s} n_dates={r['n_dates']:3d} mean={r['mean']:+6.2f}%{extra}")
+    return "\n".join(lines)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--cost", type=float, default=0.5)
     a = ap.parse_args(argv)
-    txt = report(_read(OUT_DIR / "shadow_picks.jsonl"), _read(OUT_DIR / "shadow_outcomes.jsonl"), a.cost)
+    picks = _read(OUT_DIR / "shadow_picks.jsonl")
+    txt = report(picks, _read(OUT_DIR / "shadow_outcomes.jsonl"), a.cost)
+    txt += "\n" + exit_report(picks, _read(OUT_DIR / "shadow_exit_outcomes.jsonl"), a.cost)
     print(txt)
     (OUT_DIR / "shadow_report.txt").write_text(txt + "\n")
     return 0

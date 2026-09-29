@@ -1737,6 +1737,13 @@ class OrderManager:
             target_date = (datetime.utcnow() + timedelta(days=int(_holding_days))).strftime("%Y-%m-%d")
         else:
             target_date = ""
+        # ATR-wide exit profile (canary): fixed time exit, not the scan's 20-day horizon. The
+        # earnings-aware cap just below still applies on top.
+        from core.trading import exit_profile as _xp
+        _exit_prof = _xp.profile()
+        if _exit_prof == _xp.PROFILE_ATR_WIDE:
+            from datetime import datetime as _dtx, timedelta as _tdx
+            target_date = (_dtx.utcnow() + _tdx(days=_xp.MAX_HOLD_CAL_DAYS)).strftime("%Y-%m-%d")
 
         # EARNINGS-AWARE TARGET DATE (added 2026-05-05).
         # Real-world failure today: ELVN bought with target_date 2026-05-20
@@ -2056,6 +2063,31 @@ class OrderManager:
             _row_regime or "default",
         )
 
+        # ── ATR-wide exit profile (canary, 2026-09-29; default OFF via TRADE_EXIT_PROFILE) ──
+        # Overrides the legacy trail (which is pinned at 9% and whose ATR term was inert: the scan's
+        # ATR_Pct is a FRACTION but was multiplied as if percent). Wide, ATR-scaled trail + risk-based
+        # size + no LMT cap on winners. See core/trading/exit_profile.py for the evidence.
+        if _exit_prof == _xp.PROFILE_ATR_WIDE:
+            trail_pct = _xp.wide_trail_pct(atr_pct)
+            try:
+                _netliq = float(self.client.get_net_liquidation() or 0)
+            except Exception:
+                _netliq = 0.0
+            if _netliq <= 0:
+                return {"ticker": ticker, "status": "skipped",
+                        "reason": "atr_wide profile: NetLiq unavailable — cannot size by risk"}
+            _q2 = _xp.risk_capped_qty(price, trail_pct, _netliq, qty)
+            if _q2 <= 0:
+                return {"ticker": ticker, "status": "skipped",
+                        "reason": (f"atr_wide profile: trail {trail_pct:.1f}% on {ticker} @ ${price:.2f} "
+                                   f"exceeds the {_xp.RISK_PCT_NETLIQ:.0f}% NetLiq risk cap")}
+            if _q2 != qty:
+                logger.info("  atr_wide risk cap: qty %d -> %d (trail %.1f%%, NetLiq $%.0f)", qty, _q2, trail_pct, _netliq)
+                qty = _q2
+            target = round(price * 1.6, 2)   # effectively no upside cap; trail + time exit manage the trade
+            logger.info("  ATR-WIDE exit: trail %.1f%% (ATR %.1f%%), time exit %s", trail_pct,
+                        _xp.atr_percent(atr_pct), target_date)
+
         # Execute as OCA bracket: buy + trailing stop + limit sell (linked).
         # 2026-05-29: pass a marketable LIMIT price = reference price ×
         # (1 + buffer). `price` here is the live-refreshed quote (or scan
@@ -2246,6 +2278,7 @@ class OrderManager:
                 score=score,
                 order_ids=order_ids,
                 scan_price=scan_price,
+                exit_profile=(_exit_prof if _exit_prof == _xp.PROFILE_ATR_WIDE else None),
             )
             _tracker_ok = True
         except Exception as _tracker_err:

@@ -64,6 +64,7 @@ EXPECTED = {
     "TRADE_PAPER_MODE":           "0",
     "TRADE_DRY_RUN":              "0",
     "TRADE_THROTTLE_MODE":        "expectancy",
+    "TRADE_EXIT_PROFILE":         "atr_wide",   # 2026-09-29 canary; roll back with legacy
     # ── Ops guards ──────────────────────────────────────────────
     "TRADE_MAX_DAILY_LOSS_PCT":   "5.0",
     "TRADE_MAX_SLIPPAGE_PCT":     "3.0",

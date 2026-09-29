@@ -60,6 +60,8 @@ AI-powered stock recommendation system that scans 3,000+ US stocks using technic
 - Reasoning: postmortem on 12 trail-fired losers showed 9/12 (75%) recovered above ENTRY within 14 days. The 5.5% trail was firing on natural intraday noise. Real-OHLC backtest: 5.5%+0d=-1.73%/trade OOS; 9%+0d=+0.42%; 9%→5.5% at day 7=+1.26% (chosen).
 - Env: TRADE_MIN_INITIAL_TRAIL_PCT, TRADE_TIME_TIGHTEN_ENABLED, TRADE_TIME_TIGHTEN_DAYS, TRADE_TIME_TIGHTEN_TARGET_PCT
 
+**EXIT PROFILE CANARY (2026-09-29, owner-approved): `TRADE_EXIT_PROFILE=atr_wide` (code default `legacy`).** New buys only: initial trail = clip(4×ATR%, 8, 20)% (the legacy trail was pinned at 9% and its ATR term was inert — scan `ATR_Pct` is a fraction), size shrunk so a full initial-trail loss ≤ 4% of NetLiq, LMT target pushed to +60% (no cap), time exit 42 calendar days (earnings-aware cap still applies), and the monitor's day-7 tighten / profit ratchet / partial-profit skip these positions (`exit_profile` field in the tracker). Evidence: offline paired study vs the legacy exit (+1.45pp/trade, CI lo +0.95, worse-in-every-year for legacy) — see `core/trading/exit_profile.py`, `core/trading/exit_sim.py`, `docs/shadow_selector_prereg.md` Addendum B. Forward check = shadow exit report; roll back with `TRADE_EXIT_PROFILE=legacy` (existing positions keep whatever they were opened with). Update the drift-detector EXPECTED together with this line.
+
 **BREAK_EVEN: DISABLED** (backtest showed net -$74.81/$1k/trade — was a bad anecdote-based feature)
 
 **DAY-N MOMENTUM KILL: DISABLED** (2026-08-13, `TRADE_DAY_N_KILL_ENABLED=0`)

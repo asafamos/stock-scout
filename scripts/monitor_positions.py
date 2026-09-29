@@ -23,6 +23,8 @@ import time
 from contextlib import contextmanager
 from datetime import datetime, date
 
+from core.trading import exit_profile as _xprof
+
 
 def _fresh_price(ticker: str, ib_mark: float) -> float:
     """Exit-decision price: real-time quote if fresh, else the IB portfolio mark (delayed ~15 min).
@@ -1762,6 +1764,8 @@ def _take_partial_profit(tracker, client, notify):
 
     changed = False
     for pos in positions:
+        if _xprof.is_wide(pos):
+            continue  # atr_wide canary: winners run under the wide trail; no partial/ladder cuts
         if pos.get("partial_taken"):
             continue  # Already sold partial
         ticker = pos["ticker"]
@@ -2318,6 +2322,8 @@ def _time_tighten_stops(tracker, client, ibkr_orders, notify):
         ticker = pos.get("ticker", "")
         if not ticker:
             continue
+        if _xprof.is_wide(pos):
+            continue  # atr_wide canary: no day-7 tightening (re-introduces the whipsaw)
         # Compute age from opened_at
         opened_at = str(pos.get("opened_at", "") or "")[:19]
         if not opened_at:
@@ -2661,6 +2667,11 @@ def _ratchet_stops(tracker, client, ibkr_orders, notify):
 
         # Calculate peak gain %
         peak_gain_pct = (peak_price - entry) / entry * 100
+
+        # atr_wide canary: peak tracking above still runs (resubmit preserves it), but no profit
+        # ratchet — tiers at +10%/+14%/... shrink the trail to 5% and re-create the noise stop-outs.
+        if _xprof.is_wide(pos):
+            continue
 
         # Find applicable tier (highest first)
         # T0 hold-days gate (added 2026-05-07 after backtest revealed T0

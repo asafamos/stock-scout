@@ -25,6 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "data" / "outcomes"
 PICKS_PATH = OUT_DIR / "shadow_picks.jsonl"
 OUTCOMES_PATH = OUT_DIR / "shadow_outcomes.jsonl"
+EXIT_OUTCOMES_PATH = OUT_DIR / "shadow_exit_outcomes.jsonl"
 HORIZON = 20
 
 
@@ -122,6 +123,62 @@ def resolve(min_age_days: int = 29, limit_tickers: int = 400, picks_path: Path =
     return len(new)
 
 
+def resolve_exits(min_age_days: int = 29, limit_tickers: int = 800, picks_path: Path = PICKS_PATH,
+                  out_path: Path = EXIT_OUTCOMES_PATH, downloader=_download) -> int:
+    """Simulate every exit policy in core/trading/exit_sim.POLICIES on every logged scan row.
+
+    Entry = open of the first session after the scan date (same as the 20-session measurement). A
+    (scan_date, ticker, policy) triple is written once the policy has FINISHED (stopped out, or its
+    time limit reached); until then it stays pending. Gross returns; cost is applied in the report.
+    """
+    import numpy as np
+    import pandas as pd
+    from core.trading.exit_sim import POLICIES, simulate
+
+    picks = _read(picks_path)
+    done = {(o["scan_date"], o["ticker"], o["policy"]) for o in _read(out_path)}
+    today = date.today()
+    pend = []
+    for p in picks:
+        if (today - date.fromisoformat(p["scan_date"])).days < min_age_days:
+            continue
+        for pol in POLICIES:
+            if (p["scan_date"], p["ticker"], pol) not in done:
+                pend.append((p, pol))
+    if not pend:
+        logger.info("shadow_resolve_exits: nothing matured")
+        return 0
+    pend.sort(key=lambda x: (x[0]["scan_date"], x[0]["ticker"]))
+    tickers = list(dict.fromkeys(p["ticker"] for p, _ in pend))[:limit_tickers]
+    tset = set(tickers)
+    pend = [(p, pol) for p, pol in pend if p["ticker"] in tset]
+    lo = min(date.fromisoformat(p["scan_date"]) for p, _ in pend) - timedelta(days=45)
+    hi = max(date.fromisoformat(p["scan_date"]) for p, _ in pend) + timedelta(days=120)
+    bars = downloader(tickers, lo, min(hi, today + timedelta(days=1)))
+    arr = {}
+    now = datetime.now(timezone.utc).isoformat()
+    new = []
+    for p, pol in pend:
+        h = bars.get(p["ticker"])
+        if h is None or len(h) == 0:
+            continue
+        if p["ticker"] not in arr:
+            idx = h.index.tz_localize(None) if getattr(h.index, "tz", None) is not None else h.index
+            arr[p["ticker"]] = (idx.normalize(), *(h[c].to_numpy(dtype=float) for c in ("Open", "High", "Low", "Close")))
+        idx, o, hi_, lo_, c = arr[p["ticker"]]
+        e = int(idx.searchsorted(pd.Timestamp(p["scan_date"]), side="right"))
+        r = simulate(o, hi_, lo_, c, e, POLICIES[pol])
+        if r and r.get("finished"):
+            new.append({"scan_date": p["scan_date"], "ticker": p["ticker"], "policy": pol,
+                        "ret_pct": r["ret_pct"], "days": r["days"], "reason": r["reason"], "resolved_at": now})
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_path, "a") as f:
+        for o in new:
+            f.write(json.dumps(o) + "\n")
+    logger.info("shadow_resolve_exits: %d pending triples, %d finished", len(pend), len(new))
+    return len(new)
+
+
 def main(argv=None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
     ap = argparse.ArgumentParser()
@@ -129,6 +186,7 @@ def main(argv=None) -> int:
     ap.add_argument("--limit-tickers", type=int, default=400)
     a = ap.parse_args(argv)
     resolve(a.min_age_days, a.limit_tickers)
+    resolve_exits(a.min_age_days)
     return 0
 
 

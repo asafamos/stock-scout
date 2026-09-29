@@ -30,3 +30,15 @@ def test_does_not_resurrect_position_closed_meanwhile(tmp_path):
     t._positions_path.write_text(json.dumps([{"ticker": "AAA"}]))   # CCC closed elsewhere
     t.merge_save(snapshot)
     assert [p["ticker"] for p in json.loads(t._positions_path.read_text())] == ["AAA"]
+
+
+def test_add_position_records_exit_profile(tmp_path):
+    t = PositionTracker.__new__(PositionTracker)
+    t._positions_path = tmp_path / "open_positions.json"
+    t._positions_path.write_text("[]")
+    t._log_trade = lambda *a, **k: None
+    t.add_position("AAA", 3, 50.0, 40.0, 80.0, target_date="2026-11-10", trailing_stop_pct=12.0, score=78.0,
+                   order_ids={}, exit_profile="atr_wide")
+    t.add_position("BBB", 3, 50.0, 40.0, 80.0, trailing_stop_pct=9.0)
+    rows = {p["ticker"]: p for p in json.loads(t._positions_path.read_text())}
+    assert rows["AAA"]["exit_profile"] == "atr_wide" and "exit_profile" not in rows["BBB"]

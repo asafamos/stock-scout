@@ -738,6 +738,11 @@ def compute_execution_preview(
         3.0 if _defensive else 5.5))
     _effective_floor = max(_init_floor, _atr_floor)
     trail_pct = max(_effective_floor, min(trail_pct, 9.0))
+    # ATR-wide exit profile (canary) — parity with order_manager._execute_single
+    from core.trading import exit_profile as _xp
+    if _xp.profile() == _xp.PROFILE_ATR_WIDE:
+        trail_pct = _xp.wide_trail_pct(atr_pct)
+        notes.append(f"ATR-wide exit profile: trail {trail_pct:.1f}%, time exit {_xp.MAX_HOLD_CAL_DAYS}d, no ratchet")
 
     # ── Quantity estimate (matches risk_manager.calculate_qty conviction tiers) ──
     base_spend = float(getattr(cfg, "max_position_size", 300.0))
