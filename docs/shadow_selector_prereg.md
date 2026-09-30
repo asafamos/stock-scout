@@ -106,5 +106,5 @@ atr_wide exit, risk cap 4% of NetLiq per trade.
 
 **Sleeve self-stop (capital protection, not validation):** the sleeve switches itself off
 (`data/state/v2_sleeve_disabled.json`, manual re-enable) if its own closed trades reach a cumulative realized
-loss ≥ $60 (n ≥ 3) or a mean < −2%/trade after 10 closes. Go-live is gated on DRY_RUN verification and the
+loss ≥ $100 (n ≥ 3) or a mean < −2%/trade after 15 closes (loosened from $60/10 on 2026-09-30 after the portfolio backtest showed the tighter stop would have fired in ~25% of start dates). Go-live is gated on DRY_RUN verification and the
 owner's explicit confirmation.

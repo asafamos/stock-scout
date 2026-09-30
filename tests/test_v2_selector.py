@@ -41,20 +41,22 @@ def test_enabled_flag(monkeypatch):
 
 def test_sleeve_health_kills_on_cumulative_loss_and_on_bad_mean(tmp_path, monkeypatch):
     monkeypatch.setattr(v2, "STATE_DIR", tmp_path)
-    for i in range(12):
+    for i in range(20):
         v2.record_entry(f"T{i}", 1, 100.0, ts=f"2026-10-{i + 1:02d}T14:00:00+00:00")
     def trip(i, pnl):
         return {"ticker": f"T{i}", "realized_pnl": pnl, "entry_price": 100.0, "shares": 1,
                 "exit_time": f"2026-10-{i + 1:02d}T18:00:00+00:00"}
     other = {"ticker": "LEGACY", "realized_pnl": -500.0, "entry_price": 100.0, "shares": 1, "exit_time": "2026-10-05T18:00:00+00:00"}
-    # 3 sleeve trips losing $25 each = -$75 -> kill; a non-sleeve loss must not count
-    trips = [trip(0, -25.0), trip(1, -25.0), trip(2, -25.0), other]
-    h = v2.sleeve_health(trips)
-    assert not h["ok"] and h["n"] == 3 and "cumulative" in h["reason"]
-    # 10 small losers averaging -3% (cum only -$30) -> kill on mean
-    trips = [trip(i, -3.0) for i in range(10)]
-    h = v2.sleeve_health(trips)
-    assert not h["ok"] and h["n"] == 10 and "mean" in h["reason"]
+    # -$75 over 3 trades is now tolerated (limit $100); a non-sleeve loss never counts
+    assert v2.sleeve_health([trip(0, -25.0), trip(1, -25.0), trip(2, -25.0), other])["ok"]
+    # 4 trades losing $27 each = -$108 -> stop on cumulative loss
+    h = v2.sleeve_health([trip(i, -27.0) for i in range(4)])
+    assert not h["ok"] and h["n"] == 4 and "cumulative" in h["reason"]
+    # 14 small losers averaging -3% (cum -$42): not enough closes for the mean test yet
+    assert v2.sleeve_health([trip(i, -3.0) for i in range(14)])["ok"]
+    # 15 of them -> mean test fires
+    h = v2.sleeve_health([trip(i, -3.0) for i in range(15)])
+    assert not h["ok"] and h["n"] == 15 and "mean" in h["reason"]
     # healthy
     assert v2.sleeve_health([trip(0, 4.0), trip(1, -2.0)])["ok"]
 

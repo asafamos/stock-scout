@@ -26,9 +26,12 @@ MIN_PRICE = 5.0
 MIN_ADDV_USD = 5_000_000.0
 V2_MAX_POSITIONS = 1
 MAX_GAP_PCT = 6.0          # skip an entry that opens more than this far from the signal close
-KILL_MIN_CLOSES = 10
+# 2026-09-30 (owner-approved loosening): the original $60 / 10-close stop would have fired in ~25% of
+# historical start dates (median after 5 trades) and cut off the rare large winners that carry this
+# profile (best 6 trades = 63% of backtest profit). $100 is ~12% of NetLiq; the mean test needs 15 closes.
+KILL_MIN_CLOSES = 15
 KILL_MEAN_PCT = -2.0       # mean net % per closed trade after KILL_MIN_CLOSES
-KILL_CUM_LOSS_USD = 60.0   # cumulative realized loss that stops the sleeve at any n >= 3
+KILL_CUM_LOSS_USD = 100.0  # cumulative realized loss that stops the sleeve at any n >= 3
 
 STATE_DIR = Path(os.getenv("TRADE_STATE_DIR", "data/state"))
 
