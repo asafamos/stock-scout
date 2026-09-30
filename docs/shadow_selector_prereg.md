@@ -108,3 +108,15 @@ atr_wide exit, risk cap 4% of NetLiq per trade.
 (`data/state/v2_sleeve_disabled.json`, manual re-enable) if its own closed trades reach a cumulative realized
 loss ≥ $100 (n ≥ 3) or a mean < −2%/trade after 15 closes (loosened from $60/10 on 2026-09-30 after the portfolio backtest showed the tighter stop would have fired in ~25% of start dates). Go-live is gated on DRY_RUN verification and the
 owner's explicit confirmation.
+
+---
+## Addendum D (2026-09-30, before any forward result): offline survivorship-reduced test of S3 — negative
+
+Point-in-time universe of 5,129 US symbols (Tiingo list incl. delisted; FMP prices/market caps; top-N by market cap
+on each day, N=2000 like the live scan), portfolio backtest of the live sleeve (S3_v1 rank, atr_wide exit, 4% risk cap,
+$1 commission + 0.10% slippage, one position): S3 CAGR −0.4% (no earnings rules) / −12.2% (live earnings rules) vs
+random −0.3%, SPY +15.8%; top-1000: −5.6% vs +1.7%; top-500: −3.6% vs −5.3%. The earlier +17–22% (431 survivor tickers)
+was survivorship. **Consequence:** the live sleeve was PAUSED on 2026-09-30. The shadow arms S1/S2/S3 keep running
+(they are the forward, survivorship-free test and are free); the prior for S2/S3 passing is now low. Residual bias
+of this offline test is in S3's favour (~1,965 symbols without FMP data are mostly delisted losers), so the true result
+is, if anything, worse.
