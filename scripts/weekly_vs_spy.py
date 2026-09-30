@@ -50,7 +50,9 @@ def read_nav() -> List[Dict]:
 
 def current_netliq() -> Optional[float]:
     try:
-        return float(json.loads((STATE / "system_state.json").read_text())["net_liquidation"])
+        d = json.loads((STATE / "system_state.json").read_text())
+        v = (d.get("account") or {}).get("net_liquidation", d.get("net_liquidation"))
+        return float(v) if v is not None else None
     except Exception:
         return None
 
