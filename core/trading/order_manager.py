@@ -289,7 +289,6 @@ class OrderManager:
             _release_trade_lock(lock_fh)
 
     def _execute_v2_locked(self, scan_df: Optional[pd.DataFrame]) -> List[Dict]:
-        from datetime import date as _date, timedelta as _td
         from core.trading import exit_profile as xp
         from core.trading import v2_selector as v2
         if scan_df is None:
@@ -302,10 +301,14 @@ class OrderManager:
             asof = pd.to_datetime(scan_df["As_Of_Date"]).max().date()
         except Exception:
             asof = None
-        if asof is None or (_date.today() - asof) > _td(days=4):
-            logger.error("v2 sleeve: scan As_Of_Date %s is stale — abort", asof)
+        # 2026-09-30: was "<= 4 calendar days", which let a weekday run trade a 3-4 day old signal when a
+        # close scan failed. Require the scan to cover the last COMPLETED session (or a newer one).
+        from core.trading.market_hours import last_completed_session
+        _need = last_completed_session()
+        if asof is None or asof < _need:
+            logger.error("v2 sleeve: scan As_Of_Date %s is older than the last completed session %s — abort", asof, _need)
             try:
-                notify.notify_error("v2 sleeve", f"scan As_Of_Date {asof} is stale — no v2 trade")
+                notify.notify_error("v2 sleeve", f"scan As_Of_Date {asof} is older than the last session {_need} — no v2 trade today")
             except Exception:
                 pass
             return []

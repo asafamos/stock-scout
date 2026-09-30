@@ -701,6 +701,32 @@ Persistent=false
 WantedBy=timers.target
 SVCEOF
 
+# --- Weekly scorecard (2026-09-30): account vs SPY, sleeve stats, perf-guard level -> Telegram (Fri after close)
+sudo tee /etc/systemd/system/stockscout-weekly-vs-spy.service > /dev/null << 'SVCEOF'
+[Unit]
+Description=StockScout weekly scorecard (account vs SPY)
+OnFailure=stockscout-notify-failure@weekly-vs-spy.service
+
+[Service]
+Type=oneshot
+User=stockscout
+WorkingDirectory=/home/stockscout/stock-scout-2
+EnvironmentFile=/home/stockscout/stock-scout-2/.env.trading
+ExecStart=/home/stockscout/stock-scout-2/.venv/bin/python -m scripts.weekly_vs_spy
+SVCEOF
+
+sudo tee /etc/systemd/system/stockscout-weekly-vs-spy.timer > /dev/null << 'SVCEOF'
+[Unit]
+Description=Weekly scorecard, Friday after the US close (DST-aware)
+
+[Timer]
+OnCalendar=Fri 17:45:00 America/New_York
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+SVCEOF
+
 # --- Shadow selector (2026-09-29): logs the whole scan + pre-registered rule flags, resolves 20-session
 # outcomes, writes data/outcomes/shadow_report.txt. Additive — trades nothing.
 sudo tee /etc/systemd/system/stockscout-shadow.service > /dev/null << 'SVCEOF'

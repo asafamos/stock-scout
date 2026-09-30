@@ -59,3 +59,12 @@ def test_minutes_after_close_dst_aware():
     assert m(u(2026, 11, 3, 21, 5)) == 5       # EST close 21:00 UTC
     assert m(u(2026, 11, 3, 20, 5)) is None    # still open
     assert m(u(2026, 10, 17, 20, 5)) is None   # Saturday
+
+
+def test_last_completed_session_skips_weekends_and_holidays():
+    from datetime import date
+    from core.trading.market_hours import last_completed_session as l
+    assert l(date(2026, 9, 30)) == date(2026, 9, 29)    # Wed -> Tue
+    assert l(date(2026, 9, 28)) == date(2026, 9, 25)    # Mon -> Fri
+    assert l(date(2026, 9, 8)) == date(2026, 9, 4)      # Tue after Labor Day (Mon 9/7) -> Fri
+    assert l(date(2026, 11, 27)) == date(2026, 11, 25)  # day after Thanksgiving -> Wed

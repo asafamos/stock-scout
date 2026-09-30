@@ -108,3 +108,15 @@ def minutes_after_close(now_utc: Optional[datetime] = None) -> Optional[float]:
     close = EARLY_CLOSE_ET if et.date() in EARLY_CLOSES else CLOSE_ET
     m = (et.hour * 60 + et.minute) - (close.hour * 60 + close.minute)
     return float(m) if m > 0 else None
+
+
+def last_completed_session(today: Optional[date] = None) -> date:
+    """The most recent trading day strictly BEFORE `today` (ET date when omitted)."""
+    if today is None:
+        today = datetime.now(timezone.utc).astimezone(NY).date()
+    d = today
+    for _ in range(10):
+        d = date.fromordinal(d.toordinal() - 1)
+        if is_trading_day(d):
+            return d
+    return d
