@@ -686,8 +686,15 @@ class RiskManager:
         fundamental_score: float = -1.0,
         tech_score: float = -1.0,
         volume_surge: float = -1.0,
+        sleeve: str = "",
     ) -> Tuple[bool, str]:
         """Return (allowed, reason). Reason is empty string if allowed.
+
+        sleeve="v2" (2026-09-29): the v2 sleeve selects on volatility/size, not on Score/ML/RR/fund.
+        It keeps every SAFETY gate (paused, blocked ticker, held, regime block, sector block, daily
+        loss, drawdown, cash, day-trade, sector/correlation/earnings, position + exposure limits,
+        market hours) and skips only the legacy PERFORMANCE gates (score band, ML/RR/ATR/fund/
+        confidence/reliability/volume windows).
 
         market_regime: when provided, the minimum-score gate becomes
         regime-aware (matches scoring_config.REGIME_MIN_SCORE + small
@@ -754,7 +761,15 @@ class RiskManager:
                 held_tickers=held_set,
             )
             if not gate_result.would_buy:
-                return False, gate_result.primary_reason
+                if sleeve == "v2":
+                    # keep only the safety-type failures from the SSOT
+                    _safety = ("paused", "block list", "already holding", "market regime blocked",
+                               "blocked sector")
+                    _kept = [f for f in gate_result.gates_failed if any(k in f.lower() for k in _safety)]
+                    if _kept:
+                        return False, _kept[0]
+                else:
+                    return False, gate_result.primary_reason
         except Exception as _gate_err:
             # NEVER let the unification call break a trade decision: fall through to the
             # legacy in-line gates below (worst case: pre-unification behaviour). But do NOT
@@ -1054,6 +1069,8 @@ class RiskManager:
         # missing/unknown.
         from core.trading.policy import regime_score_floor
         _trade_min = regime_score_floor(market_regime, self.cfg)
+        if sleeve == "v2":
+            return self._sleeve_tail_checks()
         if score < _trade_min:
             return False, (
                 f"Score too low ({score:.1f} < {_trade_min:.1f} "
@@ -1086,6 +1103,12 @@ class RiskManager:
         if not self.client.is_market_open() and not self.cfg.dry_run:
             return False, "Market is closed"
 
+        return True, ""
+
+    def _sleeve_tail_checks(self) -> Tuple[bool, str]:
+        """Last safety check for the v2 sleeve (the legacy score / R:R windows are skipped)."""
+        if not self.client.is_market_open() and not self.cfg.dry_run:
+            return False, "Market is closed"
         return True, ""
 
     # Conviction tiers for dynamic sizing — see calculate_qty docstring.

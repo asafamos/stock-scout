@@ -88,3 +88,23 @@ Live: the canary (`TRADE_EXIT_PROFILE=atr_wide`) applies to NEW buys only, with 
 (a full initial-trail loss ≤ 4% of NetLiq — at ~$800 NetLiq that is roughly half the legacy size), no
 ratchet/time-tighten/partial-profit, time exit 42 calendar days (earnings-aware cap still applies).
 Live closes are far too few to validate (≈170 trades for a 1%/trade edge); they are monitored, not judged.
+
+---
+## Addendum C (2026-09-30 — before any forward result): rule S3_v1 = the live v2 sleeve
+
+The owner approved a bounded live sleeve trading the volatility + small-size tilt. To keep "what trades"
+identical to "what is measured", the tradable version of S2 is logged as **S3_v1** (`core/trading/v2_selector.py`,
+shared by the live sleeve and the shadow logger): universe = Close ≥ 5, ATR_Pct > 0, market cap > 0, average
+dollar volume ≥ $5M, sector not blocked; score = pct_rank(ATR_Pct) + pct_rank(−market cap); top 3/day (the live
+sleeve trades the best available name, max 1 open position). PEAD was deliberately left OUT: in the offline
+simulation the PEAD + vol/size composite did worse than vol/size alone (+1.12% vs +3.67% excess vs SPY).
+Three rules are now tested (S1, S2, S3) → Bonferroni: each needs one-sided P(mean ≤ 0) < 0.05/3 ≈ 0.0167 for
+both "net excess vs SPY" and "beats ALL". S2 and S3 are the same idea (S3 adds tradability filters); S3 is the
+one that carries the live decision. Live protocol: signal = latest completed-session scan in origin/main, order at
+09:31 ET next session (marketable limit from a real-time quote), gap/slippage guard ±6% vs the signal close,
+atr_wide exit, risk cap 4% of NetLiq per trade.
+
+**Sleeve self-stop (capital protection, not validation):** the sleeve switches itself off
+(`data/state/v2_sleeve_disabled.json`, manual re-enable) if its own closed trades reach a cumulative realized
+loss ≥ $60 (n ≥ 3) or a mean < −2%/trade after 10 closes. Go-live is gated on DRY_RUN verification and the
+owner's explicit confirmation.

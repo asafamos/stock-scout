@@ -673,6 +673,34 @@ ExecStartPost=/home/stockscout/stock-scout-2/.venv/bin/python -m scripts.track_s
 TimeoutStartSec=3000
 SVCEOF
 
+# --- v2 sleeve (2026-09-29): volatility+size tilt, trades the prior close's scan at the open. No-op
+# unless TRADE_V2_SLEEVE=1 in .env.trading.
+sudo tee /etc/systemd/system/stockscout-v2-sleeve.service > /dev/null << 'SVCEOF'
+[Unit]
+Description=StockScout v2 sleeve (next-open entry from the prior close scan)
+OnFailure=stockscout-notify-failure@v2-sleeve.service
+
+[Service]
+Type=oneshot
+User=stockscout
+WorkingDirectory=/home/stockscout/stock-scout-2
+EnvironmentFile=/home/stockscout/stock-scout-2/.env.trading
+ExecStart=/bin/bash /home/stockscout/stock-scout-2/deploy/v2_sleeve.sh
+TimeoutStartSec=900
+SVCEOF
+
+sudo tee /etc/systemd/system/stockscout-v2-sleeve.timer > /dev/null << 'SVCEOF'
+[Unit]
+Description=v2 sleeve 1 minute after the US open (DST-aware)
+
+[Timer]
+OnCalendar=Mon..Fri 09:31:00 America/New_York
+Persistent=false
+
+[Install]
+WantedBy=timers.target
+SVCEOF
+
 # --- Shadow selector (2026-09-29): logs the whole scan + pre-registered rule flags, resolves 20-session
 # outcomes, writes data/outcomes/shadow_report.txt. Additive — trades nothing.
 sudo tee /etc/systemd/system/stockscout-shadow.service > /dev/null << 'SVCEOF'

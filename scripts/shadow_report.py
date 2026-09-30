@@ -25,7 +25,7 @@ from scripts.outcome_stats import cluster_bootstrap_mean, date_means, paired_dif
 
 OUT_DIR = ROOT / "data" / "outcomes"
 N_MIN_DATES = 60
-ALPHA = 0.025   # two rules (S1 primary, S2 exploratory) -> Bonferroni on one-sided p
+ALPHA = 0.05 / 3   # three rules (S1, S2, S3) -> Bonferroni on one-sided p (S3 is the live v2 sleeve)
 
 
 def _read(path: Path) -> List[Dict]:
@@ -43,7 +43,7 @@ def _read(path: Path) -> List[Dict]:
 def build_arms(picks: List[Dict], outcomes: List[Dict], cost_pct: float) -> Dict[str, Dict[str, float]]:
     """{arm: {scan_date: mean net excess-vs-SPY %}} over resolved rows."""
     res = {(o["scan_date"], o["ticker"]): o for o in outcomes}
-    arms: Dict[str, List] = {"S1": ([], []), "S2": ([], []), "LIVE": ([], []), "ALL": ([], [])}
+    arms: Dict[str, List] = {"S1": ([], []), "S2": ([], []), "S3": ([], []), "LIVE": ([], []), "ALL": ([], [])}
     for p in picks:
         o = res.get((p["scan_date"], p["ticker"]))
         if not o:
@@ -54,6 +54,8 @@ def build_arms(picks: List[Dict], outcomes: List[Dict], cost_pct: float) -> Dict
             arms["S1"][0].append(p["scan_date"]); arms["S1"][1].append(ex)
         if p.get("s2_rank"):
             arms["S2"][0].append(p["scan_date"]); arms["S2"][1].append(ex)
+        if p.get("s3_rank"):
+            arms["S3"][0].append(p["scan_date"]); arms["S3"][1].append(ex)
         if p.get("live_gate_pass"):
             arms["LIVE"][0].append(p["scan_date"]); arms["LIVE"][1].append(ex)
     return {k: date_means(d, v) for k, (d, v) in arms.items()}
@@ -64,20 +66,20 @@ def report(picks: List[Dict], outcomes: List[Dict], cost_pct: float = 0.5) -> st
     lines = [f"Shadow selector report — cost {cost_pct:.2f}% per round trip, horizon 20 sessions, vs SPY",
              f"logged scan days: {len({p['scan_date'] for p in picks})}, "
              f"resolved days: {len({o['scan_date'] for o in outcomes})}", ""]
-    for name in ("S1", "S2", "LIVE", "ALL"):
+    for name in ("S1", "S2", "S3", "LIVE", "ALL"):
         r = cluster_bootstrap_mean(arms[name])
         lines.append(f"{name:5s} net excess/day  n_dates={r['n_dates']:3d}  mean={r['mean']:+6.2f}%  "
                      f"95% CI [{r['lo']:+.2f}, {r['hi']:+.2f}]  P(mean<=0)={r['p_le_0']:.3f}")
     lines.append("")
     verdicts = []
-    for name in ("S1", "S2"):
+    for name in ("S1", "S2", "S3"):
         d_all = paired_diff(arms[name], arms["ALL"])
         d_live = paired_diff(arms[name], arms["LIVE"])
         lines += [f"{name} - ALL   n={d_all['n_dates']}  mean={d_all['mean']:+.2f}%  CI [{d_all['lo']:+.2f}, {d_all['hi']:+.2f}]  P(<=0)={d_all['p_le_0']:.3f}",
                   f"{name} - LIVE  n={d_live['n_dates']}  mean={d_live['mean']:+.2f}%  CI [{d_live['lo']:+.2f}, {d_live['hi']:+.2f}]"]
         n = min(d_all["n_dates"], cluster_bootstrap_mean(arms[name])["n_dates"])
         s_ = cluster_bootstrap_mean(arms[name])
-        # two rules are tested -> Bonferroni: each needs one-sided P(mean<=0) < 0.025
+        # three rules are tested -> Bonferroni: each needs one-sided P(mean<=0) < ALPHA
         if n < N_MIN_DATES:
             verdicts.append(f"{name}: CONTINUE — {n}/{N_MIN_DATES} resolved dates.")
         elif s_["p_le_0"] < ALPHA and d_all["p_le_0"] < ALPHA:
@@ -96,7 +98,7 @@ def exit_report(picks: List[Dict], exits: List[Dict], cost_pct: float = 0.5) -> 
     for x in exits:
         by_key.setdefault((x["scan_date"], x["ticker"]), {})[x["policy"]] = x
     arms = {"ALL": lambda p: True, "S1": lambda p: bool(p.get("s1_rank")),
-            "S2": lambda p: bool(p.get("s2_rank")), "LIVE": lambda p: bool(p.get("live_gate_pass"))}
+            "S2": lambda p: bool(p.get("s2_rank")), "S3": lambda p: bool(p.get("s3_rank")), "LIVE": lambda p: bool(p.get("live_gate_pass"))}
     lines = ["", "Exit-policy comparison (net of %.2f%% cost; paired vs LEGACY; unit = scan date)" % cost_pct]
     if not exits:
         return "\n".join(lines + ["  no finished exit simulations yet"])

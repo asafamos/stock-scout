@@ -15,6 +15,8 @@ Rules (frozen — change = new RULE id, never edit in place):
          the technical+fundamental set was a volatility/size tilt)  universe: Close > 0, ATR_Pct > 0,
          market_cap > 0, sector not blocked.  Score = rank_pct(ATR_Pct) + rank_pct(-market_cap) among
          the universe of that day.  Pick: top 3 (ties by ticker asc).  No other gates.
+  S3_v1  = S2 + tradability filters (price >= 5, avg dollar volume >= $5M). This is EXACTLY the rule the
+         live v2 sleeve trades (core/trading/v2_selector.py), so live and measured cannot drift apart.
   LIVE   `live_gate_pass`: policy.evaluate_static_gates(row) with the production CONFIG at log
          time (score/ML/RR/ATR/fund/confidence/sector/regime/reliability gates). Not the
          IB-dependent gates (cash, slots, quote drift) and not the ranker.
@@ -145,7 +147,7 @@ def log_scan(parquet: Path = DEFAULT_PARQUET, picks_path: Path = PICKS_PATH,
             "reliability": g(r, "Reliability_Score"),
             "fund_coverage_pct": g(r, "Fundamental_Coverage_Pct"),
             "fund_sources": g(r, "Fundamental_Sources_Count"),
-            "market_cap": g(r, "market_cap", "Market_Cap"),
+            "market_cap": g(r, "market_cap", "Market_Cap"), "vol_avg": g(r, "vol_avg", "Vol_Avg"),
             "sector": s(r, "Sector", "sector"), "regime": s(r, "Market_Regime").upper(),
             "signal_quality": s(r, "SignalQuality"),
         }
@@ -161,9 +163,12 @@ def log_scan(parquet: Path = DEFAULT_PARQUET, picks_path: Path = PICKS_PATH,
     blocked = {x.strip() for x in getattr(cfg, "blocked_sectors_list", []) if x.strip()}
     ranks = select_s1(rows, blocked)
     ranks2 = select_s2(rows, blocked)
+    from core.trading.v2_selector import select_s3
+    ranks3 = select_s3(rows, blocked, top_n=S1_TOP_N)
     for rec in rows:
         rec["s1_rank"] = ranks.get(rec["ticker"])
         rec["s2_rank"] = ranks2.get(rec["ticker"])
+        rec["s3_rank"] = ranks3.get(rec["ticker"])
         rec["rule_id"] = RULE_ID
 
     logged_at = datetime.now(timezone.utc).isoformat()
@@ -175,7 +180,7 @@ def log_scan(parquet: Path = DEFAULT_PARQUET, picks_path: Path = PICKS_PATH,
         f.write(json.dumps({
             "scan_date": scan_date, "logged_at": logged_at, "rule_id": RULE_ID, "n_rows": len(rows),
             "s1_min_fund": S1_MIN_FUND, "s1_top_n": S1_TOP_N, "blocked_sectors": sorted(blocked),
-            "s1_picks": list(ranks), "s2_picks": list(ranks2), "n_live_pass": sum(1 for r in rows if r.get("live_gate_pass")),
+            "s1_picks": list(ranks), "s2_picks": list(ranks2), "s3_picks": list(ranks3), "n_live_pass": sum(1 for r in rows if r.get("live_gate_pass")),
         }) + "\n")
     logger.info("shadow_log: %s — %d rows, S1 picks %s, %d pass live gates",
                 scan_date, len(rows), list(ranks), sum(1 for r in rows if r.get("live_gate_pass")))

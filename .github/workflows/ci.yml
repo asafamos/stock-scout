@@ -103,6 +103,8 @@ jobs:
             tests/test_ml_degeneracy_guard.py \
             tests/test_performance_guard.py \
             tests/test_exit_profile.py \
+            tests/test_v2_selector.py \
+            tests/test_v2_sleeve_gates.py \
             tests/test_trading_policy.py \
             tests/test_shadow_pipeline.py \
             tests/test_outcome_resolver_v2.py \

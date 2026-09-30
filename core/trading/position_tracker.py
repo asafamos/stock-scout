@@ -211,6 +211,7 @@ class PositionTracker:
         scan_price: Optional[float] = None,
         exit_profile: Optional[str] = None,
         ref_price: Optional[float] = None,
+        sleeve: Optional[str] = None,
     ):
         # ── Runtime invariants (2026-05-15) ──
         # Catch silently-corrupt positions BEFORE they enter the tracker.
@@ -263,6 +264,7 @@ class PositionTracker:
                 # exit profile the position was opened under (see core/trading/exit_profile.py);
                 # the monitor's time-tighten / ratchet passes skip "atr_wide" positions.
                 **({"exit_profile": exit_profile} if exit_profile else {}),
+                **({"sleeve": sleeve} if sleeve else {}),
             })
             _atomic_write_json(self._positions_path, positions)
 

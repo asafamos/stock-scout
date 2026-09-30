@@ -261,6 +261,129 @@ class OrderManager:
         finally:
             _release_trade_lock(lock_fh)
 
+    # ── v2 sleeve (volatility + size tilt, next-open protocol) ──────────────────────────────
+    def execute_v2_sleeve(self, scan_df: Optional[pd.DataFrame] = None) -> List[Dict]:
+        """Run the v2 sleeve once: trade the top S3_v1 candidate from the PRIOR close's scan.
+
+        Default OFF (TRADE_V2_SLEEVE). Takes the same process lock as the legacy path so the two can
+        never overlap, never runs while the sleeve is self-disabled, and respects every safety gate
+        (risk.can_open_position(sleeve="v2")).
+        """
+        from core.trading import v2_selector as v2
+        if not v2.enabled():
+            logger.info("v2 sleeve: disabled (TRADE_V2_SLEEVE != 1)")
+            return []
+        why = v2.disabled_reason()
+        if why:
+            logger.warning("v2 sleeve: self-disabled — %s (delete data/state/v2_sleeve_disabled.json to re-enable)", why)
+            return []
+        if getattr(self.cfg, "dry_run", False):
+            return self._execute_v2_locked(scan_df)
+        lock_fh = _acquire_trade_lock()
+        if lock_fh is None:
+            logger.error("v2 sleeve: another trade run holds the trade lock — skipping")
+            return []
+        try:
+            return self._execute_v2_locked(scan_df)
+        finally:
+            _release_trade_lock(lock_fh)
+
+    def _execute_v2_locked(self, scan_df: Optional[pd.DataFrame]) -> List[Dict]:
+        from datetime import date as _date, timedelta as _td
+        from core.trading import exit_profile as xp
+        from core.trading import v2_selector as v2
+        if scan_df is None:
+            scan_df = self._load_scan_results()
+        if scan_df is None or scan_df.empty:
+            logger.warning("v2 sleeve: no scan — abort")
+            return []
+        # freshness: the signal must come from a recent COMPLETED session, not an old file
+        try:
+            asof = pd.to_datetime(scan_df["As_Of_Date"]).max().date()
+        except Exception:
+            asof = None
+        if asof is None or (_date.today() - asof) > _td(days=4):
+            logger.error("v2 sleeve: scan As_Of_Date %s is stale — abort", asof)
+            try:
+                notify.notify_error("v2 sleeve", f"scan As_Of_Date {asof} is stale — no v2 trade")
+            except Exception:
+                pass
+            return []
+        if not self.client.connect():
+            logger.error("v2 sleeve: cannot connect to IBKR — abort")
+            return []
+        results: List[Dict] = []
+        try:
+            # self-kill check (sleeve's own closed trades)
+            try:
+                from core.trading import ledger
+                health = v2.sleeve_health(ledger.closed_round_trips(self.cfg))
+            except Exception as _he:
+                logger.warning("v2 sleeve: health check unavailable (%s) — continuing", _he)
+                health = {"ok": True, "n": 0}
+            if not health["ok"]:
+                v2.disable(health["reason"])
+                logger.error("v2 sleeve SELF-DISABLED: %s", health["reason"])
+                try:
+                    notify.notify_error("v2 sleeve STOPPED", f"{health['reason']}. Re-enable by deleting data/state/v2_sleeve_disabled.json")
+                except Exception:
+                    pass
+                return []
+            try:
+                held = self._strict_held_tickers()
+                open_pos = self.tracker.get_open_positions_strict()
+                open_buys = set(self.client.get_open_buy_symbols())
+            except Exception as _de:
+                logger.error("v2 sleeve: held-position data unavailable (%s) — no buys", _de)
+                return []
+            n_sleeve = sum(1 for p in open_pos if p.get("sleeve") == "v2")
+            if n_sleeve >= v2.V2_MAX_POSITIONS:
+                logger.info("v2 sleeve: already %d sleeve position(s) open (max %d)", n_sleeve, v2.V2_MAX_POSITIONS)
+                return []
+            blocked = {x.strip() for x in getattr(self.cfg, "blocked_sectors_list", []) if x.strip()}
+            ranks = v2.select_s3(v2.rows_from_scan(scan_df), blocked, top_n=8)
+            if not ranks:
+                logger.info("v2 sleeve: empty candidate set")
+                return []
+            by_t = {str(r.get("Ticker", r.get("ticker", ""))).upper(): r for _, r in scan_df.iterrows()}
+            logger.info("v2 sleeve candidates (S3_v1): %s", list(ranks))
+            for tkr in ranks:
+                if tkr.upper() in held or tkr.upper() in open_buys:
+                    results.append({"ticker": tkr, "status": "skipped", "reason": "already held / open order"})
+                    continue
+                row = by_t[tkr.upper()].copy()
+                close = float(row.get("Close", row.get("close", 0)) or 0)
+                atr = float(row.get("ATR_Pct", row.get("atr_pct", 0)) or 0)
+                if close <= 0:
+                    continue
+                trail = xp.wide_trail_pct(atr)
+                row["Entry_Price"] = close                       # signal-time close = reference
+                row["Stop_Loss"] = round(close * (1 - trail / 100.0), 2)
+                row["Target_Price"] = round(close * 1.6, 2)
+                row["FinalScore_20d"] = 75.0                     # neutral sizing inputs (conviction tier 1.0)
+                row["RewardRisk"] = 2.0
+                row["ML_20d_Prob"] = 0.40
+                row["Target_Date"] = ""
+                res = self._execute_single(row, sleeve="v2")
+                results.append(res)
+                if res.get("status") in ("success", "dry_run"):
+                    break
+            done = [r for r in results if r.get("status") in ("success", "dry_run")]
+            if not done:
+                reasons = "; ".join(f"{r.get('ticker')}: {str(r.get('reason', r.get('error', '?')))[:70]}" for r in results[:4])
+                logger.info("v2 sleeve: no buy — %s", reasons)
+                try:
+                    tag = "[DRY] " if getattr(self.cfg, "dry_run", False) else ""
+                    notify._send(f"🎲 {tag}v2 sleeve: no buy today\n{reasons or 'no eligible candidate'}")
+                except Exception:
+                    pass
+            return results
+        finally:
+            try:
+                self.client.disconnect()
+            except Exception:
+                pass
+
     def _execute_recommendations_locked(
         self,
         scan_df: Optional[pd.DataFrame] = None,
@@ -1719,8 +1842,14 @@ class OrderManager:
             return pd.Series([0.5] * len(sector_series), index=sector_series.index)
         return sector_series.map(lambda s: etf_momentum.get(s, 0.5)).astype(float)
 
-    def _execute_single(self, row: pd.Series) -> Dict:
-        """Execute a single recommendation: buy + trailing stop + limit sell."""
+    def _execute_single(self, row: pd.Series, sleeve: str = "") -> Dict:
+        """Execute a single recommendation: buy + trailing stop + limit sell.
+
+        sleeve="v2": the volatility/size sleeve (core/trading/v2_selector.py). Same order/protection
+        machinery, but: atr_wide exit profile forced, legacy performance gates and heuristics (analyst
+        veto, news-catalyst skip, score/RR windows) skipped, gap/slippage guard widened to the sleeve's
+        next-open protocol (v2_selector.MAX_GAP_PCT).
+        """
         ticker = row.get("Ticker", row.get("ticker", ""))
         score = float(row.get("FinalScore_20d", row.get("Score", 0)))
         rr = float(row.get("RewardRisk", row.get("RR", 0)))
@@ -1740,7 +1869,8 @@ class OrderManager:
         # ATR-wide exit profile (canary): fixed time exit, not the scan's 20-day horizon. The
         # earnings-aware cap just below still applies on top.
         from core.trading import exit_profile as _xp
-        _exit_prof = _xp.profile()
+        from core.trading import v2_selector as _v2
+        _exit_prof = _xp.PROFILE_ATR_WIDE if sleeve == "v2" else _xp.profile()
         if _exit_prof == _xp.PROFILE_ATR_WIDE:
             from datetime import datetime as _dtx, timedelta as _tdx
             target_date = (_dtx.utcnow() + _tdx(days=_xp.MAX_HOLD_CAL_DAYS)).strftime("%Y-%m-%d")
@@ -1848,6 +1978,8 @@ class OrderManager:
             # the worst 10-15% of cases while keeping legit breakout entries.
             # Env-overridable via TRADE_MAX_SLIPPAGE_PCT for flexibility.
             _max_slip = float(getattr(self.cfg, "max_slippage_pct", 3.0))
+            if sleeve == "v2":
+                _max_slip = max(_max_slip, _v2.MAX_GAP_PCT)   # next-open entries legitimately gap
             if abs(move_pct) > _max_slip:
                 logger.warning(
                     "SLIPPAGE REJECT %s: scan $%.2f → live $%.2f (%+.2f%%, > %.1f%% threshold)",
@@ -1880,7 +2012,7 @@ class OrderManager:
         # If analyst mean < current price, the stock is rated overvalued —
         # refuse to trade.  Otherwise, cap our target at midpoint between
         # scan-target and analyst-mean so we don't target beyond consensus.
-        adjusted_target = _cap_target_with_analysts(ticker, price, target)
+        adjusted_target = target if sleeve == "v2" else _cap_target_with_analysts(ticker, price, target)
         if adjusted_target is None:
             return {"ticker": ticker, "status": "skipped",
                     "reason": f"Analyst mean PT below current price (overvalued)"}
@@ -1901,12 +2033,13 @@ class OrderManager:
         # routinely gap 2-3% on macro news; previous 3% threshold missed
         # the TDW oil-crash entry that stopped out 3 days later.
         scan_close = float(row.get("Close", row.get("close", 0)) or 0)
+        _gap_lim = _v2.MAX_GAP_PCT if sleeve == "v2" else 2.0
         if scan_close > 0 and price > 0:
             gap_pct = (price - scan_close) / scan_close * 100
-            if gap_pct > 2.0:
+            if gap_pct > _gap_lim:
                 return {"ticker": ticker, "status": "skipped",
                         "reason": f"Gap up {gap_pct:+.1f}% vs scan (entry risk too high)"}
-            if gap_pct < -2.0:
+            if gap_pct < -_gap_lim:
                 return {"ticker": ticker, "status": "skipped",
                         "reason": f"Gap down {gap_pct:+.1f}% vs scan (possible news event)"}
 
@@ -1920,7 +2053,7 @@ class OrderManager:
                                             row.get("Pct_Change_1d", 0)) or 0))
             vol_ratio = float(row.get("VolumeSurge",
                                        row.get("Volume_Surge", 1)) or 1)
-            if move_24h_pct >= 8.0 and vol_ratio >= 2.0:
+            if sleeve != "v2" and move_24h_pct >= 8.0 and vol_ratio >= 2.0:
                 logger.info(
                     "NEWS CATALYST SKIP %s: 24h move %.1f%% on %.1fx volume "
                     "— catalyst priced in",
@@ -1954,6 +2087,7 @@ class OrderManager:
             ml_prob=_row_ml,
             signal_quality=_row_sq, reliability_score=_row_rel,
             fundamental_score=_row_fund, tech_score=_row_tech, volume_surge=_row_vs,
+            sleeve=sleeve,
         )
         if not allowed:
             logger.info("SKIP %s: %s", ticker, reason)
@@ -2280,7 +2414,13 @@ class OrderManager:
                 scan_price=scan_price,
                 exit_profile=(_exit_prof if _exit_prof == _xp.PROFILE_ATR_WIDE else None),
                 ref_price=(live_price if live_price else None),
+                sleeve=(sleeve or None),
             )
+            if sleeve == "v2":
+                try:
+                    _v2.record_entry(ticker, qty, filled_price)
+                except Exception as _re:
+                    logger.warning("v2 sleeve entry bookkeeping failed for %s: %s", ticker, _re)
             _tracker_ok = True
         except Exception as _tracker_err:
             logger.error(
@@ -2314,9 +2454,10 @@ class OrderManager:
             _regime = str(row.get("Market_Regime", "") or "")
             notify.notify_buy(
                 ticker, qty, filled_price, stop, target, score,
-                trail_pct=trail_pct, rr=rr, target_date=target_date,
+                trail_pct=trail_pct, rr=(0.0 if sleeve == "v2" else rr), target_date=target_date,
                 ml_prob=ml_prob, fund_score=_fund, tech_score=_tech,
                 volume_surge=_vs, sector=sector, regime=_regime,
+                prefix=("V2-SLEEVE BUY (vol+size tilt)" if sleeve == "v2" else "BUY"),
             )
         # Store extra data (sector, ml_prob) for monitor's exit logic
         try:

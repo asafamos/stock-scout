@@ -69,6 +69,23 @@ def test_bar_on_scan_date_is_not_used_for_entry():
     assert r["entry_open"] == 100.5             # second bar's open
 
 
+def test_s3_is_logged_and_matches_the_live_selector(tmp_path):
+    rows = []
+    for i, (t, atr, mc, va) in enumerate([("WILD", 0.08, 5e8, 3e5), ("CALM", 0.02, 9e10, 5e6), ("MID", 0.05, 3e9, 4e5),
+                                          ("ILLQ", 0.09, 1e8, 1e3)]):
+        rows.append({"Ticker": t, "Close": 20.0, "ATR_Pct": atr, "market_cap": mc, "vol_vol": 0, "vol_avg": va,
+                     "Sector": "Technology", "Fundamental_Score": 50.0, "As_Of_Date": "2026-09-30",
+                     "FinalScore_20d": 78.0, "ML_20d_Prob": 0.5, "RewardRisk": 3.0, "Market_Regime": "SIDEWAYS",
+                     "SignalQuality": "High", "Reliability_Score": 90})
+    p = tmp_path / "s.parquet"
+    pd.DataFrame(rows).to_parquet(p)
+    picks, scans = tmp_path / "p.jsonl", tmp_path / "s.jsonl"
+    shadow_log.log_scan(p, picks, scans, cfg=CFG)
+    logged = {json.loads(x)["ticker"]: json.loads(x) for x in picks.read_text().splitlines()}
+    assert logged["WILD"]["s3_rank"] == 1 and logged["ILLQ"]["s3_rank"] is None   # illiquid excluded
+    assert json.loads(scans.read_text())["s3_picks"][0] == "WILD"
+
+
 def test_s2_prefers_volatile_small_caps_and_skips_blocked(tmp_path):
     rows = [
         {"ticker": "BIGCALM", "close": 50.0, "atr_pct": 0.01, "market_cap": 5e11, "sector": "Technology"},
