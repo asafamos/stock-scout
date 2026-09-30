@@ -1172,9 +1172,10 @@ def _drift_check(tracker, client, ibkr_orders, notify):
 
     # IB positions
     try:
+        from core.trading.ignore_list import is_ignored as _ign
         ib_pos_by_ticker = {p.contract.symbol: float(p.position)
                             for p in client._ib.portfolio()
-                            if p.position != 0}
+                            if p.position != 0 and not _ign(p.contract.symbol)}
     except Exception as _e:
         # Surface portfolio-fetch failures (with cooldown) so silent
         # degradation of the drift check doesn't go unnoticed. Previously

@@ -277,6 +277,9 @@ class IBKRClient:
                 # dict only contains ACTUAL holdings.
                 if p.position == 0:
                     continue
+                from core.trading.ignore_list import is_ignored
+                if is_ignored(p.contract.symbol):
+                    continue      # owner's passive ETF holding — not a bot position
                 positions.append(Position(
                     ticker=p.contract.symbol,
                     quantity=p.position,
@@ -292,9 +295,10 @@ class IBKRClient:
         and returns [], which the BUY dedup would read as 'we hold nothing')."""
         if self.cfg.dry_run:
             return []
+        from core.trading.ignore_list import is_ignored
         return [
             Position(ticker=p.contract.symbol, quantity=p.position, avg_cost=p.avgCost)
-            for p in self._ib.positions() if p.position != 0
+            for p in self._ib.positions() if p.position != 0 and not is_ignored(p.contract.symbol)
         ]
 
     def get_fills(self) -> List[dict]:

@@ -195,8 +195,11 @@ def realized_pnl(since: Optional[date] = None, until: Optional[date] = None,
                  cfg=None) -> float:
     """Sum of broker realized P&L (net of commission) over SELL executions
     in [since, until]. None bounds = unbounded."""
+    from core.trading.ignore_list import is_ignored
     total = 0.0
     for r in _sells(load(cfg)):
+        if is_ignored(r.get("ticker")):
+            continue          # owner's passive ETF — not a bot trade
         if since or until:
             dt = _parse_time(r.get("time"))
             d = dt.date() if dt else None
@@ -226,11 +229,12 @@ def closed_round_trips(cfg=None) -> List[dict]:
     (net of commission). Entry price is the FIFO-weighted average of the
     matched BUY shares. Used by /history.
     """
+    from core.trading.ignore_list import is_ignored
     rows = sorted(load(cfg), key=lambda r: str(r.get("time") or ""))
     by_ticker: Dict[str, List[dict]] = {}
     for r in rows:
         tkr = r.get("ticker")
-        if tkr:
+        if tkr and not is_ignored(tkr):
             by_ticker.setdefault(tkr, []).append(r)
 
     trips: List[dict] = []
