@@ -2279,6 +2279,7 @@ class OrderManager:
                 order_ids=order_ids,
                 scan_price=scan_price,
                 exit_profile=(_exit_prof if _exit_prof == _xp.PROFILE_ATR_WIDE else None),
+                ref_price=(live_price if live_price else None),
             )
             _tracker_ok = True
         except Exception as _tracker_err:

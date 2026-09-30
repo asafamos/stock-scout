@@ -210,6 +210,7 @@ class PositionTracker:
         order_ids: Optional[Dict[str, int]] = None,
         scan_price: Optional[float] = None,
         exit_profile: Optional[str] = None,
+        ref_price: Optional[float] = None,
     ):
         # ── Runtime invariants (2026-05-15) ──
         # Catch silently-corrupt positions BEFORE they enter the tracker.
@@ -275,6 +276,12 @@ class PositionTracker:
             log_extra["scan_price"] = scan_price
         if slippage_pct is not None:
             log_extra["slippage_pct"] = round(slippage_pct, 3)
+        # 2026-09-29: slippage_pct above is fill vs the scan's PLANNED entry price, which is not a
+        # cost of execution (the scan price is ~1h old). ref_price = the real-time quote the order was
+        # priced from; slippage_vs_ref_pct is the true execution cost (spread + limit chase).
+        if ref_price and ref_price > 0 and entry_price > 0:
+            log_extra["ref_price"] = round(float(ref_price), 4)
+            log_extra["slippage_vs_ref_pct"] = round((entry_price - float(ref_price)) / float(ref_price) * 100, 3)
         self._log_trade("OPEN", ticker, quantity, entry_price, log_extra)
         logger.info("Position added: %s x%d @ $%.2f", ticker, quantity, entry_price)
 
