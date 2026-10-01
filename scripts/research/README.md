@@ -12,3 +12,12 @@ Result that matters (2026-09-30): on the survivorship-reduced universe S3 is NOT
 live earnings rules (−12.2%). The earlier +17–22% on a 431-ticker survivor list was survivorship + single-position
 path noise. Lesson: never trust a backtest whose universe is today's winners, and a single-position sequential
 backtest is dominated by which few lottery tickets it happens to catch.
+
+## Where the data lives
+Research data is NOT in the repo and NOT in the session scratchpad (it gets wiped between sessions — lost once on
+2026-10-01). Use `~/StockScout/research_data/` (outside the repo): `build_pit_universe.py ~/StockScout/research_data`.
+
+* `exit_policy_pit.py <workdir> [topN]` — exit-policy comparison on random liquid entries of the point-in-time universe
+  (net of 0.7% cost). Result 2026-10-01 (top-2000, 2,067 entries): every tight-trail/short-horizon policy loses; only long
+  horizons with wide stops beat the legacy exit significantly (HOLD60 +1.57pp, ATR5 8–25 ≤60 +1.04pp, trail 15% ≤60 +0.83pp);
+  the 30-session CANARY is only +0.28pp (CI includes 0) — much smaller than the +1.45pp seen on the survivor-biased sample.
