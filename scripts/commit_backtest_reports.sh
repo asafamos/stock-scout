@@ -9,6 +9,8 @@ cd /home/stockscout/stock-scout-2
 git config user.name  "stockscout-vps[bot]"
 git config user.email "stockscout-vps@noreply.local"
 
+# 2026-10-01: the VPS working tree is never clean (runtime state files), so a plain `pull --rebase` was
+# refused ("You have unstaged changes") and the whole weekly unit FAILED every week. --autostash fixes it.
 git add reports/backtest_latest.json reports/backtest_history.jsonl 2>/dev/null || true
 
 if git diff --cached --quiet; then
@@ -24,7 +26,7 @@ for attempt in 1 2 3; do
     exit 0
   fi
   echo "commit_backtest_reports: push rejected (attempt $attempt), pulling with rebase and retrying"
-  git pull --rebase origin main || true
+  git pull --rebase --autostash origin main || true
 done
 
 echo "commit_backtest_reports: push failed after 3 attempts" >&2

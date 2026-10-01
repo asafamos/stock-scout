@@ -701,6 +701,48 @@ Persistent=false
 WantedBy=timers.target
 SVCEOF
 
+# --- Security hardening (2026-09-29 incident: IB API + VNC were reachable from the internet) ------------------
+# 1. keep IB Gateway API/VNC ports off the public interface (idempotent, re-applied at boot)
+sudo install -m 0755 "$(dirname "$0")/stockscout-firewall.sh" /usr/local/sbin/stockscout-firewall.sh
+sudo tee /etc/systemd/system/stockscout-firewall.service > /dev/null << 'SVCEOF'
+[Unit]
+Description=Keep IB Gateway API/VNC off the public internet
+After=docker.service network-online.target
+Wants=docker.service
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/stockscout-firewall.sh
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+# 2. fail2ban for sshd
+sudo apt-get install -y fail2ban >/dev/null 2>&1 || true
+sudo mkdir -p /etc/fail2ban/jail.d
+sudo tee /etc/fail2ban/jail.d/stockscout-sshd.local > /dev/null << 'SVCEOF'
+[sshd]
+enabled = true
+backend = systemd
+maxretry = 4
+findtime = 10m
+bantime = 12h
+SVCEOF
+# 3. key-only SSH — ONLY if a key is already installed (never lock yourself out of a fresh box)
+if [ -s /root/.ssh/authorized_keys ]; then
+  sudo mkdir -p /etc/ssh/sshd_config.d
+  sudo tee /etc/ssh/sshd_config.d/00-stockscout-hardening.conf > /dev/null << 'SVCEOF'
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+MaxAuthTries 3
+PermitRootLogin prohibit-password
+SVCEOF
+  sudo sshd -t && sudo systemctl reload ssh || echo "WARNING: sshd config test failed — hardening not applied"
+else
+  echo "WARNING: /root/.ssh/authorized_keys is empty — SSH password auth left ON. Add a key, then re-run."
+fi
+sudo systemctl daemon-reload
+sudo systemctl enable --now stockscout-firewall.service fail2ban >/dev/null 2>&1 || true
+
 # --- Weekly scorecard (2026-09-30): account vs SPY, sleeve stats, perf-guard level -> Telegram (Fri after close)
 sudo tee /etc/systemd/system/stockscout-weekly-vs-spy.service > /dev/null << 'SVCEOF'
 [Unit]

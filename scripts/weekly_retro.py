@@ -266,10 +266,13 @@ def _verdict(this_week: dict, last_week: dict) -> str:
     avg_hold = this_week.get("avg_hold", 0)
     pnl = this_week.get("total_pnl", 0)
     if pf >= 1.5 and avg_hold >= 5 and pnl > 0:
+        # 2026-10-01: this used to say "READY TO SCALE — add $1k" after ONE good week. With ~8% per-trade
+        # volatility a single week of <20 trades is statistical noise (SE ~2.5%/trade at n=10): it cannot
+        # justify adding capital. Scale decisions need >=30 closes AND the shadow verdict (mid-Jan 2027).
         return (
-            "🟢 <b>READY TO SCALE</b> — strong week:\n"
+            "🟢 <b>STRONG WEEK</b> (noise warning — not a reason to add capital):\n"
             f"  PF {pf:.2f} ≥ 1.5  |  hold {avg_hold:.1f}d ≥ 5  |  P&L ${pnl:+.2f}\n"
-            f"  Suggest: add $1k → $2k account → unlock cash-tier features."
+            f"  One week ≠ edge. Capital decisions: ≥30 closes + shadow verdict (≈ mid-Jan 2027)."
         )
     if pf >= 1.0:
         return (
