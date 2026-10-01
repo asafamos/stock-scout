@@ -101,7 +101,7 @@ def test_component_weights():
 
 
 def test_ml_delta_bounded():
-    """ML adjustment must be bounded to ±6 (matching ml_boost_component)"""
+    """ML adjustment must be bounded to ±12 (matching ml_boost_component)"""
     base_row = pd.Series({
         'Fundamental_S': 70.0,
         'Technical_S': 70.0,
@@ -116,19 +116,19 @@ def test_ml_delta_bounded():
         'RevG_f': 0.15,
     })
 
-    # Test ML prob = 0.0 (should give -6 penalty)
+    # Test ML prob = 0.0 (should give -12 penalty)
     row_low = base_row.copy()
     row_low['ML_Probability'] = 0.0
     score_low, components_low = compute_overall_score(row_low)
-    assert -6.5 <= components_low['ml_delta'] <= -5.5, \
-        f"ML delta {components_low['ml_delta']} should be ~-6"
+    assert -12.5 <= components_low['ml_delta'] <= -11.5, \
+        f"ML delta {components_low['ml_delta']} should be ~-12"
 
-    # Test ML prob = 1.0 (should give +6 boost)
+    # Test ML prob = 1.0 (should give +12 boost)
     row_high = base_row.copy()
     row_high['ML_Probability'] = 1.0
     score_high, components_high = compute_overall_score(row_high)
-    assert 5.5 <= components_high['ml_delta'] <= 6.5, \
-        f"ML delta {components_high['ml_delta']} should be ~+6"
+    assert 11.5 <= components_high['ml_delta'] <= 12.5, \
+        f"ML delta {components_high['ml_delta']} should be ~+12"
 
     # Test ML prob = 0.5 (should give 0 adjustment)
     row_neutral = base_row.copy()

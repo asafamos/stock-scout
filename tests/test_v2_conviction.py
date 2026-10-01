@@ -88,6 +88,9 @@ def test_score_ticker_v2_enhanced_end_to_end():
         'Price_Mean': 100.0,
         'סכום קנייה ($)': 100.0,
         'Unit_Price': 10.0,
+        # Share count uses the canonical entry price (Entry_Price > Price_Yahoo > Close);
+        # Unit_Price is intentionally ignored (e63587c3).
+        'Entry_Price': 10.0,
         'Risk_Level': 'core'
     })
 
@@ -100,4 +103,4 @@ def test_score_ticker_v2_enhanced_end_to_end():
     assert out['buy_amount_v2'] <= 750.0
     assert out['buy_amount_v2'] >= 50.0
     # Shares to buy reflect floor division
-    assert out['shares_to_buy_v2'] == int(out['buy_amount_v2'] / row['Unit_Price'])
+    assert out['shares_to_buy_v2'] == int(out['buy_amount_v2'] / row['Entry_Price'])

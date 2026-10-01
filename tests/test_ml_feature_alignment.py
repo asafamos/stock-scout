@@ -332,9 +332,11 @@ class TestMetadataHonesty:
         with open("models/model_20d_v3.metadata.json") as f:
             meta = json.load(f)
         feature_count = len(meta.get("feature_list", []))
-        # V3.4: 13, V3.5 (after retrain): 20 — accept either
-        assert feature_count >= 13, (
-            f"Expected at least 13 features, got {feature_count}"
+        # V3.4: 13, V3.5: 20, v3.9+: nightly training prunes permutation-negative
+        # features with min_features lowered 20 -> 5 (scripts/train_rolling_ml_20d.py,
+        # 2026-08-14), so the floor is 5.
+        assert feature_count >= 5, (
+            f"Expected at least 5 features, got {feature_count}"
         )
 
 

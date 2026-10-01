@@ -13,6 +13,30 @@ from core.serialization import scanresult_to_dataframe
 from typing import Dict, Any
 
 
+@pytest.fixture(autouse=True)
+def _offline_network(monkeypatch):
+    """Make these tests hermetic: the pipeline is fed a synthetic ``data_map`` but still
+    probes market-context / provider APIs (yfinance, Polygon, ...). Against live providers
+    that is slow (rate-limit retries, >100s) and flaky. Fail every outbound connection
+    fast so the pipeline falls back to its documented no-data defaults.
+    """
+    import socket
+
+    real_create = socket.create_connection
+
+    def _blocked(address, *a, **k):
+        host = address[0] if isinstance(address, tuple) else str(address)
+        if host in ("localhost", "127.0.0.1", "::1"):
+            return real_create(address, *a, **k)
+        raise OSError(f"network disabled in test: {host}")
+
+    monkeypatch.setattr(socket, "create_connection", _blocked)
+    monkeypatch.setattr(
+        socket, "getaddrinfo",
+        lambda host, *a, **k: (_ for _ in ()).throw(socket.gaierror(f"network disabled in test: {host}")),
+    )
+
+
 def make_synthetic_history(rows: int = 240) -> pd.DataFrame:
     """Create synthetic stock history for testing."""
     dates = pd.date_range(end=datetime.utcnow().date(), periods=rows, freq="B")

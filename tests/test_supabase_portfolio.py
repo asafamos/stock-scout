@@ -320,11 +320,15 @@ class TestSupabasePortfolioStats:
         assert stats["total_invested"] == 20000.0  # 100*100 + 200*50
 
     def test_stats_with_closed_positions(self):
+        # win_rate counts positions that hit the target (exit_reason == 'target'), not
+        # merely positive returns; manual closes are excluded from stats.
         closed = [
             _make_position_row("W1", 100.0, status="closed", user_id="test",
-                               realized_return_pct=10.0, prediction_correct=True),
+                               realized_return_pct=10.0, prediction_correct=True,
+                               exit_reason="target"),
             _make_position_row("L1", 100.0, status="closed", user_id="test",
-                               realized_return_pct=-5.0, prediction_correct=False),
+                               realized_return_pct=-5.0, prediction_correct=False,
+                               exit_reason="stop"),
         ]
         client = MagicMock()
         call_count = [0]

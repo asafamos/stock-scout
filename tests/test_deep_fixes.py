@@ -460,12 +460,19 @@ class TestROEQualityGate:
         assert 10.0 >= ROE_QUALITY_GATE["penalty_zone_max"]
 
     def test_roe_in_penalty_zone(self):
-        """ROE 4% (between 3-5%) should get a score penalty."""
+        """ROE in the penalty zone (min_roe..penalty_zone_max) should get a score penalty.
+
+        ROE_QUALITY_GATE is min_roe=5 / penalty_zone_max=10 (widened from 3/5); ROE below
+        min_roe is hard-blocked upstream rather than penalised in the score, so the
+        penalty-zone probe must sit inside [5, 10).
+        """
+        from core.scoring_config import ROE_QUALITY_GATE
+        assert ROE_QUALITY_GATE["min_roe"] <= 6.0 < ROE_QUALITY_GATE["penalty_zone_max"]
         from core.scoring_engine import compute_final_score_20d
-        # Score with ROE=4% (penalty zone)
+        # Score with ROE=6% (penalty zone)
         row_pen = pd.Series({
             "Fundamental_S": 60, "MomentumScore": 60, "RR": 2.0,
-            "ReliabilityScore": 70, "ROE": 4.0,
+            "ReliabilityScore": 70, "ROE": 6.0,
         })
         # Score with ROE=10% (no penalty)
         row_ok = pd.Series({
@@ -474,7 +481,7 @@ class TestROEQualityGate:
         })
         score_pen = compute_final_score_20d(row_pen)
         score_ok = compute_final_score_20d(row_ok)
-        assert score_pen < score_ok, f"ROE 4% score ({score_pen}) should be less than ROE 10% ({score_ok})"
+        assert score_pen < score_ok, f"ROE 6% score ({score_pen}) should be less than ROE 10% ({score_ok})"
 
 
 # ─── Entry offset config ─────────────────────────────────────────────

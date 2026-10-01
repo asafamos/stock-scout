@@ -4,7 +4,7 @@ Uses a mock Supabase client so no real network calls are made.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -169,10 +169,13 @@ class TestSaveScan:
 # ---------------------------------------------------------------------------
 class TestReadOperations:
     def test_get_scan_history_returns_dataframe(self):
+        # Timestamps must be relative to "now": get_scan_history(days=7) filters on a
+        # rolling cutoff, so hard-coded dates silently age out of the window.
+        now = datetime.now(timezone.utc)
         rows = [
-            {"scan_id": "scan_1", "timestamp": "2026-03-06T12:00:00Z",
+            {"scan_id": "scan_1", "timestamp": (now - timedelta(days=1)).isoformat(),
              "user_id": "default", "total_recommended": 20},
-            {"scan_id": "scan_2", "timestamp": "2026-03-05T12:00:00Z",
+            {"scan_id": "scan_2", "timestamp": (now - timedelta(days=2)).isoformat(),
              "user_id": "default", "total_recommended": 15},
         ]
         sm = SupabaseScanManager(_make_mock_client(rows), "default")
@@ -220,7 +223,9 @@ class TestReadOperations:
         df = sm.get_recommendations_for_scan("scan_x")
         assert df is not None
         assert len(df) == 1
-        assert df.iloc[0]["ticker"] == "TSLA"
+        # Columns are renamed DB snake_case -> pipeline PascalCase on load
+        # (7744c088, 659acfde), so ``ticker`` is exposed as ``Ticker``.
+        assert df.iloc[0]["Ticker"] == "TSLA"
 
 
 # ---------------------------------------------------------------------------

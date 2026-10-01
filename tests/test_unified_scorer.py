@@ -93,9 +93,12 @@ class TestUnifiedScorerInit:
         
         assert scorer.ml_enabled is True
         assert scorer.ml_max_boost == 10.0
-        # Weights derived from scoring_config: tech=0.55/(0.55+0.30)=0.647
-        assert scorer.technical_weight == pytest.approx(0.65, rel=0.02)
-        assert scorer.fundamental_weight == pytest.approx(0.35, rel=0.02)
+        # Defaults come from scoring_config.BASE_SCORE_WEIGHTS (currently 0.80/0.20;
+        # the comment next to it in scoring_config still mentions the old 0.647/0.353).
+        from core.scoring_config import BASE_SCORE_WEIGHTS
+        assert scorer.technical_weight == pytest.approx(BASE_SCORE_WEIGHTS["technical"])
+        assert scorer.fundamental_weight == pytest.approx(BASE_SCORE_WEIGHTS["fundamental"])
+        assert scorer.technical_weight + scorer.fundamental_weight == pytest.approx(1.0)
         assert scorer.use_v2_scoring is True
 
     def test_custom_config(self):
@@ -174,8 +177,11 @@ class TestUnifiedScorerScoring:
             fundamental_data={"roe": 0.20}
         )
         
-        # With 69% tech (70) + 31% fund (60) = 48.3 + 18.6 = 66.9
-        assert result.final_conviction == pytest.approx(66.9, rel=0.01)
+        # Base conviction = tech(70)*w_tech + fund(60)*w_fund with the configured
+        # BASE_SCORE_WEIGHTS (0.80/0.20 -> 68.0)
+        from core.scoring_config import BASE_SCORE_WEIGHTS
+        expected = 70.0 * BASE_SCORE_WEIGHTS["technical"] + 60.0 * BASE_SCORE_WEIGHTS["fundamental"]
+        assert result.final_conviction == pytest.approx(expected, rel=0.01)
         assert result.technical_score == 70.0
         assert result.fundamental_score == 60.0
         assert result.ml_boost == 0.0
@@ -193,8 +199,10 @@ class TestUnifiedScorerScoring:
             fundamental_data={"roe": 0.20}
         )
         
-        # Base: 66.9 + ML boost 2.0 = 68.9
-        assert result.final_conviction == pytest.approx(68.9, rel=0.01)
+        # Base (configured weights, 68.0) + ML boost 2.0
+        from core.scoring_config import BASE_SCORE_WEIGHTS
+        base = 70.0 * BASE_SCORE_WEIGHTS["technical"] + 60.0 * BASE_SCORE_WEIGHTS["fundamental"]
+        assert result.final_conviction == pytest.approx(base + 2.0, rel=0.01)
         assert result.ml_boost == 2.0
         assert result.ml_status == "enabled"
         assert result.ml_probability == 0.65

@@ -370,11 +370,23 @@ class TestInferenceConsistency:
         # Features should be list
         assert isinstance(features, list), "Features should be a list"
         
-        # First feature should be Support_Strength (V3.4+) or RSI (older versions)
+        # The model's feature set is pruned by every nightly retrain (min_features=5),
+        # so the *identity* of the first feature is not stable. What must hold is that
+        # the order served to inference is exactly the order recorded in the model
+        # metadata, with no duplicates.
         if len(features) > 0:
-            assert features[0] in ('Support_Strength', 'RSI'), (
-                f"First feature should be Support_Strength or RSI, got {features[0]}"
-            )
+            assert all(isinstance(f, str) for f in features)
+            assert len(features) == len(set(features)), "Duplicate feature names"
+            import json
+            import os
+            meta_path = os.path.join("models", "model_20d_v3.metadata.json")
+            if os.path.exists(meta_path):
+                with open(meta_path) as f:
+                    meta_features = json.load(f).get("feature_list", [])
+                if meta_features:
+                    assert list(features) == list(meta_features), (
+                        f"Feature order {features} != metadata order {meta_features}"
+                    )
 
 
 # =============================================================================

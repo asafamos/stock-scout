@@ -24,7 +24,10 @@ class TestSafeFloat:
         """Auto-scale small decimals to percentages."""
         assert _safe_float(0.05, scale_to_pct=True) == 5.0
         assert _safe_float(0.15, scale_to_pct=True) == 15.0
-        assert _safe_float(1.5, scale_to_pct=True) == 150.0  # Already large
+        # Values >= 0.5 are assumed to already be in percent units (threshold lowered
+        # from 2 to 0.5 in 65f1170a so e.g. ROE 1.5% is not inflated to 150%).
+        assert _safe_float(1.5, scale_to_pct=True) == 1.5
+        assert _safe_float(15.0, scale_to_pct=True) == 15.0
     
     def test_none_and_invalid(self):
         """Return None for invalid inputs."""

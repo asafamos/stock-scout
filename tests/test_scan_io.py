@@ -8,6 +8,14 @@ from pathlib import Path
 from core.scan_io import save_scan, load_latest_scan, list_available_scans, get_scan_summary
 
 
+@pytest.fixture(autouse=True)
+def _no_supabase_writes(monkeypatch):
+    """save_scan() opportunistically uploads to Supabase using whatever credentials the
+    environment has. These unit tests only exercise local persistence, so use the
+    documented kill switch rather than writing fixture scans to the production DB."""
+    monkeypatch.setenv("SUPABASE_SAVE_DISABLED", "1")
+
+
 @pytest.fixture
 def sample_results_df():
     """Sample results DataFrame for testing."""
@@ -204,7 +212,10 @@ def test_save_scan_preserves_datatypes(sample_results_df, sample_config, temp_sc
     
     # Check dtypes preserved
     assert df["Score"].dtype == float, "Score should be float"
-    assert df["Risk_Level"].dtype == object, "Risk_Level should be object (string)"
+    # pandas >= 3 reads string columns back as the dedicated ``str`` dtype, older
+    # versions as ``object`` -- accept any string dtype.
+    assert pd.api.types.is_string_dtype(df["Risk_Level"]), "Risk_Level should be a string dtype"
+    assert df["Risk_Level"].tolist() == ["core", "core", "core"]
     assert df["buy_amount_v2"].dtype == float, "buy_amount_v2 should be float"
 
 
