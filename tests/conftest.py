@@ -64,3 +64,12 @@ def _no_real_telegram(monkeypatch):
     except Exception:
         pass
     yield
+
+
+# ── Never let a test write to the production Supabase ───────────────────────
+# 2026-10-01: core.scan_io.save_scan uploads with whatever credentials are in the environment. Over months the
+# suite left ~90 "live_test" scans (user_id='default', universe size 1) in production scan_history. The existing
+# kill switch is now forced ON for every test (tests that exercise Supabase use mocks, not the network).
+@pytest.fixture(autouse=True)
+def _no_real_supabase_writes(monkeypatch):
+    monkeypatch.setenv("SUPABASE_SAVE_DISABLED", "1")
