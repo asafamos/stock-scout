@@ -88,6 +88,11 @@ def main(argv=None) -> int:
         actions = ex.plan(sig["state"], holdings, prices, cash, netliq)
         logger.info("holdings=%s cash=%.2f netliq=%.2f prices=%s -> plan=%s", holdings, cash, netliq, prices, actions)
         if not actions:
+            want = ex.want_instrument(sig["state"])
+            if live and prices.get(want, 0) <= 0 and not holdings.get(want):
+                # a silent "nothing to do" because the price feed failed would look exactly like a healthy no-op
+                notify.notify_error("CoreTrend", f"no price for {want} at run time — NOTHING was done (will retry next run)")
+                return 1
             print("CoreTrend: nothing to do"); return 0
         for act in actions:
             sym, qty = act["symbol"], int(act["qty"])
