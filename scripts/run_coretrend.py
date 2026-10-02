@@ -104,14 +104,16 @@ def main(argv=None) -> int:
                     print(f"[DRY] BUY {qty} x {sym} @ limit {limit} + wide TRAIL {ex.PROTECT_TRAIL_PCT}%  ({act['why']})"); continue
                 res = client.buy_with_bracket(sym, qty, ex.PROTECT_TRAIL_PCT, round(px * 3, 2), limit_price=limit)
                 st = res["buy"].status if isinstance(res, dict) and "buy" in res else "?"
-                notify._send(f"🧭 <b>CoreTrend BUY {sym}</b> x{qty} @~${px:.2f} — {act['why']} (status {st}); wide {ex.PROTECT_TRAIL_PCT:.0f}% protective trail")
+                sent = notify._send(f"🧭 <b>CoreTrend BUY {sym}</b> x{qty} @~${px:.2f} — {act['why']} (status {st}); wide {ex.PROTECT_TRAIL_PCT:.0f}% protective trail")
+                logger.info("telegram BUY alert sent=%s", sent)
                 if st in ("Error", "?"):
                     notify.notify_error("CoreTrend", f"BUY {sym} x{qty} failed/unfilled ({st}) — will retry next run")
             else:
                 if not live:
                     print(f"[DRY] SELL_ALL {qty} x {sym} via TRAIL-modify  ({act['why']})"); continue
                 res = client.force_exit_via_trail(sym, aggressive=True)
-                notify._send(f"🧭 <b>CoreTrend SELL {sym}</b> x{qty} — {act['why']} (status {res.status}); the {ex.RISK_INSTRUMENT if sym == ex.SAFE_INSTRUMENT else ex.SAFE_INSTRUMENT} buy follows on the next run after settlement")
+                sent = notify._send(f"🧭 <b>CoreTrend SELL {sym}</b> x{qty} — {act['why']} (status {res.status}); the {ex.RISK_INSTRUMENT if sym == ex.SAFE_INSTRUMENT else ex.SAFE_INSTRUMENT} buy follows on the next run after settlement")
+                logger.info("telegram SELL alert sent=%s", sent)
                 if res.status in ("Error",):
                     notify.notify_error("CoreTrend", f"exit of {sym} failed ({getattr(res, 'error', '')}) — CHECK MANUALLY")
         return 0

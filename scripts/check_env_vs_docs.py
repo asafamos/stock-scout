@@ -66,6 +66,7 @@ EXPECTED = {
     "TRADE_THROTTLE_MODE":        "expectancy",
     "TRADE_EXIT_PROFILE":         "atr_wide",   # 2026-09-29 canary; roll back with legacy
     "TRADE_V2_SLEEVE":            "1",          # 2026-09-30 v2 sleeve LIVE (owner set it on the VPS); rollback = 0 (and this + CLAUDE.md)
+    "TRADE_CORETREND":            "1",          # 2026-10-02 CoreTrend LIVE (owner set it); rollback = 0 or kill file data/state/coretrend_disabled.json (and this + CLAUDE.md)
     # ── Ops guards ──────────────────────────────────────────────
     "TRADE_MAX_DAILY_LOSS_PCT":   "5.0",
     "TRADE_MAX_SLIPPAGE_PCT":     "3.0",
