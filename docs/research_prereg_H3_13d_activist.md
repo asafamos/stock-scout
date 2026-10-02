@@ -36,3 +36,16 @@ Corrected definition (fixed before looking at any holdout number; chosen for cor
 - Event = the FIRST 13D-type row ever seen for the pair (symbol, nameOfReportingPerson normalised) in the full downloaded history (1996+); later rows by the same person for the same stock are treated as amendments. This also handles the XML era.
 - Then unit/dedupe/entry/exit/universe/horizons/criteria exactly as above. K stays 2, but it is disclosed that the development period was inspected twice (old and new definition).
 Residual limitation: old `.txt` filings (pre-2013) cannot be classified from the URL, so a stock's earlier 13D by the same person may be missed; those few later filings could be mislabeled "first". Reported, not fixed.
+
+---
+## RESULT (run 2026-10-03, corrected definition A2) — VERDICT: DEAD (no positive drift; point estimates negative)
+| test | period | events | mean excess | month-cluster t | net of costs (CI) |
+|---|---|---|---|---|---|
+| h=20d U1 | dev 2018-21 | 832 | −1.00% | −1.63 | −1.59% [−2.81, −0.37] |
+| h=60d U1 | dev | 832 | −1.95% | −0.69 | −1.41% [−3.77, +0.96] |
+| h=20d U1 | **holdout 2022-26** | 1,457 | **−1.16%** (median −1.22%) | −1.43 | −1.37% [−2.45, −0.28] |
+| h=60d U1 | **holdout** | 1,457 | **−1.40%** (median −2.62%) | −1.92 | −2.20% [−3.85, −0.54] |
+Holdout by year (20d): 2022 −1.49%, 2023 −0.55%, 2024 +0.61%, 2025 −0.28%, 2026 −3.69%. Capacity ample (27 events/month) but irrelevant.
+Bar not met (needs positive mean, |t| ≥ 3.0, net CI lower bound > 0): the estimates are NEGATIVE, not significantly so. Note the event set is "first 13D by a (stock, person)" and therefore mixes
+activists with insiders, sponsors and acquirers; a pure-activist subset (hedge-fund filers) was not pre-registered and is not tested. The prereg classification was corrected once (A2) after the
+development run exposed substring false positives; the holdout was run once, after the correction. Conclusion: no tradable post-13D-filing drift at 20-60 day horizons for our universe/size.
