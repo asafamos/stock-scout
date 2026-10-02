@@ -105,6 +105,8 @@ jobs:
             tests/test_exit_profile.py \
             tests/test_v2_selector.py \
             tests/test_weekly_vs_spy.py \
+            tests/test_coretrend.py \
+            tests/test_ignore_list.py \
             tests/test_v2_sleeve_gates.py \
             tests/test_trading_policy.py \
             tests/test_shadow_pipeline.py \

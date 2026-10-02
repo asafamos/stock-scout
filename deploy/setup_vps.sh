@@ -743,6 +743,60 @@ fi
 sudo systemctl daemon-reload
 sudo systemctl enable --now stockscout-firewall.service fail2ban >/dev/null 2>&1 || true
 
+# --- CoreTrend (2026-10-02): QQQ/IEF 10-month trend rule, 2-3 trades/year. No-op unless TRADE_CORETREND=1.
+sudo tee /etc/systemd/system/stockscout-coretrend.service > /dev/null << 'SVCEOF'
+[Unit]
+Description=StockScout CoreTrend executor (idempotent daily run)
+OnFailure=stockscout-notify-failure@coretrend.service
+
+[Service]
+Type=oneshot
+User=stockscout
+WorkingDirectory=/home/stockscout/stock-scout-2
+EnvironmentFile=/home/stockscout/stock-scout-2/.env.trading
+Environment=TRADE_LIVE_CONFIRMED=1
+ExecStart=/home/stockscout/stock-scout-2/.venv/bin/python -m scripts.run_coretrend
+TimeoutStartSec=600
+SVCEOF
+
+sudo tee /etc/systemd/system/stockscout-coretrend.timer > /dev/null << 'SVCEOF'
+[Unit]
+Description=CoreTrend 09:45 New York time, Mon-Fri (DST-aware)
+
+[Timer]
+OnCalendar=Mon..Fri 09:45:00 America/New_York
+Persistent=false
+
+[Install]
+WantedBy=timers.target
+SVCEOF
+
+# --- CoreTrend month-end decision alert (Telegram only on the last trading day of a month)
+sudo tee /etc/systemd/system/stockscout-coretrend-alert.service > /dev/null << 'SVCEOF'
+[Unit]
+Description=CoreTrend month-end decision alert
+OnFailure=stockscout-notify-failure@coretrend-alert.service
+
+[Service]
+Type=oneshot
+User=stockscout
+WorkingDirectory=/home/stockscout/stock-scout-2
+EnvironmentFile=/home/stockscout/stock-scout-2/.env.trading
+ExecStart=/home/stockscout/stock-scout-2/.venv/bin/python -m scripts.coretrend_paper --alert-if-last-day
+SVCEOF
+
+sudo tee /etc/systemd/system/stockscout-coretrend-alert.timer > /dev/null << 'SVCEOF'
+[Unit]
+Description=CoreTrend month-end alert 17:50 New York time, Mon-Fri
+
+[Timer]
+OnCalendar=Mon..Fri 17:50:00 America/New_York
+Persistent=false
+
+[Install]
+WantedBy=timers.target
+SVCEOF
+
 # --- Weekly scorecard (2026-09-30): account vs SPY, sleeve stats, perf-guard level -> Telegram (Fri after close)
 sudo tee /etc/systemd/system/stockscout-weekly-vs-spy.service > /dev/null << 'SVCEOF'
 [Unit]

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import os
 
-DEFAULT = "SPY,VOO,IVV,VTI,QQQ,QQQM,SCHB,ITOT,VT,IWM,DIA,VXUS,BND"
+DEFAULT = "SPY,VOO,IVV,VTI,QQQ,QQQM,SCHB,ITOT,VT,IWM,DIA,VXUS,BND,AGG,IEF,TLT,SGOV,BIL,SHY"
 
 
 def ignored() -> set:
