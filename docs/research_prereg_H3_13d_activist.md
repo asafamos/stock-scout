@@ -25,3 +25,14 @@ already gone; we ask whether a further drift remains). Expected sign: positive.
 3. Net of costs (spread 5/10/25 bp by cap band + $0.35/leg on a $270 position + 0.15% slippage) mean excess > 0 with 95% CI lower bound > 0.
 4. Capacity: ≥ 4 qualifying events per month on average (a 3-position account needs roughly one per week).
 Also reported: events per year, by-year means, median (not only mean) to flag outlier-driven results.
+
+---
+## AMENDMENT A2 (2026-10-02) — classification rule corrected AFTER the development run exposed it as defective (holdout still UNSEEN)
+What happened: the first development run (rule above) gave mean excess −1.90% (20d, t −1.98) and −3.25% (60d) — opposite to the hypothesis — with 47,606 "13D-initial" rows.
+Inspecting URL samples (a data-hygiene check, not a return-based search) showed the substring rule is wrong: (1) `d884513dsc13g.htm` is a 13G but contains "13d" inside the accession-derived
+number ("45**13d**sc"); (2) since Dec-2024 filings use `xslschedule_13d_x01/primary_doc.xml` for BOTH initial 13D and 13D/A, so the URL cannot separate them.
+Corrected definition (fixed before looking at any holdout number; chosen for correctness, not for results):
+- 13D-type row = url (lower-cased) matches regex `(?<!\d)13d` (a "13d" not preceded by a digit). 13G rows are never events.
+- Event = the FIRST 13D-type row ever seen for the pair (symbol, nameOfReportingPerson normalised) in the full downloaded history (1996+); later rows by the same person for the same stock are treated as amendments. This also handles the XML era.
+- Then unit/dedupe/entry/exit/universe/horizons/criteria exactly as above. K stays 2, but it is disclosed that the development period was inspected twice (old and new definition).
+Residual limitation: old `.txt` filings (pre-2013) cannot be classified from the URL, so a stock's earlier 13D by the same person may be missed; those few later filings could be mislabeled "first". Reported, not fixed.
