@@ -29,3 +29,11 @@ Statistic: average excess return per event-DATE (cluster by date), t-stat across
 3. Net of costs (spread 5/10/25 bp by cap band + Tiered $0.35/leg on a $270 position ≈ 0.26% RT + 0.15% slippage) mean excess per Up event > 0 with 95% CI lower bound > 0.
 4. Capacity: ≥ 3 qualifying Up events per week on average at our size filters.
 Gate to open the holdout: development shows the right sign AND |t| ≥ 2 for that test.
+
+---
+## AMENDMENT A1 (2026-10-02, made BEFORE any H2 grades data was analysed; prompted by owner's point that markets change)
+The "gate to open the holdout" sentence above is REPLACED: the LOCKED recent holdout (2022-01 … 2026-09) is evaluated ONCE for all 4 tests
+regardless of what development shows (an effect that only exists in the recent regime must not be missed). Development (2018-06…2021-12)
+is reported for stability/diagnosis only. The success criteria on the holdout are unchanged, and the number of tests stays K = 4.
+Also reported: mean excess by calendar year, and by half-years, to show whether any effect is decaying. This amendment applies to H2 onward;
+for H1 (already analysed in development under the old gate) a single holdout run is a documented exception that the owner may authorise (K for H1 rises to 8).
