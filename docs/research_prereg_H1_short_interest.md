@@ -47,3 +47,17 @@ Total tests K = 2 signals × 2 universes = 4. (Bonferroni-adjusted p reported wi
 ## Reporting
 Development results first (IC, t, deciles). If development shows IC with the right sign and |t| ≥ 2, run the holdout ONCE and report
 the verdict ALIVE / DEAD / NOT TRADABLE with all numbers. No re-tuning after seeing the holdout.
+
+---
+## RESULT — development period (2018-06 … 2021-12), run 2026-10-02 — VERDICT: DEAD in development, holdout NOT run
+84 decision dates, 182,818 rows, ~2,200 names/date (U1), ~1,350 (U2). Short interest rows 3.25M (210 settlement dates).
+| signal | universe | mean IC | t | NW-t | D1−D10 spread / 10d |
+|---|---|---|---|---|---|
+| SIR | U1 | −0.019 | −1.41 | −1.37 | +0.003% |
+| DTC | U1 | −0.003 | −0.40 | −0.49 | −0.196% |
+| SIR | U2 | −0.013 | −0.98 | −0.98 | +0.020% |
+| DTC | U2 | −0.003 | −0.33 | −0.36 | −0.208% |
+Hypothesised sign (negative) holds weakly for SIR, but |t| < 2 in every test, the decile spread is ≈ 0 (D1 and D10 both ≈ −0.11% vs
+the universe mean), and the sign flips in 2020 (+0.038). Prereg gate to touch the holdout: right sign AND |t| ≥ 2 in development → NOT met.
+The locked holdout (2022-01 … 2026-09) was therefore never evaluated and stays unseen. Conclusion: no usable edge in FINRA short interest
+at a 10-day horizon on a tradable universe in this window. (Caveat: 84 dates; a true IC of −0.02 would need ~250 dates to detect.)
