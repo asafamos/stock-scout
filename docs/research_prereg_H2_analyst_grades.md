@@ -37,3 +37,17 @@ regardless of what development shows (an effect that only exists in the recent r
 is reported for stability/diagnosis only. The success criteria on the holdout are unchanged, and the number of tests stays K = 4.
 Also reported: mean excess by calendar year, and by half-years, to show whether any effect is decaying. This amendment applies to H2 onward;
 for H1 (already analysed in development under the old gate) a single holdout run is a documented exception that the owner may authorise (K for H1 rises to 8).
+
+---
+## RESULT (run 2026-10-02) — VERDICT: DEAD (does not clear the bar; effect small and decaying; negative after costs)
+Data: 104,820 upgrade/downgrade rows, 3,988 symbols; after netting/dedupe 24,595 dev events and 24,720 holdout events. Per-event-date clustering.
+| test | period | events | mean excess /10d | t | NW-t | net of costs (CI) |
+|---|---|---|---|---|---|---|
+| Up U1 | dev 2018-21 | 9,322 | +0.241% | +2.61 | +2.54 | −0.276% [−0.457, −0.095] |
+| Up U1 | **holdout 2022-26** | 10,903 | **+0.189%** | **+1.99** | +1.89 | **−0.319% [−0.504, −0.134]** |
+| Up U2 | holdout | 9,334 | +0.068% | +0.73 | +0.70 | −0.413% [−0.596, −0.230] |
+| Down U1 | holdout | 11,532 | +0.061% (wrong sign) | +0.58 | +0.53 | short side −0.581% |
+| Down U2 | holdout | 9,167 | +0.056% (wrong sign) | +0.51 | +0.50 | short side −0.539% |
+Holdout Up U1 by year: 2022 +0.77%, 2023 −0.04%, 2024 +0.14%, 2025 +0.07%, 2026 −0.10% → the drift is concentrated in 2022 and has faded to ≈ 0; halves +0.31% / +0.06%.
+Bar not met: |t| = 1.99 < 3.0; second-half effect ≈ 0; net-of-cost CI entirely below 0 (round-trip cost ≈ 0.5% at our size exceeds the ≈ 0.2% gross drift). Capacity is ample (~45 Up events/week) but irrelevant.
+Downgrades show no drift (wrong sign, t ≈ 0.5). Conclusion: analyst rating changes carry no tradable post-event drift at a 10-day horizon at our size in 2018-2026.
