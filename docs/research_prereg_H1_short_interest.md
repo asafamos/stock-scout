@@ -61,3 +61,9 @@ Hypothesised sign (negative) holds weakly for SIR, but |t| < 2 in every test, th
 the universe mean), and the sign flips in 2020 (+0.038). Prereg gate to touch the holdout: right sign AND |t| ≥ 2 in development → NOT met.
 The locked holdout (2022-01 … 2026-09) was therefore never evaluated and stays unseen. Conclusion: no usable edge in FINRA short interest
 at a 10-day horizon on a tradable universe in this window. (Caveat: 84 dates; a true IC of −0.02 would need ~250 dates to detect.)
+
+---
+## AMENDMENT A1 (2026-10-02, owner-authorised in chat: "yes" to running the recent holdout once)
+After the development verdict above (DEAD in development), the owner asked that the recent regime (2022-01 … 2026-09) still be evaluated once,
+because markets change and an effect could exist only recently. Documented exception: ONE holdout run, K rises from 4 to 8 for multiple-testing purposes
+(bar stays |t| ≥ 3.0 on the holdout, plus all other criteria above). Result recorded below whatever it is; no re-run, no re-tuning.
