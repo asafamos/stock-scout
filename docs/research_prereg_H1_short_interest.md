@@ -67,3 +67,19 @@ at a 10-day horizon on a tradable universe in this window. (Caveat: 84 dates; a 
 After the development verdict above (DEAD in development), the owner asked that the recent regime (2022-01 … 2026-09) still be evaluated once,
 because markets change and an effect could exist only recently. Documented exception: ONE holdout run, K rises from 4 to 8 for multiple-testing purposes
 (bar stays |t| ≥ 3.0 on the holdout, plus all other criteria above). Result recorded below whatever it is; no re-run, no re-tuning.
+
+---
+## RESULT — LOCKED HOLDOUT (2022-01 … 2026-09), single run 2026-10-02 — VERDICT: ALIVE as a cross-sectional predictor, NOT TRADABLE long-only
+112 decision dates, 258,858 rows, ~2,300 names/date (U1).
+| signal | universe | mean IC | t | NW-t | D1(low SI) excess | D10(high SI) excess | D1−D10 / 10d |
+|---|---|---|---|---|---|---|---|
+| SIR | U1 | −0.039 | **−3.17** | −3.07 | +0.04% | **−0.67%** | +0.72% |
+| DTC | U1 | −0.016 | −1.97 | −1.73 | −0.36% | −0.21% | −0.15% |
+| SIR | U2 | −0.032 | −2.68 | −2.56 | +0.03% | −0.43% | +0.46% |
+| DTC | U2 | −0.018 | −2.50 | −2.27 | −0.11% | −0.18% | +0.08% |
+SIR/U1 clears the |t| ≥ 3.0 bar with the right sign (K=8 Bonferroni p ≈ 0.012); IC negative in every calendar year 2022-2026 (−0.049, −0.046, −0.050, −0.017, −0.030).
+The development period had shown only IC −0.019 (t −1.4): the effect is concentrated in the recent regime (consistent with the owner's regime-change point).
+BUT the information sits entirely on the SHORT side: the highest-SI decile underperforms by 0.67%/10d, while the lowest-SI decile earns ≈ 0 excess
+(long-only D1 excess +0.04%, t +0.29) → prereg criterion 4 (long-only net excess > 0, CI lower bound > 0) FAILS. A cash account < $2k cannot short.
+Usable form: an AVOID filter (exclude top-decile short interest from any long candidate list). Expected gain is small: it only changes outcomes when a
+candidate would have come from the top decile.
