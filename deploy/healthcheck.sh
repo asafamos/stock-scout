@@ -481,10 +481,15 @@ if [ -f "${TRACKER}" ]; then
 import os
 from datetime import datetime, timezone, timedelta
 from ib_insync import IB
+try:
+    from core.trading.ignore_list import is_ignored
+except Exception:
+    is_ignored = lambda s: False
 GRACE_MIN = int(os.environ.get(\"TRADE_DRIFT_RECENT_FILL_GRACE_MIN\", \"30\"))
 try:
     ib = IB(); ib.connect(\"127.0.0.1\", 7496, clientId=int(os.environ[\"DRIFT_CID\"]), timeout=10)
-    syms = sorted({p.contract.symbol for p in ib.positions() if p.position != 0})
+    # passive ETFs (CoreTrend QQQM/IEF etc.) are invisible to the tracker by design
+    syms = sorted({p.contract.symbol for p in ib.positions() if p.position != 0 and not is_ignored(p.contract.symbol)})
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=GRACE_MIN)
     recent_buys, recent_sells = set(), set()
     try:
