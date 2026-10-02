@@ -28,3 +28,16 @@ Statistic: mean excess per event, clustered by calendar month; t across months (
 3. Net of costs (5/10/25 bp spread by cap band + $0.35/leg on a $270 position + 0.15% slippage), mean excess > 0 with 95% CI lower bound > 0.
 4. Capacity: ≥ 4 qualifying events per month on average.
 Reported secondarily (NOT a test): split of mean excess by market-cap band ($0.3–2B vs ≥ $2B) to show where any effect lives.
+
+---
+## RESULT (run 2026-10-03) — VERDICT: DEAD against the pre-registered bar (small, decaying, ≈ 0 net of costs)
+Data: 299,799 raw rows → 213,932 valid purchases, 4,019 symbols. Event construction verified on a random sample before the holdout run (distinct insiders within 30 days; event date = later public filing).
+| test | period | events (U1) | mean excess 60d | median | month-cluster t | net of costs (CI) |
+|---|---|---|---|---|---|---|
+| E1 cluster | dev 2018-21 | 1,833 | +0.80% | −0.96% | +1.97 | +0.94% [−0.57, +2.45] |
+| E1 cluster | **holdout 2022-26** | 2,166 | **+0.64%** | −1.06% | **+1.13** | **−0.01% [−0.99, +0.98]** |
+| E2 large | dev | 1,887 | +0.99% | −0.02% | +1.32 | +0.35% [−0.99, +1.69] |
+| E2 large | **holdout** | 2,652 | **+0.24%** | −1.26% | **+0.64** | **−0.16% [−1.36, +1.04]** |
+E1 holdout by year: 2022 +1.17%, 2023 +1.15%, 2024 +1.42%, 2025 −0.19%, 2026 −1.99%; halves +1.14% / 0.00%. Bar not met (|t| ≥ 3.0 needed; second-half effect ≈ 0; net CI straddles 0). Capacity ample (~40 events/month).
+Observation NOT counted as a test (made after looking, so it cannot confirm anything): the effect lives in the $0.3–2B band — E1 +1.57% (dev) and +1.60% (holdout) vs ≈ 0 for ≥ $2B — and the median is negative
+(a few big winners drive the mean). A pre-registered forward test on NEW data (events after 2026-10-03, collected prospectively) would be the only clean way to evaluate "small-cap insider clusters"; not started.
