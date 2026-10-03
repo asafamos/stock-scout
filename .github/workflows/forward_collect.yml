@@ -1,0 +1,39 @@
+name: Forward Collect (prereg F1)
+
+# Collection only: appends congress/insider purchase events to data/forward/*.jsonl.
+# No trading, no VPS, no ranking. See docs/research_prereg_F1_forward_test.md.
+permissions:
+  contents: write
+
+on:
+  schedule:
+    - cron: '30 22 * * 1-5'
+  workflow_dispatch:
+
+concurrency:
+  group: forward-collect
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Collect
+        run: python scripts/forward/collect_forward.py
+      - name: Commit data
+        run: |
+          git config user.name "stockscout-forward-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/forward/*.jsonl
+          if git diff --cached --quiet; then echo "no new rows"; exit 0; fi
+          git commit -m "forward: collected events $(date -u +%Y-%m-%d) [skip ci]"
+          for i in 1 2 3; do git pull --rebase origin main && git push origin HEAD:main && break || sleep 5; done
