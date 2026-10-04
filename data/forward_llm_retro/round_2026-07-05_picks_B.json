@@ -1,0 +1,30 @@
+{
+ "round_date": "2026-07-05",
+ "retro": true,
+ "arm": "B_news",
+ "logged_utc": "2026-10-04T10:38:35+00:00",
+ "pack_sha256": "db0f7ab697f5e59c9898f8d25be11ef0307a25999ad5599ccd6d71155d3c0101",
+ "prompt_note": "retro prompt = scripts/forward/f2_prompt_news.txt text, pool delivered as one file to Read",
+ "picks": [
+  {
+   "ticker": "CAT",
+   "confidence": 3
+  },
+  {
+   "ticker": "GE",
+   "confidence": 3
+  },
+  {
+   "ticker": "AGX",
+   "confidence": 3
+  },
+  {
+   "ticker": "ASTS",
+   "confidence": 2
+  },
+  {
+   "ticker": "KKR",
+   "confidence": 2
+  }
+ ]
+}

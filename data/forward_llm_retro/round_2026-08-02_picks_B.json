@@ -1,0 +1,30 @@
+{
+ "round_date": "2026-08-02",
+ "retro": true,
+ "arm": "B_news",
+ "logged_utc": "2026-10-04T10:38:35+00:00",
+ "pack_sha256": "4e950ec7b6fdd7df8a0f0fdee64016ee92a72b1707c3e937553ab5a1d4528b6b",
+ "prompt_note": "retro prompt = scripts/forward/f2_prompt_news.txt text, pool delivered as one file to Read",
+ "picks": [
+  {
+   "ticker": "AMD",
+   "confidence": 3
+  },
+  {
+   "ticker": "ANET",
+   "confidence": 3
+  },
+  {
+   "ticker": "RCAT",
+   "confidence": 3
+  },
+  {
+   "ticker": "IMAX",
+   "confidence": 2
+  },
+  {
+   "ticker": "ACMR",
+   "confidence": 2
+  }
+ ]
+}

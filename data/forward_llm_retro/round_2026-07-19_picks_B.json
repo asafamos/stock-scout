@@ -1,0 +1,30 @@
+{
+ "round_date": "2026-07-19",
+ "retro": true,
+ "arm": "B_news",
+ "logged_utc": "2026-10-04T10:38:35+00:00",
+ "pack_sha256": "54f7d965840f6e32b442bbfdf7db8021e8ea657d6757cdd94c993eef04dcc959",
+ "prompt_note": "retro prompt = scripts/forward/f2_prompt_news.txt text, pool delivered as one file to Read",
+ "picks": [
+  {
+   "ticker": "CELC",
+   "confidence": 3
+  },
+  {
+   "ticker": "VRT",
+   "confidence": 3
+  },
+  {
+   "ticker": "SNDK",
+   "confidence": 2
+  },
+  {
+   "ticker": "CIEN",
+   "confidence": 2
+  },
+  {
+   "ticker": "KRYS",
+   "confidence": 2
+  }
+ ]
+}

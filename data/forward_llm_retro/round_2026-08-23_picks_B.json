@@ -1,0 +1,30 @@
+{
+ "round_date": "2026-08-23",
+ "retro": true,
+ "arm": "B_news",
+ "logged_utc": "2026-10-04T10:38:35+00:00",
+ "pack_sha256": "fe10bb88a4c9b928bce5ed9d6be8c7807a30c0ff05b3eadf129709aeb02a5da8",
+ "prompt_note": "retro prompt = scripts/forward/f2_prompt_news.txt text, pool delivered as one file to Read",
+ "picks": [
+  {
+   "ticker": "MRK",
+   "confidence": 3
+  },
+  {
+   "ticker": "HOOD",
+   "confidence": 3
+  },
+  {
+   "ticker": "CRSP",
+   "confidence": 2
+  },
+  {
+   "ticker": "IONS",
+   "confidence": 2
+  },
+  {
+   "ticker": "MP",
+   "confidence": 2
+  }
+ ]
+}

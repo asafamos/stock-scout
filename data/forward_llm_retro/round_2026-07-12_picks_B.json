@@ -1,0 +1,30 @@
+{
+ "round_date": "2026-07-12",
+ "retro": true,
+ "arm": "B_news",
+ "logged_utc": "2026-10-04T10:38:35+00:00",
+ "pack_sha256": "056e32146e4a2d9694b7bf9f072205b9d24a207d03ac74c054060c984f4581d9",
+ "prompt_note": "retro prompt = scripts/forward/f2_prompt_news.txt text, pool delivered as one file to Read",
+ "picks": [
+  {
+   "ticker": "PRIM",
+   "confidence": 2
+  },
+  {
+   "ticker": "SHOP",
+   "confidence": 3
+  },
+  {
+   "ticker": "ON",
+   "confidence": 3
+  },
+  {
+   "ticker": "BWXT",
+   "confidence": 3
+  },
+  {
+   "ticker": "TEVA",
+   "confidence": 2
+  }
+ ]
+}

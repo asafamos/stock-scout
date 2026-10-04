@@ -1,0 +1,30 @@
+{
+ "round_date": "2026-07-26",
+ "retro": true,
+ "arm": "B_news",
+ "logged_utc": "2026-10-04T10:38:35+00:00",
+ "pack_sha256": "5a58a2c7c7f40a972c8da5fee148b7b9c55b86c9bf08b23ca5096e98d7e5b945",
+ "prompt_note": "retro prompt = scripts/forward/f2_prompt_news.txt text, pool delivered as one file to Read",
+ "picks": [
+  {
+   "ticker": "SBRA",
+   "confidence": 3
+  },
+  {
+   "ticker": "COF",
+   "confidence": 3
+  },
+  {
+   "ticker": "MSFT",
+   "confidence": 2
+  },
+  {
+   "ticker": "PANW",
+   "confidence": 2
+  },
+  {
+   "ticker": "PEGA",
+   "confidence": 2
+  }
+ ]
+}

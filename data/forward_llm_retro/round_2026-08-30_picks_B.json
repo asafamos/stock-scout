@@ -1,0 +1,30 @@
+{
+ "round_date": "2026-08-30",
+ "retro": true,
+ "arm": "B_news",
+ "logged_utc": "2026-10-04T10:38:35+00:00",
+ "pack_sha256": "9224e11f664b699beb4700fe889a08de9e6f759ed58fbbcc688c3e667c89651b",
+ "prompt_note": "retro prompt = scripts/forward/f2_prompt_news.txt text, pool delivered as one file to Read",
+ "picks": [
+  {
+   "ticker": "NOW",
+   "confidence": 4
+  },
+  {
+   "ticker": "MU",
+   "confidence": 4
+  },
+  {
+   "ticker": "NOV",
+   "confidence": 3
+  },
+  {
+   "ticker": "OSCR",
+   "confidence": 3
+  },
+  {
+   "ticker": "OC",
+   "confidence": 2
+  }
+ ]
+}

@@ -1,0 +1,30 @@
+{
+ "round_date": "2026-08-09",
+ "retro": true,
+ "arm": "B_news",
+ "logged_utc": "2026-10-04T10:38:35+00:00",
+ "pack_sha256": "1521bc6ac03eb3e53a3900cd68ec98f4d791ea168b444757e2feacbab9d4f1ff",
+ "prompt_note": "retro prompt = scripts/forward/f2_prompt_news.txt text, pool delivered as one file to Read",
+ "picks": [
+  {
+   "ticker": "EBAY",
+   "confidence": 3
+  },
+  {
+   "ticker": "ITW",
+   "confidence": 3
+  },
+  {
+   "ticker": "SBH",
+   "confidence": 2
+  },
+  {
+   "ticker": "MELI",
+   "confidence": 2
+  },
+  {
+   "ticker": "TOST",
+   "confidence": 2
+  }
+ ]
+}

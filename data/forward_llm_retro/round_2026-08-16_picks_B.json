@@ -1,0 +1,30 @@
+{
+ "round_date": "2026-08-16",
+ "retro": true,
+ "arm": "B_news",
+ "logged_utc": "2026-10-04T10:38:35+00:00",
+ "pack_sha256": "c348568b94aac79ff07a98f41de483b7c038c69167dbee651f52c0239beac96f",
+ "prompt_note": "retro prompt = scripts/forward/f2_prompt_news.txt text, pool delivered as one file to Read",
+ "picks": [
+  {
+   "ticker": "RMBS",
+   "confidence": 3
+  },
+  {
+   "ticker": "ISRG",
+   "confidence": 3
+  },
+  {
+   "ticker": "HUBB",
+   "confidence": 3
+  },
+  {
+   "ticker": "HRB",
+   "confidence": 2
+  },
+  {
+   "ticker": "GFI",
+   "confidence": 2
+  }
+ ]
+}
