@@ -8,7 +8,8 @@ load_dotenv("/Users/asafamos/StockScout/stock-scout-2/.env")
 KEY = os.environ["POLYGON_API_KEY"]
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 rd = date.fromisoformat(sys.argv[1])
-pool = json.load(open(f"{ROOT}/data/forward_llm/round_{rd}_pool.json"))["pool"]
+FD = os.environ.get("F2_DIR", "data/forward_llm")          # retro rounds use data/forward_llm_retro
+pool = json.load(open(f"{ROOT}/{FD}/round_{rd}_pool.json"))["pool"]
 tickers = {r["ticker"] for r in pool}
 since = (datetime.combine(rd, datetime.min.time(), tzinfo=timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
 until = datetime.combine(rd, datetime.min.time(), tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")   # sunday 00:00 UTC cutoff
@@ -40,5 +41,5 @@ for r in pool:
     else:
         lines.append(head + "\n   (no news in the last 7 days)")
 pack = "\n".join(lines)
-open(f"{ROOT}/data/forward_llm/round_{rd}_newspack.txt", "w").write(pack)
+open(f"{ROOT}/{FD}/round_{rd}_newspack.txt", "w").write(pack)
 print(f"articles scanned {n_art}; pool names with news: {len(news)}/100", file=sys.stderr)
