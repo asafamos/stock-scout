@@ -1,0 +1,29 @@
+{
+ "round_date": "2026-08-16",
+ "retro": true,
+ "arm": "D_combo",
+ "logged_utc": "2026-10-04T15:36:04+00:00",
+ "pack_sha256": "799200437e4bf7939d9080ec553f748ff30dd5bcb62e05061139997ebde49cc0",
+ "picks": [
+  {
+   "ticker": "QLYS",
+   "confidence": 3
+  },
+  {
+   "ticker": "CNC",
+   "confidence": 3
+  },
+  {
+   "ticker": "RY",
+   "confidence": 3
+  },
+  {
+   "ticker": "HUBB",
+   "confidence": 2
+  },
+  {
+   "ticker": "CBRE",
+   "confidence": 2
+  }
+ ]
+}

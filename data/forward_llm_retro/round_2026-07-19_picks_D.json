@@ -1,0 +1,29 @@
+{
+ "round_date": "2026-07-19",
+ "retro": true,
+ "arm": "D_combo",
+ "logged_utc": "2026-10-04T15:36:04+00:00",
+ "pack_sha256": "f0c75b736aaf58da9f7701e373c628d456be1936aaba2601c6bfe8ab867e66ef",
+ "picks": [
+  {
+   "ticker": "HXL",
+   "confidence": 3
+  },
+  {
+   "ticker": "BAP",
+   "confidence": 3
+  },
+  {
+   "ticker": "KRYS",
+   "confidence": 3
+  },
+  {
+   "ticker": "EG",
+   "confidence": 3
+  },
+  {
+   "ticker": "UFCS",
+   "confidence": 2
+  }
+ ]
+}

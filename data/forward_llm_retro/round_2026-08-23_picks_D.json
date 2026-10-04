@@ -1,0 +1,29 @@
+{
+ "round_date": "2026-08-23",
+ "retro": true,
+ "arm": "D_combo",
+ "logged_utc": "2026-10-04T15:36:04+00:00",
+ "pack_sha256": "57b7bffa05fc5b8f5977a9f477d42b7bd55e2e0f0dc9e4fefc8bad4946b9f4a4",
+ "picks": [
+  {
+   "ticker": "MRK",
+   "confidence": 4
+  },
+  {
+   "ticker": "JLL",
+   "confidence": 3
+  },
+  {
+   "ticker": "SN",
+   "confidence": 3
+  },
+  {
+   "ticker": "AMGN",
+   "confidence": 3
+  },
+  {
+   "ticker": "ABNB",
+   "confidence": 2
+  }
+ ]
+}

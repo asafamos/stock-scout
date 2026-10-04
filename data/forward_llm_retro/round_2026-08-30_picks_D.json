@@ -1,0 +1,29 @@
+{
+ "round_date": "2026-08-30",
+ "retro": true,
+ "arm": "D_combo",
+ "logged_utc": "2026-10-04T15:36:04+00:00",
+ "pack_sha256": "11f856436684306d561befc8e7f4131173000f1cb39c2da51bec39c994f95e5b",
+ "picks": [
+  {
+   "ticker": "LPLA",
+   "confidence": 3
+  },
+  {
+   "ticker": "OPY",
+   "confidence": 3
+  },
+  {
+   "ticker": "WTS",
+   "confidence": 3
+  },
+  {
+   "ticker": "NOV",
+   "confidence": 2
+  },
+  {
+   "ticker": "TPC",
+   "confidence": 2
+  }
+ ]
+}

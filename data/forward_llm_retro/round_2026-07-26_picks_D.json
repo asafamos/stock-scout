@@ -1,0 +1,29 @@
+{
+ "round_date": "2026-07-26",
+ "retro": true,
+ "arm": "D_combo",
+ "logged_utc": "2026-10-04T15:36:04+00:00",
+ "pack_sha256": "a1e154860466fde69d7eb4653c42e271db2876eff41b52daea2aab3476eee809",
+ "picks": [
+  {
+   "ticker": "NMM",
+   "confidence": 3
+  },
+  {
+   "ticker": "KMX",
+   "confidence": 3
+  },
+  {
+   "ticker": "GKOS",
+   "confidence": 3
+  },
+  {
+   "ticker": "PANW",
+   "confidence": 2
+  },
+  {
+   "ticker": "STT",
+   "confidence": 2
+  }
+ ]
+}

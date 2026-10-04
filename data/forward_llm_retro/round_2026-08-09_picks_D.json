@@ -1,0 +1,29 @@
+{
+ "round_date": "2026-08-09",
+ "retro": true,
+ "arm": "D_combo",
+ "logged_utc": "2026-10-04T15:36:04+00:00",
+ "pack_sha256": "b77a22ccec7d5ec9458c06a7e85cddaa38c5743422fa27a3fa36d0b3db1b1edd",
+ "picks": [
+  {
+   "ticker": "ITW",
+   "confidence": 3
+  },
+  {
+   "ticker": "HUM",
+   "confidence": 3
+  },
+  {
+   "ticker": "HAE",
+   "confidence": 2
+  },
+  {
+   "ticker": "ESQ",
+   "confidence": 2
+  },
+  {
+   "ticker": "MFC",
+   "confidence": 2
+  }
+ ]
+}

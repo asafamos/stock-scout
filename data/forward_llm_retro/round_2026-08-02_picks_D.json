@@ -1,0 +1,29 @@
+{
+ "round_date": "2026-08-02",
+ "retro": true,
+ "arm": "D_combo",
+ "logged_utc": "2026-10-04T15:36:04+00:00",
+ "pack_sha256": "a7df536f265a67588014f1e7cc12358a4f29edebe13dbb6c09458b1a41499772",
+ "picks": [
+  {
+   "ticker": "CNK",
+   "confidence": 3
+  },
+  {
+   "ticker": "ICUI",
+   "confidence": 3
+  },
+  {
+   "ticker": "RHP",
+   "confidence": 3
+  },
+  {
+   "ticker": "OII",
+   "confidence": 2
+  },
+  {
+   "ticker": "SMBK",
+   "confidence": 2
+  }
+ ]
+}

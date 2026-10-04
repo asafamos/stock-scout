@@ -1,0 +1,29 @@
+{
+ "round_date": "2026-07-05",
+ "retro": true,
+ "arm": "D_combo",
+ "logged_utc": "2026-10-04T15:36:04+00:00",
+ "pack_sha256": "5583edb291ce907e2256c41e467578dd8ae1a82305caf22a863b350ccd89a41f",
+ "picks": [
+  {
+   "ticker": "GE",
+   "confidence": 3
+  },
+  {
+   "ticker": "KNSA",
+   "confidence": 3
+  },
+  {
+   "ticker": "AGX",
+   "confidence": 3
+  },
+  {
+   "ticker": "MKSI",
+   "confidence": 2
+  },
+  {
+   "ticker": "VSTS",
+   "confidence": 2
+  }
+ ]
+}
