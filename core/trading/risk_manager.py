@@ -180,8 +180,11 @@ class RiskManager:
             realized = self._realized_today()
             unrealized = 0.0
             try:
+                from core.trading.ignore_list import is_ignored
                 for p in self.client._ib.portfolio():
-                    if p.position != 0:
+                    # passive ETFs (CoreTrend QQQM/IEF…) are not this channel's risk (core/trading/ignore_list.py):
+                    # their lifetime unrealized must not trip the legacy daily-loss breaker
+                    if p.position != 0 and not is_ignored(getattr(p.contract, "symbol", "")):
                         unrealized += float(p.unrealizedPNL or 0)
             except Exception:
                 pass

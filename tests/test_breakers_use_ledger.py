@@ -95,3 +95,24 @@ def test_performance_guard_never_blocks_and_reads_the_ledger(monkeypatch, tmp_pa
     monkeypatch.setenv("TRADE_PERF_GUARD_MODE", "size")
     ok, _, mult = rm.check_performance_throttle()
     assert ok is True and mult == 0.5, "size mode: half size while confidently negative — but still trades"
+
+
+def _rm_with_portfolio(items, net=800.0):
+    rm = _rm(net=net)
+    rm.client._ib = SimpleNamespace(portfolio=lambda: [
+        SimpleNamespace(position=q, unrealizedPNL=u, contract=SimpleNamespace(symbol=sym)) for sym, q, u in items])
+    return rm
+
+
+def test_daily_loss_breaker_ignores_passive_etf_unrealized(monkeypatch):
+    # QQQM (CoreTrend) -$60 unrealized = 7.5% of $800 must NOT block the legacy channel
+    monkeypatch.setattr(ledger, "realized_today", lambda cfg=None: 0.0)
+    ok, _ = _rm_with_portfolio([("QQQM", 2, -60.0)]).check_daily_loss_breaker()
+    assert ok is True
+
+
+def test_daily_loss_breaker_still_counts_stock_unrealized(monkeypatch):
+    # the same -$60 on a single stock (legacy channel) still trips the 5% breaker
+    monkeypatch.setattr(ledger, "realized_today", lambda cfg=None: 0.0)
+    ok, reason = _rm_with_portfolio([("HNGE", 1, -60.0)]).check_daily_loss_breaker()
+    assert ok is False and "Daily loss" in reason
