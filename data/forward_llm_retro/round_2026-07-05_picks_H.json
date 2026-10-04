@@ -1,0 +1,30 @@
+{
+ "round_date": "2026-07-05",
+ "retro": true,
+ "arm": "H_5day",
+ "horizon_td": 5,
+ "logged_utc": "2026-10-04T15:36:58+00:00",
+ "pack_sha256": "7307fa9fa276a6e601437d4d97b36c51f204678f72698c9085d989f406054a00",
+ "picks": [
+  {
+   "ticker": "KNSA",
+   "confidence": 3
+  },
+  {
+   "ticker": "MKSI",
+   "confidence": 3
+  },
+  {
+   "ticker": "AJG",
+   "confidence": 3
+  },
+  {
+   "ticker": "BWFG",
+   "confidence": 2
+  },
+  {
+   "ticker": "VSTS",
+   "confidence": 2
+  }
+ ]
+}

@@ -1,0 +1,30 @@
+{
+ "round_date": "2026-07-12",
+ "retro": true,
+ "arm": "H_5day",
+ "horizon_td": 5,
+ "logged_utc": "2026-10-04T15:36:58+00:00",
+ "pack_sha256": "6069869bc62d12d2ca119578280cbd6272c40b1e601bbfd5bd3865858deabc99",
+ "picks": [
+  {
+   "ticker": "GH",
+   "confidence": 3
+  },
+  {
+   "ticker": "RSI",
+   "confidence": 3
+  },
+  {
+   "ticker": "HG",
+   "confidence": 3
+  },
+  {
+   "ticker": "KGS",
+   "confidence": 2
+  },
+  {
+   "ticker": "NSC",
+   "confidence": 2
+  }
+ ]
+}

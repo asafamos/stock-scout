@@ -1,0 +1,30 @@
+{
+ "round_date": "2026-07-26",
+ "retro": true,
+ "arm": "H_5day",
+ "horizon_td": 5,
+ "logged_utc": "2026-10-04T15:36:58+00:00",
+ "pack_sha256": "bee6ef78bb9953ab9ead4f93337c9b2a481f790aee5f5bec61d23e54e376c33f",
+ "picks": [
+  {
+   "ticker": "KMX",
+   "confidence": 3
+  },
+  {
+   "ticker": "NMM",
+   "confidence": 3
+  },
+  {
+   "ticker": "PANW",
+   "confidence": 3
+  },
+  {
+   "ticker": "GKOS",
+   "confidence": 3
+  },
+  {
+   "ticker": "CYTK",
+   "confidence": 2
+  }
+ ]
+}

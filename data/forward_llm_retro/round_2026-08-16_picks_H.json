@@ -1,0 +1,30 @@
+{
+ "round_date": "2026-08-16",
+ "retro": true,
+ "arm": "H_5day",
+ "horizon_td": 5,
+ "logged_utc": "2026-10-04T15:36:58+00:00",
+ "pack_sha256": "86399e14faaed6a074572fa91b3cc3e07fb8d2856fe1392658ff5887f4bc5b35",
+ "picks": [
+  {
+   "ticker": "QLYS",
+   "confidence": 3
+  },
+  {
+   "ticker": "U",
+   "confidence": 3
+  },
+  {
+   "ticker": "CNC",
+   "confidence": 3
+  },
+  {
+   "ticker": "SCHW",
+   "confidence": 2
+  },
+  {
+   "ticker": "DCO",
+   "confidence": 2
+  }
+ ]
+}

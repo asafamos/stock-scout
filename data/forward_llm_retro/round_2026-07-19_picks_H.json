@@ -1,0 +1,30 @@
+{
+ "round_date": "2026-07-19",
+ "retro": true,
+ "arm": "H_5day",
+ "horizon_td": 5,
+ "logged_utc": "2026-10-04T15:36:58+00:00",
+ "pack_sha256": "a0af0ca9685893c9bc4291905ab53c6d135e5227d64a8a60cc43c79941ac51b4",
+ "picks": [
+  {
+   "ticker": "HXL",
+   "confidence": 3
+  },
+  {
+   "ticker": "RDN",
+   "confidence": 3
+  },
+  {
+   "ticker": "KRYS",
+   "confidence": 3
+  },
+  {
+   "ticker": "INTC",
+   "confidence": 2
+  },
+  {
+   "ticker": "PEB",
+   "confidence": 2
+  }
+ ]
+}

@@ -1,0 +1,30 @@
+{
+ "round_date": "2026-08-23",
+ "retro": true,
+ "arm": "H_5day",
+ "horizon_td": 5,
+ "logged_utc": "2026-10-04T15:36:58+00:00",
+ "pack_sha256": "e8f3668ec1420a59a54609e56b4e955325c6128114d1ff9c78446a526cddfaf3",
+ "picks": [
+  {
+   "ticker": "AMGN",
+   "confidence": 3
+  },
+  {
+   "ticker": "BNY",
+   "confidence": 3
+  },
+  {
+   "ticker": "SN",
+   "confidence": 3
+  },
+  {
+   "ticker": "JLL",
+   "confidence": 2
+  },
+  {
+   "ticker": "TNK",
+   "confidence": 2
+  }
+ ]
+}

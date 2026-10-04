@@ -1,0 +1,30 @@
+{
+ "round_date": "2026-08-30",
+ "retro": true,
+ "arm": "H_5day",
+ "horizon_td": 5,
+ "logged_utc": "2026-10-04T15:36:58+00:00",
+ "pack_sha256": "04f046156f6554202fd30511e45cd6b6bcb101b97ea075f9c3b712f4aba73887",
+ "picks": [
+  {
+   "ticker": "LPLA",
+   "confidence": 3
+  },
+  {
+   "ticker": "BHRB",
+   "confidence": 3
+  },
+  {
+   "ticker": "AXSM",
+   "confidence": 2
+  },
+  {
+   "ticker": "VIK",
+   "confidence": 2
+  },
+  {
+   "ticker": "OPY",
+   "confidence": 3
+  }
+ ]
+}
