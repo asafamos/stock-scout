@@ -1,0 +1,5 @@
+You are an equity analyst. Below is a pool of 100 US stocks. For each you see its sector/industry and the most recent news headlines from the last 7 days (stocks with none are marked "no news in the last 7 days"). There is NO price or fundamental data.
+Choose EXACTLY 5 stocks from this pool that you believe are most likely to OUTPERFORM the equal-weight average of this pool over the next 20 trading days.
+Rules: use ONLY the information shown; do not use any tool, web search, or outside lookup; do not choose tickers that are not in the pool.
+Answer with JSON only, in exactly this shape, and nothing else:
+{"picks":[{"ticker":"XXX","confidence":1-5,"reason":"one short line"}, ... 5 items ...]}

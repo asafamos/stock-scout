@@ -1,0 +1,77 @@
+{
+ "round_date": "2026-10-04",
+ "entry": "open of next trading day (2026-10-05); exit open +20 trading days",
+ "pool_file": "round_2026-10-04_pool.json",
+ "pool_sha256": "e11ca7a3b51c431fca9aa4b06dd2c66439102be4146eb7b0bb9bfddc37e29fee",
+ "logged_utc": "2026-10-04T10:22:13+00:00",
+ "arms": {
+  "A_numbers": {
+   "prompt_file": "scripts/forward/f2_prompt.txt",
+   "prompt_sha256": "a6fd47de8f6b2e482e2342b65198ae8bafb4ea334c03cd408935e11986fbfd91",
+   "pack_file": "data/forward_llm/round_2026-10-04_pack.txt",
+   "pack_sha256": "a75e2822677dc3a3e10d686330651f3b8daf131095233437c825f6667d238836",
+   "picks": [
+    {
+     "ticker": "TNK",
+     "confidence": 3,
+     "reason": "Tanker at 52w high with strong 3m/12m momentum and low beta; trend persistence"
+    },
+    {
+     "ticker": "DAC",
+     "confidence": 3,
+     "reason": "Shipper at 52w high, strong 3m trend, net upgrade; momentum continuation"
+    },
+    {
+     "ticker": "ARW",
+     "confidence": 3,
+     "reason": "Distributor at 52w high with strong 1m/3m/12m momentum and moderate beta"
+    },
+    {
+     "ticker": "PBR",
+     "confidence": 2,
+     "reason": "Near 52w high, 3m +33%, low beta and low short interest"
+    },
+    {
+     "ticker": "ZIM",
+     "confidence": 2,
+     "reason": "Near 52w high with strong 3m and 12m momentum plus net upgrade"
+    }
+   ],
+   "picker": "fresh claude subagent, no session history, no tools used"
+  },
+  "B_news": {
+   "prompt_file": "scripts/forward/f2_prompt_news.txt",
+   "prompt_sha256": "01fa0cda41d90004100fcf7392d259ebf382f394c552a686ef95fef9160aec1a",
+   "pack_file": "data/forward_llm/round_2026-10-04_newspack.txt",
+   "pack_sha256": "5d01021ebcd5449c40ba578e750105417c782868d2c6fa41518f6d369ea1ab3b",
+   "picks": [
+    {
+     "ticker": "HWM",
+     "confidence": 4,
+     "reason": "Aerospace leader with multiple positive growth/momentum headlines and strong industry outlook"
+    },
+    {
+     "ticker": "ACN",
+     "confidence": 3,
+     "reason": "Q4 earnings call noted AI demand broadening into FY27; earnings beat reported"
+    },
+    {
+     "ticker": "PBR",
+     "confidence": 3,
+     "reason": "Top momentum label, P-80 platform ramping at Buzios field"
+    },
+    {
+     "ticker": "PATH",
+     "confidence": 3,
+     "reason": "Heavily searched, 'buy the bottom' framing suggests rebound potential in AI software"
+    },
+    {
+     "ticker": "AGX",
+     "confidence": 3,
+     "reason": "Down post-earnings but flagged as strong growth stock with rebound potential in power construction"
+    }
+   ],
+   "picker": "fresh claude subagent, no session history, no tools used"
+  }
+ }
+}
