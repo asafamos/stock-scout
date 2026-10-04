@@ -1,0 +1,30 @@
+{
+ "round_date": "2026-07-26",
+ "retro": true,
+ "arm": "A_numbers",
+ "logged_utc": "2026-10-04T10:37:38+00:00",
+ "pack_sha256": "bee6ef78bb9953ab9ead4f93337c9b2a481f790aee5f5bec61d23e54e376c33f",
+ "prompt_note": "retro prompt = scripts/forward/f2_prompt.txt text, pool delivered as one file to Read",
+ "picks": [
+  {
+   "ticker": "PANW",
+   "confidence": 3
+  },
+  {
+   "ticker": "GKOS",
+   "confidence": 3
+  },
+  {
+   "ticker": "NMM",
+   "confidence": 3
+  },
+  {
+   "ticker": "KMX",
+   "confidence": 2
+  },
+  {
+   "ticker": "STT",
+   "confidence": 3
+  }
+ ]
+}

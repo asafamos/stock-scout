@@ -1,0 +1,30 @@
+{
+ "round_date": "2026-08-09",
+ "retro": true,
+ "arm": "A_numbers",
+ "logged_utc": "2026-10-04T10:37:38+00:00",
+ "pack_sha256": "54a4f2eba66d7e73ed485fcf29c7900cd3fcd6c60a4082eb52f74bf065488b11",
+ "prompt_note": "retro prompt = scripts/forward/f2_prompt.txt text, pool delivered as one file to Read",
+ "picks": [
+  {
+   "ticker": "HAE",
+   "confidence": 4
+  },
+  {
+   "ticker": "HUM",
+   "confidence": 3
+  },
+  {
+   "ticker": "EAT",
+   "confidence": 3
+  },
+  {
+   "ticker": "ESQ",
+   "confidence": 3
+  },
+  {
+   "ticker": "ITW",
+   "confidence": 3
+  }
+ ]
+}

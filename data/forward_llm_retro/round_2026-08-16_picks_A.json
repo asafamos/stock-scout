@@ -1,0 +1,30 @@
+{
+ "round_date": "2026-08-16",
+ "retro": true,
+ "arm": "A_numbers",
+ "logged_utc": "2026-10-04T10:37:38+00:00",
+ "pack_sha256": "86399e14faaed6a074572fa91b3cc3e07fb8d2856fe1392658ff5887f4bc5b35",
+ "prompt_note": "retro prompt = scripts/forward/f2_prompt.txt text, pool delivered as one file to Read",
+ "picks": [
+  {
+   "ticker": "QLYS",
+   "confidence": 4
+  },
+  {
+   "ticker": "U",
+   "confidence": 3
+  },
+  {
+   "ticker": "DCO",
+   "confidence": 3
+  },
+  {
+   "ticker": "CNC",
+   "confidence": 3
+  },
+  {
+   "ticker": "SCHW",
+   "confidence": 3
+  }
+ ]
+}

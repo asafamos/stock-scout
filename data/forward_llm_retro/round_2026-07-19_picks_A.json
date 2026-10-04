@@ -1,0 +1,30 @@
+{
+ "round_date": "2026-07-19",
+ "retro": true,
+ "arm": "A_numbers",
+ "logged_utc": "2026-10-04T10:37:38+00:00",
+ "pack_sha256": "a0af0ca9685893c9bc4291905ab53c6d135e5227d64a8a60cc43c79941ac51b4",
+ "prompt_note": "retro prompt = scripts/forward/f2_prompt.txt text, pool delivered as one file to Read",
+ "picks": [
+  {
+   "ticker": "HXL",
+   "confidence": 4
+  },
+  {
+   "ticker": "BAP",
+   "confidence": 3
+  },
+  {
+   "ticker": "AMRX",
+   "confidence": 3
+  },
+  {
+   "ticker": "KRYS",
+   "confidence": 3
+  },
+  {
+   "ticker": "RDN",
+   "confidence": 3
+  }
+ ]
+}

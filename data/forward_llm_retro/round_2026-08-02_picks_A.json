@@ -1,0 +1,30 @@
+{
+ "round_date": "2026-08-02",
+ "retro": true,
+ "arm": "A_numbers",
+ "logged_utc": "2026-10-04T10:37:38+00:00",
+ "pack_sha256": "b54f9b7302a5d5b9be8b29603dc7f70229b8718ba73d0de4f8a3407ab6bce7f9",
+ "prompt_note": "retro prompt = scripts/forward/f2_prompt.txt text, pool delivered as one file to Read",
+ "picks": [
+  {
+   "ticker": "DRH",
+   "confidence": 3
+  },
+  {
+   "ticker": "ICUI",
+   "confidence": 3
+  },
+  {
+   "ticker": "OII",
+   "confidence": 3
+  },
+  {
+   "ticker": "RHP",
+   "confidence": 3
+  },
+  {
+   "ticker": "CNK",
+   "confidence": 2
+  }
+ ]
+}

@@ -1,0 +1,30 @@
+{
+ "round_date": "2026-08-23",
+ "retro": true,
+ "arm": "A_numbers",
+ "logged_utc": "2026-10-04T10:37:38+00:00",
+ "pack_sha256": "e8f3668ec1420a59a54609e56b4e955325c6128114d1ff9c78446a526cddfaf3",
+ "prompt_note": "retro prompt = scripts/forward/f2_prompt.txt text, pool delivered as one file to Read",
+ "picks": [
+  {
+   "ticker": "MRK",
+   "confidence": 3
+  },
+  {
+   "ticker": "AMGN",
+   "confidence": 3
+  },
+  {
+   "ticker": "SN",
+   "confidence": 3
+  },
+  {
+   "ticker": "JLL",
+   "confidence": 3
+  },
+  {
+   "ticker": "ABNB",
+   "confidence": 2
+  }
+ ]
+}

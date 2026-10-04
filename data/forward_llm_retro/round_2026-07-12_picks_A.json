@@ -1,0 +1,30 @@
+{
+ "round_date": "2026-07-12",
+ "retro": true,
+ "arm": "A_numbers",
+ "logged_utc": "2026-10-04T10:37:38+00:00",
+ "pack_sha256": "6069869bc62d12d2ca119578280cbd6272c40b1e601bbfd5bd3865858deabc99",
+ "prompt_note": "retro prompt = scripts/forward/f2_prompt.txt text, pool delivered as one file to Read",
+ "picks": [
+  {
+   "ticker": "GH",
+   "confidence": 3
+  },
+  {
+   "ticker": "RSI",
+   "confidence": 3
+  },
+  {
+   "ticker": "KGS",
+   "confidence": 3
+  },
+  {
+   "ticker": "ETON",
+   "confidence": 2
+  },
+  {
+   "ticker": "RGA",
+   "confidence": 3
+  }
+ ]
+}

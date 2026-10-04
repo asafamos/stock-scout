@@ -1,0 +1,30 @@
+{
+ "round_date": "2026-08-30",
+ "retro": true,
+ "arm": "A_numbers",
+ "logged_utc": "2026-10-04T10:37:38+00:00",
+ "pack_sha256": "04f046156f6554202fd30511e45cd6b6bcb101b97ea075f9c3b712f4aba73887",
+ "prompt_note": "retro prompt = scripts/forward/f2_prompt.txt text, pool delivered as one file to Read",
+ "picks": [
+  {
+   "ticker": "OPY",
+   "confidence": 3
+  },
+  {
+   "ticker": "LPLA",
+   "confidence": 3
+  },
+  {
+   "ticker": "NSP",
+   "confidence": 3
+  },
+  {
+   "ticker": "AMN",
+   "confidence": 2
+  },
+  {
+   "ticker": "WTS",
+   "confidence": 2
+  }
+ ]
+}

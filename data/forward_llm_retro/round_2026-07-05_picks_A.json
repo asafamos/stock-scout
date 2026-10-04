@@ -1,0 +1,30 @@
+{
+ "round_date": "2026-07-05",
+ "retro": true,
+ "arm": "A_numbers",
+ "logged_utc": "2026-10-04T10:37:38+00:00",
+ "pack_sha256": "7307fa9fa276a6e601437d4d97b36c51f204678f72698c9085d989f406054a00",
+ "prompt_note": "retro prompt = scripts/forward/f2_prompt.txt text, pool delivered as one file to Read",
+ "picks": [
+  {
+   "ticker": "KNSA",
+   "confidence": 3
+  },
+  {
+   "ticker": "MKSI",
+   "confidence": 3
+  },
+  {
+   "ticker": "AGX",
+   "confidence": 3
+  },
+  {
+   "ticker": "VSTS",
+   "confidence": 2
+  },
+  {
+   "ticker": "PLXS",
+   "confidence": 2
+  }
+ ]
+}
