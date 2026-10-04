@@ -21,3 +21,16 @@ Statistic per arm: mean over the 9 rounds of [mean 20-day return of the 5 picks 
 - **"No sign of skill"** if the mean excess is ≤ 0 or p ≥ 0.20.
 - Anything in between: "inconclusive" (expected for 9 rounds). Neither result changes the F2 forward test or any live setting; a positive result only raises the priority of F2 and of a paper sleeve.
 Also reported: hit-rate vs pool, confidence 5 vs 1, sector/size tilt of the picks vs the pool, and whether picks are just the highest-momentum names in the pool (rank of 12-1 momentum).
+
+---
+## RESULT (run 2026-10-04; all 18 pick files were committed in git BEFORE any outcome was computed) — VERDICT: "NO SIGN OF SKILL" for both arms
+9 rounds (entry Mon 2026-07-06 … 2026-08-31; exit +20 trading days, last exit 2026-09-29), 100 names per round, all prices available. Equal-weight pool mean averaged +0.24% per 20 days; SPY +1.15%.
+| arm | mean 20d return of 5 picks | mean excess vs pool | SE | rounds positive | permutation p (one-sided) | hit-rate (picks > pool mean) | beta-adjusted excess |
+|---|---|---|---|---|---|---|---|
+| A numbers | −2.52% | **−2.75%** | 1.40% | **1 / 9** | 0.952 | 18 / 45 | −2.59% |
+| B news-only | −0.94% | **−1.18%** | 2.10% | 4 / 9 | 0.753 | 20 / 45 | −1.73% |
+Prereg rule: "No sign of skill" if mean excess ≤ 0 or p ≥ 0.20 → both arms. Arm A's picks were concentrated in names near 52-week highs (momentum continuation); arm B's picks were far larger companies (mean mcap $178B vs pool $31B) because only 10–20% of pool names had any news (Polygon returns ≈1,000 articles/week).
+Diagnostics (not preregistered decisions): in the same pools a naive rule "top-5 by 12-month return minus 1-month return" averaged +4.27% excess (SE 2.55%, t ≈ 1.7, 7/9 rounds positive) while "top-5 nearest the 52-week high" averaged −0.95%.
+So the LLM underperformed a trivial rule built from the very same data.
+Limits: only 9 rounds (SE 1.4–2.1%), so effects smaller than roughly ±3–4% cannot be detected; the news arm is weak because free news coverage is thin; contamination would bias results UPWARD for the AI, so the negative result is the more informative direction.
+Next: F2 forward rounds continue unchanged (primary evidence). At evaluation the naive-momentum baseline (computable from the logged pools) is reported alongside the two arms.
