@@ -112,7 +112,14 @@ def main():
                 else:
                     print(f"  ERROR {ticker}")
     else:
-        results = manager.execute_recommendations()
+        from core.trading.market_hours import should_block_offhours_orders
+        if should_block_offhours_orders(os.getenv("TRADE_DRY_RUN") != "0",
+                                        os.getenv("TRADE_ALLOW_OFFHOURS") == "1"):
+            logger.warning("Regular session closed — NOT placing buy orders (set TRADE_ALLOW_OFFHOURS=1 to override)")
+            print("  Market closed — no orders placed.")
+            results = []
+        else:
+            results = manager.execute_recommendations()
 
         print()
         print("=" * 60)

@@ -291,6 +291,14 @@ def run_check():
         # heartbeat, not just a position report.
         try:
             if client.connect():
+                # Fills that happen while the tracker is empty (e.g. a CoreTrend ETF buy/sell, or the
+                # last tracked position closing) must still reach the ledger — IB only serves recent fills.
+                if getattr(CONFIG, "ledger_enabled", False):
+                    try:
+                        from core.trading import ledger
+                        ledger.ingest(client)
+                    except Exception as _le:
+                        logger.warning("ledger ingest (empty tracker) failed (non-fatal): %s", _le)
                 from core.trading.portfolio_snapshot import write_snapshot
                 write_snapshot(client, tracker)
                 client.disconnect()
@@ -1504,7 +1512,7 @@ def _verify_protections(tracker, client, ibkr_orders, notify):
                         peak_price=float(pos.get("peak_price", 0) or 0),
                     )
                     _trail_res = _result.get("trailing_stop") if _result else None
-                    _trail_ok = _trail_res and getattr(_trail_res, "status", "") != "Error"
+                    _trail_ok = _trail_res and getattr(_trail_res, "status", "") not in ("Error", "Cancelled", "ApiCancelled", "Inactive")
                     if _trail_ok:
                         _new_oca = _result.get("oca_group", "") if _result else ""
                         _all_pos = tracker.get_open_positions()

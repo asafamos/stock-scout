@@ -68,3 +68,16 @@ def test_last_completed_session_skips_weekends_and_holidays():
     assert l(date(2026, 9, 28)) == date(2026, 9, 25)    # Mon -> Fri
     assert l(date(2026, 9, 8)) == date(2026, 9, 4)      # Tue after Labor Day (Mon 9/7) -> Fri
     assert l(date(2026, 11, 27)) == date(2026, 11, 25)  # day after Thanksgiving -> Wed
+
+
+def test_offhours_guard_blocks_live_runs_after_close_only():
+    from datetime import datetime, timezone
+    from core.trading.market_hours import should_block_offhours_orders as blk
+    fri_open = datetime(2026, 10, 2, 15, 30, tzinfo=timezone.utc)    # 11:30 ET, regular session
+    fri_after = datetime(2026, 10, 2, 20, 5, tzinfo=timezone.utc)    # 16:05 ET, after the close
+    sat = datetime(2026, 10, 3, 15, 30, tzinfo=timezone.utc)
+    assert blk(False, False, fri_open) is False
+    assert blk(False, False, fri_after) is True
+    assert blk(False, False, sat) is True
+    assert blk(True, False, fri_after) is False       # dry runs never blocked
+    assert blk(False, True, fri_after) is False       # explicit override

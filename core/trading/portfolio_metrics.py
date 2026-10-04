@@ -271,7 +271,7 @@ def format_perf_summary(current_net_liq: float, current_unrealized: float,
         for t in ledger.closed_round_trips(cfg):
             if t.get("realized_pnl") is None:
                 continue
-            sell_time = _parse_time(t.get("sell_time") or t.get("close_time") or t.get("time"))
+            sell_time = _parse_time(t.get("exit_time") or t.get("sell_time") or t.get("close_time") or t.get("time"))
             if sell_time and sell_time.date() >= freeze_date:
                 post_freeze_trips.append(t)
     except Exception:

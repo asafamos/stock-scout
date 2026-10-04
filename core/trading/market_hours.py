@@ -120,3 +120,16 @@ def last_completed_session(today: Optional[date] = None) -> date:
         if is_trading_day(d):
             return d
     return d
+
+
+def should_block_offhours_orders(dry_run: bool, allow_offhours: bool = False,
+                                 now_utc: Optional[datetime] = None) -> bool:
+    """True when a LIVE buy run must not place orders because the regular session is closed.
+
+    The VPS pipeline #3 trade step can start at/after 20:00 UTC (the close): an order placed then
+    would sit until the next open at a stale reference price. Dry runs are never blocked; the owner can
+    override with TRADE_ALLOW_OFFHOURS=1 (e.g. a deliberate manual pre-market run).
+    """
+    if dry_run or allow_offhours:
+        return False
+    return not is_regular_session(now_utc)
