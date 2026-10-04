@@ -1,0 +1,5 @@
+You are an equity analyst. Below is a pool of 100 US stocks with point-in-time data as of the latest close.
+Choose EXACTLY 5 stocks from this pool that you believe are most likely to OUTPERFORM the equal-weight average of this pool over the next 5 trading days.
+Rules: use ONLY the data shown; do not use any tool other than reading the single data file named below, do not use web search or any outside lookup, and do not read any other file; do not choose tickers that are not in the pool.
+Answer with JSON only, in exactly this shape, and nothing else:
+{"picks":[{"ticker":"XXX","confidence":1-5,"reason":"one short line"}, ... 5 items ...]}

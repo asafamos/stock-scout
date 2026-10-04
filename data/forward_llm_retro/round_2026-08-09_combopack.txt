@@ -1,0 +1,212 @@
+ticker | sector | industry | mcap$B | close | ret1m% | ret3m% | ret6m% | ret12m% | vs52wHigh% | vol20ann% | ADV$M | beta | shortInt%sh | daysToCover | netUpgrades60d | insiderBuys30d | congressBuys30d
+   (below each stock: news headlines from the last 7 days)
+GIB | Technology | Information Technology Servi | 15.5 | 74.74 | 11.7 | 9.8 | -9.6 | -22.6 | -23.1 | 39 | 37.8 | 0.17 | 3.1 | 15.1 | 0 | 0 | 0
+   (no news in the last 7 days)
+UNIT | Real Estate | REIT - Specialty | 2.4 | 9.54 | -14.1 | -14.2 | 21.8 | 33.2 | -25.2 | 49 | 24.7 | 1.40 | 6.5 | 7.7 | 0 | 0 | 0
+   (no news in the last 7 days)
+KHC | Consumer Defensive | Packaged Foods | 30.0 | 25.32 | 2.6 | 7.1 | 3.6 | -7.1 | -9.8 | 36 | 386.5 | 0.08 | 7.8 | 7.9 | 0 | 0 | 0
+   (no news in the last 7 days)
+LBRDK | Communication Services | Telecommunications Services | 5.1 | 35.88 | 13.6 | -4.0 | -31.0 | -39.8 | -45.0 | 51 | 55.4 | 0.65 | 2.8 | 2.6 | 0 | 0 | 0
+   (no news in the last 7 days)
+SNEX | Financial Services | Financial - Capital Markets | 7.6 | 65.84 | -19.5 | -18.3 | 30.5 | 80.8 | -29.0 | 68 | 81.1 | 0.64 | 3.4 | 5.3 | -1 | 0 | 0
+   (no news in the last 7 days)
+ZM | Technology | Software - Application | 30.8 | 104.50 | 16.3 | -3.6 | 17.3 | 42.8 | -6.6 | 38 | 294.0 | 1.04 | 2.4 | 2.2 | 0 | 0 | 0
+   (no news in the last 7 days)
+ITW | Industrials | Industrial - Machinery | 85.0 | 296.66 | 11.7 | 16.1 | 2.9 | 15.2 | -1.0 | 28 | 435.2 | 1.00 | 3.3 | 8.1 | 0 | 0 | 0
+   - [2026-08-07] (GlobeNewswire Inc.) ITW Announces 7% Dividend Increase and $6 Billion Share Repurchase Program
+EFXT | Energy | Oil & Gas Equipment & Servic | 2.4 | 19.96 | -17.1 | -29.7 | 18.5 | 147.3 | -29.7 | 43 | 12.8 | 2.08 | 0.8 | 2.9 | 0 | 0 | 0
+   (no news in the last 7 days)
+SFL | Industrials | Marine Shipping | 1.6 | 12.07 | 11.9 | 1.3 | 37.0 | 28.7 | -5.7 | 24 | 15.4 | 0.44 | 2.5 | 2.6 | 0 | 0 | 0
+   (no news in the last 7 days)
+ARES | Financial Services | Asset Management | 46.3 | 136.85 | 12.5 | 11.1 | 12.3 | -27.7 | -29.0 | 44 | 293.9 | 1.52 | 4.9 | 8.9 | 0 | 0 | 0
+   (no news in the last 7 days)
+AAP | Consumer Cyclical | Specialty Retail | 3.5 | 57.80 | 5.1 | 1.0 | 9.2 | -4.4 | -9.9 | 54 | 82.9 | 1.03 | 17.9 | 5.8 | 0 | 0 | 0
+   - [2026-08-03] (The Motley Fool) Advance Auto Parts vs. Delta Air Lines: Should Investors Look to the Skies or the Garage in 2026?
+   - [2026-08-03] (The Motley Fool) Redwire vs. Advance Auto Parts: Should Investors Be Looking to Space or Down the Street for Profits in 2026?
+VVX | Industrials | Aerospace & Defense | 2.6 | 84.41 | 11.6 | 11.9 | 31.9 | 54.1 | -7.0 | 59 | 73.8 | 0.22 | 3.8 | 2.8 | -2 | 0 | 0
+   (no news in the last 7 days)
+TTAN | Technology | Software - Application | 8.2 | 85.83 | 8.0 | 31.4 | 40.0 | -24.0 | -28.2 | 64 | 105.7 | 0.02 | 10.1 | 7.5 | 0 | 0 | 0
+   (no news in the last 7 days)
+TWI | Industrials | Agricultural - Machinery | 0.5 | 7.36 | 2.6 | -8.1 | -29.9 | -12.7 | -35.4 | 43 | 3.6 | 1.46 | 3.6 | 4.7 | 0 | 0 | 0
+   (no news in the last 7 days)
+CUZ | Real Estate | REIT - Office | 4.9 | 29.62 | -2.1 | 12.8 | 14.2 | 9.9 | -8.3 | 23 | 53.3 | 1.16 | 6.7 | 7.9 | 0 | 0 | 0
+   (no news in the last 7 days)
+SSYS | Technology | Computer Hardware | 0.8 | 8.91 | 2.5 | 8.7 | -12.8 | -18.0 | -28.4 | 48 | 3.4 | 1.94 | 2.7 | 4.1 | 0 | 0 | 0
+   (no news in the last 7 days)
+HNST | Consumer Defensive | Household & Personal Product | 0.6 | 5.46 | 37.9 | 46.4 | 144.8 | 20.8 | 0.0 | 149 | 11.4 | 2.24 | 8.6 | 7.9 | 0 | 0 | 0
+   (no news in the last 7 days)
+FMS | Healthcare | Medical - Care Facilities | 13.1 | 24.27 | 1.5 | 12.1 | -0.3 | 3.2 | -11.5 | 27 | 18.8 | 0.72 | 0.5 | 4.5 | 0 | 0 | 0
+   (no news in the last 7 days)
+FMAO | Financial Services | Banks - Regional | 0.5 | 34.92 | 16.6 | 26.2 | 24.8 | 44.9 | -0.4 | 49 | 3.0 | 0.80 | 1.5 | 2.6 | 0 | 1 | 1
+   (no news in the last 7 days)
+MFC | Financial Services | Insurance - Life | 73.9 | 44.32 | 6.8 | 12.0 | 18.6 | 41.8 | -1.0 | 18 | 84.4 | 0.76 | 0.3 | 4.1 | 0 | 0 | 0
+   (no news in the last 7 days)
+ADP | Technology | Software - Application | 108.4 | 271.32 | 12.5 | 26.7 | 16.0 | -10.1 | -12.2 | 35 | 666.8 | 0.83 | 3.6 | 6.9 | 0 | 0 | 0
+   - [2026-08-06] (The Motley Fool) Microsoft vs. Automatic Data Processing: Scale vs. Seasonality in Revenue
+MEGI | Financial Services | Asset Management - Global | 0.8 | 15.21 | -0.3 | -0.1 | 6.3 | 5.7 | -3.9 | 14 | 1.9 | 0.92 | 0.2 | 1.0 | 0 | 0 | 0
+   (no news in the last 7 days)
+LYB | Basic Materials | Chemicals - Specialty | 19.2 | 59.59 | 7.6 | -16.7 | 10.6 | 20.3 | -27.7 | 38 | 282.6 | 0.35 | 3.9 | 2.2 | 1 | 0 | 1
+   (no news in the last 7 days)
+NRC | Healthcare | Medical - Healthcare Informa | 0.4 | 20.34 | -6.3 | 8.6 | 27.7 | 43.6 | -10.7 | 74 | 2.0 | 0.38 | 2.4 | 6.2 | 0 | 0 | 0
+   (no news in the last 7 days)
+AB | Financial Services | Asset Management | 3.5 | 37.12 | 1.0 | -6.8 | -12.4 | -7.7 | -13.3 | 13 | 8.6 | 0.77 | 0.4 | 1.6 | 0 | 0 | 0
+   - [2026-08-05] (GlobeNewswire Inc.) Crypto News: Pepeto Announces Investment Growth While Bitcoin Price Targets $250K
+GTE | Energy | Oil & Gas Exploration & Prod | 0.3 | 8.96 | 42.7 | 2.3 | 68.4 | 124.0 | -5.8 | 158 | 13.8 | 0.16 | 5.2 | 6.3 | 1 | 0 | 0
+   - [2026-08-06] (The Motley Fool) Gran Tierra Energy (GTE) Q2 2026 Earnings Call
+PD | Technology | Software - Application | 0.9 | 11.69 | 11.8 | 57.8 | 48.0 | -27.8 | -31.9 | 70 | 15.1 | 0.96 | 8.9 | 4.0 | -1 | 0 | 0
+   (no news in the last 7 days)
+FTS | Utilities | Regulated Electric | 27.0 | 56.10 | -1.8 | -0.1 | 2.0 | 11.2 | -4.7 | 13 | 45.5 | 0.41 | 2.3 | 17.0 | 0 | 0 | 0
+   (no news in the last 7 days)
+HSY | Consumer Defensive | Food Confectioners | 36.2 | 182.35 | 6.2 | -2.5 | -18.7 | -3.3 | -22.8 | 27 | 290.6 | 0.10 | 4.6 | 4.3 | 0 | 0 | 1
+   (no news in the last 7 days)
+SLDE | Financial Services | Insurance - Property & Casua | 2.5 | 21.13 | 1.5 | 12.0 | 23.4 | 14.2 | -4.6 | 53 | 22.6 | -0.04 | 6.2 | 4.8 | -1 | 0 | 0
+   (no news in the last 7 days)
+FLYW | Industrials | Specialty Business Services | 2.2 | 17.78 | -1.3 | 0.3 | 64.0 | 46.7 | -5.3 | 54 | 39.9 | 1.31 | 10.7 | 6.3 | -1 | 0 | 0
+   (no news in the last 7 days)
+FNGS | Financial Services | Asset Management - Leveraged | 0.6 | 80.78 | 7.4 | 11.5 | 30.6 | 23.0 | 0.0 | 28 | 2.0 | 1.33 | 0.7 | 1.9 | 0 | 0 | 0
+   - [2026-08-07] (GlobeNewswire Inc.) Vireo Growth Announces Asset Based Credit Facility
+CCC | Technology | Software - Application | 4.0 | 6.92 | 28.6 | 32.8 | 21.8 | -28.7 | -31.0 | 47 | 64.7 | 0.47 | 8.6 | 4.5 | 0 | 0 | 0
+   (no news in the last 7 days)
+ASO | Consumer Cyclical | Specialty Retail | 3.1 | 48.13 | 5.8 | -10.1 | -15.7 | -6.9 | -21.3 | 38 | 54.7 | 1.02 | 12.0 | 5.2 | 0 | 0 | 0
+   (no news in the last 7 days)
+ROOT | Financial Services | Insurance - Property & Casua | 0.8 | 51.50 | -20.0 | -9.5 | -10.7 | -58.0 | -49.9 | 88 | 14.4 | 2.92 | 12.9 | 8.5 | 0 | 0 | 0
+   (no news in the last 7 days)
+EBAY | Consumer Cyclical | Specialty Retail | 50.1 | 111.98 | -4.6 | 5.2 | 29.4 | 21.0 | -5.9 | 37 | 492.4 | 1.34 | 3.1 | 5.5 | -1 | 0 | 0
+   - [2026-08-05] (The Motley Fool) Stock Market Today, Aug. 5: Shopify Soars 17% After Beating Q2 Estimates, Raises Q3 Outlook
+ABR | Real Estate | REIT - Mortgage | 1.0 | 5.35 | 7.9 | -34.5 | -30.2 | -54.1 | -57.1 | 39 | 20.5 | 1.12 | 23.8 | 10.1 | 1 | 2 | 0
+   (no news in the last 7 days)
+CERT | Healthcare | Medical - Healthcare Informa | 1.3 | 8.20 | 20.8 | 30.0 | 11.1 | -14.0 | -39.7 | 49 | 29.8 | 1.41 | 19.3 | 7.8 | 0 | 0 | 0
+   (no news in the last 7 days)
+PAAS | Basic Materials | Gold | 21.6 | 51.22 | 16.1 | -11.4 | -2.3 | 74.5 | -25.4 | 49 | 166.1 | 1.59 | 1.1 | 1.1 | 0 | 0 | 0
+   (no news in the last 7 days)
+SGHT | Healthcare | Medical - Devices | 0.4 | 7.47 | 42.0 | 41.2 | 31.3 | 103.0 | -17.5 | 111 | 1.3 | 2.50 | 1.5 | 5.0 | 0 | 0 | 0
+   (no news in the last 7 days)
+HAE | Healthcare | Medical - Devices | 4.0 | 87.84 | 17.1 | 61.6 | 35.1 | 15.9 | 0.0 | 30 | 61.2 | 0.54 | 6.0 | 4.2 | 0 | 0 | 0
+   (no news in the last 7 days)
+SBH | Consumer Cyclical | Specialty Retail | 1.6 | 16.83 | 14.5 | 21.4 | 1.3 | 39.8 | -1.0 | 48 | 22.8 | 1.05 | 21.1 | 15.1 | 0 | 0 | 0
+   - [2026-08-03] (The Motley Fool) Why Sally Beauty Stock Popped Today
+CBL | Real Estate | REIT - Retail | 1.7 | 56.55 | 8.4 | 28.7 | 56.0 | 102.3 | -5.8 | 34 | 16.3 | 1.41 | 3.2 | 3.1 | 0 | 0 | 0
+   (no news in the last 7 days)
+COLM | Consumer Cyclical | Apparel - Manufacturers | 3.0 | 57.36 | -9.8 | -9.4 | -6.1 | 10.6 | -15.4 | 32 | 41.7 | 0.93 | 7.0 | 8.4 | 0 | 0 | 0
+   (no news in the last 7 days)
+PFE | Healthcare | Drug Manufacturers - General | 152.5 | 26.76 | 10.4 | 1.1 | 1.0 | 11.8 | -6.3 | 20 | 1049.5 | 0.30 | 2.9 | 3.8 | 0 | 2 | 0
+   - [2026-08-07] (The Motley Fool) Pfizer's Next Weight-Loss Weapon: How Berobenatide Stacks Up Against Novo Nordisk's Wegovy and Eli Lilly's Zepbound
+   - [2026-08-07] (GlobeNewswire Inc.) Precision Medicine Collaboration and Licensing Deals 2019-2026 | Gain Access to Over 1,350 Deals and Benchmark with Confidence
+   - [2026-08-07] (GlobeNewswire Inc.) Global Influenza Vaccine Market Report, 2026 Edition - Profiles GlaxoSmithKline, Pfizer, Sanofi, Moderna, and 9 Other Players
+PSIX | Industrials | Industrial - Machinery | 0.9 | 40.82 | 17.7 | -43.3 | -39.9 | -55.1 | -64.7 | 139 | 17.3 | 2.08 | 7.6 | 3.9 | 0 | 0 | 0
+   - [2026-08-07] (GlobeNewswire Inc.) Important Notice to Long-Term Shareholders of Erasca, Inc. (NASDAQ: ERAS); Insulet Corporation (NASDAQ: PODD); Power Solutions International, Inc. (NASDAQ: PSIX); and PROCEPT BioRobotics Corporation (NASDAQ: PRCT): Grabar Law Office is Investigating Claims on Your Behalf
+   - [2026-08-04] (GlobeNewswire Inc.) Important Notice to Long-Term Shareholders of Erasca, Inc. (NASDAQ: ERAS); Insulet Corporation (NASDAQ: PODD); Power Solutions International, Inc. (NASDAQ: PSIX); and PROCEPT BioRobotics Corporation (NASDAQ: PRCT): Grabar Law Office is Investigating Claims on Your Behalf
+LAND | Real Estate | REIT - Specialty | 0.4 | 8.34 | -2.6 | -14.5 | -25.0 | -8.5 | -33.3 | 22 | 5.2 | 1.08 | 6.7 | 5.2 | 0 | 0 | 0
+   (no news in the last 7 days)
+IPAR | Consumer Defensive | Household & Personal Product | 3.9 | 122.97 | 3.9 | 30.9 | 21.8 | 1.9 | -4.3 | 33 | 33.9 | 1.15 | 5.5 | 4.5 | 0 | 0 | 0
+   (no news in the last 7 days)
+NAT | Industrials | Marine Shipping | 1.4 | 6.46 | 9.5 | 10.2 | 54.9 | 126.7 | -3.0 | 38 | 20.1 | -0.52 | 7.7 | 5.1 | 0 | 0 | 0
+   (no news in the last 7 days)
+PBH | Healthcare | Medical - Pharmaceuticals | 2.6 | 54.85 | 13.1 | 0.5 | -16.3 | -27.0 | -21.9 | 36 | 27.6 | 0.33 | 6.5 | 6.7 | 0 | 0 | 0
+   (no news in the last 7 days)
+TR | Consumer Defensive | Food Confectioners | 3.0 | 39.63 | 4.2 | -7.3 | 1.2 | 7.4 | -11.6 | 22 | 6.2 | 0.41 | 3.1 | 11.3 | 0 | 0 | 0
+   (no news in the last 7 days)
+LTBR | Industrials | Electrical Equipment & Parts | 0.3 | 9.47 | 10.2 | -30.5 | -29.9 | -35.4 | -65.8 | 80 | 8.1 | 2.15 | 13.2 | 6.2 | 0 | 0 | 0
+   (no news in the last 7 days)
+SYM | Industrials | Industrial - Machinery | 28.6 | 40.18 | -6.9 | -28.8 | -25.3 | -36.1 | -54.0 | 76 | 69.6 | 1.94 | 2.2 | 9.7 | 0 | 0 | 0
+   - [2026-08-05] (The Motley Fool) 3 Robotics and Automation Stocks to Buy in August
+AIG | Financial Services | Insurance - Diversified | 42.1 | 78.78 | -0.4 | 3.1 | 3.7 | -0.4 | -9.0 | 24 | 267.1 | 0.51 | 1.8 | 2.6 | 0 | 0 | 1
+   (no news in the last 7 days)
+FWRG | Consumer Cyclical | Restaurants | 0.8 | 12.42 | -0.4 | 3.9 | -26.9 | -34.0 | -35.2 | 38 | 14.2 | 1.03 | 8.6 | 5.9 | 0 | 0 | 0
+   (no news in the last 7 days)
+PSA | Real Estate | REIT - Industrial | 57.7 | 328.40 | 2.8 | 6.2 | 16.1 | 16.7 | -0.6 | 26 | 426.1 | 0.94 | 3.8 | 7.6 | -1 | 0 | 0
+   (no news in the last 7 days)
+SNY | Healthcare | Drug Manufacturers - General | 104.0 | 43.46 | -1.0 | 0.6 | -8.5 | -5.9 | -17.0 | 26 | 146.8 | 0.30 | 0.3 | 2.4 | 0 | 0 | 0
+   - [2026-08-07] (GlobeNewswire Inc.) Global Influenza Vaccine Market Report, 2026 Edition - Profiles GlaxoSmithKline, Pfizer, Sanofi, Moderna, and 9 Other Players
+BLX | Financial Services | Banks - Regional | 2.1 | 56.99 | -1.9 | 5.2 | 16.3 | 38.0 | -9.2 | 28 | 8.9 | 0.79 | 1.4 | 2.8 | 0 | 0 | 0
+   (no news in the last 7 days)
+CBRE | Real Estate | Real Estate - Services | 43.6 | 148.18 | 5.0 | 1.0 | -10.8 | -4.9 | -13.7 | 36 | 257.1 | 1.19 | 1.8 | 3.4 | 0 | 0 | 0
+   (no news in the last 7 days)
+SKWD | Financial Services | Insurance - Property & Casua | 2.6 | 63.67 | 5.9 | 39.9 | 44.6 | 32.8 | -3.0 | 38 | 29.8 | 0.32 | 5.1 | 3.1 | 0 | 0 | 0
+   (no news in the last 7 days)
+GLPI | Real Estate | REIT - Specialty | 12.3 | 44.14 | 2.6 | -7.9 | -2.7 | -3.6 | -11.4 | 20 | 95.8 | 0.68 | 3.4 | 3.0 | 0 | 0 | 0
+   (no news in the last 7 days)
+AVPT | Technology | Software - Infrastructure | 2.7 | 12.79 | 0.9 | 23.9 | 25.9 | -28.4 | -26.9 | 44 | 28.8 | 1.19 | 5.9 | 5.1 | 0 | 0 | 0
+   (no news in the last 7 days)
+RNW | Utilities | Renewable Utilities | 2.2 | 6.17 | 0.5 | 14.3 | 19.6 | -17.1 | -24.7 | 25 | 7.6 | 1.14 | 0.4 | 1.4 | 0 | 0 | 0
+   (no news in the last 7 days)
+EAT | Consumer Cyclical | Restaurants | 9.7 | 225.20 | 24.7 | 53.9 | 40.2 | 41.6 | -0.9 | 43 | 211.3 | 1.26 | 13.3 | 5.5 | 0 | 0 | 0
+   (no news in the last 7 days)
+ELS | Real Estate | REIT - Residential | 12.6 | 65.17 | 2.9 | 3.0 | -1.9 | 6.2 | -4.7 | 25 | 115.8 | 0.65 | 4.0 | 5.5 | -1 | 0 | 0
+   (no news in the last 7 days)
+GENI | Communication Services | Internet Content & Informati | 2.1 | 7.59 | 23.0 | 58.8 | 22.6 | -35.0 | -44.0 | 84 | 54.7 | 1.88 | 11.8 | 9.7 | -1 | 0 | 0
+   (no news in the last 7 days)
+JBS | Consumer Defensive | Packaged Foods | 14.5 | 14.23 | 21.3 | -12.8 | -9.5 | 3.0 | -22.7 | 44 | 65.0 | 0.16 | 3.1 | 7.5 | 1 | 0 | 0
+   (no news in the last 7 days)
+TCBX | Financial Services | Banks - Regional | 0.6 | 44.31 | 11.5 | 15.7 | 3.9 | 23.3 | -0.1 | 31 | 5.5 | 0.64 | 4.8 | 5.9 | 0 | 0 | 0
+   (no news in the last 7 days)
+DRTS | Healthcare | Biotechnology | 1.2 | 13.14 | 1.2 | 67.4 | 91.5 | 319.8 | -3.2 | 79 | 7.2 | 1.21 | 3.3 | 3.7 | 0 | 0 | 0
+   (no news in the last 7 days)
+PPTA | Basic Materials | Other Precious Metals | 3.1 | 24.72 | 24.8 | -13.3 | -4.7 | 43.2 | -33.6 | 85 | 24.6 | 0.69 | 9.5 | 12.2 | 0 | 0 | 0
+   (no news in the last 7 days)
+SLSR | Basic Materials | Other Precious Metals | 1.3 | 8.02 | -1.8 | -20.5 | -15.1 | 54.8 | -27.9 | 60 | 1.4 | 2.22 | 0.3 | 2.5 | 0 | 0 | 0
+   (no news in the last 7 days)
+VFC | Consumer Cyclical | Apparel - Manufacturers | 5.9 | 14.99 | -9.3 | -21.4 | -25.4 | 22.3 | -30.4 | 77 | 140.1 | 0.97 | 7.9 | 5.7 | 0 | 1 | 0
+   (no news in the last 7 days)
+WRBY | Consumer Cyclical | Specialty Retail | 3.3 | 26.46 | -9.8 | -2.7 | 11.1 | 8.9 | -12.8 | 60 | 78.5 | 1.91 | 14.4 | 7.6 | 0 | 0 | 0
+   (no news in the last 7 days)
+MRTN | Industrials | Trucking | 1.2 | 14.95 | -14.4 | -1.3 | 9.8 | 23.5 | -18.2 | 30 | 11.6 | 0.97 | 4.3 | 6.2 | 0 | 0 | 0
+   (no news in the last 7 days)
+YORW | Utilities | Regulated Water | 0.5 | 31.70 | 4.7 | 8.6 | -2.6 | 3.7 | -7.1 | 24 | 4.0 | 0.61 | 4.0 | 2.8 | 0 | 7 | 0
+   (no news in the last 7 days)
+ASTE | Industrials | Industrial - Machinery | 1.0 | 44.25 | -20.5 | -16.5 | -19.1 | 12.4 | -31.9 | 59 | 13.6 | 1.34 | 2.5 | 3.4 | 0 | 0 | 0
+   (no news in the last 7 days)
+BMNR | Financial Services | Financial - Capital Markets | 6.5 | 18.82 | 28.1 | -14.5 | 8.2 | -51.1 | -70.2 | 88 | 593.5 | 1.56 | 14.2 | 1.4 | 0 | 0 | 0
+   (no news in the last 7 days)
+SF | Financial Services | Investment - Banking & Inves | 8.5 | 83.09 | 9.7 | 9.1 | -2.7 | 11.5 | -6.4 | 24 | 94.9 | 0.98 | 4.7 | 4.0 | 0 | 0 | 0
+   (no news in the last 7 days)
+CALX | Technology | Communication Equipment | 2.4 | 37.98 | -4.4 | -12.7 | -25.0 | -33.1 | -44.5 | 42 | 54.4 | 1.25 | 9.0 | 5.2 | 1 | 0 | 0
+   - [2026-08-04] (GlobeNewswire Inc.) CAPRICOR THERAPEUTICS, INC. (CAPR) INVESTOR ALERT Investors With Large Losses in Capricor Therapeutics, Inc. Should Contact Bernstein Liebhard LLP To Discuss Their Rights
+   - [2026-08-04] (GlobeNewswire Inc.) AEROVIRONMENT, INC. (NASDAQ: AVAV) SHAREHOLDER INVESTIGATION ALERT: Bernstein Liebhard Investigates Potential Breaches of Fiduciary Duty
+   - [2026-08-04] (GlobeNewswire Inc.) AVIS BUDGET GROUP, INC. (CAR) INVESTOR ALERT Investors With Large Losses in Avis Budget Group, Inc. Should Contact Bernstein Liebhard LLP To Discuss Their Rights
+   - [2026-08-04] (GlobeNewswire Inc.) WISE GROUP PLC (WSE) INVESTOR ALERT Investors With Large Losses in Wise Group plc Should Contact Bernstein Liebhard LLP To Discuss Their Rights
+FWONK | Communication Services | Entertainment | 25.7 | 102.85 | 7.2 | 10.0 | 18.0 | 3.2 | -5.1 | 32 | 203.8 | 0.68 | 3.3 | 4.1 | 0 | 0 | 6
+   (no news in the last 7 days)
+SGMT | Healthcare | Biotechnology | 0.5 | 9.06 | 23.3 | 18.6 | 66.5 | -1.2 | -5.4 | 77 | 8.4 | 3.49 | 18.3 | 9.2 | 0 | 0 | 0
+   (no news in the last 7 days)
+CLX | Consumer Defensive | Household & Personal Product | 12.8 | 105.15 | 13.0 | 14.2 | -10.6 | -16.2 | -17.3 | 36 | 262.0 | 0.54 | 9.6 | 4.8 | -1 | 0 | 0
+   - [2026-08-05] (The Motley Fool) Meet the 5.1%-Yielding Stock That Just Increased Its Dividend for the 49th Consecutive Year. Here's Why It's a Buy in August.
+HUM | Healthcare | Medical - Healthcare Plans | 46.3 | 385.00 | -3.2 | 55.8 | 98.9 | 50.0 | -6.0 | 44 | 595.7 | 0.74 | 3.5 | 3.2 | 2 | 0 | 1
+   (no news in the last 7 days)
+FAF | Financial Services | Insurance - Specialty | 7.6 | 74.22 | 5.6 | 6.3 | 10.6 | 18.4 | -6.2 | 43 | 57.4 | 1.23 | 6.4 | 8.3 | 0 | 0 | 0
+   (no news in the last 7 days)
+UTZ | Consumer Defensive | Packaged Foods | 1.2 | 14.11 | 83.0 | 82.8 | 29.1 | 9.0 | -0.4 | 317 | 94.9 | 0.77 | 10.1 | 5.1 | -4 | 0 | 0
+   (no news in the last 7 days)
+XNCR | Healthcare | Biotechnology | 1.6 | 20.81 | 29.2 | 69.0 | 92.3 | 177.8 | -3.2 | 90 | 20.9 | 0.88 | 14.3 | 13.6 | 0 | 0 | 0
+   (no news in the last 7 days)
+TBPH | Healthcare | Biotechnology | 0.9 | 16.93 | -0.3 | -0.5 | -13.5 | 51.4 | -18.4 | 4 | 10.9 | 0.17 | 8.0 | 5.3 | -3 | 0 | 0
+   (no news in the last 7 days)
+ESQ | Financial Services | Banks - Regional | 1.1 | 131.38 | 12.0 | 22.4 | 15.4 | 39.4 | -0.6 | 38 | 18.4 | 0.35 | 9.4 | 6.3 | 0 | 0 | 0
+   (no news in the last 7 days)
+SVC | Real Estate | REIT - Hotel & Motel | 1.1 | 8.23 | -5.9 | 6.9 | -23.1 | -33.4 | -43.4 | 38 | 15.5 | 1.64 | 3.5 | 2.0 | 0 | 0 | 0
+   (no news in the last 7 days)
+MELI | Consumer Cyclical | Specialty Retail | 92.3 | 1820.69 | 0.7 | -2.6 | -10.5 | -21.4 | -27.5 | 25 | 781.4 | 1.31 | 1.9 | 2.4 | 0 | 0 | 4
+   - [2026-08-08] (The Motley Fool) Airbnb vs. MercadoLibre: Which Consumer Stock Is a Better Buy in 2026?
+   - [2026-08-06] (The Motley Fool) Netflix and MercadoLibre Are Underperforming the S&P 500. Here's the 1 Stock I'd Buy in August.
+   - [2026-08-02] (The Motley Fool) Warren Buffett Passed on This Stock for Over 7 Years. Greg Abel May Not Wait Any Longer.
+PLXS | Technology | Hardware, Equipment & Parts | 7.2 | 270.35 | -0.1 | 3.7 | 34.5 | 111.3 | -11.0 | 41 | 86.3 | 0.89 | 3.2 | 3.0 | 1 | 0 | 0
+   (no news in the last 7 days)
+BBT | Financial Services | Banks - Regional | 2.6 | 31.51 | 4.9 | 9.1 | 1.7 | 30.0 | -3.1 | 21 | 24.0 | 0.60 | 4.5 | 5.7 | 0 | 0 | 0
+   (no news in the last 7 days)
+FLGT | Healthcare | Medical - Diagnostics & Rese | 0.5 | 19.14 | -8.3 | 26.7 | -19.3 | -7.4 | -38.0 | 77 | 6.2 | 0.93 | 9.8 | 11.4 | 0 | 0 | 0
+   (no news in the last 7 days)
+TOST | Technology | Software - Infrastructure | 19.9 | 34.48 | 19.5 | 17.4 | 27.5 | -24.9 | -24.4 | 39 | 329.8 | 1.73 | 7.1 | 3.9 | 1 | 0 | 0
+   - [2026-08-08] (The Motley Fool) Toast CEO Aman Narang Sells 138,000 Shares for $4.9 Million Amid Stock's 24% Dip
+   - [2026-08-06] (The Motley Fool) What Does Toast's Principal Accounting Officer Selling 35% of Her Directly-Held Company Shares Mean for Investors?
+AMRC | Industrials | Engineering & Construction | 1.4 | 25.65 | 0.0 | -13.6 | -3.7 | 25.9 | -40.7 | 117 | 16.7 | 2.62 | 8.0 | 9.2 | 1 | 0 | 0
+   (no news in the last 7 days)
+FMX | Consumer Defensive | Beverages - Alcoholic | 212.8 | 122.46 | -3.6 | 2.1 | 14.1 | 38.9 | -8.0 | 39 | 67.6 | 0.18 | 0.1 | 3.3 | 0 | 0 | 0
+   (no news in the last 7 days)
+SSRM | Basic Materials | Gold | 6.6 | 31.78 | 9.0 | -2.8 | 41.1 | 108.5 | -11.1 | 76 | 89.0 | 0.90 | 4.2 | 3.0 | 0 | 0 | 0
+   (no news in the last 7 days)
+BCE | Communication Services | Telecommunications Services | 21.2 | 22.75 | 6.7 | -7.4 | -11.0 | -2.2 | -14.0 | 25 | 93.1 | 0.61 | 3.0 | 6.6 | 0 | 0 | 0
+   (no news in the last 7 days)
+SHW | Basic Materials | Chemicals - Specialty | 90.5 | 369.73 | 11.4 | 15.5 | 2.4 | 5.4 | -1.5 | 44 | 733.2 | 1.09 | 2.8 | 3.5 | 0 | 0 | 0
+   (no news in the last 7 days)
+VRDN | Healthcare | Biotechnology | 2.5 | 23.59 | 16.8 | 38.8 | -19.1 | 37.2 | -30.2 | 54 | 36.1 | 0.96 | 17.5 | 9.9 | 1 | 0 | 0
+   (no news in the last 7 days)

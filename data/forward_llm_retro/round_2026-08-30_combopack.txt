@@ -1,0 +1,226 @@
+ticker | sector | industry | mcap$B | close | ret1m% | ret3m% | ret6m% | ret12m% | vs52wHigh% | vol20ann% | ADV$M | beta | shortInt%sh | daysToCover | netUpgrades60d | insiderBuys30d | congressBuys30d
+   (below each stock: news headlines from the last 7 days)
+AMN | Healthcare | Medical - Care Facilities | 1.4 | 34.62 | -0.3 | 19.5 | 77.7 | 72.2 | -5.4 | 80 | 25.3 | 0.39 | 8.1 | 3.3 | 0 | 0 | 0
+   (no news in the last 7 days)
+FROG | Technology | Software - Application | 12.0 | 98.74 | 25.9 | 24.2 | 145.9 | 101.6 | -5.1 | 74 | 200.7 | 1.28 | 6.9 | 3.4 | -1 | 0 | 0
+   (no news in the last 7 days)
+ADUS | Healthcare | Medical - Care Facilities | 2.1 | 115.55 | -1.0 | 26.0 | 11.6 | 0.0 | -5.9 | 25 | 24.2 | 0.86 | n/a | n/a | 0 | 0 | 0
+   (no news in the last 7 days)
+PPC | Consumer Defensive | Packaged Foods | 7.5 | 31.69 | 8.0 | 11.9 | -26.6 | -29.5 | -29.0 | 49 | 47.2 | 0.28 | 3.2 | 5.6 | 0 | 0 | 0
+   (no news in the last 7 days)
+COUR | Consumer Defensive | Education & Training Service | 1.3 | 6.47 | 22.8 | 20.0 | 0.9 | -42.7 | -46.4 | 61 | 28.8 | 1.25 | n/a | n/a | 1 | 0 | 0
+   (no news in the last 7 days)
+NOV | Energy | Oil & Gas Equipment & Servic | 7.6 | 20.99 | 8.8 | 5.2 | 3.6 | 60.1 | -2.8 | 35 | 65.6 | 0.94 | n/a | n/a | 0 | 0 | 0
+   - [2026-08-27] (Zacks Investment Research) Nov Inc. (NOV) Up 6.1% Since Last Earnings Report: Can It Continue?
+SSL | Basic Materials | Chemicals | 7.7 | 11.82 | 0.9 | -4.4 | 32.5 | 79.9 | -17.3 | 42 | 12.6 | -0.32 | n/a | n/a | 0 | 0 | 0
+   (no news in the last 7 days)
+AXSM | Healthcare | Biotechnology | 10.2 | 199.02 | -15.2 | -15.1 | 21.4 | 63.3 | -22.0 | 30 | 143.9 | 0.60 | 6.2 | 4.0 | 0 | 0 | 0
+   (no news in the last 7 days)
+OC | Basic Materials | Construction Materials | 11.5 | 143.13 | 3.1 | 13.8 | 17.3 | -6.4 | -10.0 | 34 | 125.1 | 1.32 | n/a | n/a | 0 | 0 | 0
+   - [2026-08-27] (Zacks Investment Research) Is Owens Corning (OC) a Buy as Wall Street Analysts Look Optimistic?
+   - [2026-08-25] (GlobeNewswire Inc.) State of the Materials Industry to Reach $87.6 Billion in Advanced Chip Packaging Alone by 2030, Driven by AI, Electrification, and Next-Generation Manufacturing Demand
+FORM | Technology | Semiconductors | 7.9 | 101.70 | -3.5 | -18.4 | 2.9 | 247.5 | -36.4 | 85 | 133.8 | 1.24 | 3.5 | 2.3 | 0 | 0 | 0
+   - [2026-08-25] (The Motley Fool) 1 Quantum Computing Stock Everyone's Ignoring While IonQ Gets the Headlines
+SGI | Consumer Cyclical | Furnishings, Fixtures & Appl | 13.5 | 64.37 | -3.7 | -9.1 | -28.1 | -23.9 | -34.3 | 40 | 233.7 | 1.19 | n/a | n/a | 0 | 1 | 1
+   (no news in the last 7 days)
+AMJB | Financial Services | Asset Management | 1.0 | 37.20 | 0.4 | 7.6 | 7.7 | 20.5 | -3.5 | 20 | 1.1 | 0.37 | 2.9 | 42.8 | 0 | 0 | 0
+   - [2026-08-28] (Zacks Investment Research) Is WisdomTree U.S. LargeCap Dividend ETF (DLN) a Strong ETF Right Now?
+   - [2026-08-27] (GlobeNewswire Inc.) Crypto News: Pepeto Reveals Presale Round Sold Out Hours Early as the XRP Price Prediction Targets $6.40
+   - [2026-08-27] (Zacks Investment Research) Can JPMorgan's Stablecoin Push Strengthen Its Digital Payments Edge?
+   - [2026-08-27] (Zacks Investment Research) Should You Buy BAC Stock as AI-Led Branch Expansion Boosts Efficiency?
+MEI | Technology | Hardware, Equipment & Parts | 0.6 | 18.21 | 32.8 | 57.8 | 115.2 | 134.7 | -6.2 | 104 | 10.0 | 1.54 | n/a | n/a | 0 | 0 | 0
+   (no news in the last 7 days)
+SYRE | Healthcare | Biotechnology | 7.7 | 90.36 | -11.0 | 22.9 | 110.1 | 427.2 | -17.0 | 66 | 98.0 | 3.00 | n/a | n/a | -1 | 0 | 0
+   (no news in the last 7 days)
+NSP | Industrials | Staffing & Employment Servic | 2.0 | 53.54 | -0.9 | 55.3 | 141.1 | -2.7 | -3.7 | 45 | 20.6 | 0.53 | n/a | n/a | 0 | 0 | 0
+   (no news in the last 7 days)
+BCAL | Financial Services | Banks - Regional | 0.7 | 21.27 | 0.5 | 12.1 | 16.2 | 25.6 | -2.4 | 15 | 3.2 | 0.29 | 2.9 | 6.3 | 0 | 0 | 0
+   (no news in the last 7 days)
+PVLA | Healthcare | Biotechnology | 2.2 | 149.97 | -0.1 | 26.6 | 11.1 | 165.7 | -4.9 | 44 | 28.3 | -0.17 | 15.0 | 12.8 | 0 | 0 | 0
+   (no news in the last 7 days)
+FLGT | Healthcare | Medical - Diagnostics & Rese | 0.5 | 19.61 | -3.0 | 8.1 | 27.9 | -9.4 | -36.4 | 41 | 4.7 | 0.93 | 9.1 | 9.3 | 0 | 0 | 0
+   (no news in the last 7 days)
+ALX | Real Estate | REIT - Retail | 1.4 | 270.19 | 1.6 | 9.8 | 15.2 | 14.9 | -5.6 | 28 | 9.9 | 0.75 | 6.6 | 8.6 | 0 | 0 | 0
+   (no news in the last 7 days)
+KURA | Healthcare | Biotechnology | 1.1 | 12.66 | 36.0 | 24.1 | 45.0 | 61.1 | -6.8 | 66 | 26.0 | 0.38 | n/a | n/a | 0 | 2 | 0
+   (no news in the last 7 days)
+PUK | Financial Services | Insurance - Life | 34.8 | 27.65 | -10.7 | -3.9 | -10.1 | 6.9 | -17.7 | 27 | 32.2 | 0.90 | 0.0 | 1.0 | 0 | 0 | 0
+   (no news in the last 7 days)
+OPY | Financial Services | Financial - Capital Markets | 1.3 | 119.01 | 7.5 | 29.8 | 37.9 | 66.8 | -0.8 | 36 | 14.1 | 1.09 | n/a | n/a | 0 | 0 | 0
+   (no news in the last 7 days)
+GSBC | Financial Services | Banks - Regional | 0.9 | 78.87 | -1.6 | 9.9 | 28.2 | 23.9 | -3.8 | 12 | 7.7 | 0.51 | n/a | n/a | 0 | 0 | 0
+   (no news in the last 7 days)
+FSM | Basic Materials | Gold | 3.7 | 12.26 | 39.8 | 21.9 | -10.2 | 61.7 | -10.2 | 60 | 66.0 | 2.12 | 5.6 | 3.0 | 0 | 0 | 0
+   (no news in the last 7 days)
+TWST | Healthcare | Biotechnology | 8.8 | 141.38 | 54.8 | 111.4 | 201.3 | 420.0 | -7.7 | 125 | 229.8 | 2.22 | n/a | n/a | -1 | 0 | 0
+   (no news in the last 7 days)
+JBL | Technology | Hardware, Equipment & Parts | 31.7 | 301.45 | -2.3 | -17.3 | 13.8 | 45.0 | -21.8 | 54 | 322.9 | 1.29 | n/a | n/a | 1 | 1 | 0
+   (no news in the last 7 days)
+REAL | Consumer Cyclical | Luxury Goods | 1.3 | 10.93 | -8.2 | 13.4 | -10.8 | 43.3 | -35.3 | 47 | 42.3 | 2.71 | 12.3 | 3.6 | 0 | 0 | 0
+   (no news in the last 7 days)
+OXY | Energy | Oil & Gas Exploration & Prod | 58.9 | 59.10 | 5.6 | 4.4 | 11.3 | 26.1 | -10.8 | 33 | 460.6 | 0.16 | n/a | n/a | 1 | 0 | 0
+   (no news in the last 7 days)
+PLNT | Consumer Cyclical | Leisure | 4.1 | 53.33 | -4.7 | -0.3 | -35.1 | -49.5 | -52.4 | 49 | 111.4 | 1.01 | 8.7 | 2.6 | 0 | 1 | 0
+   - [2026-08-29] (GlobeNewswire Inc.) PLNT FINAL DEADLINE: ROSEN, A RANKED AND LEADING LAW FIRM, Encourages Planet Fitness, Inc. Investors to Secure Counsel Before Important Deadline in Securities Class Action - PLNT
+   - [2026-08-27] (GlobeNewswire Inc.) Deadline Alert: Planet Fitness, Inc. (PLNT) Shareholders Who Lost Money Urged To Contact Glancy Prongay Wolke & Rotter LLP About Securities Fraud Lawsuit
+   - [2026-08-27] (GlobeNewswire Inc.) PLNT Investors Have Opportunity to Lead Planet Fitness, Inc. Securities Fraud Lawsuit with SBS Law
+   - [2026-08-27] (GlobeNewswire Inc.) PLNT FINAL DEADLINE: ROSEN, A LEADING LAW FIRM, Encourages Planet Fitness, Inc. Investors with Losses in Excess of $100K to Secure Counsel Before Important Deadline in Securities Class Action - PLNT
+HTH | Financial Services | Financial - Conglomerates | 2.2 | 38.50 | -2.2 | 2.1 | 2.9 | 9.2 | -3.8 | 11 | 8.4 | 0.87 | n/a | n/a | 0 | 0 | 0
+   (no news in the last 7 days)
+SPNT | Financial Services | Insurance - Reinsurance | 2.8 | 24.18 | 2.2 | 13.3 | 14.4 | 29.9 | -8.1 | 19 | 13.0 | 0.61 | n/a | n/a | 0 | 0 | 0
+   (no news in the last 7 days)
+RPM | Basic Materials | Chemicals - Specialty | 13.5 | 106.65 | -1.1 | 0.6 | -6.5 | -15.3 | -16.8 | 27 | 108.7 | 1.04 | n/a | n/a | 1 | 0 | 0
+   (no news in the last 7 days)
+EVLV | Industrials | Security & Protection Servic | 0.9 | 5.24 | -4.4 | -18.8 | -1.1 | -37.5 | -40.2 | 49 | 11.1 | 1.80 | 5.3 | 4.5 | 0 | 2 | 0
+   (no news in the last 7 days)
+HY | Industrials | Industrial - Machinery | 0.6 | 33.97 | 1.4 | -6.5 | -7.8 | -11.9 | -16.1 | 74 | 4.1 | 1.65 | n/a | n/a | 0 | 0 | 0
+   (no news in the last 7 days)
+BLX | Financial Services | Banks - Regional | 2.0 | 54.54 | -6.5 | -2.3 | 9.0 | 19.3 | -13.1 | 19 | 8.7 | 0.79 | n/a | n/a | 0 | 1 | 0
+   (no news in the last 7 days)
+RAMP | Technology | Software - Infrastructure | 2.3 | 37.74 | -0.1 | 0.5 | 38.9 | 38.0 | -0.7 | 5 | 34.3 | 1.25 | 7.6 | 5.4 | 0 | 0 | 0
+   (no news in the last 7 days)
+HLIO | Industrials | Industrial - Machinery | 2.4 | 73.08 | -6.0 | -12.0 | 2.5 | 34.4 | -21.3 | 28 | 23.9 | 1.26 | n/a | n/a | 0 | 0 | 0
+   (no news in the last 7 days)
+INGR | Consumer Defensive | Packaged Foods | 6.6 | 104.62 | 4.3 | 3.1 | -10.9 | -19.1 | -19.2 | 22 | 66.1 | 0.61 | n/a | n/a | 0 | 0 | 0
+   (no news in the last 7 days)
+MLM | Basic Materials | Construction Materials | 31.9 | 531.05 | -1.7 | -8.7 | -21.5 | -13.9 | -25.0 | 28 | 293.8 | 1.10 | n/a | n/a | 0 | 0 | 3
+   (no news in the last 7 days)
+ENSG | Healthcare | Medical - Care Facilities | 10.0 | 172.98 | -3.3 | 3.2 | -19.2 | 0.5 | -19.9 | 20 | 53.4 | 0.69 | n/a | n/a | 0 | 0 | 0
+   - [2026-08-28] (GlobeNewswire Inc.) Ensign Investor News: If You Have Suffered Losses in The Ensign Group, Inc. (NASDAQ: ENSG), You Are Encouraged to Contact The Rosen Law Firm About Your Rights
+   - [2026-08-27] (Zacks Investment Research) Here's Why Ensign Group Stock Remains a Buy for Investors
+LPLA | Financial Services | Financial - Capital Markets | 29.6 | 370.69 | 9.3 | 35.4 | 23.4 | 1.3 | -5.7 | 23 | 210.7 | 0.48 | 3.1 | 3.7 | 0 | 0 | 0
+   - [2026-08-25] (GlobeNewswire Inc.) LPL Financial Welcomes Preferred Financial Group
+   - [2026-08-24] (GlobeNewswire Inc.) LPL Financial Appoints Jonathan Lewis as Managing Director, Chief Technology and Information Officer
+TBN | Energy | Oil & Gas Exploration & Prod | 0.8 | 37.15 | 14.0 | 10.5 | 17.2 | 83.6 | -25.7 | 33 | 3.5 | 0.25 | n/a | n/a | 0 | 0 | 0
+   (no news in the last 7 days)
+IP | Basic Materials | Paper, Lumber & Forest Produ | 20.8 | 39.31 | -8.9 | 17.4 | -9.7 | -18.7 | -20.9 | 31 | 148.8 | 0.88 | n/a | n/a | 2 | 0 | 1
+   (no news in the last 7 days)
+OSCR | Healthcare | Medical - Healthcare Plans | 9.2 | 30.47 | -2.4 | 37.1 | 123.4 | 79.0 | -7.0 | 65 | 177.0 | 2.37 | n/a | n/a | 0 | 0 | 0
+   - [2026-08-28] (Zacks Investment Research) 3 Value Stocks with Growth for Your Watch List
+   - [2026-08-28] (Zacks Investment Research) Best Growth Stocks to Buy for August 28th
+CMS | Utilities | Regulated Electric | 20.5 | 68.21 | -5.6 | -6.0 | -12.6 | -5.5 | -14.7 | 16 | 249.7 | 0.33 | n/a | n/a | -1 | 1 | 1
+   (no news in the last 7 days)
+NVGS | Industrials | Marine Shipping | 1.4 | 22.06 | -0.3 | 1.7 | 4.9 | 35.8 | -9.2 | 31 | 8.4 | 0.47 | n/a | n/a | 0 | 0 | 0
+   (no news in the last 7 days)
+UHS | Healthcare | Medical - Care Facilities | 10.2 | 171.66 | 5.1 | 17.5 | -16.7 | -5.9 | -29.7 | 25 | 111.3 | 1.06 | n/a | n/a | -1 | 0 | 0
+   - [2026-08-28] (Zacks Investment Research) Can Operational Resiliency Protect HCA's Long-Term Profitability?
+DCTH | Healthcare | Medical - Devices | 0.6 | 16.34 | 35.7 | 51.6 | 83.6 | 49.4 | -5.9 | 95 | 12.2 | 0.57 | n/a | n/a | 0 | 0 | 0
+   (no news in the last 7 days)
+GLUE | Healthcare | Biotechnology | 1.1 | 13.38 | -41.0 | -32.1 | -24.6 | 186.5 | -47.1 | 56 | 18.1 | 1.50 | n/a | n/a | 0 | 0 | 0
+   (no news in the last 7 days)
+SVM | Basic Materials | Silver | 2.8 | 12.77 | 32.5 | 0.8 | -8.3 | 172.9 | -18.7 | 62 | 34.9 | 2.04 | n/a | n/a | 0 | 0 | 0
+   (no news in the last 7 days)
+UFPI | Basic Materials | Paper, Lumber & Forest Produ | 4.8 | 86.01 | -0.2 | 6.2 | -16.4 | -16.7 | -25.6 | 35 | 35.2 | 1.23 | n/a | n/a | 0 | 0 | 0
+   (no news in the last 7 days)
+AUPH | Healthcare | Biotechnology | 2.1 | 16.29 | 8.6 | 6.3 | 15.0 | 34.5 | -12.5 | 46 | 18.5 | 1.41 | n/a | n/a | 0 | 0 | 0
+   (no news in the last 7 days)
+MKC | Consumer Defensive | Packaged Foods | 14.9 | 55.33 | 8.6 | 16.8 | -22.1 | -21.7 | -22.8 | 24 | 126.4 | 0.63 | n/a | n/a | 0 | 0 | 1
+   (no news in the last 7 days)
+WAFD | Financial Services | Banks - Regional | 2.7 | 36.09 | -0.9 | 1.5 | 15.8 | 13.0 | -8.2 | 14 | 17.7 | 0.82 | n/a | n/a | 0 | 0 | 0
+   (no news in the last 7 days)
+CLH | Industrials | Waste Management | 16.4 | 310.71 | -2.0 | 10.6 | 6.0 | 26.5 | -4.8 | 18 | 135.0 | 0.85 | 2.1 | 2.6 | 0 | 0 | 0
+   (no news in the last 7 days)
+VIK | Consumer Cyclical | Travel Services | 39.5 | 88.50 | -15.3 | -3.9 | 13.4 | 40.6 | -18.3 | 45 | 341.4 | 1.47 | n/a | n/a | 0 | 0 | 0
+   (no news in the last 7 days)
+RHP | Real Estate | REIT - Hotel & Motel | 8.2 | 129.33 | -2.9 | 12.3 | 31.0 | 30.2 | -4.9 | 25 | 121.5 | 1.19 | 3.4 | 1.6 | 0 | 0 | 0
+   - [2026-08-27] (Zacks Investment Research) Ryman Hospitality Properties (RHP) Could Be a Great Choice
+MTW | Industrials | Industrial - Machinery | 0.7 | 19.59 | 41.6 | 65.6 | 32.8 | 93.8 | -6.1 | 119 | 8.3 | 1.77 | n/a | n/a | 0 | 0 | 0
+   (no news in the last 7 days)
+PRM | Basic Materials | Chemicals - Specialty | 4.9 | 30.62 | -17.8 | -5.1 | 30.4 | 40.5 | -19.0 | 61 | 43.7 | 1.90 | 3.7 | 3.8 | 0 | 0 | 0
+   (no news in the last 7 days)
+BWMX | Consumer Cyclical | Specialty Retail | 0.6 | 15.77 | -10.3 | -8.9 | -4.8 | 17.4 | -18.9 | 23 | 1.2 | 1.04 | n/a | n/a | 0 | 3 | 0
+   (no news in the last 7 days)
+NNE | Industrials | Electrical Equipment & Parts | 0.9 | 17.97 | 7.7 | -37.8 | -32.4 | -45.4 | -68.3 | 81 | 34.6 | 5.40 | n/a | n/a | 0 | 0 | 0
+   (no news in the last 7 days)
+GSAT | Communication Services | Telecommunications Services | 10.6 | 81.76 | 2.1 | -2.9 | 31.3 | 189.9 | -3.2 | 7 | 67.3 | 1.50 | n/a | n/a | 0 | 0 | 0
+   (no news in the last 7 days)
+BV | Industrials | Specialty Business Services | 1.0 | 11.22 | -14.9 | -9.2 | -18.6 | -24.4 | -24.4 | 78 | 15.6 | 1.17 | n/a | n/a | 0 | 2 | 0
+   (no news in the last 7 days)
+ABBV | Healthcare | Drug Manufacturers - General | 452.5 | 255.48 | -0.7 | 17.3 | 10.1 | 22.8 | -3.9 | 23 | 1211.6 | 0.28 | n/a | n/a | 2 | 0 | 0
+   - [2026-08-29] (The Motley Fool) AbbVie vs. Eli Lilly and: Which Healthcare Stock Is a Better Buy in 2026?
+   - [2026-08-28] (The Motley Fool) Revolution Medicines Won FDA Approval One Month After Filing. Analysts See $11.5 Billion in Peak Sales. Is the Stock Still a Buy After Skyrocketing More Than 5X?
+   - [2026-08-26] (The Motley Fool) Billionaire Ken Griffin Increased His Stake in This Dividend King by 547% in Q2. Wall Street Thinks It's Still a Buy.
+   - [2026-08-24] (The Motley Fool) Billionaire Ken Griffin Just Loaded Up on AbbVie and Abbott. Here's Whether Investors Should Follow His Lead.
+MRTN | Industrials | Trucking | 1.2 | 14.36 | -3.0 | -16.7 | 5.7 | 20.3 | -21.4 | 21 | 8.3 | 0.97 | n/a | n/a | 0 | 0 | 0
+   (no news in the last 7 days)
+GENI | Communication Services | Internet Content & Informati | 2.2 | 8.02 | 14.9 | 36.9 | 29.1 | -37.4 | -40.8 | 76 | 52.9 | 1.88 | 11.3 | 3.5 | -1 | 0 | 0
+   (no news in the last 7 days)
+VLY | Financial Services | Banks - Regional | 7.7 | 13.92 | -2.8 | 1.1 | 10.4 | 32.7 | -8.4 | 20 | 87.5 | 1.05 | n/a | n/a | 0 | 0 | 0
+   - [2026-08-25] (GlobeNewswire Inc.) Valley National Bancorp Accelerates Growth in Attractive Chicago Market With Acquisition of High-Performing Providence Financial Corporation
+TALO | Energy | Oil & Gas Exploration & Prod | 2.8 | 16.67 | 14.2 | 13.6 | 36.1 | 74.6 | -6.1 | 47 | 29.6 | 0.36 | n/a | n/a | 1 | 0 | 0
+   (no news in the last 7 days)
+BFLY | Healthcare | Medical - Devices | 2.2 | 8.43 | 3.2 | 85.3 | 122.4 | 436.9 | -13.1 | 88 | 51.2 | 2.09 | n/a | n/a | 0 | 1 | 0
+   (no news in the last 7 days)
+PRAA | Financial Services | Financial - Credit Services | 0.7 | 19.14 | 10.3 | 25.4 | 21.5 | 12.0 | -13.9 | 57 | 8.0 | 1.11 | 2.1 | 1.6 | 0 | 0 | 0
+   (no news in the last 7 days)
+TNDM | Healthcare | Medical - Devices | 1.5 | 21.43 | 12.7 | 24.6 | -15.3 | 74.9 | -24.2 | 80 | 45.8 | 1.56 | n/a | n/a | 0 | 0 | 0
+   (no news in the last 7 days)
+FSLR | Energy | Solar | 22.0 | 204.46 | -0.8 | -33.4 | 3.7 | 6.9 | -35.8 | 58 | 568.3 | 1.73 | 9.1 | 3.0 | 1 | 0 | 0
+   - [2026-08-27] (Zacks Investment Research) Canadian Solar Q2 Loss Wider Than Estimates, Revenues Fall Y/Y
+   - [2026-08-25] (GlobeNewswire Inc.) FIRST SOLAR INVESTOR ALERT: Bragar Eagel & Squire, P.C. is Investigating First Solar, Inc. on Behalf of Long-Term Stockholders and Encourages Investors to Contact the Firm
+   - [2026-08-25] (GlobeNewswire Inc.) Solar Energy Markets to Reach $974.7 Billion by 2031, Driven by Policy Mandates, Falling Costs, and Surging EV Infrastructure Demand
+CNR | Energy | Coal | 5.1 | 100.96 | 24.4 | 14.2 | 23.0 | 38.7 | -10.8 | 39 | 51.7 | 0.14 | n/a | n/a | -1 | 0 | 0
+   (no news in the last 7 days)
+MAAS | Technology | Software - Application | 3.0 | 16.55 | -8.9 | 39.2 | 178.2 | 308.6 | -22.1 | 109 | 3.1 | 0.05 | 0.1 | 1.3 | 0 | 0 | 0
+   - [2026-08-25] (GlobeNewswire Inc.) Maase Inc Wins Second Prize at the “Chuangying Weilai” 2026 National Entrepreneurship Competition
+BHRB | Financial Services | Banks - Regional | 1.1 | 71.71 | -1.8 | 12.8 | 11.3 | 12.4 | -3.9 | 15 | 8.2 | 0.21 | n/a | n/a | 0 | 5 | 0
+   (no news in the last 7 days)
+TPC | Industrials | Engineering & Construction | 4.7 | 88.84 | 6.7 | 24.3 | 17.9 | 51.1 | -10.4 | 61 | 48.3 | 2.06 | n/a | n/a | 0 | 0 | 0
+   - [2026-08-27] (Zacks Investment Research) Wall Street Analysts Think Tutor Perini (TPC) Is a Good Investment: Is It?
+NEGG | Consumer Cyclical | Specialty Retail | 0.4 | 16.70 | 29.8 | -10.1 | -62.4 | -72.6 | -82.0 | 83 | 1.4 | 3.56 | n/a | n/a | 0 | 0 | 0
+   (no news in the last 7 days)
+WTS | Industrials | Industrial - Machinery | 12.3 | 366.34 | 6.5 | 18.6 | 11.4 | 28.8 | -6.6 | 28 | 71.3 | 1.13 | n/a | n/a | 0 | 0 | 0
+   (no news in the last 7 days)
+BTG | Basic Materials | Gold | 7.5 | 5.66 | 47.0 | 18.9 | -8.1 | 39.4 | -8.9 | 88 | 154.1 | 1.35 | n/a | n/a | 0 | 0 | 0
+   - [2026-08-28] (GlobeNewswire Inc.) B2Gold Reports Fatality at the Masbate Gold Project
+AIP | Technology | Semiconductors | 1.0 | 22.01 | -24.9 | -38.8 | 29.5 | 126.9 | -54.7 | 67 | 19.0 | 1.91 | n/a | n/a | 1 | 0 | 0
+   (no news in the last 7 days)
+CMCO | Industrials | Industrial - Machinery | 0.5 | 18.00 | -13.0 | 12.8 | -5.2 | 18.8 | -22.6 | 50 | 9.3 | 1.36 | n/a | n/a | 0 | 2 | 0
+   (no news in the last 7 days)
+NOW | Technology | Software - Application | 149.5 | 144.71 | 31.5 | 16.4 | 34.0 | -18.5 | -24.7 | 56 | 2301.4 | 0.97 | n/a | n/a | 1 | 0 | 3
+   - [2026-08-28] (Zacks Investment Research) Is It Worth Investing in ServiceNow (NOW) Based on Wall Street's Bullish Views?
+   - [2026-08-27] (The Motley Fool) Stock Market Today, Aug. 27: Salesforce Surges 23% on Anthropic Partnership and Q2 Earnings Beat
+   - [2026-08-27] (The Motley Fool) Why ServiceNow Rallied Today
+   - [2026-08-27] (Zacks Investment Research) Agentic AI Adoption Boosts NOW's Growth Prospects Against MSFT & CRM
+MU | Technology | Semiconductors | 1052.3 | 932.86 | 6.7 | -3.9 | 126.2 | 692.2 | -23.1 | 55 | 27879.8 | 2.22 | n/a | n/a | 1 | 0 | 1
+   - [2026-08-28] (The Motley Fool) This Was Situational Awareness's Top 5 Holdings at the End of Q2. They're All on Sale Now
+   - [2026-08-28] (Zacks Investment Research) Why the Bull Market Should Run Through 2027
+   - [2026-08-28] (The Motley Fool) Prediction Markets Think Bitcoin Will End the Year Near $75,000. Here's the Most Likely Scenario for Bitcoin in 2026.
+   - [2026-08-28] (The Motley Fool) Here's Why Micron Stock Can Double Next Year
+HSIC | Healthcare | Medical - Distribution | 10.2 | 89.52 | 5.1 | 16.9 | 8.7 | 29.8 | -1.3 | 16 | 102.7 | 0.81 | n/a | n/a | 0 | 0 | 0
+   (no news in the last 7 days)
+CLDT | Real Estate | REIT - Hotel & Motel | 0.7 | 13.67 | 2.6 | 26.0 | 77.3 | 75.9 | -0.9 | 27 | 4.0 | 1.09 | 2.4 | 3.3 | 0 | 0 | 0
+   (no news in the last 7 days)
+SWBI | Industrials | Aerospace & Defense | 0.6 | 12.78 | -14.5 | -16.0 | 7.4 | 55.7 | -23.3 | 21 | 6.4 | 0.87 | n/a | n/a | 0 | 0 | 0
+   (no news in the last 7 days)
+TBBK | Financial Services | Banks - Regional | 2.7 | 65.70 | 1.4 | 19.1 | 25.2 | -14.6 | -18.2 | 27 | 21.9 | 1.18 | n/a | n/a | 1 | 0 | 0
+   (no news in the last 7 days)
+PARR | Energy | Oil & Gas Refining & Marketi | 3.8 | 78.85 | -8.2 | 40.4 | 84.8 | 130.8 | -8.3 | 90 | 78.0 | 0.77 | n/a | n/a | 0 | 0 | 0
+   (no news in the last 7 days)
+CP | Industrials | Railroads | 83.4 | 94.12 | 6.8 | 5.4 | 7.5 | 22.5 | -2.7 | 18 | 230.0 | 1.22 | n/a | n/a | 0 | 0 | 0
+   (no news in the last 7 days)
+COMP | Real Estate | Real Estate - Services | 6.3 | 10.97 | -4.3 | 33.3 | 12.5 | 18.2 | -19.2 | 54 | 129.5 | 2.33 | n/a | n/a | -1 | 0 | 0
+   (no news in the last 7 days)
+FA | Industrials | Specialty Business Services | 3.6 | 21.04 | 4.9 | 31.5 | 82.8 | 27.7 | -12.8 | 83 | 53.8 | 1.17 | 6.3 | 3.2 | 1 | 0 | 0
+   (no news in the last 7 days)
+BLOX | Financial Services | Asset Management - Cryptocur | 0.8 | 13.25 | -4.0 | -25.4 | -11.2 | -39.6 | -51.9 | 50 | 4.8 | 2.96 | n/a | n/a | 0 | 0 | 0
+   (no news in the last 7 days)
+GLNG | Energy | Oil & Gas Midstream | 5.1 | 50.29 | 4.2 | 1.1 | 13.1 | 12.4 | -12.3 | 18 | 62.1 | 0.04 | n/a | n/a | 0 | 0 | 0
+   (no news in the last 7 days)
+IART | Healthcare | Medical - Devices | 1.3 | 16.89 | -1.3 | 5.3 | 48.4 | 13.6 | -14.9 | 41 | 10.8 | 1.21 | n/a | n/a | 0 | 0 | 0
+   (no news in the last 7 days)
+COST | Consumer Defensive | Discount Stores | 419.7 | 945.47 | -0.9 | -1.1 | -6.5 | -0.4 | -13.6 | 19 | 1659.2 | 0.85 | n/a | n/a | 0 | 0 | 0
+   - [2026-08-29] (The Motley Fool) A Costco Special Dividend Could Be Coming, but Walmart Has Raised Its Dividend for 53 Consecutive Years. Here's the Better Buy Now.
+   - [2026-08-28] (Zacks Investment Research) Target's Digital Growth Story Gains Strength With Same-Day Delivery
+   - [2026-08-27] (Zacks Investment Research) Costco (COST) Stock Drops Despite Market Gains: Important Facts to Note
+   - [2026-08-23] (The Motley Fool) Costco Stock: Higher Oil Prices are Bringing Customers to Costco
+VNT | Technology | Hardware, Equipment & Parts | 4.6 | 32.76 | 2.7 | 15.4 | -19.9 | -24.6 | -24.7 | 30 | 54.3 | 1.13 | n/a | n/a | 0 | 0 | 0
+   (no news in the last 7 days)
+RYAAY | Industrials | Airlines, Airports & Air Ser | 29.2 | 56.13 | -6.7 | -7.7 | -16.8 | -10.4 | -24.0 | 25 | 59.9 | 0.97 | n/a | n/a | 0 | 0 | 0
+   (no news in the last 7 days)
+GNRC | Industrials | Industrial - Machinery | 10.8 | 183.80 | -4.2 | -33.9 | -18.4 | -1.7 | -37.8 | 55 | 221.5 | 1.91 | n/a | n/a | 0 | 0 | 0
+   (no news in the last 7 days)
+ATLC | Financial Services | Financial - Credit Services | 1.4 | 91.08 | -14.1 | 5.6 | 74.1 | 37.5 | -18.5 | 57 | 14.5 | 2.02 | n/a | n/a | 0 | 0 | 0
+   (no news in the last 7 days)
+VIR | Healthcare | Biotechnology | 1.8 | 10.83 | 21.7 | 13.5 | 19.1 | 107.1 | -4.2 | 51 | 16.0 | 1.59 | n/a | n/a | 0 | 0 | 0
+   (no news in the last 7 days)
