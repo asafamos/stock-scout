@@ -18,3 +18,14 @@ Protocol: docs/research_protocol_oct2026.md; split as H1–H5 with amendment A1 
 3. Net of costs (spread 5/10/25 bp by cap band + $0.35/leg on $270 + 0.15% slippage, applied to the average pick) mean excess > 0 with 95% CI lower bound > 0.
 4. Capacity: ≥ 3 names exist in the top decile every month (trivially true) — and the P1 return is not dominated by one month (report the median and the result excluding the best month).
 Reporting: n months, mean, median, t, NW-t, by year, halves, net, hit-rate of months > 0, and the top-5% / bottom-decile / spread diagnostics.
+
+---
+## RESULT (run 2026-10-04; holdout run once) — VERDICT: DEAD (positive but tiny, not significant, ≈ 0 net of costs)
+| test | period | months | mean excess/month | median | t | NW-t | net of costs (95% CI) |
+|---|---|---|---|---|---|---|---|
+| P1 top-decile 12-1 momentum | dev 2019-06…2021-12 | 31 | +0.60% | +0.94% | +0.69 | +0.64 | +0.03% [−1.67, +1.73] |
+| P1 | **holdout 2022-01…2026-07** | 55 | **+0.46%** | +0.51% | **+0.85** | +0.88 | **−0.10% [−1.17, +0.98]** |
+Holdout by year: 2022 +0.73%, 2023 +0.52%, 2024 +0.94%, 2025 +0.41%, 2026 −0.80% (4/5 positive); halves +0.82% / +0.09%; excluding the best month +0.29%; months > 0: 55%.
+Secondary (not a test): top 5% +0.55%/month; bottom decile −0.88%; top-minus-bottom spread +1.35%/month (needs a short leg → not tradable in a cash account < $2k).
+Bar not met (t ≥ 3.0 needed; net CI includes 0). Same pattern as H1: the information sits mainly on the SHORT side.
+Lesson: the exploratory "+4.3%" of the naive momentum rule in the 9 post-cutoff F2R rounds does NOT generalise — over 86 months the same idea earns ≈ +0.5%/month gross and ≈ 0 net. Nine rounds were an outlier window; this is exactly why single short windows (including the LLM-vs-rule comparison in F2R) must not be over-read.
