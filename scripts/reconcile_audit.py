@@ -109,6 +109,13 @@ def _load_ib_positions():
 def main() -> int:
     tracker = _load_tracker()
     ledger_open = _load_ledger_net_long()
+    # Passive ETFs (CoreTrend QQQM/IEF etc.) are invisible to the tracker and to client.get_positions() by design
+    # (core/trading/ignore_list.py); drop them from the ledger side too, else every held ETF reads as an ORPHAN_LEDGER_LONG.
+    try:
+        from core.trading.ignore_list import is_ignored
+        ledger_open = {k: v for k, v in ledger_open.items() if not is_ignored(k)}
+    except Exception:
+        pass
     ib_pos = _load_ib_positions()
 
     if ib_pos is None:
