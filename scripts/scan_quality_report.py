@@ -23,7 +23,9 @@ def evaluate(df: pd.DataFrame, vix_real=None, now=None, scan_date=None) -> dict:
     if len(ml.dropna()):
         pr = float(ml.between(ML_MIN, ML_MAX).mean()); m["ml_gate_pass_rate"] = round(pr, 4); m["ml_median"] = round(float(ml.median()), 3)
         if pr < 0.03 or pr > 0.60:
-            flags.append(("RED", "ML_GATE_STRICTNESS", f"ML gate [{ML_MIN},{ML_MAX}] passes {pr*100:.1f}% (median ML {ml.median():.2f}); model scale drifted — expected ≈15–45%"))
+            # since 2026-10-07 ML is decoupled from the buy gates (TRADE_ML_GATE_ENABLED=0): the pass-rate is then informational only
+            level = "RED" if os.getenv("TRADE_ML_GATE_ENABLED", "1").strip() != "0" else "INFO"
+            flags.append((level, "ML_GATE_STRICTNESS", f"ML window [{ML_MIN},{ML_MAX}] would pass {pr*100:.1f}% (median ML {ml.median():.2f}); model scale drifted — expected ≈15–45%"))
         atr = num("ATR_Pct")
         if len(atr.dropna()) > 30: m["spearman_ml_atr"] = round(float(pd.concat([ml, atr], axis=1).corr(method="spearman").iloc[0, 1]), 2)
     vix = num("VIX_Value"); src = str(df["VIX_Source"].iloc[0]) if "VIX_Source" in df.columns and len(df) else "unknown"

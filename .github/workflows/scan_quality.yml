@@ -20,6 +20,7 @@ jobs:
     timeout-minutes: 10
     env:
       FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+      TRADE_ML_GATE_ENABLED: "0"          # ML decoupled from the buy gates (2026-10-07): ML pass-rate is informational
       TRADE_TELEGRAM_TOKEN: ${{ secrets.TRADE_TELEGRAM_TOKEN }}
       TRADE_TELEGRAM_CHAT_ID: ${{ secrets.TRADE_TELEGRAM_CHAT_ID }}
     steps:
