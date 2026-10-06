@@ -1,0 +1,101 @@
+ticker | sector | industry | mcap$B | close | ret1m% | ret3m% | ret6m% | ret12m% | vs52wHigh% | vol20ann% | ADV$M | beta | shortInt%sh | daysToCover | netUpgrades60d | insiderBuys30d | congressBuys30d
+MRK | Healthcare | Drug Manufacturers - General | 350.1 | 139.54 | -8.4 | 8.3 | 15.5 | 55.9 | -10.8 | 21 | 1478.2 | 0.23 | 1.4 | 4.2 | 1 | 0 | 4
+KLIC | Technology | Semiconductors | 5.2 | 98.73 | 25.3 | -6.7 | 48.2 | 140.1 | -26.2 | 48 | 67.5 | 1.62 | 4.3 | 4.0 | 0 | 0 | 0
+IVT | Real Estate | REIT - Retail | 2.3 | 29.76 | -8.6 | -16.8 | -3.2 | 5.5 | -19.0 | 12 | 22.3 | -5.95 | 6.4 | 8.7 | 0 | 0 | 0
+NSSC | Industrials | Security & Protection Servic | 1.3 | 36.22 | -2.2 | -5.7 | -10.0 | -15.2 | -23.3 | 19 | 12.5 | 1.50 | 7.2 | 6.6 | 0 | 0 | 0
+KNF | Basic Materials | Construction Materials | 3.0 | 51.97 | -16.4 | -36.3 | -30.5 | -28.1 | -44.7 | 45 | 63.1 | 0.52 | 7.8 | 4.6 | -1 | 0 | 0
+XPO | Industrials | Trucking | 21.5 | 182.86 | -1.0 | -9.8 | -10.9 | 44.2 | -19.9 | 27 | 203.2 | 1.71 | 5.4 | 6.1 | 0 | 0 | 0
+ONTO | Technology | Semiconductors | 15.8 | 325.41 | 28.9 | 16.2 | 47.1 | 132.7 | -14.0 | 62 | 235.5 | 1.58 | 5.6 | 2.9 | 0 | 0 | 0
+PRTA | Healthcare | Biotechnology | 0.4 | 8.27 | -13.9 | -14.6 | -17.6 | -17.2 | -28.1 | 48 | 4.4 | -0.33 | 16.6 | 26.5 | 0 | 0 | 0
+SAIC | Technology | Information Technology Servi | 5.3 | 126.90 | 0.3 | 11.6 | 27.4 | 26.1 | -5.1 | 22 | 55.8 | 0.30 | 5.4 | 5.2 | 0 | 1 | 0
+MAS | Basic Materials | Construction Materials | 13.7 | 68.46 | -4.1 | -13.7 | 14.7 | -3.6 | -17.3 | 25 | 164.1 | 1.29 | 4.5 | 4.1 | 0 | 0 | 0
+WRLD | Financial Services | Financial - Credit Services | 0.8 | 176.28 | -8.0 | -11.5 | 22.9 | 2.6 | -21.2 | 29 | 11.3 | 1.14 | 8.9 | 6.8 | 0 | 0 | 0
+ASST | Financial Services | Asset Management | 3.0 | 30.26 | 12.8 | 138.3 | 199.0 | -43.1 | -41.8 | 44 | 252.5 | -0.23 | 23.9 | 2.4 | 0 | 0 | 0
+VFC | Consumer Cyclical | Apparel - Manufacturers | 5.7 | 14.27 | 8.6 | -13.3 | -16.4 | -7.3 | -33.8 | 35 | 113.8 | 0.97 | 9.9 | 5.8 | -1 | 0 | 0
+ABCL | Healthcare | Biotechnology | 4.1 | 13.78 | 19.1 | 79.2 | 306.5 | 130.4 | -7.0 | 64 | 63.3 | 1.19 | 11.3 | 9.6 | 0 | 0 | 0
+INTU | Technology | Software - Application | 79.4 | 284.68 | -17.3 | 1.2 | -31.8 | -58.2 | -58.3 | 42 | 1091.7 | 1.01 | 2.5 | 2.3 | -1 | 0 | 1
+MS | Financial Services | Financial - Capital Markets | 302.4 | 190.19 | -12.4 | -14.3 | 14.2 | 22.5 | -16.8 | 21 | 1126.9 | 1.21 | 0.9 | 3.2 | 0 | 0 | 0
+NYAX | Technology | Software - Infrastructure | 1.8 | 49.77 | -5.5 | -24.6 | -15.4 | 3.8 | -34.3 | 46 | 1.6 | -0.14 | 0.2 | 1.8 | 1 | 19 | 0
+WAT | Healthcare | Medical - Diagnostics & Rese | 42.9 | 440.12 | 6.4 | 17.4 | 44.7 | 36.7 | -0.7 | 26 | 314.4 | 1.19 | 3.4 | 5.8 | 2 | 0 | 0
+NMIH | Financial Services | Insurance - Specialty | 3.0 | 39.39 | -13.2 | -4.4 | 3.9 | 5.7 | -13.8 | 33 | 31.9 | 0.53 | 2.6 | 3.7 | 0 | 0 | 0
+REGN | Healthcare | Biotechnology | 76.2 | 726.47 | -13.9 | 7.4 | -4.8 | 21.1 | -14.7 | 26 | 591.0 | 0.24 | 2.4 | 4.4 | 1 | 0 | 0
+ASML | Technology | Semiconductors | 710.7 | 1859.86 | 13.0 | 6.4 | 42.6 | 80.5 | -6.5 | 40 | 2362.4 | 1.36 | 0.4 | 1.2 | 0 | 0 | 0
+PHR | Healthcare | Medical - Healthcare Informa | 0.6 | 10.37 | -6.6 | -5.3 | 13.3 | -54.6 | -56.5 | 39 | 7.2 | 0.84 | 5.1 | 4.2 | -1 | 0 | 0
+GENI | Communication Services | Internet Content & Informati | 1.6 | 5.99 | -21.5 | -7.4 | 35.5 | -49.8 | -51.1 | 82 | 48.5 | 1.88 | 14.1 | 8.0 | -1 | 1 | 0
+COLB | Financial Services | Banks - Regional | 8.2 | 28.84 | -5.3 | -10.2 | 2.9 | 11.2 | -14.2 | 17 | 84.9 | 0.65 | 3.7 | 3.5 | 1 | 0 | 0
+VRTX | Healthcare | Biotechnology | 127.8 | 503.50 | -9.8 | -3.6 | 15.9 | 23.2 | -9.8 | 19 | 524.2 | 0.32 | 1.9 | 5.0 | 0 | 0 | 0
+MGEE | Utilities | Regulated Electric | 2.7 | 70.27 | -9.4 | -15.4 | -10.4 | -13.8 | -19.3 | 20 | 15.8 | 0.70 | 4.6 | 12.9 | 0 | 1 | 0
+MVBF | Financial Services | Banks - Regional | 0.4 | 29.92 | -3.2 | 4.5 | 16.6 | 15.4 | -5.4 | 24 | 1.6 | 0.80 | 2.4 | 5.9 | 0 | 0 | 0
+RELY | Technology | Software - Infrastructure | 4.9 | 22.91 | -14.9 | -5.1 | 41.3 | 42.5 | -14.9 | 53 | 93.4 | 0.36 | 8.6 | 4.5 | 0 | 0 | 0
+FBK | Financial Services | Banks - Regional | 2.7 | 52.58 | -7.7 | -7.7 | -2.0 | -7.4 | -15.3 | 17 | 36.5 | 0.92 | 4.2 | 5.0 | 0 | 0 | 0
+VTRS | Healthcare | Drug Manufacturers - Special | 20.5 | 17.62 | 4.0 | 3.9 | 31.4 | 74.3 | -3.6 | 21 | 156.4 | 0.88 | 3.5 | 5.6 | 0 | 0 | 0
+LZB | Consumer Cyclical | Furnishings, Fixtures & Appl | 1.2 | 29.52 | -7.6 | -24.5 | -8.0 | -14.1 | -29.9 | 23 | 24.2 | 1.25 | 4.9 | 2.6 | 0 | 0 | 0
+URI | Industrials | Rental & Leasing Services | 68.4 | 1074.28 | 8.1 | 1.7 | 45.9 | 9.8 | -7.8 | 31 | 514.0 | 1.79 | 2.4 | 3.9 | -1 | 0 | 0
+THG | Financial Services | Insurance - Property & Casua | 7.7 | 220.40 | -4.9 | 0.9 | 25.7 | 21.0 | -5.3 | 18 | 74.7 | 0.28 | 2.1 | 2.9 | 0 | 0 | 0
+ADSK | Technology | Software - Application | 47.6 | 221.56 | -6.7 | 4.3 | -6.8 | -31.0 | -31.5 | 42 | 489.4 | 1.31 | 3.9 | 3.4 | 1 | 0 | 0
+GDOT | Financial Services | Financial - Credit Services | 0.7 | 12.52 | -5.9 | -5.9 | 11.8 | -4.4 | -7.8 | 21 | 5.6 | 0.82 | 2.9 | 5.7 | 0 | 0 | 0
+LNT | Utilities | Regulated Electric | 16.8 | 64.29 | -5.5 | -17.2 | -11.3 | -3.0 | -17.6 | 15 | 183.7 | 0.53 | 9.8 | 12.7 | 0 | 0 | 0
+DQ | Technology | Semiconductors | 0.7 | 11.04 | -12.1 | -9.4 | -47.1 | -62.6 | -69.1 | 43 | 7.6 | 0.67 | 6.9 | 5.7 | 0 | 0 | 0
+BCH | Financial Services | Banks - Regional | 19.9 | 39.42 | -8.2 | -2.7 | 6.9 | 32.2 | -15.0 | 22 | 13.3 | 0.12 | 0.2 | 3.4 | 0 | 0 | 0
+TD | Financial Services | Banks - Diversified | 200.2 | 117.10 | -5.0 | -3.6 | 22.1 | 47.1 | -6.2 | 16 | 223.3 | 0.87 | 0.5 | 4.6 | 0 | 0 | 0
+STLD | Basic Materials | Steel | 34.4 | 241.04 | -2.0 | 5.0 | 36.5 | 66.9 | -14.8 | 34 | 235.2 | 1.51 | 2.6 | 4.0 | 0 | 0 | 0
+DELL | Technology | Computer Hardware | 384.9 | 552.29 | 7.0 | 32.4 | 218.9 | 274.8 | -6.1 | 67 | 4525.4 | 1.41 | 2.0 | 1.0 | -1 | 0 | 0
+LAMR | Real Estate | REIT - Specialty | 14.6 | 143.93 | -5.0 | -10.1 | 12.3 | 17.9 | -12.4 | 10 | 80.7 | 1.20 | 3.1 | 7.8 | 0 | 0 | 0
+IPGP | Technology | Semiconductors | 3.5 | 83.60 | 9.3 | -13.5 | -24.3 | 2.9 | -45.7 | 40 | 33.6 | 0.98 | 8.1 | 8.9 | 0 | 0 | 0
+CRM | Technology | Software - Application | 186.8 | 229.79 | -13.1 | 35.6 | 24.2 | -3.8 | -13.7 | 35 | 2852.9 | 1.26 | 4.0 | 2.5 | 0 | 1 | 2
+AMCR | Consumer Cyclical | Packaging & Containers | 19.5 | 41.80 | -8.9 | -6.0 | 5.0 | 1.6 | -17.4 | 20 | 138.8 | 0.59 | 4.6 | 6.6 | -1 | 0 | 0
+BKNG | Consumer Cyclical | Travel Services | 122.7 | 158.33 | -18.9 | -13.0 | -10.1 | -27.0 | -27.9 | 37 | 1530.9 | 1.07 | 2.5 | 2.6 | 0 | 0 | 0
+SQM | Basic Materials | Chemicals - Specialty | 18.9 | 65.83 | -17.5 | -10.3 | -18.2 | 47.5 | -30.9 | 38 | 68.3 | 1.02 | 0.8 | 2.4 | 1 | 0 | 0
+CTAS | Industrials | Specialty Business Services | 78.6 | 195.40 | -2.8 | 7.5 | 13.8 | -3.7 | -9.8 | 21 | 420.7 | 0.91 | 2.8 | 6.5 | 0 | 0 | 0
+LNN | Industrials | Agricultural - Machinery | 1.2 | 114.39 | -6.9 | -0.7 | 11.1 | -19.3 | -19.0 | 20 | 19.4 | 0.70 | 7.5 | 4.0 | 0 | 0 | 0
+HBM | Basic Materials | Copper | 12.1 | 27.26 | -1.6 | 26.5 | 25.4 | 76.4 | -14.5 | 49 | 115.4 | 2.31 | 1.8 | 2.2 | 0 | 0 | 0
+LLY | Healthcare | Drug Manufacturers - General | 1093.4 | 1143.12 | -1.4 | -7.5 | 23.3 | 39.4 | -10.7 | 19 | 2585.9 | 0.50 | 0.8 | 3.4 | 0 | 0 | 0
+PBYI | Healthcare | Biotechnology | 0.5 | 9.67 | 2.8 | 21.5 | 40.3 | 85.2 | -2.6 | 39 | 3.1 | 1.23 | 8.5 | 13.8 | 0 | 0 | 0
+SAP | Technology | Software - Application | 248.3 | 207.74 | -4.3 | 27.6 | 21.4 | -23.6 | -25.9 | 26 | 385.8 | 0.78 | 0.4 | 2.3 | -1 | 0 | 0
+BHF | Financial Services | Insurance - Life | 2.9 | 49.82 | -7.2 | -23.7 | -17.2 | -4.0 | -25.2 | 29 | 55.2 | 0.84 | 13.5 | 8.3 | 0 | 0 | 0
+CHDN | Consumer Cyclical | Gambling, Resorts & Casinos | 5.5 | 77.57 | -14.1 | -10.0 | -13.4 | -19.2 | -34.0 | 31 | 96.3 | 0.67 | 6.2 | 4.7 | 0 | 0 | 0
+ASIX | Basic Materials | Chemicals - Specialty | 0.4 | 16.48 | -4.2 | -21.4 | -33.1 | -15.0 | -37.0 | 30 | 4.8 | 1.25 | 1.9 | 2.0 | 0 | 0 | 0
+PGEN | Healthcare | Biotechnology | 2.7 | 7.74 | 8.4 | 40.5 | 84.7 | 132.4 | -9.6 | 65 | 42.4 | 1.02 | 12.0 | 16.3 | 0 | 0 | 0
+AEFC | Financial Services | Insurance - Diversified | 13.7 | 17.66 | -1.5 | -5.8 | -8.1 | -14.8 | -14.5 | 11 | 1.2 | 0.76 | 0.0 | 1.0 | 0 | 0 | 0
+BUUU | Industrials | Specialty Business Services | 0.5 | 38.65 | 22.0 | 83.1 | 157.5 | 351.5 | -19.8 | 68 | 3.5 | -0.76 | 0.1 | 1.0 | 0 | 0 | 0
+DLB | Technology | Software - Application | 5.6 | 59.36 | -4.1 | 20.4 | -3.2 | -17.0 | -18.3 | 27 | 57.5 | 0.80 | 5.9 | 6.0 | 0 | 0 | 0
+APTV | Consumer Cyclical | Auto - Parts | 9.5 | 43.89 | -5.7 | -25.4 | -27.3 | -49.8 | -50.5 | 33 | 169.7 | 1.33 | 3.4 | 2.1 | -1 | 0 | 0
+PK | Real Estate | REIT - Hotel & Motel | 3.2 | 15.26 | 1.2 | 7.8 | 46.9 | 37.6 | -5.6 | 18 | 49.5 | 1.33 | 16.6 | 10.1 | 2 | 0 | 0
+HBT | Financial Services | Banks - Regional | 1.3 | 36.31 | -0.1 | 12.7 | 32.8 | 46.4 | -2.4 | 15 | 4.7 | 0.50 | 2.8 | 9.3 | 0 | 0 | 0
+SCHL | Communication Services | Publishing | 0.7 | 37.41 | -2.4 | -17.3 | -3.9 | 29.5 | -21.0 | 38 | 18.5 | 1.08 | 10.0 | 5.8 | 0 | 0 | 0
+DCOM | Financial Services | Banks - Regional | 1.8 | 39.51 | -3.5 | -0.3 | 14.8 | 32.6 | -5.3 | 13 | 12.8 | 0.99 | 9.0 | 14.0 | 0 | 0 | 0
+GPGI | Industrials | Manufacturing - Metal Fabric | 3.8 | 12.98 | -7.0 | -18.0 | -24.8 | -36.4 | -50.1 | 51 | 20.0 | 0.88 | 8.8 | 12.7 | 0 | 0 | 0
+LDOS | Technology | Information Technology Servi | 14.7 | 119.45 | -9.8 | 10.0 | -25.1 | -38.1 | -40.1 | 29 | 163.9 | 0.57 | 4.3 | 4.4 | 0 | 0 | 0
+LQDA | Healthcare | Medical - Pharmaceuticals | 2.4 | 27.64 | -59.7 | -66.0 | -26.6 | 26.2 | -69.6 | 210 | 157.3 | 0.54 | 14.5 | 11.4 | 0 | 0 | 0
+GTE | Energy | Oil & Gas Exploration & Prod | 0.4 | 10.48 | 3.7 | 67.9 | 20.9 | 148.9 | -4.8 | 46 | 6.0 | 0.16 | 2.1 | 1.2 | 0 | 0 | 0
+AIT | Industrials | Industrial - Distribution | 12.9 | 345.79 | 7.2 | 9.7 | 28.3 | 33.4 | -4.5 | 20 | 96.0 | 0.83 | 2.4 | 3.5 | 0 | 0 | 0
+PAHC | Healthcare | Drug Manufacturers - Special | 1.5 | 37.19 | -3.6 | 12.3 | -32.3 | -4.7 | -37.6 | 31 | 8.7 | 0.47 | 2.8 | 4.9 | 0 | 0 | 0
+IDA | Utilities | Regulated Electric | 7.7 | 131.73 | -3.2 | -13.1 | -8.9 | -0.1 | -14.8 | 16 | 91.0 | 0.47 | 9.0 | 9.9 | 0 | 0 | 0
+WEX | Technology | Software - Infrastructure | 5.9 | 172.48 | -11.5 | 12.6 | 9.8 | 8.5 | -15.1 | 36 | 106.3 | 0.83 | 7.3 | 5.5 | 0 | 0 | 0
+ENTG | Technology | Semiconductors | 25.7 | 166.92 | 27.7 | 23.6 | 44.3 | 72.4 | -9.3 | 52 | 299.3 | 1.36 | 5.2 | 4.0 | 1 | 0 | 0
+HRL | Consumer Defensive | Packaged Foods | 11.0 | 20.08 | -7.4 | -18.7 | -8.1 | -18.6 | -24.3 | 17 | 99.8 | 0.32 | 3.8 | 4.7 | 0 | 0 | 0
+MTZ | Industrials | Engineering & Construction | 18.4 | 219.40 | -5.5 | -38.9 | -34.9 | 1.9 | -49.9 | 53 | 329.0 | 1.82 | 6.4 | 4.1 | 0 | 0 | 1
+STAG | Real Estate | REIT - Industrial | 7.0 | 36.05 | -4.4 | -7.8 | -0.9 | 0.4 | -14.2 | 16 | 61.6 | 0.96 | 4.0 | 5.4 | 1 | 0 | 0
+MATX | Industrials | Marine Shipping | 6.7 | 230.66 | 3.8 | 16.2 | 38.0 | 132.1 | -3.3 | 28 | 71.8 | 1.26 | 4.8 | 4.9 | 0 | 0 | 0
+IDR | Basic Materials | Gold | 0.4 | 27.87 | -11.3 | -11.0 | -20.4 | -19.8 | -47.1 | 48 | 6.3 | 1.27 | 9.7 | 7.7 | 0 | 0 | 0
+ALNT | Industrials | Electrical Equipment & Parts | 2.0 | 118.63 | 31.5 | 43.7 | 97.0 | 170.0 | 0.0 | 57 | 23.7 | 1.62 | 3.4 | 2.6 | 0 | 1 | 0
+PDX | Financial Services | Asset Management | 0.9 | 20.66 | -6.1 | -1.9 | -3.7 | -16.8 | -16.0 | 14 | 2.6 | 0.67 | 0.2 | 1.0 | 0 | 0 | 0
+BX | Financial Services | Asset Management | 137.1 | 111.65 | -18.9 | -7.6 | -0.5 | -33.0 | -33.7 | 28 | 548.1 | 1.56 | 1.6 | 5.6 | 0 | 0 | 0
+REXR | Real Estate | REIT - Industrial | 8.5 | 36.69 | -0.9 | 6.8 | 12.8 | -11.3 | -17.1 | 21 | 114.7 | 1.20 | 4.8 | 4.3 | 1 | 0 | 0
+OKTA | Technology | Software - Infrastructure | 36.5 | 218.29 | 28.1 | 47.0 | 171.0 | 130.0 | 0.0 | 60 | 762.0 | 0.79 | 4.9 | 2.2 | 2 | 0 | 0
+PYPL | Financial Services | Financial - Credit Services | 46.9 | 54.41 | -4.2 | 19.2 | 19.6 | -21.1 | -28.5 | 30 | 627.2 | 1.29 | 3.4 | 2.7 | 0 | 0 | 0
+SFST | Financial Services | Banks - Regional | 0.6 | 60.67 | -3.5 | -0.7 | 8.5 | 40.1 | -6.1 | 20 | 5.5 | 0.67 | 4.4 | 5.1 | 0 | 1 | 0
+AII | Financial Services | Insurance - Property & Casua | 0.5 | 25.49 | -2.6 | 33.1 | 30.9 | 12.7 | -4.8 | 29 | 5.6 | -0.00 | 1.2 | 1.1 | 0 | 0 | 0
+SFD | Consumer Defensive | Packaged Foods | 7.4 | 18.73 | -15.0 | -25.2 | -35.0 | -19.1 | -36.7 | 28 | 43.8 | -0.48 | 1.4 | 2.8 | 0 | 0 | 0
+ARGX | Healthcare | Biotechnology | 58.4 | 912.87 | -13.3 | -0.8 | 22.0 | 15.3 | -13.8 | 20 | 260.4 | -0.02 | 2.1 | 6.3 | 1 | 0 | 0
+CLSK | Financial Services | Financial - Capital Markets | 3.2 | 12.48 | -0.8 | 0.0 | 37.1 | -17.6 | -46.2 | 64 | 234.6 | 3.85 | 30.6 | 4.9 | 0 | 0 | 0
+CBL | Real Estate | REIT - Retail | 1.6 | 54.21 | -1.3 | 1.3 | 32.2 | 79.9 | -9.7 | 19 | 14.4 | 1.41 | 3.7 | 4.5 | 0 | 0 | 0
+BTU | Energy | Coal | 3.0 | 25.50 | -7.7 | 12.5 | -22.8 | -13.0 | -35.4 | 47 | 64.9 | 0.28 | 10.3 | 5.4 | 0 | 0 | 0
+AMLX | Healthcare | Biotechnology | 3.1 | 27.78 | -18.2 | 52.9 | 75.6 | 109.0 | -30.0 | 47 | 44.5 | -0.20 | 12.1 | 8.6 | 0 | 0 | 0
+RBA | Industrials | Specialty Business Services | 15.4 | 82.30 | -1.2 | -27.4 | -15.9 | -23.7 | -30.9 | 23 | 144.9 | 0.52 | 8.6 | 9.8 | 0 | 2 | 0
+SUI | Real Estate | REIT - Residential | 13.9 | 111.84 | -6.7 | -8.5 | -12.5 | -13.1 | -18.5 | 18 | 126.9 | 0.77 | 4.5 | 5.6 | 1 | 0 | 0
+ELVA | Industrials | Electrical Equipment & Parts | 0.3 | 6.36 | -5.8 | -29.2 | -21.1 | 8.9 | -48.1 | 48 | 2.2 | 0.61 | 8.5 | 13.8 | 0 | 0 | 0
+BELFB | Technology | Hardware, Equipment & Parts | 3.2 | 257.63 | 7.4 | 2.4 | 24.5 | 80.9 | -22.6 | 39 | 36.3 | 1.38 | 5.9 | 5.0 | 0 | 0 | 0
+ABVX | Healthcare | Biotechnology | 6.7 | 91.73 | -19.6 | -35.5 | -23.2 | 10.7 | -36.9 | 55 | 143.8 | -0.25 | 9.5 | 6.2 | 0 | 0 | 0
+BXC | Industrials | Industrial - Distribution | 0.6 | 74.60 | -3.5 | 39.2 | 45.1 | 1.5 | -18.4 | 54 | 13.1 | 1.45 | 5.5 | 3.2 | 0 | 0 | 0
+AX | Financial Services | Banks - Regional | 5.1 | 88.51 | -8.8 | -10.1 | 2.0 | 5.1 | -15.8 | 19 | 39.6 | 1.22 | 5.6 | 11.3 | 0 | 0 | 0

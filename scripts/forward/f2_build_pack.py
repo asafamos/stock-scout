@@ -10,7 +10,8 @@ load_dotenv("/Users/asafamos/StockScout/stock-scout-2/.env")
 KEY = os.environ["FMP_API_KEY"]; RD = "/Users/asafamos/StockScout/research_data"
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 rd = date.fromisoformat(sys.argv[1]); seed = int(rd.strftime("%Y%m%d"))
-FROM = (rd - timedelta(days=420)).isoformat(); TO = rd.isoformat()
+ASOF = date.fromisoformat(os.environ.get("F2_ASOF", rd.isoformat()))      # data cutoff (last COMPLETED session); default = round date
+FROM = (ASOF - timedelta(days=420)).isoformat(); TO = ASOF.isoformat()
 
 
 def get(q):
@@ -93,7 +94,7 @@ for r in pool:
                               f(r.get("short_int_pct")), f(r.get("days_to_cover")), str(r.get("net_upgrades_60d")), str(r.get("insider_buys_30d")), str(r.get("congress_buys_30d"))]))
 pack = "\n".join(lines)
 last_dates = pd.Series([r["last_date"] for r in pool]).value_counts().head(2).to_dict()
-out = {"round_date": rd.isoformat(), "seed": seed, "built_utc": datetime.utcnow().isoformat(timespec="seconds"), "data_as_of_counts": last_dates,
+out = {"round_date": rd.isoformat(), "data_asof": ASOF.isoformat(), "seed": seed, "built_utc": datetime.utcnow().isoformat(timespec="seconds"), "data_as_of_counts": last_dates,
        "pack_sha256": hashlib.sha256(pack.encode()).hexdigest(), "pool": pool}
 os.makedirs(f"{ROOT}/data/forward_llm", exist_ok=True)
 json.dump(out, open(f"{ROOT}/data/forward_llm/round_{rd.isoformat()}_pool.json", "w"), indent=1)
