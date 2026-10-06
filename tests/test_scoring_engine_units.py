@@ -260,12 +260,14 @@ class TestCalculateConvictionScore:
         }
         assert expected.issubset(bd.keys())
 
-    def test_ml_raises_score(self):
+    def test_ml_raises_score(self, monkeypatch):
+        monkeypatch.setattr("core.scoring_engine.ML_IN_DECISIONS", True)   # mechanism check; default is decoupled (tests/test_ml_decoupling.py)
         lo, _ = calculate_conviction_score(60, 80, 60, 80, 60, 80, 80, ml_probability=None)
         hi, _ = calculate_conviction_score(60, 80, 60, 80, 60, 80, 80, ml_probability=0.9)
         assert hi > lo
 
-    def test_ml_lowers_score(self):
+    def test_ml_lowers_score(self, monkeypatch):
+        monkeypatch.setattr("core.scoring_engine.ML_IN_DECISIONS", True)   # mechanism check; default is decoupled (tests/test_ml_decoupling.py)
         base, _ = calculate_conviction_score(60, 80, 60, 80, 60, 80, 80, ml_probability=None)
         bad, _ = calculate_conviction_score(60, 80, 60, 80, 60, 80, 80, ml_probability=0.1)
         assert bad < base

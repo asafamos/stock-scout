@@ -18,7 +18,7 @@ from core.ml_20d_inference import ML_20D_AVAILABLE, get_ml_health_meta
 from core.ml_feature_builder import build_all_ml_features_v3_6
 from core.pattern_matcher import PatternMatcher
 from core.scoring import build_technical_indicators
-from core.scoring_config import ML_PROB_THRESHOLD, TECH_STRONG_THRESHOLD
+from core.scoring_config import ML_IN_DECISIONS, ML_PROB_THRESHOLD, TECH_STRONG_THRESHOLD
 from core.unified_logic import (
     compute_big_winner_signal_20d,
     compute_recommendation_scores,
@@ -223,7 +223,9 @@ def _process_single_ticker(
         # 2. ML probability — swing signal (weight=0.75)
         try:
             mlp_val = float(rec_series.get("ML_20d_Prob", np.nan))
-            if np.isfinite(mlp_val) and mlp_val >= float(ML_PROB_THRESHOLD):
+            if not ML_IN_DECISIONS:
+                pass                                        # ML decoupled: no swing-strength weight
+            elif np.isfinite(mlp_val) and mlp_val >= float(ML_PROB_THRESHOLD):
                 reasons.append("High ML breakout probability")
                 swing_strength += 0.75
             elif np.isfinite(mlp_val) and mlp_val >= 0.50:

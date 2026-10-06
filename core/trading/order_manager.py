@@ -1137,7 +1137,7 @@ class OrderManager:
         # After N consecutive cycles blocked by ML, relax floor 0.40 → 0.35
         # if env TRADE_ADAPTIVE_ML_ENABLED=1. Streak is tracked regardless
         # (observability); actual floor-relax is opt-in.
-        if ml_col and ml_col in result.columns:
+        if getattr(self.cfg, "ml_gate_enabled", True) and ml_col and ml_col in result.columns:
             ml_vals = pd.to_numeric(result[ml_col], errors="coerce")
             before = len(result)
             _ml_max = float(getattr(self.cfg, "max_ml_prob", 0) or 0)

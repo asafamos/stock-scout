@@ -31,6 +31,7 @@ from core.scoring.final import compute_final_score
 from core.scoring.technical import compute_tech_score_20d_v2, compute_technical_score
 from core.scoring_config import (
     ML_PROB_THRESHOLD,
+    ML_IN_DECISIONS,
     TECH_STRONG_THRESHOLD,
     MultiSourceData,
 )
@@ -367,7 +368,7 @@ def compute_recommendation_scores(
         if np.isfinite(ts) and ts >= float(TECH_STRONG_THRESHOLD):
             reasons.append("Strong technical momentum")
         mp = float(ml_prob) if ml_prob is not None else np.nan
-        if np.isfinite(mp) and mp >= float(ML_PROB_THRESHOLD):
+        if ML_IN_DECISIONS and np.isfinite(mp) and mp >= float(ML_PROB_THRESHOLD):
             reasons.append("High ML breakout probability")
         ps = float(rec_row.get(Col.PATTERN_SCORE, 0.0) or 0.0)
         if np.isfinite(ps) and ps > 0.0:

@@ -587,6 +587,14 @@ PATTERN_MIN_SCORE: float = 35.0
 # "AUC 0.63, require strong conviction" no longer applies: v3.9 AUC=0.577.
 ML_PROB_THRESHOLD: float = 0.55
 
+# 2026-10-07 ML DECOUPLING (owner-approved plan docs/plan_oct2026_costs_and_scan.md, P2-A2).
+# The ML score's scale shifts with every retrain (monthly median 0.59 -> 0.35 -> 0.45 -> 0.34) and it carries no information beyond ATR
+# (Spearman 0.84). When False (default) ML has NO influence on decisions: no ml_delta / ML_GATES penalty-bonus inside the Score, no ML
+# "bypass" of the min-score filter, no ML weight in swing strength / SignalQuality reasons, no ML gate in trading (TRADE_ML_GATE_ENABLED).
+# ML_20d_Prob is still computed and stored for research/monitoring. Set ML_IN_DECISIONS=1 to restore the old behaviour.
+import os as _os_ml
+ML_IN_DECISIONS: bool = _os_ml.getenv("ML_IN_DECISIONS", "0").strip().lower() in ("1", "true", "yes")
+
 # Regime-aware bypass policy: in strict regimes (effective_min_score >= this),
 # disable ML and pattern bypasses entirely — stocks MUST meet the regime score.
 # Without this, any stock with ML_prob >= 0.62 or Pattern_Score > 0 bypasses

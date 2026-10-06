@@ -54,7 +54,7 @@ def _pass_gates(r: dict) -> bool:
         return False
     if fund and fund < float(getattr(CONFIG, "min_fundamental_score", 45.0)):
         return False
-    if ml:
+    if ml and getattr(CONFIG, "ml_gate_enabled", True):
         lo = float(getattr(CONFIG, "min_ml_prob", 0.40))
         hi = float(getattr(CONFIG, "max_ml_prob", 0.60))
         if not (lo <= ml <= hi):

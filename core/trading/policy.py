@@ -455,7 +455,10 @@ def evaluate_static_gates(
                     min_ml = _relaxed_floor
     except Exception:
         pass
-    if ml_prob < min_ml:
+    if not bool(getattr(cfg, "ml_gate_enabled", True)):
+        # 2026-10-07 ML decoupled (TRADE_ML_GATE_ENABLED=0): the drifting ML scale no longer decides eligibility.
+        passed.append("ML gate disabled (decoupled; ATR floor applies)")
+    elif ml_prob < min_ml:
         failed.append(f"ML {ml_prob:.3f} < {min_ml:.3f}")
     elif max_ml > 0 and ml_prob > max_ml:
         failed.append(f"ML {ml_prob:.3f} > {max_ml:.3f} (sweet-spot cap)")

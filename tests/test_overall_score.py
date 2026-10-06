@@ -100,8 +100,9 @@ def test_component_weights():
         f"Base score {components['base_score']} != {expected_base}"
 
 
-def test_ml_delta_bounded():
-    """ML adjustment must be bounded to ±12 (matching ml_boost_component)"""
+def test_ml_delta_bounded(monkeypatch):
+    """ML adjustment must be bounded to ±12 (matching ml_boost_component) WHEN ML is in decisions (ML_IN_DECISIONS=1; default is decoupled)"""
+    monkeypatch.setattr("core.scoring_engine.ML_IN_DECISIONS", True)
     base_row = pd.Series({
         'Fundamental_S': 70.0,
         'Technical_S': 70.0,

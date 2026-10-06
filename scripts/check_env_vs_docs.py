@@ -68,6 +68,7 @@ EXPECTED = {
     "TRADE_V2_SLEEVE":            "1",          # 2026-09-30 v2 sleeve LIVE (owner set it on the VPS); rollback = 0 (and this + CLAUDE.md)
     "TRADE_CORETREND":            "1",          # 2026-10-02 CoreTrend LIVE (owner set it); rollback = 0 or kill file data/state/coretrend_disabled.json (and this + CLAUDE.md)
     "TRADE_MIN_POSITION_NOTIONAL_USD": "150",       # 2026-10-06 cost-aware floor (owner-approved): skip dust buys (<$150); rollback = 0 (and this + CLAUDE.md)
+    "TRADE_ML_GATE_ENABLED": "0",                   # 2026-10-07 ML decoupled from the buy gates (owner-approved P2-A2); rollback = 1 (and ML_IN_DECISIONS=1 for scoring) + this + CLAUDE.md
     # ── Ops guards ──────────────────────────────────────────────
     "TRADE_MAX_DAILY_LOSS_PCT":   "5.0",
     "TRADE_MAX_SLIPPAGE_PCT":     "3.0",

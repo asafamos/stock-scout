@@ -281,6 +281,12 @@ class TradingConfig:
        # (High → Medium in TREND_UP/MODERATE_UP). Default DISABLED — CONFIG
        # is the hard floor. Set TRADE_CONFIDENCE_REGIME_RELAX=1 to re-enable
        # the old permissive behavior for testing.
+    # 2026-10-07 (owner-approved P2-A2): the ML probability window is NOT enforced when False. Rationale: the ML scale drifts with each
+    # retrain (gate pass-rate 62% Feb / 47% May / 0.7% Aug) and adds nothing over the explicit ATR floor (Spearman 0.84). Default True =
+    # legacy behaviour; production sets TRADE_ML_GATE_ENABLED=0 (drift EXPECTED + CLAUDE.md). Rollback = 1.
+    ml_gate_enabled: bool = field(
+        default_factory=lambda: _env_bool("ML_GATE_ENABLED", True)
+    )
     min_ml_prob: float = field(
         default_factory=lambda: _env_float("MIN_ML_PROB", 0.40)
     )  # Was 0.33; ML 0.20-0.30 = -1.16% (n=1256), ML 0.40-0.45 = +2.58%, ML 0.45-0.50 = +5.07% (BEST)

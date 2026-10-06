@@ -656,7 +656,7 @@ class FullPipelineBacktest:
 
         # --- ML window (only when present; historical scans sometimes lack it) ---
         mc = _col("ml_prob", "ML_Probability", "ml_probability")
-        if mc is not None:
+        if mc is not None and getattr(CONFIG, "ml_gate_enabled", True):
             lo = float(getattr(CONFIG, "min_ml_prob", 0.40))
             hi = float(getattr(CONFIG, "max_ml_prob", 0.60))
             # Pass-through NaN rows (not all historical rows had ML), but

@@ -56,7 +56,7 @@ from core.market_context import initialize_market_context
 from core.ml_20d_inference import ML_20D_AVAILABLE, get_ml_health_meta
 from core.provider_guard import get_provider_guard
 from core.scoring import compute_fundamental_score_with_breakdown
-from core.scoring_config import BYPASS_DISABLED_ABOVE_MIN_SCORE, MIN_FALLBACK_K, ML_PROB_THRESHOLD, PATTERN_MIN_SCORE, REGIME_MIN_SCORE, SIGNAL_MIN_SCORE, TOP_SIGNAL_K, VIX_MAX_SIGNALS
+from core.scoring_config import BYPASS_DISABLED_ABOVE_MIN_SCORE, MIN_FALLBACK_K, ML_PROB_THRESHOLD, ML_IN_DECISIONS, PATTERN_MIN_SCORE, REGIME_MIN_SCORE, SIGNAL_MIN_SCORE, TOP_SIGNAL_K, VIX_MAX_SIGNALS
 from core.scoring_engine import compute_final_score_20d
 from core.sector_mapping import get_stock_sector
 from core.telemetry import Telemetry
@@ -1846,7 +1846,7 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
                     safety_ok
                     & (
                         (sc >= effective_min_score)
-                        | (mlp >= float(ML_PROB_THRESHOLD))
+                        | ((mlp >= float(ML_PROB_THRESHOLD)) & bool(ML_IN_DECISIONS))
                         | ((patt.fillna(0.0) > 0.0) & (sc >= float(PATTERN_MIN_SCORE)))
                     )
                 )
@@ -2065,7 +2065,9 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
                 elif pd.notna(ts) and float(ts) >= 45.0:
                     w += 0.5; reasons.append("Positive technical setup")
                 mlp = row.get("ML_20d_Prob")
-                if pd.notna(mlp) and float(mlp) >= float(ML_PROB_THRESHOLD):
+                if not ML_IN_DECISIONS:
+                    pass                                    # ML decoupled: no swing-strength weight
+                elif pd.notna(mlp) and float(mlp) >= float(ML_PROB_THRESHOLD):
                     w += 0.75; reasons.append("High ML breakout probability")
                 elif pd.notna(mlp) and float(mlp) >= 0.50:
                     w += 0.25; reasons.append("Moderate ML breakout probability")

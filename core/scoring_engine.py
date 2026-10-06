@@ -21,7 +21,7 @@ from core.scoring_config import (
     CONVICTION_WEIGHTS, ENTRY_TIMING, FINAL_SCORE_WEIGHTS,
     PATTERN_SCORE_WEIGHTS, REGIME_MULTIPLIERS,
     BONUS_CONFIG, RSI_ADJUSTMENTS, RSI_REGIME_ADJUSTMENTS,
-    RR_SCORE_FLOOR, ML_GATES, ML_GATES_STRONG,
+    RR_SCORE_FLOOR, ML_GATES, ML_GATES_STRONG, ML_IN_DECISIONS,
 )
 
 # Re-export from new canonical locations
@@ -148,7 +148,7 @@ def compute_final_score_20d(row: pd.Series, *, return_breakdown: bool = False):
             pass
 
         # Optional ML adjustment with AUC gate + reliability gating + ML_GATES
-        ml_prob = row.get("ML_20d_Prob", None)
+        ml_prob = row.get("ML_20d_Prob", None) if ML_IN_DECISIONS else None   # decoupled by default (scoring_config.ML_IN_DECISIONS)
         delta = ml_boost_component(ml_prob)  # ±15 range
         # AUC gate: scale ML based on model quality
         try:
@@ -623,7 +623,7 @@ def compute_overall_score(row: pd.Series) -> Tuple[float, Dict[str, float]]:
     
     # Calculate ML adjustment (bounded to ±8, matching ml_boost_component)
     ml_delta = 0.0
-    if ml_prob is not None:
+    if ml_prob is not None and ML_IN_DECISIONS:
         ml_delta = ml_boost_component(ml_prob)  # Range: -6 to +6
     
     # Score before penalties
@@ -1013,7 +1013,7 @@ def calculate_conviction_score(
 
     # ML adjustment: proportional, up to +/-10, but only if reliability and confidence are decent
     ml_adj = 0.0
-    if ml_probability is not None and np.isfinite(ml_probability):
+    if ML_IN_DECISIONS and ml_probability is not None and np.isfinite(ml_probability):
         ml_prob_clamped = np.clip(ml_probability, 0, 1)
         # Only allow full boost if reliability >= 50 and all confidences >= 40
         min_conf = min(fundamental_confidence, momentum_confidence, rr_confidence)
