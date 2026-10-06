@@ -1,0 +1,105 @@
+{
+ "round_date": "2026-10-06",
+ "off_schedule": true,
+ "data_asof": "2026-10-05",
+ "entry_open_date": "2026-10-07",
+ "exit": "open 20 trading days after entry",
+ "pool_file": "round_2026-10-06_pool.json",
+ "pool_sha256": "6536d9822909988c6f0bb96d7a3dfab30628893e3ec61c6097771595b67c0628",
+ "logged_utc": "2026-10-06T15:25:38+00:00",
+ "arms": {
+  "A_numbers": {
+   "prompt_file": "scripts/forward/f2_prompt.txt",
+   "prompt_sha256": "a6fd47de8f6b2e482e2342b65198ae8bafb4ea334c03cd408935e11986fbfd91",
+   "pack_file": "data/forward_llm/round_2026-10-06_pack.txt",
+   "pack_sha256": "4ae03e5866ed387104065f7489d1ef1b7ba37f3f759fbef51f0b03ad674bc543",
+   "picker": "fresh subagent, no tools except reading the pack",
+   "picks": [
+    {
+     "ticker": "OKTA",
+     "confidence": 3
+    },
+    {
+     "ticker": "WAT",
+     "confidence": 4
+    },
+    {
+     "ticker": "ENTG",
+     "confidence": 3
+    },
+    {
+     "ticker": "ALNT",
+     "confidence": 2
+    },
+    {
+     "ticker": "AIT",
+     "confidence": 3
+    }
+   ]
+  },
+  "B_news": {
+   "prompt_file": "scripts/forward/f2_prompt_news.txt",
+   "prompt_sha256": "01fa0cda41d90004100fcf7392d259ebf382f394c552a686ef95fef9160aec1a",
+   "pack_file": "data/forward_llm/round_2026-10-06_newspack.txt",
+   "pack_sha256": "5d99fb7568296ba245da2fe7f73903f61a1846965d94becd5aec2dfbe2449259",
+   "picker": "fresh subagent, no tools except reading the pack",
+   "picks": [
+    {
+     "ticker": "ONTO",
+     "confidence": 4
+    },
+    {
+     "ticker": "DELL",
+     "confidence": 3
+    },
+    {
+     "ticker": "MTZ",
+     "confidence": 3
+    },
+    {
+     "ticker": "URI",
+     "confidence": 2
+    },
+    {
+     "ticker": "ASML",
+     "confidence": 2
+    }
+   ]
+  },
+  "C_web_agent": {
+   "prompt_file": "scripts/forward/f2_prompt_agent.txt",
+   "prompt_sha256": "c2db7ace4e354789c4698092fa9f8781a2d885059b6c6a047d16a7195a3d9c4e",
+   "pack_file": "data/forward_llm/round_2026-10-06_pack.txt",
+   "pack_sha256": "4ae03e5866ed387104065f7489d1ef1b7ba37f3f759fbef51f0b03ad674bc543",
+   "picker": "fresh subagent WITH web search/fetch (6 tool uses)",
+   "picks": [
+    {
+     "ticker": "WAT",
+     "confidence": 4
+    },
+    {
+     "ticker": "OKTA",
+     "confidence": 3
+    },
+    {
+     "ticker": "ENTG",
+     "confidence": 3
+    },
+    {
+     "ticker": "ONTO",
+     "confidence": 3
+    },
+    {
+     "ticker": "AIT",
+     "confidence": 3
+    }
+   ],
+   "sources": [
+    "https://www.genomeweb.com/business-news/william-blair-initiates-coverage-waters-outperform-rating",
+    "https://www.nasdaq.com/articles/why-waters-wat-87-last-earnings-report",
+    "https://www.marketbeat.com/articles/okta-stock-surges-29is-200-the-next-stop/?.tsrc=rss",
+    "https://finance.yahoo.com/news/why-onto-innovation-onto-gaining-111951906.html"
+   ]
+  }
+ }
+}
