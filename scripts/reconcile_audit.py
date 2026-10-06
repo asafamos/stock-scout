@@ -119,8 +119,11 @@ def main() -> int:
     ib_pos = _load_ib_positions()
 
     if ib_pos is None:
-        print("ERROR: cannot reach IB — aborting audit", file=sys.stderr)
-        return 1
+        # IB down is already paged by deploy/healthcheck.sh (incl. the 2FA circuit breaker). Exiting non-zero here
+        # triggers a second, redundant "reconcile-audit FAILED" alert (seen 2026-10-05 during the 2FA stall),
+        # so skip quietly and let the next scheduled run audit.
+        print("WARNING: cannot reach IB — audit SKIPPED (healthcheck alerts on IB outages separately)", file=sys.stderr)
+        return 0
 
     tracker_tks = set(tracker.keys())
     ledger_tks = set(ledger_open.keys())
