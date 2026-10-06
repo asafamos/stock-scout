@@ -28,6 +28,7 @@ Implementation highlights:
 - NaN-safe aggregation
 """
 from __future__ import annotations
+import urllib.parse
 import os
 import time
 import requests
@@ -2217,8 +2218,9 @@ def get_index_series(
         DataFrame with columns ['date', 'open', 'high', 'low', 'close', 'volume']
         or None if all sources fail
     """
-    # Normalize VIX symbol for different providers
-    fmp_symbol = symbol.replace('^', '')  # FMP uses 'VIX' not '^VIX'
+    # FMP /stable/ keeps the caret for indices: symbol=^VIX returns data, symbol=VIX returns [] (verified 2026-10-06).
+    # The old code stripped it, so VIX silently fell through to the SPY-realised-vol proxy (scan showed 9.8 vs real 15.1).
+    fmp_symbol = urllib.parse.quote(symbol, safe="")
     
     # Check cache (thread-safe)
     cache_key = f"index_series_{symbol}_{start_date}_{end_date}"
@@ -2230,15 +2232,16 @@ def get_index_series(
     provider_status = provider_status or _DEFAULT_PROVIDER_STATUS
     df_result = None
     
-    # Prefer Polygon first for SPY and VIX to avoid FMP 403 delays
-    prefer_polygon = symbol.upper() in {"SPY", "^VIX", "VIX"}
+    # Prefer Polygon first for SPY (its plan serves it). VIX is NOT served by our Polygon plan, so FMP goes first for it.
+    prefer_polygon = symbol.upper() in {"SPY"}
 
     # If we don't prefer Polygon, try FMP first; otherwise skip to Polygon block below
     if (not prefer_polygon) and provider_status.get("fmp", True) and FMP_API_KEY and not _PROVIDER_DISABLED.get("fmp", False):
         try:
             _rate_limit("fmp")
             # Modern stable endpoint for historical price data
-            url = f"https://financialmodelingprep.com/stable/historical-price-eod/light?symbol={fmp_symbol}"
+            # /full returns OHLCV (the /light variant has date+price only and was rejected below as "missing columns")
+            url = f"https://financialmodelingprep.com/stable/historical-price-eod/full?symbol={fmp_symbol}"
             params = {
                 "apikey": FMP_API_KEY,
                 "from": start_date,

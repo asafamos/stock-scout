@@ -1544,6 +1544,11 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
             # Store VIX observability columns
             if not ctx.results.empty:
                 ctx.results["VIX_Value"] = _vix_val if _vix_val is not None else np.nan
+                try:
+                    from core.data_sources_v2 import get_last_index_source as _gls
+                    ctx.results["VIX_Source"] = str(_gls("^VIX") or _gls("VIX") or "unknown")
+                except Exception:
+                    ctx.results["VIX_Source"] = "unknown"
                 ctx.results["VIX_Min_RR"] = _min_rr
             if _min_rr > 0 and not ctx.results.empty:
                 for _idx in ctx.results.index:
