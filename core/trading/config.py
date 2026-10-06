@@ -90,6 +90,13 @@ class TradingConfig:
     min_position_notional_usd: float = field(
         default_factory=lambda: _env_float("MIN_POSITION_NOTIONAL_USD", 0.0)
     )
+
+    @property
+    def effective_min_position_usd(self) -> float:
+        """Smallest position the bot will actually open: the larger of the old cash-exhausted threshold and the
+        cost-aware floor. Every 'is there anything left to buy?' check (candidate loop, DryCycle alert, preflight)
+        must use this, or a floor above the old $30 produces false 'stall' alerts and pointless scans."""
+        return max(float(self.min_viable_position_usd or 0.0), float(self.min_position_notional_usd or 0.0))
     # 2026-05-29: grace window (sec) before drift_check flags a position for
     # "NO active stop". A freshly-bought position's OCA bracket may not be in
     # the cycle's order snapshot yet (race with the opportunistic buy that

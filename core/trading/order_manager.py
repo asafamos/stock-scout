@@ -513,8 +513,8 @@ class OrderManager:
                         # cheapest position is 1 share, once deployable cash is
                         # below a typical floor there's nothing left to buy —
                         # stop the whole loop rather than spin the tail.
-                        if _deployable < max(float(getattr(self.cfg, "min_viable_position_usd", 30.0)),
-                                             float(getattr(self.cfg, "min_position_notional_usd", 0.0) or 0.0)):
+                        if _deployable < float(getattr(self.cfg, "effective_min_position_usd",
+                                                       getattr(self.cfg, "min_viable_position_usd", 30.0))):
                             logger.info(
                                 "Cash exhausted (deployable $%.0f < min) — stopping "
                                 "candidate loop early (avoids minutes of unaffordable evals)",
@@ -601,7 +601,7 @@ class OrderManager:
                 cash_avail = float(self.client.get_cash_balance() or 0)
             except Exception:
                 pass
-            min_viable = float(getattr(self.cfg, "min_viable_position_usd", 30) or 30)
+            min_viable = float(getattr(self.cfg, "effective_min_position_usd", getattr(self.cfg, "min_viable_position_usd", 30)) or 30)
 
             if len(bought) == 0 and slots_free > 0 and cash_avail >= min_viable:
                 # Bucket skip reasons

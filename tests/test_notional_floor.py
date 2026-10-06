@@ -21,3 +21,14 @@ def test_allows_position_at_or_above_floor():
 def test_round_trip_cost_pct_for_mid_sized_position():
     r = nfr(1, 98.0, 150.0)                       # HNGE-sized: $1 min capped at 1% -> $0.98/leg ~2.0% round trip
     assert r and "2.0%" in r
+
+
+def test_effective_minimum_is_the_larger_of_old_threshold_and_floor(monkeypatch):
+    from core.trading.config import TradingConfig
+    monkeypatch.delenv("TRADE_MIN_POSITION_NOTIONAL_USD", raising=False)
+    assert TradingConfig().effective_min_position_usd == 30.0           # default: unchanged behaviour
+    monkeypatch.setenv("TRADE_MIN_POSITION_NOTIONAL_USD", "150")
+    c = TradingConfig()
+    assert c.min_position_notional_usd == 150.0 and c.effective_min_position_usd == 150.0
+    monkeypatch.setenv("TRADE_MIN_POSITION_NOTIONAL_USD", "10")          # a floor below the old threshold never lowers it
+    assert TradingConfig().effective_min_position_usd == 30.0

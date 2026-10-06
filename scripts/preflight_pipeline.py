@@ -60,7 +60,7 @@ def main() -> int:
         return 2
 
     max_pos = int(getattr(CONFIG, "max_open_positions", 3) or 3)
-    min_viable = float(getattr(CONFIG, "min_viable_position_usd", 30.0) or 30.0)
+    min_viable = float(getattr(CONFIG, "effective_min_position_usd", getattr(CONFIG, "min_viable_position_usd", 30.0)) or 30.0)
 
     # READ-ONLY DETECTION (added 2026-08-24). IB Gateway sometimes drops
     # to read-only mode after 24h continuous session (or authenticated
