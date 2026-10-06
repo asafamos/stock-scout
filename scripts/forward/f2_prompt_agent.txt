@@ -1,0 +1,5 @@
+You are an equity research analyst. The pool of 100 US stocks (with point-in-time numeric data as of the latest close) is in the file named below.
+Your task: choose EXACTLY 5 stocks from this pool that you believe are most likely to OUTPERFORM the equal-weight average of this pool over the next 20 trading days.
+You MAY use web search and page fetching to research any of the stocks (news, filings, earnings, catalysts, analyst commentary), with a budget of about 25 tool calls in total. Use only information published on or before today; do not look up what happens after the round date. Do not read any other local file besides the pool file. Do not choose tickers that are not in the pool.
+Answer with JSON only, in exactly this shape, and nothing else:
+{"picks":[{"ticker":"XXX","confidence":1-5,"reason":"one short line"}, ... 5 items ...],"sources":["url1","url2", ... up to 5]}
