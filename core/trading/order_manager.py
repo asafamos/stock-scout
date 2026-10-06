@@ -513,7 +513,8 @@ class OrderManager:
                         # cheapest position is 1 share, once deployable cash is
                         # below a typical floor there's nothing left to buy —
                         # stop the whole loop rather than spin the tail.
-                        if _deployable < float(getattr(self.cfg, "min_viable_position_usd", 30.0)):
+                        if _deployable < max(float(getattr(self.cfg, "min_viable_position_usd", 30.0)),
+                                             float(getattr(self.cfg, "min_position_notional_usd", 0.0) or 0.0)):
                             logger.info(
                                 "Cash exhausted (deployable $%.0f < min) — stopping "
                                 "candidate loop early (avoids minutes of unaffordable evals)",
@@ -2115,6 +2116,12 @@ class OrderManager:
         if regime in self.cfg.reduce_regimes_list:
             qty = max(1, qty // 2)
             logger.info("REGIME CAUTION: %s — reducing %s qty to %d", regime, ticker, qty)
+
+        from core.trading.policy import notional_floor_reason
+        _floor_reason = notional_floor_reason(qty, price, float(getattr(self.cfg, "min_position_notional_usd", 0.0) or 0.0))
+        if _floor_reason:
+            logger.info("SKIP %s: %s", ticker, _floor_reason)
+            return {"ticker": ticker, "status": "skipped", "reason": _floor_reason}
 
         logger.info("EXECUTING: BUY %d x %s @ ~$%.2f (score=%.1f, RR=%.2f)",
                      qty, ticker, price, score, rr)

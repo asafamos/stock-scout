@@ -856,3 +856,19 @@ def normalize_ticker_for_ib(ticker: str) -> str:
         if 1 <= len(base) <= 4 and suffix in ("A", "B", "C", "V"):
             return f"{base} {suffix}"
     return t
+
+
+def notional_floor_reason(qty: float, price: float, floor_usd: float, commission_per_order: float = 1.0) -> Optional[str]:
+    """Return a skip reason when a buy is too small to be worth its commission, else None.
+
+    floor_usd <= 0 disables the check (default). IBKR commission is ~max(min, per-share) capped at 1% of the trade value, so a
+    $13 position pays ~1% each way. The reason text states the round-trip cost as % of the position."""
+    if not floor_usd or floor_usd <= 0:
+        return None
+    notional = float(qty) * float(price)
+    if notional >= floor_usd:
+        return None
+    leg = min(max(float(commission_per_order), 0.0), 0.01 * notional) if notional > 0 else 0.0
+    rt_pct = (2 * leg / notional * 100.0) if notional > 0 else 100.0
+    return (f"Position ${notional:.0f} below the cost-aware floor ${floor_usd:.0f} "
+            f"(round-trip commission ≈ {rt_pct:.1f}% of the position)")

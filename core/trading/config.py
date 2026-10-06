@@ -84,6 +84,12 @@ class TradingConfig:
     min_viable_position_usd: float = field(
         default_factory=lambda: _env_float("MIN_VIABLE_POSITION_USD", 30.0)
     )
+    # 2026-10-06 cost-aware notional floor (PLAN docs/plan_oct2026_costs_and_scan.md). IBKR caps commission at 1% of the
+    # trade value, so tiny positions pay ~1%/leg (HNGE/PACS/PATH, Oct 2026). 0 = disabled (default, no behaviour change);
+    # when > 0 a buy whose qty*price is below this is SKIPPED instead of opened as a 1-share dust position.
+    min_position_notional_usd: float = field(
+        default_factory=lambda: _env_float("MIN_POSITION_NOTIONAL_USD", 0.0)
+    )
     # 2026-05-29: grace window (sec) before drift_check flags a position for
     # "NO active stop". A freshly-bought position's OCA bracket may not be in
     # the cycle's order snapshot yet (race with the opportunistic buy that
