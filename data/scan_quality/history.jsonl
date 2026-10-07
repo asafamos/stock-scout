@@ -1,0 +1,1 @@
+{"ts": "2026-10-07T02:42:07+00:00", "rows": 96, "ml_gate_pass_rate": 0.0625, "ml_median": 0.293, "spearman_ml_atr": 0.65, "vix_value": 15.01, "vix_source": "FMP", "vix_real": 15.01, "reliability_unique": 2, "scan_age_hours": 2.1, "red": [], "flags": ["RELIABILITY_SATURATED"]}
