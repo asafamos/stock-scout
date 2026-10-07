@@ -281,7 +281,9 @@ def _compute_rr_for_row(
         # Relative strength adjustment
         _rs63 = row.get("RS_63d", np.nan) if row is not None else np.nan
         if isinstance(_rs63, (int, float)) and np.isfinite(float(_rs63)):
-            _rs63 = float(_rs63)
+            # RS_63d is a DIFFERENCE of returns (stock - SPY over 63d); the thresholds below (1.2 / 1.0 / 0.8) are RATIO-style
+            # (≈ 1 + difference). Without this conversion, activating the column would label almost every stock "weak" (< 0.8).
+            _rs63 = 1.0 + float(_rs63)
             if _rs63 > _dyn.get("rs_strong_threshold", 1.2):
                 momentum_adj = _dyn.get("rs_strong_adj", 0.3)
             elif _rs63 > _dyn.get("rs_above_avg_threshold", 1.0):

@@ -522,7 +522,8 @@ class RiskManager:
         # Count existing positions in same sector
         same_sector = 0
         for p in self.tracker.get_open_positions():
-            if str(p.get("sector", "")).strip().lower() == new_sector.strip().lower():
+            from core.trading.sector_labels import same_sector as _same_sector
+            if _same_sector(str(p.get("sector", "")), new_sector):
                 same_sector += 1
         if same_sector >= self.cfg.max_sector_positions:
             return False, (

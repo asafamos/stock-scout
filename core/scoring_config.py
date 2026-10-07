@@ -595,6 +595,12 @@ ML_PROB_THRESHOLD: float = 0.55
 import os as _os_ml
 ML_IN_DECISIONS: bool = _os_ml.getenv("ML_IN_DECISIONS", "0").strip().lower() in ("1", "true", "yes")
 
+# 2026-10-07 (owner-approved P3-a): re-score with the REAL reward/risk. The first FinalScore_20d pass runs BEFORE the dynamic RR stage, so
+# its RR input was the placeholder 2.0 for every row (the 25% RR weight was a constant 17.5 pts; verified on 96/96 scan rows). When True the
+# runner re-scores right after the real RR is written (rows with a missing/invalid RR keep their first-pass score). RR_REAL_IN_SCORE=0 restores
+# the old behaviour.
+RR_REAL_IN_SCORE: bool = _os_ml.getenv("RR_REAL_IN_SCORE", "1").strip().lower() in ("1", "true", "yes")
+
 # Regime-aware bypass policy: in strict regimes (effective_min_score >= this),
 # disable ML and pattern bypasses entirely — stocks MUST meet the regime score.
 # Without this, any stock with ML_prob >= 0.62 or Pattern_Score > 0 bypasses

@@ -56,7 +56,7 @@ from core.market_context import initialize_market_context
 from core.ml_20d_inference import ML_20D_AVAILABLE, get_ml_health_meta
 from core.provider_guard import get_provider_guard
 from core.scoring import compute_fundamental_score_with_breakdown
-from core.scoring_config import BYPASS_DISABLED_ABOVE_MIN_SCORE, MIN_FALLBACK_K, ML_PROB_THRESHOLD, ML_IN_DECISIONS, PATTERN_MIN_SCORE, REGIME_MIN_SCORE, SIGNAL_MIN_SCORE, TOP_SIGNAL_K, VIX_MAX_SIGNALS
+from core.scoring_config import BYPASS_DISABLED_ABOVE_MIN_SCORE, MIN_FALLBACK_K, ML_PROB_THRESHOLD, ML_IN_DECISIONS, RR_REAL_IN_SCORE, PATTERN_MIN_SCORE, REGIME_MIN_SCORE, SIGNAL_MIN_SCORE, TOP_SIGNAL_K, VIX_MAX_SIGNALS
 from core.scoring_engine import compute_final_score_20d
 from core.sector_mapping import get_stock_sector
 from core.telemetry import Telemetry
@@ -1341,6 +1341,31 @@ def _phase_enrich_fundamentals(ctx: _PipelineContext) -> None:
         logger.warning("FinalScore_20d computation skipped: %s", e)
 
 
+def _rescore_with_real_rr(ctx) -> int:
+    """Re-run compute_final_score_20d now that the dynamic (real) RR is in the RR column (P3-a, 2026-10-07).
+
+    The first scoring pass happens before the RR stage, so it used a placeholder RR of 2.0. Rows whose real RR is missing / non-positive
+    are left untouched (evaluate_rr_unified would score them 0 and punish missing data). Returns the number of rows re-scored."""
+    if not RR_REAL_IN_SCORE or ctx.results is None or ctx.results.empty:
+        return 0
+    import json as _json
+    n = 0
+    for idx, row in ctx.results.iterrows():
+        try:
+            rr = pd.to_numeric(row.get("RR"), errors="coerce")
+            if pd.isna(rr) or not np.isfinite(rr) or rr <= 0:
+                continue
+            new_score, breakdown = compute_final_score_20d(row, return_breakdown=True)
+            ctx.results.at[idx, "FinalScore_20d"] = float(new_score)
+            ctx.results.at[idx, "Score"] = float(new_score)
+            ctx.results.at[idx, "ScoreBreakdown"] = _json.dumps(breakdown, default=str)
+            n += 1
+        except Exception as e:
+            logger.debug("RR re-score failed for %s: %s", row.get("Ticker"), e)
+    logger.info("[PIPELINE] FinalScore_20d re-scored with real RR for %d/%d stocks", n, len(ctx.results))
+    return n
+
+
 def _apply_sector_mapping(ctx: _PipelineContext) -> None:
     """Apply sector_mapping fallback for unknown sectors."""
     try:
@@ -1450,6 +1475,8 @@ def _phase_finalize(ctx: _PipelineContext) -> Dict[str, Any]:
         ]:
             if col in rr_updates.columns:
                 ctx.results[col] = rr_updates[col]
+        # P3-a: the score used a placeholder RR (2.0) until now — re-score with the real one BEFORE penalties / filters read the score
+        _rescore_with_real_rr(ctx)
 
         # ── Distribution volume penalty ─────────────────────────────────
         # Penalize stocks in distribution where up-day volume is weak relative

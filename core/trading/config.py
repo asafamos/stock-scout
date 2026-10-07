@@ -935,7 +935,10 @@ class TradingConfig:
 
     @property
     def blocked_sectors_list(self) -> list:
-        return [s.strip() for s in self.blocked_sectors.split(",") if s.strip()]
+        # expanded with unambiguous provider synonyms (core/trading/sector_labels.py), so every consumer — policy, order_manager,
+        # backtests, shadow selectors — blocks 'Consumer Staples' when 'Consumer Defensive' is blocked, etc.
+        from core.trading.sector_labels import expand_blocklist
+        return expand_blocklist([s.strip() for s in self.blocked_sectors.split(",") if s.strip()])
 
     @property
     def blocked_regimes_list(self) -> list:

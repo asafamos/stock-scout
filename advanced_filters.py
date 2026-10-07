@@ -657,7 +657,9 @@ def compute_advanced_score(
 
     # Compose signals to match pipeline expectations
     signals = {
-        "rs_63d": rs.get("RS_63d", np.nan),
+        # P3-b (2026-10-07): the RS function returns the key "rs_63d" (stock_ret - spy_ret); the old lookup of "RS_63d" always missed,
+        # so the RS column was 100% NaN and no RS rule ever fired. Accept both spellings.
+        "rs_63d": rs.get("rs_63d", rs.get("RS_63d", np.nan)),
         "volume_surge": vol.get("volume_surge", np.nan),
         "pv_correlation": vol.get("pv_correlation", np.nan),
         "pocket_pivot_ratio": vol.get("pocket_pivot_ratio", np.nan),

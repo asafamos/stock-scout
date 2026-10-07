@@ -1343,7 +1343,10 @@ def fetch_fundamentals_yfinance(ticker: str, provider_status: Dict | None = None
         "margin": _f(info.get("profitMargins")),     # decimal
         "market_cap": _f(info.get("marketCap")),
         "beta": _f(info.get("beta")),
-        "debt_equity": _f(info.get("debtToEquity")),
+        # Yahoo reports debtToEquity in PERCENT (AAPL 78.4, XOM 15.9, KO 115.5) while Finnhub/FMP/SimFin give a RATIO (1.36, 0.17, 1.41)
+        # and core/scoring/fundamental.py expects a ratio (0-3). Unconverted, yfinance-sourced rows landed in the ">4" bucket (worst leverage
+        # score) and polluted the cross-provider median (verified 2026-10-07). Convert at ingestion, per provider — never by guessing from size.
+        "debt_equity": (lambda _v: None if _v is None else _v / 100.0)(_f(info.get("debtToEquity"))),
         "rev_yoy": _f(info.get("revenueGrowth")),   # decimal
         "eps_yoy": _f(info.get("earningsGrowth")),   # decimal
         "peg": _f(info.get("pegRatio")),
