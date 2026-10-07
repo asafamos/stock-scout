@@ -121,3 +121,13 @@ Running the REAL scan pipeline locally on 25 live tickers (saving disabled) conf
 Second root cause (independent of the key mismatch): `advanced_filters._ensure_ohlcv` flattened MultiIndex columns by taking the LAST level; yfinance returns `('Close','SPY')`, so the SPY benchmark became columns `['SPY','SPY',...]` (no 'Close'), `compute_relative_strength` failed inside try/except and returned NaN. The synthetic unit tests used flat columns, which is why they could not see it. Fixed: the flattening picks the level that contains the OHLCV names (works for both `(Price, Ticker)` and `(Ticker, Price)`); two regression tests added. After the fix on real data: RS_63d NaN share 0.00, range [−0.19, +0.17]; VG +0.042, ZM +0.009 (matches the independent estimate +0.046 / +0.033).
 Monitoring gap closed: `scan_quality_report` now flags `RS_COLUMN_EMPTY` (RS_63d > 50% NaN) and `RR_CONSTANT_IN_SCORE` (≤ 1 distinct rr_ratio in ScoreBreakdown). Run on the last scan scored before the P3 fixes it reports both as RED — i.e. the monitor would have caught both bugs the day they appeared.
 Lesson recorded: silent `try/except → NaN` hid two independent failures for months; validate pipeline changes on LIVE data, not only on synthetic frames.
+
+---
+## UPDATE 2026-10-07 — dead/constant column audit of the pipeline output (two independent samples: live local run + GH scan)
+Method: columns that are ≥ 90% NaN or constant in BOTH samples. Result — no further decision-relevant silent failure found:
+- `Volume_UpDown_Ratio` NaN: BY DESIGN (computed only in adverse regimes; today's regime is SIDEWAYS). It feeds the distribution-volume penalty, which can therefore only fire in DISTRIBUTION/CORRECTION.
+- `DaysSince20dHigh/Low` = 0.0: documented placeholder in `core/indicators.py` (ML features v3 compute them elsewhere); irrelevant now that ML is decoupled.
+- `Near52w`, `Vol_Avg`, `Dividend` 100% NaN: informational columns not used by any gate (the momentum damper uses `Dist_52w_High`, which is populated).
+- `Fund_from_*` all True and `Fundamental_Sources_Count` = 3 for every row, `Data_Quality` = 'high' constant, `Reliability_Score` ∈ {80, 95}: the data-quality/reliability indicators carry no information (they are not gates except `min_reliability 50`, which everything passes). Candidate cleanup, no decision impact.
+- `Coil_Bonus` = 0 and `AdvPenalty` = 0.0 constant: no coil patterns / no advanced penalty in these samples (plausible; the monitor would flag it if it persisted for weeks).
+Standing rule from today: after any pipeline change, run the real pipeline on live tickers (see scratchpad `local_pipeline_check.py` pattern) and check the monitor flags.
