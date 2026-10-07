@@ -30,9 +30,19 @@ def _ensure_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
 
     # 1) Flatten MultiIndex or tuple columns from providers like yfinance
     if isinstance(out.columns, pd.MultiIndex) or any(isinstance(c, tuple) for c in out.columns):
+        # P3-b (2026-10-07): the old code always took the LAST level (c[-1]). yfinance returns ('Close', 'SPY') even for one ticker,
+        # so the columns became ['SPY', 'SPY', ...] (no 'Close'), compute_relative_strength failed inside try/except and RS_63d was
+        # NaN for every stock. Pick the level that actually holds the OHLCV field names instead of assuming a position.
+        _price_names = {"open", "high", "low", "close", "volume", "adj close", "date"}
+        _lvl = -1
+        if isinstance(out.columns, pd.MultiIndex):
+            for _i in range(out.columns.nlevels):
+                if _price_names & {str(v).lower() for v in out.columns.get_level_values(_i)}:
+                    _lvl = _i
+                    break
         flat_cols = []
         for c in out.columns:
-            base = c[-1] if isinstance(c, tuple) else c
+            base = (c[_lvl] if isinstance(c, tuple) else c)
             flat_cols.append(str(base))
         out.columns = flat_cols
 

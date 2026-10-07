@@ -34,3 +34,14 @@ def test_ml_pass_rate_is_informational_when_the_gate_is_disabled(monkeypatch):
     assert "ML_GATE_STRICTNESS" not in codes(r) and "ML_GATE_STRICTNESS" in codes(r, "INFO")
     monkeypatch.setenv("TRADE_ML_GATE_ENABLED", "1")
     assert "ML_GATE_STRICTNESS" in codes(evaluate(_df([0.33] * 100), vix_real=15.1))
+
+
+def test_flags_empty_rs_column_and_constant_rr_in_score():
+    import json
+    df = _df([0.45] * 60)
+    df["RS_63d"] = float("nan")
+    df["ScoreBreakdown"] = [json.dumps({"rr_ratio": 2.0})] * 60
+    c = codes(evaluate(df, vix_real=15.0))
+    assert {"RS_COLUMN_EMPTY", "RR_CONSTANT_IN_SCORE"} <= c
+    df2 = _df([0.45] * 60); df2["RS_63d"] = 0.05; df2["ScoreBreakdown"] = [json.dumps({"rr_ratio": 1.5 + i / 10}) for i in range(60)]
+    assert not ({"RS_COLUMN_EMPTY", "RR_CONSTANT_IN_SCORE"} & codes(evaluate(df2, vix_real=15.0)))

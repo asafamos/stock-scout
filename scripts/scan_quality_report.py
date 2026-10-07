@@ -36,6 +36,19 @@ def evaluate(df: pd.DataFrame, vix_real=None, now=None, scan_date=None) -> dict:
         m["vix_real"] = round(float(vix_real), 2)
         if abs(m["vix_value"] - float(vix_real)) > 3:
             flags.append(("RED", "VIX_MISMATCH", f"scan VIX {m['vix_value']} vs real {vix_real:.1f}"))
+    # Silent-failure detectors (2026-10-07): two bugs hid for months because nothing looked at these —
+    #  * RS_63d was 100% NaN (key mismatch + yfinance MultiIndex) so no relative-strength rule ever fired;
+    #  * the RR term of the Score was the constant placeholder 2.0 (scored before the RR stage).
+    if "RS_63d" in df.columns and len(df) >= 20:
+        rs_nan = float(num("RS_63d").isna().mean()); m["rs63_nan_share"] = round(rs_nan, 2)
+        if rs_nan > 0.5: flags.append(("RED", "RS_COLUMN_EMPTY", f"RS_63d is {rs_nan*100:.0f}% NaN — relative-strength rules are not firing"))
+    if "ScoreBreakdown" in df.columns and len(df) >= 20:
+        try:
+            _rr = {json.loads(x).get("rr_ratio") for x in df["ScoreBreakdown"] if isinstance(x, str)}
+            m["score_rr_unique"] = len(_rr)
+            if len(_rr) <= 1: flags.append(("RED", "RR_CONSTANT_IN_SCORE", f"the Score's RR input takes {len(_rr)} distinct value(s) — the RR term is a constant"))
+        except Exception:
+            pass
     rel = num("Reliability_Score")
     if len(rel.dropna()) and rel.nunique() <= 2: m["reliability_unique"] = int(rel.nunique()); flags.append(("INFO", "RELIABILITY_SATURATED", f"Reliability_Score has {rel.nunique()} distinct values (no information)"))
     fund = num("Fundamental_Score")

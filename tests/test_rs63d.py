@@ -40,3 +40,23 @@ def test_helper_treats_rs_as_difference_not_ratio():
     assert [bucket(0.30), bucket(0.10), bucket(0.0), bucket(-0.30)] == ["strong", "above", "neutral", "weak"]
     # and the source really applies that conversion
     assert "1.0 + float(_rs63)" in open(helpers.__file__).read()
+
+
+def _flat(n, start, drift):
+    return _px(n, start, drift)
+
+
+def test_multiindex_benchmark_like_yfinance_gives_finite_rs():
+    """yfinance returns ('Close','SPY')-style MultiIndex columns even for ONE ticker; the old flattening took the last level ('SPY')."""
+    stock = _flat(260, 50.0, 0.0030)
+    spy = _flat(260, 400.0, 0.0010)
+    spy.columns = pd.MultiIndex.from_tuples([(c, "SPY") for c in spy.columns])
+    rs = af.compute_relative_strength(stock, spy, periods=[21, 63])
+    assert np.isfinite(rs["rs_63d"]) and rs["rs_63d"] > 0
+
+
+def test_multiindex_with_ticker_level_first_still_works():
+    stock = _flat(260, 50.0, 0.0030)
+    spy = _flat(260, 400.0, 0.0010)
+    spy.columns = pd.MultiIndex.from_tuples([("SPY", c) for c in spy.columns])
+    assert np.isfinite(af.compute_relative_strength(stock, spy, periods=[21, 63])["rs_63d"])
