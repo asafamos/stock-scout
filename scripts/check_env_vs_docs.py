@@ -29,7 +29,7 @@ from pathlib import Path
 EXPECTED = {
     # ── Gates (the July 9 freeze) ───────────────────────────────
     "TRADE_MIN_SCORE":         "73.0",
-    "TRADE_MAX_SCORE":         "85",
+    "TRADE_MAX_SCORE":         "99",                  # 2026-10-07 scale fix (owner-approved): 85 sat at the 99.5th pctile of the OLD score scale; after the ML/RR scoring fixes the median is 88.7 so 85 blocked 79% of rows (0 eligible). 99 = same "trim only the extreme tail" intent. Rollback 85 + CLAUDE.md
     "TRADE_MIN_FUNDAMENTAL_SCORE": "45",  # canonical: "min_fundamental_score" in config
     "TRADE_MIN_ML_PROB":       "0.40",
     "TRADE_MAX_ML_PROB":       "0.60",

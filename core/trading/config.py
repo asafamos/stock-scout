@@ -167,8 +167,9 @@ class TradingConfig:
         default_factory=lambda: _env_float("MIN_SCORE", 73.0)
     )
     max_score_to_trade: float = field(
-        default_factory=lambda: _env_float("MAX_SCORE", 85.0)
-    )  # 2026-07-09 EVENING REVERT: undid the 85 → 97 flip after user
+        default_factory=lambda: _env_float("MAX_SCORE", 99.0)
+    )  # 2026-10-07: 85 -> 99 (score-scale shift, see CLAUDE.md). History below is for the old scale.
+       # 2026-07-09 EVENING REVERT: undid the 85 → 97 flip after user
        # pushed on inconsistency. My framework for this parameter:
        #
        # DISAGREEMENT between simulated and real data:
