@@ -4,3 +4,5 @@
 {"symbol": "MSFT", "disclosureDate": "2026-09-11", "transactionDate": "2026-08-18", "chamber": "house", "name": "Gilbert Cisneros", "amount": "$15,001 - $50,000", "first_seen_utc": "2026-10-03T07:26:05+00:00"}
 {"symbol": "ETN", "disclosureDate": "2026-09-11", "transactionDate": "2026-08-27", "chamber": "house", "name": "Gilbert Cisneros", "amount": "$15,001 - $50,000", "first_seen_utc": "2026-10-07T01:43:38+00:00"}
 {"symbol": "PWR", "disclosureDate": "2026-09-11", "transactionDate": "2026-08-27", "chamber": "house", "name": "Gilbert Cisneros", "amount": "$15,001 - $50,000", "first_seen_utc": "2026-10-07T01:43:38+00:00"}
+{"symbol": "WFC-PY", "disclosureDate": "2026-09-21", "transactionDate": "2026-09-01", "chamber": "senate", "name": "Mitch McConnell", "amount": "$15,001 - $50,000", "first_seen_utc": "2026-10-09T02:24:57+00:00"}
+{"symbol": "SNOW", "disclosureDate": "2026-10-08", "transactionDate": "2026-09-04", "chamber": "house", "name": "Maria Elvira Salazar", "amount": "$15,001 - $50,000", "first_seen_utc": "2026-10-09T02:24:57+00:00"}
