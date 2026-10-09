@@ -1,0 +1,105 @@
+{
+ "round_date": "2026-10-11",
+ "data_asof": "2026-10-09",
+ "note": "run on Fri 2026-10-09 evening UTC (Sat IL) with data as of Friday close; entry = Open of the first trading day after the round date (Mon 2026-10-12)",
+ "exit": "open 20 trading days after entry",
+ "pool_file": "round_2026-10-11_pool.json",
+ "pool_sha256": "f3c91ad391e5fc418c3a8475ab3cee80a48cae82f6c44705ed66b53cdb6a38c9",
+ "logged_utc": "2026-10-09T21:09:05+00:00",
+ "arms": {
+  "A_numbers": {
+   "prompt_file": "scripts/forward/f2_prompt.txt",
+   "prompt_sha256": "a6fd47de8f6b2e482e2342b65198ae8bafb4ea334c03cd408935e11986fbfd91",
+   "pack_file": "data/forward_llm/round_2026-10-11_pack.txt",
+   "pack_sha256": "6e2c202b1e70409d1938a53911d2f139c4ee64a386f85c0d474a8b855cbef73c",
+   "picker": "fresh subagent, no tools except reading the pack",
+   "picks": [
+    {
+     "ticker": "SHOP",
+     "confidence": 3
+    },
+    {
+     "ticker": "QRVO",
+     "confidence": 3
+    },
+    {
+     "ticker": "A",
+     "confidence": 3
+    },
+    {
+     "ticker": "SAIC",
+     "confidence": 2
+    },
+    {
+     "ticker": "XNCR",
+     "confidence": 2
+    }
+   ]
+  },
+  "B_news": {
+   "prompt_file": "scripts/forward/f2_prompt_news.txt",
+   "prompt_sha256": "01fa0cda41d90004100fcf7392d259ebf382f394c552a686ef95fef9160aec1a",
+   "pack_file": "data/forward_llm/round_2026-10-11_newspack.txt",
+   "pack_sha256": "a3a9da2b0b2cae29b58c94691d8fd75bf85e1ba2f9d3123b6a759d2552ee40db",
+   "picker": "fresh subagent, no tools except reading the pack",
+   "picks": [
+    {
+     "ticker": "AGX",
+     "confidence": 3
+    },
+    {
+     "ticker": "NVS",
+     "confidence": 3
+    },
+    {
+     "ticker": "COST",
+     "confidence": 3
+    },
+    {
+     "ticker": "MELI",
+     "confidence": 2
+    },
+    {
+     "ticker": "IQV",
+     "confidence": 2
+    }
+   ]
+  },
+  "C_web_agent": {
+   "prompt_file": "scripts/forward/f2_prompt_agent.txt",
+   "prompt_sha256": "c2db7ace4e354789c4698092fa9f8781a2d885059b6c6a047d16a7195a3d9c4e",
+   "pack_file": "data/forward_llm/round_2026-10-11_pack.txt",
+   "pack_sha256": "6e2c202b1e70409d1938a53911d2f139c4ee64a386f85c0d474a8b855cbef73c",
+   "picker": "fresh subagent WITH web search/fetch (10 tool uses)",
+   "picks": [
+    {
+     "ticker": "XNCR",
+     "confidence": 3
+    },
+    {
+     "ticker": "IQV",
+     "confidence": 4
+    },
+    {
+     "ticker": "SHOP",
+     "confidence": 3
+    },
+    {
+     "ticker": "SAIC",
+     "confidence": 3
+    },
+    {
+     "ticker": "UTHR",
+     "confidence": 3
+    }
+   ],
+   "sources": [
+    "https://www.benzinga.com/quote/SHOP/earnings",
+    "https://kalkine.com/news/healthcare/xencor-nasdaq-xncr-shares-rise-17-after-xmab819-selected-for-oral-presentation-at-esmo-2026",
+    "https://www.barchart.com/story/news/3967899/iqvia-holdings-stock-outlook-is-wall-street-bullish-or-bearish",
+    "https://stockstory.org/us/stocks/nasdaq/saic/news/earnings-call/saic-q2-deep-dive-margin-discipline-and-transformation-drive-guidance-upgrades",
+    "https://ir.unither.com/press-releases/2026/05-06-2026-113043984"
+   ]
+  }
+ }
+}
