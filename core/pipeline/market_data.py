@@ -252,6 +252,28 @@ def fetch_history_bulk(
             logger.warning(f"Batch fetch failed for {len(chunk)} tickers: {e}")
         # Sleep between batches to ease provider load
         time.sleep(1.0)
+    # 2026-10-09 diagnostics: the two overnight scans (Oct 8/9, 00:0x UTC) came out with ~100% empty
+    # price columns while the same request parameters work when replayed later. Make a silent
+    # shortfall visible in the CI log (what was requested, what came back, what yfinance reported).
+    try:
+        _got = len(data_map)
+        _req = len(tickers)
+        _errs = {}
+        try:
+            import yfinance.shared as _yfs
+            for _t, _e in (getattr(_yfs, "_ERRORS", {}) or {}).items():
+                _errs.setdefault(str(_e)[:80], []).append(_t)
+        except Exception:
+            pass
+        _lvl = logger.warning if (_req and _got < 0.5 * _req) else logger.info
+        _lvl(
+            "[HISTORY] requested=%d usable=%d (%.0f%%) window=%s..%s yfinance_errors=%s",
+            _req, _got, (100.0 * _got / _req) if _req else 0.0,
+            start.date(), end.strftime("%Y-%m-%d %H:%M"),
+            {k: len(v) for k, v in list(_errs.items())[:5]},
+        )
+    except Exception:
+        pass
     return data_map
 
 
