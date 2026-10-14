@@ -27,3 +27,9 @@
 {"symbol": "PEP", "disclosureDate": "2026-10-09", "transactionDate": "2026-09-04", "chamber": "house", "name": "Ro Khanna", "amount": "$15,001 - $50,000", "first_seen_utc": "2026-10-13T03:07:07+00:00"}
 {"symbol": "UBER", "disclosureDate": "2026-10-09", "transactionDate": "2026-09-04", "chamber": "house", "name": "Ro Khanna", "amount": "$15,001 - $50,000", "first_seen_utc": "2026-10-13T03:07:07+00:00"}
 {"symbol": "ON", "disclosureDate": "2026-10-09", "transactionDate": "2026-09-23", "chamber": "house", "name": "Ro Khanna", "amount": "$15,001 - $50,000", "first_seen_utc": "2026-10-13T03:07:07+00:00"}
+{"symbol": "CACI", "disclosureDate": "2026-10-12", "transactionDate": "2026-09-14", "chamber": "house", "name": "Lisa McClain", "amount": "$15,001 - $50,000", "first_seen_utc": "2026-10-14T01:20:15+00:00"}
+{"symbol": "OLN", "disclosureDate": "2026-10-12", "transactionDate": "2026-09-14", "chamber": "house", "name": "Lisa McClain", "amount": "$15,001 - $50,000", "first_seen_utc": "2026-10-14T01:20:15+00:00"}
+{"symbol": "RIG", "disclosureDate": "2026-10-12", "transactionDate": "2026-09-14", "chamber": "house", "name": "Lisa McClain", "amount": "$15,001 - $50,000", "first_seen_utc": "2026-10-14T01:20:15+00:00"}
+{"symbol": "NXPI", "disclosureDate": "2026-10-12", "transactionDate": "2026-09-09", "chamber": "house", "name": "Gilbert Cisneros", "amount": "$15,001 - $50,000", "first_seen_utc": "2026-10-14T01:20:15+00:00"}
+{"symbol": "ON", "disclosureDate": "2026-10-12", "transactionDate": "2026-09-28", "chamber": "house", "name": "Gilbert Cisneros", "amount": "$15,001 - $50,000", "first_seen_utc": "2026-10-14T01:20:15+00:00"}
+{"symbol": "BHE", "disclosureDate": "2026-10-12", "transactionDate": "2026-10-01", "chamber": "house", "name": "Gilbert Cisneros", "amount": "$15,001 - $50,000", "first_seen_utc": "2026-10-14T01:20:15+00:00"}
