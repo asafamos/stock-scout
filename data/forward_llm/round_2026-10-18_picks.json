@@ -1,0 +1,104 @@
+{
+ "round_date": "2026-10-18",
+ "data_asof": "2026-10-16",
+ "note": "regular Sunday round; data as of Friday close 2026-10-16; entry = Open of the first trading day after the round date (Mon 2026-10-19). Pool built with the A4 candidate-filter fix (scripts/forward/f2_build_pack.py).",
+ "exit": "open 20 trading days after entry",
+ "pool_file": "round_2026-10-18_pool.json",
+ "pool_sha256": "35bec6c0bcdfb285b1d47a9b53028754048d70f5ac7382fcfcfd223ad217d701",
+ "logged_utc": "2026-10-18T09:45:50+00:00",
+ "arms": {
+  "A_numbers": {
+   "prompt_file": "scripts/forward/f2_prompt.txt",
+   "prompt_sha256": "a6fd47de8f6b2e482e2342b65198ae8bafb4ea334c03cd408935e11986fbfd91",
+   "pack_file": "data/forward_llm/round_2026-10-18_pack.txt",
+   "pack_sha256": "c2ded2dd526a54d02885759b3c2b57b24e15b249bd6bca4aef1d58ce20d6a445",
+   "picker": "fresh subagent, no tools except reading the pack",
+   "picks": [
+    {
+     "ticker": "CRM",
+     "confidence": 3
+    },
+    {
+     "ticker": "MAR",
+     "confidence": 3
+    },
+    {
+     "ticker": "MSM",
+     "confidence": 3
+    },
+    {
+     "ticker": "CORT",
+     "confidence": 3
+    },
+    {
+     "ticker": "DAC",
+     "confidence": 3
+    }
+   ]
+  },
+  "B_news": {
+   "prompt_file": "scripts/forward/f2_prompt_news.txt",
+   "prompt_sha256": "01fa0cda41d90004100fcf7392d259ebf382f394c552a686ef95fef9160aec1a",
+   "pack_file": "data/forward_llm/round_2026-10-18_newspack.txt",
+   "pack_sha256": "17dce5eca32610799730464b45dad58eba9516dc26493f2230275cce08fb2d51",
+   "picker": "fresh subagent, no tools except reading the pack",
+   "picks": [
+    {
+     "ticker": "ODD",
+     "confidence": 3
+    },
+    {
+     "ticker": "PAG",
+     "confidence": 3
+    },
+    {
+     "ticker": "ESLT",
+     "confidence": 3
+    },
+    {
+     "ticker": "FROG",
+     "confidence": 2
+    },
+    {
+     "ticker": "SNX",
+     "confidence": 2
+    }
+   ]
+  },
+  "C_web_agent": {
+   "prompt_file": "scripts/forward/f2_prompt_agent.txt",
+   "prompt_sha256": "c2db7ace4e354789c4698092fa9f8781a2d885059b6c6a047d16a7195a3d9c4e",
+   "pack_file": "data/forward_llm/round_2026-10-18_pack.txt",
+   "pack_sha256": "c2ded2dd526a54d02885759b3c2b57b24e15b249bd6bca4aef1d58ce20d6a445",
+   "picker": "fresh subagent WITH web search/fetch (10 tool uses)",
+   "picks": [
+    {
+     "ticker": "MAR",
+     "confidence": 3
+    },
+    {
+     "ticker": "CORT",
+     "confidence": 3
+    },
+    {
+     "ticker": "CRM",
+     "confidence": 3
+    },
+    {
+     "ticker": "IT",
+     "confidence": 2
+    },
+    {
+     "ticker": "HPE",
+     "confidence": 2
+    }
+   ],
+   "sources": [
+    "https://marriott.gcs-web.com/node/37666",
+    "https://www.barchart.com/story/news/37296136/is-wall-street-bullish-or-bearish-on-hewlett-packard-enterprise-stock",
+    "https://www.barchart.com/story/news/4098608/gartner-stock-is-wall-street-bullish-or-bearish",
+    "https://finviz.com/news/397526/wayfair-schedules-third-quarter-2026-earnings-release-and-conference-call"
+   ]
+  }
+ }
+}

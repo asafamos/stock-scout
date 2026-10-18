@@ -25,7 +25,12 @@ def get(q):
 
 # 1) candidate symbols from the research panel (alive recently), shuffled with the round seed
 px = pd.read_pickle(f"{RD}/univ_px.pkl")
-cands = sorted(s for s, v in px.items() if len(v) and v.index[-1] >= pd.Timestamp(rd) - pd.Timedelta(days=30)
+# "alive recently" is judged against the EARLIER of (round date, panel end): the research panel ends 2026-09-15, so a pure
+# round-date cutoff empties the candidate list for every round after 2026-10-15 (AMENDMENT A4, prereg F2). For rounds up to
+# the panel end + 30 days the cutoff is unchanged (identical behaviour to rounds 10-04 / 10-06 / 10-11).
+_panel_end = max(v.index[-1] for v in px.values() if len(v))
+_alive_cut = min(pd.Timestamp(rd), _panel_end) - pd.Timedelta(days=30)
+cands = sorted(s for s, v in px.items() if len(v) and v.index[-1] >= _alive_cut
                and v["Close"].iloc[-1] >= 5 and (v["Close"] * v["Volume"]).tail(20).mean() >= 1e6 and s.replace("-", "").isalpha() and "-" not in s)
 random.Random(seed).shuffle(cands)
 print(f"candidates after panel filter: {len(cands)}", file=sys.stderr)
