@@ -41,7 +41,12 @@ def evaluate(df: pd.DataFrame, vix_real=None, now=None, scan_date=None) -> dict:
     #  * the RR term of the Score was the constant placeholder 2.0 (scored before the RR stage).
     if "RS_63d" in df.columns and len(df) >= 20:
         rs_nan = float(num("RS_63d").isna().mean()); m["rs63_nan_share"] = round(rs_nan, 2)
-        if rs_nan > 0.5: flags.append(("RED", "RS_COLUMN_EMPTY", f"RS_63d is {rs_nan*100:.0f}% NaN — relative-strength rules are not firing"))
+        # 2026-10-10: threshold 50% -> 20%. A 49%-empty overnight scan (74 rows, Close 47% NaN) slipped under 50%;
+        # healthy scans never exceeded 18% over 49 scans, degraded ones were 22/49/96/100%.
+        if rs_nan > 0.2: flags.append(("RED", "RS_COLUMN_EMPTY", f"RS_63d is {rs_nan*100:.0f}% NaN — relative-strength rules are not firing"))
+    if "Close" in df.columns and len(df) >= 20:
+        close_nan = float(num("Close").isna().mean()); m["close_nan_share"] = round(close_nan, 2)
+        if close_nan > 0.2: flags.append(("RED", "PRICE_DATA_MISSING", f"Close is {close_nan*100:.0f}% NaN — price history missing for part of the scan (technical fields/RR unreliable)"))
     if "ScoreBreakdown" in df.columns and len(df) >= 20:
         try:
             _rr = {json.loads(x).get("rr_ratio") for x in df["ScoreBreakdown"] if isinstance(x, str)}

@@ -49,6 +49,8 @@ MAX_ROWS = 5000         # Above this → universe filter broken
 SCORE_MIN = 0.0
 SCORE_MAX = 100.0
 REGIME_MISSING_MAX_FRAC = 0.50  # >50% of rows with no regime → broadcast broken
+PRICE_COLS = ("RS_63d", "Close")  # price-derived columns; both must be populated
+PRICE_NAN_MAX_FRAC = 0.30        # healthy max 0.18 over 49 scans; degraded 0.22/0.49/0.96/1.0
 
 
 def check_parquet() -> Tuple[List[str], List[str]]:
@@ -111,6 +113,20 @@ def check_parquet() -> Tuple[List[str], List[str]]:
                 errors.append(
                     f"Scores out of range: min={scores.min():.1f}, max={scores.max():.1f} "
                     f"(expected [{SCORE_MIN}, {SCORE_MAX}])"
+                )
+
+    # Price-history shortfall (2026-10-10): the overnight scans (~00:00 UTC) repeatedly came out with
+    # price-derived columns mostly empty (RS_63d / Close NaN on 22-100% of rows) because the price
+    # download came back empty; the rows then carry only fundamentals and a default technical score.
+    # Over 49 scans since the 2026-10-07 fixes, healthy scans never exceeded 18% NaN and the 4 degraded
+    # ones were at 22% / 49% / 96-100%, so 30% blocks real damage without false positives.
+    for _col in PRICE_COLS:
+        if _col in df.columns:
+            _nan = pd.to_numeric(df[_col], errors="coerce").isna().sum() / max(n, 1)
+            if _nan > PRICE_NAN_MAX_FRAC:
+                errors.append(
+                    f"{_col} NaN on {_nan*100:.0f}% of rows (> {PRICE_NAN_MAX_FRAC*100:.0f}%) — "
+                    f"price history missing for this scan; refusing to overwrite the last good scan"
                 )
 
     # Regime broadcast (caused real bug 2026-04-22..27)
