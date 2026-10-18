@@ -44,6 +44,9 @@ def _call(rm, sleeve, **kw):
 def _no_side_effects(monkeypatch):
     monkeypatch.setattr("core.trading.notifications.notify_error", lambda *a, **k: None)
     monkeypatch.setattr(policy, "_load_blocked_tickers", lambda: set())
+    # Hermetic: check_sector_momentum downloads the sector ETF from yfinance, so these tests failed whenever
+    # tech fell >2% in the last session (2026-10-18, XLK -3%). The gate itself is covered in test_phase2_gates.
+    monkeypatch.setattr("core.trading.risk_manager.RiskManager.check_sector_momentum", lambda self, sector: (True, "", 0.0))
 
 
 def test_legacy_rejects_a_zero_score_row_but_the_sleeve_does_not_care():
