@@ -771,6 +771,36 @@ Persistent=false
 WantedBy=timers.target
 SVCEOF
 
+# --- CoreTrend retry (2026-10-19): second attempt at 11:45 ET. The 09:45 run failed on 2026-10-19 because IB Gateway was waiting for the
+# weekly 2FA approval. The retry exits at once if today's first run already completed cleanly (data/state/coretrend_last_ok.json),
+# so it can never repeat a phase (SELL today, BUY after settlement) — it only runs when the first attempt did not finish.
+sudo tee /etc/systemd/system/stockscout-coretrend-retry.service > /dev/null << 'SVCEOF'
+[Unit]
+Description=StockScout CoreTrend executor - same-day retry (no-op if the first run completed)
+OnFailure=stockscout-notify-failure@coretrend-retry.service
+
+[Service]
+Type=oneshot
+User=stockscout
+WorkingDirectory=/home/stockscout/stock-scout-2
+EnvironmentFile=/home/stockscout/stock-scout-2/.env.trading
+Environment=TRADE_LIVE_CONFIRMED=1
+ExecStart=/home/stockscout/stock-scout-2/.venv/bin/python -m scripts.run_coretrend --retry
+TimeoutStartSec=600
+SVCEOF
+
+sudo tee /etc/systemd/system/stockscout-coretrend-retry.timer > /dev/null << 'SVCEOF'
+[Unit]
+Description=CoreTrend retry 11:45 New York time, Mon-Fri (DST-aware)
+
+[Timer]
+OnCalendar=Mon..Fri 11:45:00 America/New_York
+Persistent=false
+
+[Install]
+WantedBy=timers.target
+SVCEOF
+
 # --- CoreTrend month-end decision alert (Telegram only on the last trading day of a month)
 sudo tee /etc/systemd/system/stockscout-coretrend-alert.service > /dev/null << 'SVCEOF'
 [Unit]

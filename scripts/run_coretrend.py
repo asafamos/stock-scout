@@ -23,6 +23,24 @@ sys.path.insert(0, str(ROOT))
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("coretrend")
 KILL = ROOT / "data" / "state" / "coretrend_disabled.json"
+DONE = ROOT / "data" / "state" / "coretrend_last_ok.json"
+
+
+def _done_today(today: date) -> bool:
+    """True if a LIVE run already completed cleanly today (no-op or every action succeeded)."""
+    try:
+        return json.loads(DONE.read_text()).get("date") == today.isoformat()
+    except Exception:
+        return False
+
+
+def _mark_ok(today: date, outcome: str) -> None:
+    try:
+        DONE.parent.mkdir(parents=True, exist_ok=True)
+        DONE.write_text(json.dumps({"date": today.isoformat(), "outcome": outcome,
+                                    "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}))
+    except Exception as e:   # the marker only suppresses the later retry; never fail the run over it
+        logger.warning("could not write %s: %s", DONE, e)
 
 
 def current_signal(today: date):
@@ -35,6 +53,9 @@ def current_signal(today: date):
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--live", action="store_true"); ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--retry", action="store_true",
+                    help="second daily attempt (timer 11:45 ET): exits at once if today's first run already completed cleanly, "
+                         "so a retry can never repeat or extend a phase that already ran (SELL today, BUY after settlement)")
     ap.add_argument("--netliq", type=float, default=0.0, help="DRY only: pretend NetLiq")
     ap.add_argument("--cash", type=float, default=0.0, help="DRY only: pretend cash")
     a = ap.parse_args(argv)
@@ -42,6 +63,8 @@ def main(argv=None) -> int:
         print("CoreTrend disabled (TRADE_CORETREND != 1)"); return 0
     if KILL.exists():
         print("CoreTrend kill-switch file present:", KILL.read_text()[:200]); return 0
+    if a.retry and _done_today(datetime.now(timezone.utc).date()):
+        print("CoreTrend retry: today's run already completed — nothing to do"); return 0
     live = (a.live or os.getenv("TRADE_LIVE_CONFIRMED") == "1") and not a.dry_run
     os.environ["TRADE_DRY_RUN"] = "0" if live else "1"
     from core.trading.config import CONFIG
@@ -93,7 +116,9 @@ def main(argv=None) -> int:
                 # a silent "nothing to do" because the price feed failed would look exactly like a healthy no-op
                 notify.notify_error("CoreTrend", f"no price for {want} at run time — NOTHING was done (will retry next run)")
                 return 1
+            if live: _mark_ok(today, "noop")
             print("CoreTrend: nothing to do"); return 0
+        had_error = False
         for act in actions:
             sym, qty = act["symbol"], int(act["qty"])
             if act["action"] == "BUY":
@@ -107,6 +132,7 @@ def main(argv=None) -> int:
                 sent = notify._send(f"🧭 <b>CoreTrend BUY {sym}</b> x{qty} @~${px:.2f} — {act['why']} (status {st}); wide {ex.PROTECT_TRAIL_PCT:.0f}% protective trail")
                 logger.info("telegram BUY alert sent=%s", sent)
                 if st in ("Error", "?"):
+                    had_error = True
                     notify.notify_error("CoreTrend", f"BUY {sym} x{qty} failed/unfilled ({st}) — will retry next run")
             else:
                 if not live:
@@ -115,7 +141,9 @@ def main(argv=None) -> int:
                 sent = notify._send(f"🧭 <b>CoreTrend SELL {sym}</b> x{qty} — {act['why']} (status {res.status}); the {ex.RISK_INSTRUMENT if sym == ex.SAFE_INSTRUMENT else ex.SAFE_INSTRUMENT} buy follows on the next run after settlement")
                 logger.info("telegram SELL alert sent=%s", sent)
                 if res.status in ("Error",):
+                    had_error = True
                     notify.notify_error("CoreTrend", f"exit of {sym} failed ({getattr(res, 'error', '')}) — CHECK MANUALLY")
+        if live and not had_error: _mark_ok(today, "acted")
         return 0
     finally:
         try: client.disconnect()
