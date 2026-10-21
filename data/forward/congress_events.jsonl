@@ -47,3 +47,6 @@
 {"symbol": "ACN", "disclosureDate": "2026-10-16", "transactionDate": "2026-08-25", "chamber": "house", "name": "Michael McCaul", "amount": "$50,001 - $100,000", "first_seen_utc": "2026-10-17T00:41:19+00:00"}
 {"symbol": "ACN", "disclosureDate": "2026-10-16", "transactionDate": "2026-08-28", "chamber": "house", "name": "Michael McCaul", "amount": "$50,001 - $100,000", "first_seen_utc": "2026-10-17T00:41:19+00:00"}
 {"symbol": "NOK", "disclosureDate": "2026-10-19", "transactionDate": "2026-09-18", "chamber": "house", "name": "Laurel Lee", "amount": "$15,001 - $50,000", "first_seen_utc": "2026-10-20T01:09:24+00:00"}
+{"symbol": "DDOG", "disclosureDate": "2026-10-20", "transactionDate": "2026-09-28", "chamber": "house", "name": "Jonathan Jackson", "amount": "$50,001 - $100,000", "first_seen_utc": "2026-10-21T00:46:20+00:00"}
+{"symbol": "EL", "disclosureDate": "2026-10-20", "transactionDate": "2026-09-28", "chamber": "house", "name": "Jonathan Jackson", "amount": "$50,001 - $100,000", "first_seen_utc": "2026-10-21T00:46:20+00:00"}
+{"symbol": "GH", "disclosureDate": "2026-10-20", "transactionDate": "2026-09-28", "chamber": "house", "name": "Jonathan Jackson", "amount": "$15,001 - $50,000", "first_seen_utc": "2026-10-21T00:46:20+00:00"}
