@@ -26,7 +26,7 @@ jobs:
             "🗓️ <b>תזכורת שבועית (יום ראשון)</b>" \
             "" \
             "1️⃣ <b>IBKR:</b> סביב חידוש האימות השבועי יתכן שיבקשו אישור 2FA. אם תקבל 'CIRCUIT BREAKER — 2FA STUCK' — אשר את ה-push באפליקציית IBKR או שלח /login לבוט." \
-            "2️⃣ <b>מבחן F2:</b> סבב חדש של בוחר ה-AI צריך להתבצע לפני פתיחת השוק מחר. כתוב ל-Claude: 'תריץ סבב F2'." )
+            "2️⃣ <b>מבחן F2:</b> הסבב רץ אוטומטית ב-Mac (יום ראשון 14:00 + ניסיון חוזר ביום שני 10:00; האפליקציה והמחשב צריכים להיות דלוקים). אם הסבב לא נרשם עד יום שני 11:30 UTC תקבל התראה, ואז כתוב ל-Claude: 'תריץ סבב F2'." )
           curl -sS --fail -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
             --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
             --data-urlencode "parse_mode=HTML" \

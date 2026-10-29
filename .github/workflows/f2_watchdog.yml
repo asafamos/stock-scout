@@ -1,0 +1,41 @@
+name: F2 round watchdog
+
+# Safety net for the weekly forward-test round (docs/f2_round_runbook.md). The round itself runs on the owner's Mac (it needs research_data/);
+# if the Mac/app was off on Sunday this alerts on Telegram BEFORE Monday's open (11:30 UTC is before both 13:30 UTC EDT and 14:30 UTC EST),
+# leaving time to run it by hand. Silent when the round is logged.
+permissions:
+  contents: read
+
+on:
+  schedule:
+    - cron: '30 11 * * 1'    # Monday 11:30 UTC
+  workflow_dispatch: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      TELEGRAM_TOKEN: ${{ secrets.TRADE_TELEGRAM_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TRADE_TELEGRAM_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Is last Sunday's round on main?
+        run: |
+          set -euo pipefail
+          SUN=$(date -u -d "last sunday" +%Y-%m-%d)
+          # any picks file dated on/after that Sunday counts (off-schedule rounds included)
+          FOUND=$(ls data/forward_llm/round_*_picks.json 2>/dev/null | sed -E 's/.*round_([0-9-]+)_picks.json/\1/' | awk -v s="$SUN" '$1 >= s' | head -1)
+          if [ -n "$FOUND" ]; then
+            echo "round logged: $FOUND (>= $SUN)"
+            exit 0
+          fi
+          MSG=$(printf '%s\n%s\n%s' \
+            "⚠️ <b>F2: סבב השבוע ($SUN) לא נרשם</b>" \
+            "המחשב/האפליקציה כנראה היו כבויים ביום ראשון. הסבב חייב להיכנס לפני פתיחת השוק היום." \
+            "כתוב ל-Claude: 'תריץ סבב F2' (המדריך: docs/f2_round_runbook.md).")
+          curl -sS --fail -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "parse_mode=HTML" \
+            --data-urlencode "text=${MSG}" > /dev/null
+          echo "alert sent: no round since $SUN"
