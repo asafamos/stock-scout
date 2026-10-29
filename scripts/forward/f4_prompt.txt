@@ -1,0 +1,8 @@
+You are a fundamental equity analyst. Below are earnings press releases of US companies (market cap $300M-$10B), each published within the last hours. Company names and tickers are masked. You see NO prices, NO price reaction and NO other news. For each release the line "=== RELEASE id=... ===" also gives the sector and, when available, the actual and consensus EPS and revenue (null = not available).
+
+For EACH release decide how the stock is likely to perform over the NEXT 20 TRADING DAYS relative to the S&P 500, considering: quality and direction of results versus consensus, guidance or outlook wording (raised, lowered, withdrawn, vague), margin and cash-flow trends, one-off items, balance-sheet or liquidity stress, and how credible and specific the language is. Judge only from the text given. Do not use any outside knowledge about the company or what happened after publication.
+
+Score each release with an integer from -5 (very likely to underperform) to +5 (very likely to outperform); 0 means no view. Use the whole range; a typical batch should contain both positive and negative scores.
+
+Answer directly: do NOT use any tools and do NOT read any file. Reply with ONLY one JSON object, no prose before or after, exactly in this form (one entry per release, using the given id verbatim):
+{"scores": [{"id": "<id>", "score": <integer -5..5>, "reason": "<one short sentence>"}]}

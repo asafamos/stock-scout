@@ -1,0 +1,39 @@
+name: F4 batch watchdog
+
+# Safety net for the daily F4 scoring batch (docs/f4_batch_runbook.md). The batch runs on the owner's Mac; if it did not run, alert on Telegram.
+# 14:05 UTC = 09:05 New York in winter (the entry open is 09:30 ET). During US daylight time this fires after the open and is informational only.
+permissions:
+  contents: read
+
+on:
+  schedule:
+    - cron: '5 14 * * 1-5'
+  workflow_dispatch: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      TELEGRAM_TOKEN: ${{ secrets.TRADE_TELEGRAM_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TRADE_TELEGRAM_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Is today's F4 scores file on main?
+        run: |
+          set -euo pipefail
+          TODAY=$(TZ=America/New_York date +%Y-%m-%d)
+          # a batch run on a holiday/weekend is filed under the NEXT trading day, so any scores file dated on/after today counts
+          FOUND=$(ls data/forward_text/batches/*_scores.json 2>/dev/null | sed -E 's/.*batches\/([0-9-]+)_scores.json/\1/' | awk -v t="$TODAY" '$1 >= t' | head -1)
+          if [ -n "$FOUND" ]; then
+            echo "F4 batch logged: $FOUND (>= $TODAY)"
+            exit 0
+          fi
+          MSG=$(printf '%s\n%s' \
+            "⚠️ <b>F4: אצווה של ${TODAY} לא נרשמה</b>" \
+            "המחשב/האפליקציה כנראה כבויים. אם עדיין לפני 09:30 ET אפשר להריץ ידנית: כתוב ל-Claude 'תריץ אצוות F4' (docs/f4_batch_runbook.md).")
+          curl -sS --fail -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "parse_mode=HTML" \
+            --data-urlencode "text=${MSG}" > /dev/null
+          echo "alert sent for ${TODAY}"

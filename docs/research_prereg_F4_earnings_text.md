@@ -42,3 +42,11 @@ Nothing automatically. A pass is a recommendation to the owner for a small, capp
 
 ## Disclosed limits
 Masking names does not remove all priors (the model may recognise a company from its products). Consensus data may be missing for many small caps. One earnings season = one market regime and clustered events. Token cost is real (≈ 1.5–3M input tokens per 1,000 events).
+
+## Addendum A1 (2026-10-29, before the first event) — novelty check against our own history
+Asked by the owner: make sure this was not already done. Checked docs/, scripts/, core/ and memory:
+- **Numeric earnings surprise** (EPS/revenue vs consensus, small-cap scan `small_cap_signals`): TESTED — rank-IC 0.04–0.05 (t≈4.2–4.3) but top-decile net of costs vs SPY ≤ 0 in every cell. It is therefore used here only as the reference baseline on the SAME events, and the score is given the consensus numbers as context.
+- **LLM + headlines** (F2R arm B, F3 arm D, retro rounds): TESTED — "no sign of skill". Headlines are thin and are not the release text.
+- **LLM reading of the earnings-release / 8-K text itself**: NEVER tested. Recorded on 2026-10-02 as "10-K/8-K text (Lazy Prices) — heavy, low prior" and as an open idea ("OpenAI credit to test LLM scoring of 8-K/10-K text"; docs/investigation_summary_oct2026.md). Earnings-call transcripts are NOT available on our data plans (FMP returns 402).
+- Prior stays modest, as noted then. What is new is the design: forward-only, event-level (>1,000 events per season instead of ~15 picks per week), masked names, and a numeric-surprise baseline on the same events.
+
