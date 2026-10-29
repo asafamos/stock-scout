@@ -658,14 +658,17 @@ fi
 # If no new entries in 2+ weekdays, something is wrong with the record cron.
 PENDING="/home/stockscout/stock-scout-2/data/outcomes/pending_scans.jsonl"
 if [ -f "${PENDING}" ]; then
-    # Most-recent scan_date in the file
-    LAST_SCAN=$(tail -100 "${PENDING}" 2>/dev/null | grep -oE '"scan_date": "[0-9-]+"' | tail -1 \
-        | sed 's/.*"\([0-9-]*\)".*/\1/')
+    # Most-recent scan_date in the file = the MAXIMUM, not the last line: the resolver rewrites this file and leaves a few unresolved
+    # old rows (e.g. a merged ticker with no price data) at the END, which made the "last line" read 29 days old and spammed this
+    # alert every 15 min on 2026-10-28 while recording was perfectly healthy (106 candidates/day).
+    LAST_SCAN=$(grep -oE '"scan_date": *"[0-9-]+"' "${PENDING}" 2>/dev/null | sed -E 's/.*"([0-9-]+)"$/\1/' | sort | tail -1)
     if [ -n "${LAST_SCAN}" ]; then
         AGE_DAYS=$(( ($(date +%s) - $(date -d "${LAST_SCAN}" +%s 2>/dev/null || echo 0)) / 86400 ))
         if [ "${AGE_DAYS}" -gt 3 ]; then
-            send_alert "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') Scan outcomes tracker STALE — last record ${LAST_SCAN} (${AGE_DAYS} days ago). ML feedback loop broken."
+            send_alert_dedup "outcomes_stale" "$(echo -e '\xe2\x9a\xa0\xef\xb8\x8f') Scan outcomes tracker STALE — last record ${LAST_SCAN} (${AGE_DAYS} days ago). ML feedback loop broken." 21600   # 6h dedup (was every 15 min)
             ISSUES=$((ISSUES + 1))
+        else
+            clear_alert_dedup "outcomes_stale"
         fi
     fi
 fi
