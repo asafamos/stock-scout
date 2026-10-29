@@ -41,3 +41,16 @@ their scan, so the first post-fix outcomes appear around 2026-11-05. The evaluat
 
 ## What happens after
 Nothing automatic. DEMONSTRATED EDGE → keep, and a separate decision on sizing. NO DEMONSTRATED EDGE or INCONCLUSIVE after the final look → the owner decides between keeping the legacy channel as a small experiment, simplifying to CoreTrend only, or a passive allocation. The evaluator never changes a live setting.
+
+## Addendum A1 (2026-10-29, before any outcome exists) — pre-committed decision rule for the legacy channel
+Recorded at the owner's request ("yes", 2026-10-29) so that what to do with the legacy buy channel cannot be argued after the verdict. It changes no test, threshold, data selection or look schedule above; it only turns "What happens after" into a table. The owner may change this table BEFORE a verdict is produced, never after.
+
+| P1 verdict | Legacy channel (Score/gates → small stock positions) |
+|---|---|
+| DEMONSTRATED EDGE | Keep running; sizing is a separate decision (do not scale on one study) |
+| PARTIAL (exactly one test passes) | Owner decision |
+| INCONCLUSIVE after the FINAL look (on/after 2027-03-31) | Simplify to CoreTrend only: stop new legacy buys, let open positions exit on their trails |
+| NO DEMONSTRATED EDGE (either look) | Stop new legacy buys now, open positions exit on their trails |
+
+Until a verdict: the legacy channel stays running and untouched (owner instruction: the channel is not to be stopped; gates stay frozen, no-flipflop). The live ledger is NOT the evidence for this decision — with 3 slots, a $150 minimum notional and ~$46 free cash it produces too few trades; P1 (candidate-level) and the shadow arms are.
+

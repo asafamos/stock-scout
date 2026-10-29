@@ -20,6 +20,10 @@ add new tuning here (the gates are frozen — see CLAUDE.md "FREEZE" and docs/re
 | **Overnight-scan degradation — root cause** | tonight ≈ **23:53 UTC** (run that straddles UTC midnight) | The integrity guard blocks the bad scan (it did on 10-28/29). Read the `[HISTORY]` / `[HISTORY2]` lines in that run's log: they were silent on 10-28, so downloads "worked" by count; the loss happens later. Hypothesis "yfinance next-day bar" was tested and rejected. |
 | **IB weekly 2FA** | recurs every Monday ≈ 04:00 UTC (also 10-14, 10-17) | API is blind until the push is approved (10-19: 04:00 → 13:48 UTC). IB-side TRAILs keep protecting. Owner decision pending: a fixed-time reminder. |
 
+## B2. Legacy channel — pre-committed rule (P1 addendum A1, 2026-10-29)
+Keep it running untouched until a P1 verdict. DEMONSTRATED EDGE → keep (sizing separate); PARTIAL → owner decides; INCONCLUSIVE after the final look (≥ 2027-03-31) → CoreTrend only (no new legacy buys, open positions exit on trails); NO DEMONSTRATED EDGE → stop new legacy buys, positions exit on trails. Table is in docs/research_prereg_P1_new_score_eval.md "Addendum A1".
+Cash mechanics (checked in code 2026-10-29): CoreTrend `plan()` tops up QQQM daily (09:45 ET) whenever `min(100% NetLiq − held value, cash − $25)` ≥ one QQQM share (≈ $293), i.e. free cash ≳ $318. Legacy buys need a free slot AND `qty × price ≥ $150`. So HNGE's proceeds (≈ $116 → cash ≈ $160) do NOT flow to CoreTrend; they wait for a legacy candidate ≥ $150. Even with HNGE+PACS+PATH all closed, cash ≈ $225 < $318. A deposit of ≳ $275 goes to CoreTrend at the next 09:45 run (the legacy channel has no free slot to compete).
+
 ## C. Owner decisions / actions still open
 - Deposit toward **$2k** (unlocks standalone sells, LMT targets, pyramiding, Day-N Kill).
 - **IB pricing plan**: commissions are still Fixed ($1.00 on QQQM; 1 %-capped dust on the legacy buys). Verify Tiered with a ≥ $100 fill (expect ≈ $0.35); $1.00 → ask IBKR.
