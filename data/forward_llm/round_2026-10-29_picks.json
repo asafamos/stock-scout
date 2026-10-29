@@ -1,0 +1,107 @@
+{
+ "round_date": "2026-10-29",
+ "off_schedule": true,
+ "data_asof": "2026-10-28",
+ "entry_open_date": "2026-10-29",
+ "note": "off-schedule round (prereg A5): the Sunday 2026-10-25 round was missed (no session ran it); data as of Wed 2026-10-28 close, picks committed before the 2026-10-29 open (entry = that open)",
+ "exit": "open 20 trading days after entry",
+ "pool_file": "round_2026-10-29_pool.json",
+ "pool_sha256": "24f6cd6767e8def48433f8307495ca883418eb593be2ae32155bc74db1efd59a",
+ "logged_utc": "2026-10-29T11:30:16+00:00",
+ "arms": {
+  "A_numbers": {
+   "prompt_file": "scripts/forward/f2_prompt.txt",
+   "prompt_sha256": "a6fd47de8f6b2e482e2342b65198ae8bafb4ea334c03cd408935e11986fbfd91",
+   "pack_file": "data/forward_llm/round_2026-10-29_pack.txt",
+   "pack_sha256": "296914f94e2e34555dbcfa1fc785e36c7776549ce164aa205f5d2843cad354e1",
+   "picker": "fresh subagent, no tools except reading the pack",
+   "picks": [
+    {
+     "ticker": "ILMN",
+     "confidence": 3
+    },
+    {
+     "ticker": "SSL",
+     "confidence": 2
+    },
+    {
+     "ticker": "LMT",
+     "confidence": 3
+    },
+    {
+     "ticker": "AMGN",
+     "confidence": 3
+    },
+    {
+     "ticker": "PK",
+     "confidence": 2
+    }
+   ]
+  },
+  "B_news": {
+   "prompt_file": "scripts/forward/f2_prompt_news.txt",
+   "prompt_sha256": "01fa0cda41d90004100fcf7392d259ebf382f394c552a686ef95fef9160aec1a",
+   "pack_file": "data/forward_llm/round_2026-10-29_newspack.txt",
+   "pack_sha256": "039775e0f4de24e36209b18ede4a4150464c71ce5b5068402294563970ae5d85",
+   "picker": "fresh subagent, no tools except reading the pack",
+   "picks": [
+    {
+     "ticker": "CRWV",
+     "confidence": 3
+    },
+    {
+     "ticker": "HAYW",
+     "confidence": 3
+    },
+    {
+     "ticker": "TOWN",
+     "confidence": 3
+    },
+    {
+     "ticker": "BXP",
+     "confidence": 3
+    },
+    {
+     "ticker": "DEO",
+     "confidence": 2
+    }
+   ]
+  },
+  "C_web_agent": {
+   "prompt_file": "scripts/forward/f2_prompt_agent.txt",
+   "prompt_sha256": "c2db7ace4e354789c4698092fa9f8781a2d885059b6c6a047d16a7195a3d9c4e",
+   "pack_file": "data/forward_llm/round_2026-10-29_pack.txt",
+   "pack_sha256": "296914f94e2e34555dbcfa1fc785e36c7776549ce164aa205f5d2843cad354e1",
+   "picker": "fresh subagent WITH web search/fetch (11 tool uses)",
+   "picks": [
+    {
+     "ticker": "ILMN",
+     "confidence": 3
+    },
+    {
+     "ticker": "LMT",
+     "confidence": 3
+    },
+    {
+     "ticker": "SSL",
+     "confidence": 2
+    },
+    {
+     "ticker": "SYNA",
+     "confidence": 2
+    },
+    {
+     "ticker": "SAIL",
+     "confidence": 2
+    }
+   ],
+   "sources": [
+    "https://www.trefis.com/stock/lmt/articles/620851/what-just-happened-to-lockheed-martin-stock/2026-10-27",
+    "https://www.sahmcapital.com/news/content/illumina-ilmn-is-up-57-after-raising-2026-revenue-guidance-and-q3-outlook-2026-08-02",
+    "https://dabafinance.com/en/news/sasol-shares-surge-as-oil-rally-boosts-turnaround",
+    "https://www.digrin.com/stocks/detail/SYNA/earnings",
+    "https://www.earningswhispers.com/stocks/sail"
+   ]
+  }
+ }
+}
