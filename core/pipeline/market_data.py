@@ -274,6 +274,22 @@ def fetch_history_bulk(
         )
     except Exception:
         pass
+    # 2026-10-29 diagnostics #2: the [HISTORY] line above stayed silent on a night scan whose final rows were 60-66% price-empty, i.e. the
+    # downloads "worked" by row count. Record WHAT came back: distribution of last-bar dates, how many last bars have a NaN Close/Volume,
+    # and the row-count spread. WARNING only when something is off, so healthy daytime runs stay quiet.
+    try:
+        from collections import Counter
+        _dates = Counter(str(d.index[-1].date()) for d in data_map.values() if len(d))
+        _nan_close = sum(1 for d in data_map.values() if len(d) and pd.isna(d["Close"].iloc[-1]))
+        _lens = sorted(len(d) for d in data_map.values())
+        _top = _dates.most_common(1)[0][1] if _dates else 0
+        _odd = bool(data_map) and (_nan_close > 0 or _top < 0.9 * len(data_map))
+        (logger.warning if _odd else logger.info)(
+            "[HISTORY2] tickers=%d last_bar_dates=%s last_close_nan=%d rows_min/median=%s/%s",
+            len(data_map), dict(_dates.most_common(4)), _nan_close, _lens[0] if _lens else None, _lens[len(_lens) // 2] if _lens else None,
+        )
+    except Exception:
+        pass
     return data_map
 
 
