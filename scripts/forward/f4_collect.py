@@ -294,16 +294,22 @@ def load_events(ent: str) -> dict:
     return json.load(open(data_dir() / "batches" / f"{ent}_events.json"))
 
 
-def prompt_for(ent: str, k: int) -> str:
+def render_batch(ent: str, k: int) -> str:
     doc = load_events(ent)
-    batches = make_batches(doc["events"], seed=ent)
-    base = (ROOT / PROMPT_FILE).read_text().rstrip("\n")
     items = []
-    for e in batches[k]:
+    for e in make_batches(doc["events"], seed=ent)[k]:
         c = e["consensus"]
         cons = ", ".join(f"{n}={c.get(n)}" for n in ("epsActual", "epsEstimated", "revenueActual", "revenueEstimated"))
         items.append(f"=== RELEASE id={e['id']} | sector={e.get('sector')} | {cons} ===\n{e['text']}")
-    return base + "\n\n" + "\n\n".join(items)
+    return "\n\n".join(items) + "\n"
+
+
+def prompt_for(ent: str, k: int) -> str:
+    """Short prompt that points at a derived batch file (the 100KB of releases would otherwise have to be re-typed by the parent session). The file is a pure function of the committed events file."""
+    path = data_dir() / "batches" / f"{ent}_batch{k}.txt"
+    path.write_text(render_batch(ent, k))
+    base = (ROOT / PROMPT_FILE).read_text().rstrip("\n")
+    return f"{base}\n\nReleases file: {path}"
 
 
 def finalize(ent: str, replies: List[dict], now_utc: Optional[datetime] = None) -> Path:
@@ -328,7 +334,7 @@ def finalize(ent: str, replies: List[dict], now_utc: Optional[datetime] = None) 
 
 
 def commit_and_push(ent: str) -> None:
-    files = [str(p.relative_to(ROOT)) for p in (data_dir() / "batches").glob(f"{ent}_*")] + [str((data_dir() / "state.json").relative_to(ROOT))]
+    files = [str(p.relative_to(ROOT)) for p in (data_dir() / "batches").glob(f"{ent}_*.json")] + [str((data_dir() / "state.json").relative_to(ROOT))]
     run = lambda *a: subprocess.run(["git", "-C", str(ROOT), *a], check=True)
     run("add", *files)
     run("commit", "-q", "-m", f"F4 batch {ent}: events + scores\n\nCo-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>")

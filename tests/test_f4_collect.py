@@ -84,13 +84,16 @@ def test_finalize_refuses_after_open_and_double_write(tmp_path, monkeypatch):
         f4.finalize("2026-10-30", reply, now_utc=datetime(2026, 10, 30, 12, 31, tzinfo=timezone.utc))
 
 
-def test_prompt_contains_all_releases_inline(tmp_path, monkeypatch):
+def test_prompt_points_to_batch_file_with_all_releases(tmp_path, monkeypatch):
     monkeypatch.setenv("F4_DATA_DIR", str(tmp_path))
     (tmp_path / "batches").mkdir()
     ev = [{"id": f"x{i}", "ticker": "T", "text": f"body{i}", "sector": "Tech", "consensus": {"epsActual": 1}} for i in range(3)]
     (tmp_path / "batches" / "2026-10-30_events.json").write_text(json.dumps({"events": ev}))
     p = f4.prompt_for("2026-10-30", 0)
-    assert all(f"id=x{i}" in p and f"body{i}" in p for i in range(3)) and "NO prices" in p
+    f = tmp_path / "batches" / "2026-10-30_batch0.txt"
+    body = f.read_text()
+    assert str(f) in p and "NO prices" in p and "body0" not in p            # prompt is short and points at the file
+    assert all(f"id=x{i}" in body and f"body{i}" in body for i in range(3))   # the file carries every release
 
 
 ATOM = """<feed><entry><title>8-K - OSHKOSH CORP (0000775158) (Filer)</title>
