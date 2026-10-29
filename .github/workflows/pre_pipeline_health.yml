@@ -102,10 +102,10 @@ jobs:
           [ "$ALL_ACTIVE" != "true" ] && PROBLEMS+=("services not all_active")
           [ "$PAUSED" = "true" ] && PROBLEMS+=("auto-trade PAUSED")
           [ "$PIPELINE_STATE" != "idle" ] && PROBLEMS+=("pipeline.state=$PIPELINE_STATE (expected idle)")
-          # Cash check — need at least $50 free to open a position with buffer
-          if [ "$(echo "$CASH < 50" | bc -l 2>/dev/null || echo 0)" = "1" ]; then
-              PROBLEMS+=("cash \$$CASH below \$50 buffer")
-          fi
+          # 2026-10-29: the old "cash < $50" check is gone. Since CoreTrend holds ~75% of the account, free cash sits at ~$46 permanently and the
+          # legacy channel is capped at 3 positions with a $150 minimum notional (CONFIG.effective_min_position_usd), so a low-cash warning
+          # fired before EVERY pipeline (3x/day) without ever meaning anything and buried the alerts that do. Cash is still printed in the
+          # message whenever a real problem is reported; the VPS preflight (scripts/preflight_pipeline.py) is the authority on "can we buy".
 
           if [ ${#PROBLEMS[@]} -gt 0 ]; then
               # Loud alert — operator has 30 min to fix
