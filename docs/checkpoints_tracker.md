@@ -26,7 +26,7 @@ Cash mechanics (checked in code 2026-10-29): CoreTrend `plan()` tops up QQQM dai
 
 ## C. Owner decisions / actions still open
 - Deposit toward **$2k** (unlocks standalone sells, LMT targets, pyramiding, Day-N Kill).
-- **IB pricing plan**: commissions are still Fixed ($1.00 on QQQM; 1 %-capped dust on the legacy buys). Verify Tiered with a ≥ $100 fill (expect ≈ $0.35); $1.00 → ask IBKR.
+- **IB pricing plan — CONFIRMED FIXED (ledger check 2026-10-29)**: all 56 fills match the Fixed model ($1.00 minimum per order, 1 % cap, ≈ $0.005–0.01 regulatory fee on sells); total $50.60. A Tiered-base model ($0.35 min, $0.0035/share) would have cost ≈ $18.9 (saving ≈ $31.7 in 5 months, before pass-through fees). Owner action: switch the pricing structure in the IB Account Management (Tiered); then verify with a ≥ $100 fill (expect ≈ $0.35 + small fees). Lite ($0 commission) is probably not usable with API trading — not verified.
 - Review IBKR account activity and rotate the password (security exposure of 2026-09-29).
 - `Communication` vs `Communication Services` blocking policy (code deliberately does not unify them).
 - V2 sleeve (paused 2026-09-30): stays paused unless the owner decides otherwise.
