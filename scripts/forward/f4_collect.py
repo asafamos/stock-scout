@@ -29,7 +29,7 @@ ET = ZoneInfo("America/New_York")
 PROMPT_FILE = "scripts/forward/f4_prompt.txt"
 TEXT_CHARS = 12000
 BATCH_SIZE = 10
-FIRST_CUTOFF_UTC = "2026-10-29T19:05:35+00:00"   # commit time of the approved prereg: nothing earlier may count
+FIRST_CUTOFF_UTC = "2026-10-30T12:20:00+00:00"   # Fri 2026-10-30 08:20 ET: the first batch (Oct 30) was missed, so nothing before this counts (prereg addendum A3)
 UNIVERSE = {"min_price": 5.0, "min_adv_usd": 1_000_000.0, "min_mcap": 300e6, "max_mcap": 10e9}
 # NYSE full-day closures (entry dates must skip them); extend yearly.
 HOLIDAYS = {date(2026, 11, 26), date(2026, 12, 25), date(2027, 1, 1), date(2027, 1, 18), date(2027, 2, 15), date(2027, 3, 26), date(2027, 5, 31)}
@@ -237,10 +237,13 @@ def collect(cutoff_et: datetime) -> Path:
     ent = entry_date(cutoff_et)
     d0, d1 = start_utc.astimezone(ET).date(), cutoff_et.date()
     filings = fetch_feed(start_utc)
+    reached = bool(filings) and min(f["accepted"] for f in filings) <= start_utc
+    if not reached:
+        print("WARNING: the SEC feed did not reach the window start — older filings may be missing", file=sys.stderr)
     tick = cik_tickers()
     seen = seen_accessions()
     cal = {r["symbol"]: r for r in _json(f"https://financialmodelingprep.com/stable/earnings-calendar?from={d0 - timedelta(days=3)}&to={d1 + timedelta(days=1)}&apikey={fmp}", (fh, fmp))}
-    stats = {"filings": 0, "in_window": 0, "item_202": 0, "no_ticker": 0, "no_exhibit": 0, "out_of_universe": 0, "dup": 0, "kept": 0}
+    stats = {"feed_reached_start": reached, "filings": 0, "in_window": 0, "item_202": 0, "no_ticker": 0, "no_exhibit": 0, "out_of_universe": 0, "dup": 0, "kept": 0}
     events = []
     for f in filings:
         stats["filings"] += 1
