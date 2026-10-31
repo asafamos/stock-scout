@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "last_updated": "2026-10-31T11:36:05.834822+00:00",
+  "broadcast_seq": 167815,
+  "pipeline": {
+    "state": "idle",
+    "last_fire": "19:15:03",
+    "last_complete": null,
+    "regime": null,
+    "candidates_passed": null,
+    "skips": [],
+    "today_buys": 0,
+    "today_closes": 0
+  },
+  "positions": [
+    {
+      "ticker": "PATH",
+      "qty": 1,
+      "entry": 13.03,
+      "mkt": 13.75,
+      "pnl_pct": 5.57,
+      "pnl_abs": 0.72,
+      "peak_pct": 9.87,
+      "trail_pct": 17.7,
+      "target": 20.84,
+      "opened_at": "2026-10-05",
+      "earnings_date": "2026-12-02",
+      "days_to_earnings": 32
+    }
+  ],
+  "trade_log_today": [],
+  "ledger_summary": {
+    "today_realized": 0.0,
+    "lifetime_realized": null,
+    "trades_today": 0,
+    "reconciliation_delta": null,
+    "ledger_total": -135.46,
+    "pre_ledger_baseline": 0.0
+  },
+  "system_health": {
+    "stockscout-monitor": true,
+    "stockscout-pipeline.timer": true,
+    "stockscout-statusbot": true,
+    "stockscout-healthcheck.timer": true,
+    "stockscout-daily-summary.timer": true,
+    "stockscout-command-poller": true,
+    "ibgateway": true,
+    "all_active": true,
+    "scan_age_hours": 16.0,
+    "outcomes_age_days": 32,
+    "pipeline_next_fire": "2026-11-02T14:30:00+00:00"
+  },
+  "account": {
+    "net_liquidation": 791.0,
+    "cash": 208.0,
+    "tier": "sub_2k",
+    "snapshot_age_minutes": 0.8
+  },
+  "throttle": {
+    "active": false,
+    "level": "watch",
+    "mode": "alert",
+    "win_rate": null,
+    "size_multiplier": 1.0,
+    "trades_in_window": 27,
+    "mean_pct": -0.24,
+    "upper95_pct": 2.16
+  }
+}
