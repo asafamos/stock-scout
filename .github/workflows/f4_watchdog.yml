@@ -24,7 +24,7 @@ jobs:
           set -euo pipefail
           TODAY=$(TZ=America/New_York date +%Y-%m-%d)
           # a batch run on a holiday/weekend is filed under the NEXT trading day, so any scores file dated on/after today counts
-          FOUND=$(ls data/forward_text/batches/*_scores.json 2>/dev/null | sed -E 's/.*batches\/([0-9-]+)_scores.json/\1/' | awk -v t="$TODAY" '$1 >= t' | head -1)
+          FOUND=$( (ls data/forward_text/batches/*_scores.json 2>/dev/null || true) | sed -E 's/.*batches\/([0-9-]+)_scores.json/\1/' | awk -v t="$TODAY" '$1 >= t' | head -1)
           if [ -n "$FOUND" ]; then
             echo "F4 batch logged: $FOUND (>= $TODAY)"
             exit 0
