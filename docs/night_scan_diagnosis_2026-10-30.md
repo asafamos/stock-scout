@@ -20,3 +20,6 @@ US clocks change on 2026-11-01: 20:00 ET becomes 01:00 UTC. If the NaN onset mov
 A. Make the end-of-day scan finish before 00:00 UTC (move/trim the 20:00 UTC cron, or drop it: the legacy channel is idle and CoreTrend does not use it) — removes the exposure, zero code risk.
 B. In `fetch_history_bulk`, treat a NaN last Close as "not ready": re-request those tickers after a pause or fall back to another provider; if still NaN, drop the tail row and mark the scan stale. Fixes the cause for any hour but is a code change to the data path.
 C. Leave as is: the integrity guard already prevents a bad scan from overwriting the last good one (it did on 10-28 and 10-29), at the cost of a missing night scan.
+
+## Decision (2026-11-01, owner): option A applied
+The 20:00 UTC cron was removed from `.github/workflows/auto_scan.yml` (the run that landed 22:55-23:53 UTC and crossed midnight). Remaining schedule: 13:30 and 17:30 UTC crons plus the VPS pipeline dispatches. The 00:00-UTC-vs-20:00-ET question can no longer be answered passively by a night scan; if it matters, re-test with a manual `workflow_dispatch` after 01:00 UTC.

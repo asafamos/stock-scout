@@ -19,9 +19,9 @@ on:
     # Completes ~18:25 UTC; feeds the 18:30 UTC trade (14:30 ET).
     - cron: '30 17 * * 1-5'  # 17:30 UTC = 13:30 ET (NEW — replaced 15:00 UTC redundant scan)
 
-    # End-of-day scan — uses today's close for TOMORROW's planning.
-    # No trade fires off this; it's purely for next-day candidate prep.
-    - cron: '0 20 * * 1-5'   # 20:00 UTC = 16:00 ET
+    # End-of-day scan (20:00 UTC cron) REMOVED 2026-11-01: GitHub delays the scheduled runs by 3-5 h, so this one started
+    # 22:55-23:53 UTC and ran across 00:00 UTC, when the price source returns an empty last Close for ~95 % of tickers
+    # (docs/night_scan_diagnosis_2026-10-30.md). No trade fired off it; the 13:30/15:00/19:15 pipeline scans cover each day.
 
     # REMOVED:
     # - 15:00 UTC (10:00 ET) — redundant with 13:30 UTC scan (same data)
