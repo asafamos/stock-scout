@@ -6,8 +6,9 @@ permissions:
   contents: read
 
 on:
-  schedule:
-    - cron: '5 14 * * 1-5'
+  # PAUSED 2026-11-06 together with the daily batch task (owner agreed): re-enable ~2 weeks before the Q4 earnings season (mid-Jan 2027).
+  # schedule:
+  #   - cron: '5 14 * * 1-5'
   workflow_dispatch: {}
 
 jobs:
