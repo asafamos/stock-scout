@@ -836,10 +836,74 @@ def _gw_enter_code(code: str):
         send_message(f"⚠️ Gateway status after code: {status}")
 
 
+# IB Gateway 10.52+ opens a "Second Factor Authentication / Select second
+# factor device" dialog and sends NO push until "IB Key" is confirmed with OK
+# (IBC's IB_PREFER_IBKEY does not pick it). The log-based detection above reads
+# /tmp/ibg-jauto.log, which does not exist in the heshiming/ibga image, so it can
+# never fire — detect the dialog by its X11 window title instead (2026-11-08).
+DEVICE_DIALOG_TITLE = "Second Factor Authentication"
+DEVICE_DIALOG_COOLDOWN = 60  # seconds between auto-confirm attempts
+_DEVICE_DIALOG_STATE: dict = {"last_ts": 0.0}
+
+
+def _gw_find_device_dialog() -> str:
+    """Window id of the device-selection dialog, or '' when it is not shown."""
+    out = _docker_exec(
+        f"DISPLAY=:0 xdotool search --name '{DEVICE_DIALOG_TITLE}' 2>/dev/null | head -1"
+    ).strip()
+    first = out.splitlines()[0].strip() if out else ""
+    return first if first.isdigit() else ""
+
+
+def _gw_confirm_device_dialog(wid: str) -> None:
+    """Confirm the preselected 'IB Key' entry: Return first, geometry click as fallback."""
+    _docker_exec(
+        f"DISPLAY=:0 xdotool windowactivate --sync {wid} 2>/dev/null; "
+        f"DISPLAY=:0 xdotool key Return"
+    )
+    time.sleep(3)
+    if _gw_find_device_dialog() != wid:
+        return
+    geom = _docker_exec(f"DISPLAY=:0 xdotool getwindowgeometry --shell {wid}")
+    vals = dict(
+        (k, int(v)) for k, v in
+        (line.split("=", 1) for line in geom.splitlines() if "=" in line)
+        if v.strip().lstrip("-").isdigit()
+    )
+    if all(k in vals for k in ("X", "Y", "WIDTH", "HEIGHT")):
+        # OK button sits ~57% across and ~80% down the dialog (measured on 10.52.1c).
+        x = vals["X"] + int(vals["WIDTH"] * 0.567)
+        y = vals["Y"] + int(vals["HEIGHT"] * 0.80)
+        _docker_exec(f"DISPLAY=:0 xdotool mousemove {x} {y} click 1")
+
+
+def _gw_handle_device_dialog() -> bool:
+    """If the device dialog is up, confirm IB Key and tell the owner to approve.
+
+    Returns True when the dialog was present (acted on or cooling down)."""
+    wid = _gw_find_device_dialog()
+    if not wid:
+        return False
+    now = time.time()
+    if now - _DEVICE_DIALOG_STATE["last_ts"] < DEVICE_DIALOG_COOLDOWN:
+        return True
+    _DEVICE_DIALOG_STATE["last_ts"] = now
+    logger.info("Watchdog: device-selection dialog detected — confirming IB Key")
+    _gw_confirm_device_dialog(wid)
+    send_message(
+        "🔐 <b>IB Gateway login</b> — selected IB Key.\n"
+        "📱 Open IBKR Mobile and approve the push now (it expires in a few minutes)."
+    )
+    return True
+
+
 def _watchdog_loop():
     logger.info("IB Gateway 2FA watchdog started")
     while True:
         try:
+            if _gw_handle_device_dialog():
+                time.sleep(WATCHDOG_CHECK_INTERVAL)
+                continue
             # Clear stale awaiting-flag if user never replied
             if (WATCHDOG_STATE["awaiting_2fa_code"]
                     and time.time() > WATCHDOG_STATE["deadline_ts"]):
