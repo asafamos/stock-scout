@@ -13,7 +13,7 @@ AI-powered stock recommendation system that scans 3,000+ US stocks using technic
 ## Auto-Trading (IBKR) - Setup Complete as of April 12, 2026
 - **Account**: U25201431 (Interactive Brokers)
 - **Balance**: ~$977.50 (initial deposit)
-- **IB Gateway 10.37**: Installed on Mac, configured with IB API, port 7496 (live)
+- **IB Gateway**: 10.37 on Mac (VPS Docker container upgraded to 10.52.1c on 2026-11-08; 2FA push needs a manual OK click on "IB Key" in the device dialog, see docs/checkpoints_tracker.md), configured with IB API, port 7496 (live)
 - **ib_insync**: Installed locally (not in requirements.txt to avoid breaking Streamlit Cloud)
 - **Connection tested**: Successfully connects from Mac to IB Gateway
 
