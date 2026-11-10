@@ -40,7 +40,32 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Late-run gate (2026-11-10). GitHub delays scheduled runs by 3-7 h. A scheduled scan that
+  # would still be downloading prices after ~20:00 ET gets an empty last Close from the price
+  # source (docs/night_scan_diagnosis_2026-10-30.md; 2026-11-10 run 42731035519 started 19:47 ET
+  # and failed the integrity check). Such a run feeds no trade (the VPS pipeline dispatches its
+  # own 13:30/15:00/19:15 UTC scans), so skip it instead of failing. A skipped job sends no
+  # failure e-mail. Manual / pipeline dispatches are never skipped.
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.g.outputs.skip }}
+    steps:
+      - id: g
+        run: |
+          skip=false
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            now=$(TZ=America/New_York date +%H:%M)
+            mins=$(( 10#${now%:*} * 60 + 10#${now#*:} ))
+            # >= 18:55 ET (a ~55-65 min scan would cross 20:00 ET) and before 04:00 ET
+            if [ "$mins" -ge 1135 ] || [ "$mins" -lt 240 ]; then skip=true; fi
+            echo "ET now: $now -> skip=$skip"
+          fi
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+
   scan:
+    needs: gate
+    if: needs.gate.outputs.skip != 'true'
     runs-on: ubuntu-latest
     # Raised from 90 — scan routinely takes 50–60 min; the 90-min cap
     # meant a slow scan got killed while the VPS pipeline still waited
