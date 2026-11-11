@@ -240,7 +240,7 @@ Every 15min this alert repeats until fixed." \
             # approved a pending push on phone.
             # 2026-09-29: BEFORE restart, check if container already waiting
             # for 2FA. Restarting cancels pending push → user confusion cascade.
-            WAITING_2FA_OFF=$(docker logs ibgateway --tail 50 2>&1 | grep -c "waiting for two-factor authentication" || echo 0)
+            WAITING_2FA_OFF=$(docker logs ibgateway --tail 50 2>&1 | grep -c "waiting for two-factor authentication" || true)
             if [ "${WAITING_2FA_OFF:-0}" -gt 0 ]; then
                 echo "[OFF-HOURS AUTO-HEAL SKIPPED] Already waiting for 2FA — NOT restarting"
                 send_alert_dedup "offhours_waiting_2fa" \
@@ -359,7 +359,7 @@ else
         # get approved, confusion cascade). Instead: alert ONCE and wait for
         # user action. This ends the "restart storm" pattern where healthcheck
         # kept restarting while user was trying to approve the last push.
-        WAITING_2FA=$(docker logs ibgateway --tail 50 2>&1 | grep -c "waiting for two-factor authentication" || echo 0)
+        WAITING_2FA=$(docker logs ibgateway --tail 50 2>&1 | grep -c "waiting for two-factor authentication" || true)
         if [ "${WAITING_2FA:-0}" -gt 0 ]; then
             echo "[AUTO-HEAL SKIPPED] Container is waiting for 2FA (${WAITING_2FA} recent messages) — NOT restarting to avoid canceling pending push."
             send_alert_dedup "waiting_2fa" "$(echo -e '\xe2\x8f\xb3') IB Gateway is waiting for your <b>2FA approval</b> — do NOT restart, just approve the push on IBKR Mobile.
@@ -384,7 +384,7 @@ If no push arrived after 5 min: <code>ssh root@87.99.142.12 'docker restart ibga
             else
                 # After restart, container might now be in 2FA-waiting state.
                 # Check again before alerting so message is accurate.
-                WAITING_2FA_POST=$(docker logs ibgateway --tail 20 2>&1 | grep -c "waiting for two-factor authentication" || echo 0)
+                WAITING_2FA_POST=$(docker logs ibgateway --tail 20 2>&1 | grep -c "waiting for two-factor authentication" || true)
                 if [ "${WAITING_2FA_POST:-0}" -gt 0 ]; then
                     send_alert_dedup "waiting_2fa" "$(echo -e '\xe2\x8f\xb3') IB Gateway restarted and is <b>waiting for 2FA approval</b> — check IBKR Mobile for one push and approve. Auto-recovery will follow." 900
                 else
