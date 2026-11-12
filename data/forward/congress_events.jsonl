@@ -78,3 +78,6 @@
 {"symbol": "GIS", "disclosureDate": "2026-11-09", "transactionDate": "2026-10-07", "chamber": "house", "name": "Ro Khanna", "amount": "$15,001 - $50,000", "first_seen_utc": "2026-11-11T02:05:17+00:00"}
 {"symbol": "CLX", "disclosureDate": "2026-11-09", "transactionDate": "2026-10-07", "chamber": "house", "name": "Ro Khanna", "amount": "$15,001 - $50,000", "first_seen_utc": "2026-11-11T02:05:17+00:00"}
 {"symbol": "PNR", "disclosureDate": "2026-11-09", "transactionDate": "2026-10-07", "chamber": "house", "name": "Ro Khanna", "amount": "$15,001 - $50,000", "first_seen_utc": "2026-11-11T02:05:17+00:00"}
+{"symbol": "MBGL", "disclosureDate": "2026-11-10", "transactionDate": "2026-10-15", "chamber": "house", "name": "Gilbert Cisneros", "amount": "$50,001 - $100,000", "first_seen_utc": "2026-11-12T03:14:37+00:00"}
+{"symbol": "STRC", "disclosureDate": "2026-11-10", "transactionDate": "2026-06-05", "chamber": "house", "name": "Gilbert Cisneros", "amount": "$15,001 - $50,000", "first_seen_utc": "2026-11-12T03:14:37+00:00"}
+{"symbol": "ARGX", "disclosureDate": "2026-11-10", "transactionDate": "2026-10-14", "chamber": "house", "name": "Gilbert Cisneros", "amount": "$15,001 - $50,000", "first_seen_utc": "2026-11-12T03:14:37+00:00"}
