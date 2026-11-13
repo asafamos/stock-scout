@@ -193,7 +193,7 @@ Local `.env` has all 10 provider keys (FMP, POLYGON, FINNHUB, TIINGO, ALPHA_VANT
 ### VPS Pipeline schedule (3x weekday, documented rationale in stockscout-pipeline.timer)
 - **13:30 UTC / 09:30 ET / 16:30 IL** — Pipeline #1 (MARKET OPEN, overnight news reactions)
 - **15:00 UTC / 11:00 ET / 18:00 IL** — Pipeline #2 (OPENING RANGE BREAKOUT, highest-edge swing window)
-- **19:15 UTC / 15:15 ET / 22:15 IL** — Pipeline #3 (POWER HOUR, institutional flow + overnight gap potential)
+- **13:30 ET (18:30 UTC winter / 17:30 summer; 20:30 IL)** — Pipeline #3 (AFTERNOON; **moved 2026-11-13 from 15:15 ET**: a ~50-56 min scan finished after the 16:00 close, so that slot could never buy. The timers are in America/New_York time, so the UTC clock times above are the summer ones; winter = +1 h).
 - Each pipeline: (1) preflight capacity check → (2) trigger GH Actions scan via repository_dispatch → (3) poll for new parquet (30s cadence, 150min max) → (4) run auto-trade → (5) record outcomes.
 
 ### Pipeline efficiency + smart-retry (NEW 2026-07-23)

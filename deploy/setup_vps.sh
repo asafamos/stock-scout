@@ -326,10 +326,11 @@ Description=StockScout pipeline timer (event-driven scan→trade)
 # old fixed-UTC times drift an hour vs the market from 2026-11-01 — the 13:30 UTC
 # run would land at 08:30 ET, pre-market, and its buys would be refused).
 # #1 MARKET OPEN 09:30 ET (16:30 IL), #2 OPENING-RANGE BREAKOUT 11:00 ET,
-# #3 POWER HOUR 15:15 ET.
+# #3 AFTERNOON 13:30 ET (moved 2026-11-13 from 15:15 ET: a ~50-56 min scan then finished after the 16:00 close and
+# could never buy — "Regular session closed — NOT placing buy orders", e.g. 2026-11-10).
 OnCalendar=Mon..Fri 09:30:00 America/New_York
 OnCalendar=Mon..Fri 11:00:00 America/New_York
-OnCalendar=Mon..Fri 15:15:00 America/New_York
+OnCalendar=Mon..Fri 13:30:00 America/New_York
 Persistent=true
 
 [Install]

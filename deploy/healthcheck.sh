@@ -170,7 +170,10 @@ if [ "$MARKET_HOURS" -eq 0 ]; then
     # On Saturday + Sunday morning we run it too but with longer dedup.
     if docker ps --format '{{.Names}}' | grep -q ibgateway; then
         OFFHOURS_API=$(run_handshake_check)
-        if [ "$OFFHOURS_API" != "OK" ]; then
+        # QUIET HOURS (2026-11-13, owner-approved): 00:00-04:59 UTC (02:00-06:59 Israel) — do NOT auto-restart the
+        # gateway then. A restart sends an IB Key push that nobody sees (it expires, and 3 restarts trip the
+        # circuit breaker). The first heal runs at 05:00 UTC (07:00 Israel), when the owner is up.
+        if [ "$OFFHOURS_API" != "OK" ] && [ "$((10#${HOUR}))" -ge 5 ]; then
             # Dedup window: 1h on weekday-pre-market (we WANT to keep
             # nudging before open), 4h on weekend (less urgent).
             if [ "$DOW" -le 5 ]; then
@@ -293,6 +296,8 @@ http://localhost:5800/vnc.html (first: ssh -L 5800:localhost:5800 root@87.99.142
                 OFF_HOURS_ISSUES=$((OFF_HOURS_ISSUES + 1))
             fi
             fi  # end of `if SKIP_AUTO_RESTART=1 ... else ... fi` (circuit breaker)
+        elif [ "$OFFHOURS_API" != "OK" ]; then
+            echo "[OFF-HOURS QUIET HOURS] handshake ${OFFHOURS_API} at ${HOUR}:xx UTC — auto-heal deferred to 05:00 UTC"
         else
             # Handshake OK off-hours → all clear; clear any stale alerts
             clear_alert_dedup "offhours_session_dead"
