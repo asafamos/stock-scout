@@ -1052,7 +1052,12 @@ def fetch_fundamentals_alpha(ticker: str, provider_status: Dict | None = None) -
 
     if not (ALPHA_KEY_RUNTIME or ALPHA_VANTAGE_API_KEY):
         return None
-    
+    # 2026-11-15: Alpha Vantage OVERVIEW is now a PREMIUM endpoint for our key (always returns an "Information"
+    # notice, never data), yet the 12 s/call pacer below made every ticker's parallel fetch wait ~12 s. Once the
+    # premium notice is seen, skip Alpha fundamentals for the rest of the process.
+    if "alpha:fundamentals" in DISABLED_PROVIDERS:
+        return None
+
     cache_key = f"alpha_fund_{ticker}"
     cached = _get_from_cache(cache_key)
     if cached:
@@ -1086,6 +1091,9 @@ def fetch_fundamentals_alpha(ticker: str, provider_status: Dict | None = None) -
             latency_sec=time.time() - start,
             extra={"ticker": ticker, "error": str(e)[:200]}
         )
+        return None
+    if data and "Symbol" not in data and "premium" in str(data).lower():
+        disable_provider_category("alpha", "fundamentals")
         return None
     if not data or "Symbol" not in data:
         return None

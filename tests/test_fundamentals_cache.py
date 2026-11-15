@@ -76,3 +76,24 @@ def test_aggregate_uses_cache_then_stale_on_outage(monkeypatch):
     r3 = ds.aggregate_fundamentals("ZZZ")
     assert calls["n"] == 2
     assert not r3.get("Fundamental_Missing"), "stale cache should have prevented the missing-data fallback"
+
+
+def test_alpha_premium_notice_disables_alpha_fundamentals(monkeypatch):
+    """Alpha OVERVIEW is premium for our key: after one notice, no more calls / no 12 s pacer waits."""
+    from core import data_sources_v2 as ds
+
+    monkeypatch.setattr(ds, "ALPHA_VANTAGE_API_KEY", "k")
+    monkeypatch.setattr(ds, "_get_from_cache", lambda k: None)
+    monkeypatch.setattr(ds, "_rate_limit", lambda s: None)
+    calls = {"n": 0}
+
+    def fake_http(*a, **k):
+        calls["n"] += 1
+        return {"Information": "Thank you ... This is a premium endpoint. You may subscribe ..."}
+
+    monkeypatch.setattr(ds, "_http_get_with_retry", fake_http)
+    monkeypatch.setattr(ds, "DISABLED_PROVIDERS", set())
+    assert ds.fetch_fundamentals_alpha("AAA") is None
+    assert "alpha:fundamentals" in ds.DISABLED_PROVIDERS
+    assert ds.fetch_fundamentals_alpha("BBB") is None
+    assert calls["n"] == 1
