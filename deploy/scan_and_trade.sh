@@ -28,7 +28,8 @@ exec 2>&1
 ROOT=/home/stockscout/stock-scout-2
 LABEL="${1:-pipeline}"
 PY=$ROOT/.venv/bin/python
-MAX_WAIT_SEC=$((150 * 60))  # 150 min hard cap — generous to absorb GH Actions
+MAX_WAIT_SEC=$((115 * 60))  # 115 min cap (was 150: systemd TimeoutStartSec=7200 killed the unit at 120 min anyway, so the
+                            # script never reached its own clean TIMEOUT exit/alert). Older note: 150 min hard cap — generous to absorb GH Actions
                             # cron delays (often 30–60 min late) PLUS the scan
                             # duration (~55 min). 90 min hit the cap on
                             # 2026-04-28 (cron 47 min late + 49 min scan).
@@ -178,6 +179,7 @@ fi
 echo "Polling for new scan (every ${POLL_SEC}s, max $((MAX_WAIT_SEC / 60))min)..."
 START_TIME=$(date +%s)
 NEW_HASH="$START_HASH"
+POLL_N=0
 while [ "$NEW_HASH" = "$START_HASH" ]; do
     if [ $(($(date +%s) - START_TIME)) -gt "$MAX_WAIT_SEC" ]; then
         echo "TIMEOUT after $((MAX_WAIT_SEC / 60))min — no new scan committed. Aborting."
@@ -186,6 +188,28 @@ while [ "$NEW_HASH" = "$START_HASH" ]; do
     sleep "$POLL_SEC"
     git fetch origin main --quiet 2>/dev/null || true
     NEW_HASH=$(git log -1 --format=%H origin/main -- data/scans/latest_scan.parquet 2>/dev/null || echo "none")
+    POLL_N=$((POLL_N + 1))
+    # Fast-fail (2026-11-15): when the scan run WE dispatched has already FAILED (e.g. the integrity guard blocked it
+    # during the FMP outage), no new parquet will ever arrive — stop now instead of waiting ~2 h and being killed.
+    # Checked every 10th poll (~5 min); any API/parsing problem is ignored (keep polling).
+    if [ "${DISPATCH_HTTP:-}" = "204" ] && [ -n "${GITHUB_TOKEN:-}" ] && [ $((POLL_N % 10)) -eq 0 ] && [ "$NEW_HASH" = "$START_HASH" ]; then
+        RUN_STATE=$(curl -fsS -H "Authorization: token ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/asafamos/stock-scout/actions/workflows/auto_scan.yml/runs?event=workflow_dispatch&per_page=5" 2>/dev/null \
+            | $PY -c 'import sys,json,datetime
+t0=float(sys.argv[1])
+try: runs=json.load(sys.stdin).get("workflow_runs",[])
+except Exception: runs=[]
+for r in runs:
+    ts=datetime.datetime.strptime(r["created_at"],"%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc).timestamp()
+    if ts>=t0-90:
+        print((r.get("conclusion") or "") if r.get("status")=="completed" else "")
+        break' "$START_TIME" 2>/dev/null || true)
+        case "$RUN_STATE" in
+            failure|timed_out)
+                echo "Dispatched scan run FAILED ($RUN_STATE) — no new scan will arrive. Aborting now (exit 3)."
+                exit 3 ;;
+        esac
+    fi
 done
 
 WAIT_DUR=$(( $(date +%s) - START_TIME ))
