@@ -97,3 +97,34 @@ def test_alpha_premium_notice_disables_alpha_fundamentals(monkeypatch):
     assert "alpha:fundamentals" in ds.DISABLED_PROVIDERS
     assert ds.fetch_fundamentals_alpha("BBB") is None
     assert calls["n"] == 1
+
+
+def test_unusable_source_is_auto_disabled_but_finnhub_is_not(monkeypatch):
+    from core import data_sources_v2 as ds
+
+    monkeypatch.setattr(ds, "DISABLED_PROVIDERS", set())
+    monkeypatch.setattr(ds, "_FUND_STREAK", {})
+    monkeypatch.setattr(ds, "_FUND_DISABLE_AFTER", 3)
+    for _ in range(3):
+        ds._note_fund_outcome("tiingo", False)
+        ds._note_fund_outcome("finnhub", False)
+    assert "tiingo:fundamentals" in ds.DISABLED_PROVIDERS
+    assert "finnhub:fundamentals" not in ds.DISABLED_PROVIDERS
+    # a success resets the streak
+    ds._note_fund_outcome("simfin", False); ds._note_fund_outcome("simfin", False)
+    ds._note_fund_outcome("simfin", True); ds._note_fund_outcome("simfin", False)
+    assert "simfin:fundamentals" not in ds.DISABLED_PROVIDERS
+
+
+def test_index_series_uses_yfinance_for_etf_and_vix(monkeypatch):
+    import pandas as pd
+    from core import data_sources_v2 as ds
+
+    df = pd.DataFrame({"date": pd.date_range("2026-08-01", periods=30), "open": 1.0, "high": 1.0, "low": 1.0,
+                       "close": 1.0, "volume": 0})
+    monkeypatch.setattr(ds, "_fetch_index_yfinance", lambda sym, a, b: df)
+    monkeypatch.setattr(ds, "_get_from_cache", lambda k: None)
+    monkeypatch.setattr(ds, "_put_in_cache", lambda k, v: None)
+    for sym in ("XLK", "^VIX"):
+        out = ds.get_index_series(sym, "2026-08-01", "2026-11-13", provider_status={"fmp": False, "polygon": True})
+        assert out is df and ds.get_last_index_source(sym) == "YFINANCE"

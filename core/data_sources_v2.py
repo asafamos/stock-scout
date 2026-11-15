@@ -1424,6 +1424,30 @@ def get_prioritized_fetch_funcs(provider_status: Dict | None = None) -> List[Tup
 
     return funcs
 
+# Adaptive routing (2026-11-15): a source that returns nothing usable N times in a row is switched off for the rest of
+# the process instead of being queried (and waited for) for every remaining ticker. Measured with the provider
+# benchmark: tiingo/simfin/alpha/eodhd fundamentals were 0/12 usable but still cost 0.2-12 s per ticker.
+# finnhub and yfinance are never auto-disabled (proven sources; a glitch must not remove them for a whole run).
+_FUND_STREAK: Dict[str, int] = {}
+_FUND_NEVER_DISABLE = {"finnhub", "yfinance"}
+_FUND_DISABLE_AFTER = int(os.getenv("FUND_DISABLE_AFTER", "10"))
+
+
+def _note_fund_outcome(source: str, usable: bool) -> None:
+    try:
+        with _DISABLED_PROVIDERS_LOCK:
+            if usable:
+                _FUND_STREAK[source] = 0
+                return
+            n = _FUND_STREAK.get(source, 0) + 1
+            _FUND_STREAK[source] = n
+        if n >= _FUND_DISABLE_AFTER and source not in _FUND_NEVER_DISABLE and f"{source}:fundamentals" not in DISABLED_PROVIDERS:
+            logger.warning(f"Fundamentals: {source} unusable {n}x in a row — disabling for this process")
+            disable_provider_category(source, "fundamentals")
+    except Exception:  # routing bookkeeping must never break a fetch
+        pass
+
+
 def aggregate_fundamentals(
     ticker: str,
     prefer_source: str = "fmp",
@@ -1548,9 +1572,11 @@ def aggregate_fundamentals(
                 )
                 if has_signal:
                     logger.debug(f"Fundamentals: {source_name} returned data for {ticker}")
+                    _note_fund_outcome(source_name, True)
                     return (source_name, result)
         except Exception as e:
             logger.warning(f"Fundamentals fetch from {source_name} failed for {ticker}: {e}")
+        _note_fund_outcome(source_name, False)
         return (source_name, None)
 
     # Filter to allowed providers
@@ -2228,6 +2254,36 @@ def get_cache_stats() -> Dict:
     }
 
 
+def _fetch_index_yfinance(symbol: str, start_date: str, end_date: str) -> Optional[pd.DataFrame]:
+    """Daily OHLCV for an index/ETF from yfinance (free, no 5/min limiter). Same schema as the other index sources.
+
+    2026-11-15: Polygon's free 5/min windowed limiter made each sector ETF wait 6-22 s and ^VIX fell through to the
+    SPY-realised-vol proxy when FMP was unavailable; yfinance serves both in < 1 s (real ^VIX).
+    """
+    try:
+        import yfinance as yf
+
+        _rate_limit("yfinance")
+        end_incl = (pd.to_datetime(end_date) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+        raw = yf.download(symbol, start=start_date, end=end_incl, progress=False, auto_adjust=False, threads=False)
+        if raw is None or raw.empty:
+            return None
+        if isinstance(raw.columns, pd.MultiIndex):
+            raw.columns = raw.columns.get_level_values(0)
+        df = raw.reset_index().rename(columns={c: str(c).lower() for c in raw.reset_index().columns})
+        if "date" not in df.columns:
+            df = df.rename(columns={df.columns[0]: "date"})
+        need = ["date", "open", "high", "low", "close", "volume"]
+        if any(c not in df.columns for c in need):
+            return None
+        df = df[need].dropna(subset=["close"]).sort_values("date").reset_index(drop=True)
+        df["date"] = pd.to_datetime(df["date"])
+        return df if len(df) >= 20 else None
+    except Exception as e:  # network / parse — caller falls through to the next source
+        logger.warning(f"yfinance index series failed for {symbol}: {e}")
+        return None
+
+
 def get_index_series(
     symbol: str,
     start_date: str,
@@ -2336,6 +2392,20 @@ def get_index_series(
         except Exception as e:
             logger.warning(f"FMP index series failed for {symbol}: {e}")
     
+    # yfinance first for everything except SPY (Polygon serves SPY fine; for ETFs/^VIX it is rate-limited to 5/min)
+    if df_result is None and symbol.upper() != "SPY" and os.getenv("INDEX_YFINANCE", "1") != "0":
+        _yf_df = _fetch_index_yfinance(symbol, start_date, end_date)
+        if _yf_df is not None:
+            logger.info(f"✓ yfinance: Fetched {len(_yf_df)} days for {symbol}")
+            _LAST_INDEX_SOURCE[symbol] = "YFINANCE"
+            try:
+                if telemetry is not None:
+                    telemetry.mark_index(symbol, "YFINANCE")
+            except (AttributeError, TypeError):
+                pass
+            _put_in_cache(cache_key, _yf_df)
+            return _yf_df
+
     # Polygon primary for SPY/VIX, fallback otherwise
     if df_result is None and provider_status.get("polygon", True) and POLYGON_API_KEY:
         try:
@@ -2473,6 +2543,14 @@ def get_index_series(
         except Exception as e:
             logger.warning(f"Alpha Vantage index series failed for {symbol}: {e}")
     
+    # Last real source before the synthetic proxy (SPY, or anything yfinance did not already try above)
+    if df_result is None and symbol.upper() == "SPY" and os.getenv("INDEX_YFINANCE", "1") != "0":
+        _yf_df = _fetch_index_yfinance(symbol, start_date, end_date)
+        if _yf_df is not None:
+            _LAST_INDEX_SOURCE[symbol] = "YFINANCE"
+            _put_in_cache(cache_key, _yf_df)
+            return _yf_df
+
     # If all sources failed and symbol is VIX, attempt synthetic proxy from SPY
     if df_result is None and symbol.upper() in {"^VIX", "VIX"}:
         try:
