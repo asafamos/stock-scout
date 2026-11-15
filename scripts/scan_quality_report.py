@@ -4,6 +4,11 @@ indicators that were silently drifting: ML-gate strictness (scale moves with eve
   python scripts/scan_quality_report.py [--no-telegram] [--no-write]
 Appends one JSON line per run to data/scan_quality/history.jsonl; sends a Telegram message ONLY when the set of RED flags changes."""
 import argparse, json, os, subprocess, sys, urllib.parse, urllib.request
+try:  # FMP usage meter (core/fmp_meter.py) — counts calls/bytes only, no effect on results
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from core import fmp_meter as _fmp_meter; _fmp_meter.install()
+except Exception:
+    pass
 from datetime import datetime, timezone
 import numpy as np
 import pandas as pd

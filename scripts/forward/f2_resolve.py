@@ -9,6 +9,11 @@ No verdict is printed before 20 resolved rounds (prereg: evaluate ONCE at 26 rou
 import argparse, glob, json, os, sys, urllib.parse, urllib.request
 import numpy as np, pandas as pd
 from dotenv import load_dotenv
+try:  # FMP usage meter (core/fmp_meter.py) — counts calls/bytes only, no effect on results
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    from core import fmp_meter as _fmp_meter; _fmp_meter.install()
+except Exception:
+    pass
 load_dotenv("/Users/asafamos/StockScout/stock-scout-2/.env")
 ap = argparse.ArgumentParser(); ap.add_argument("--dir", default="data/forward_llm"); ap.add_argument("--interim", action="store_true")
 args = ap.parse_args()

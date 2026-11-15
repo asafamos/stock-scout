@@ -6,6 +6,11 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 import numpy as np, pandas as pd
 from dotenv import load_dotenv
+try:  # FMP usage meter (core/fmp_meter.py) — counts calls/bytes only, no effect on results
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    from core import fmp_meter as _fmp_meter; _fmp_meter.install()
+except Exception:
+    pass
 load_dotenv("/Users/asafamos/StockScout/stock-scout-2/.env")
 KEY = os.environ["FMP_API_KEY"]; RD = "/Users/asafamos/StockScout/research_data"
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))

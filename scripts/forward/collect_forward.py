@@ -4,6 +4,11 @@ Appends valid congress purchases and insider purchases to data/forward/*.jsonl w
 FMP key from FMP_API_KEY (never printed).   python scripts/forward/collect_forward.py [--out DIR] [--days 14]
 """
 import argparse, json, os, re, sys, time, urllib.request
+try:  # FMP usage meter (core/fmp_meter.py) — counts calls/bytes only, no effect on results
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    from core import fmp_meter as _fmp_meter; _fmp_meter.install()
+except Exception:
+    pass
 from datetime import datetime, timedelta, timezone
 
 ap = argparse.ArgumentParser()
