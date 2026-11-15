@@ -1548,6 +1548,19 @@ def aggregate_fundamentals(
     # Filter to allowed providers
     allowed_funcs = [(name, func) for name, func in fetch_funcs if _is_allowed(name)]
 
+    # Cache (2026-11-15): fundamentals change ~quarterly; skip the API call for sources fetched within the TTL.
+    # A stale entry is only used below, as a fallback when the live call fails (provider outage / quota).
+    from core import fundamentals_cache as _fcache
+    _all_allowed = list(allowed_funcs)
+    _to_fetch = []
+    for name, func in allowed_funcs:
+        cached = _fcache.get(ticker, name)
+        if cached is not None:
+            sources_data[name] = cached
+        else:
+            _to_fetch.append((name, func))
+    allowed_funcs = _to_fetch
+
     # Parallel fetch: launch top providers simultaneously (max 3 workers)
     from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
     with ThreadPoolExecutor(max_workers=3) as executor:
@@ -1561,12 +1574,21 @@ def aggregate_fundamentals(
                     source_name, result = future.result(timeout=5)
                     if result is not None:
                         sources_data[source_name] = result
+                        _fcache.put(ticker, source_name, result)
                 except Exception as e:
                     src = futures[future]
                     logger.warning(f"Fundamentals future failed for {src}/{ticker}: {e}")
         except FuturesTimeoutError:
             logger.warning(f"Fundamentals parallel fetch timed out for {ticker} ({len(sources_data)} sources collected)")
-    
+
+    # Stale fallback: for sources whose live fetch failed, reuse an older cached value (<= STALE_MAX days).
+    for name, _func in _all_allowed:
+        if name not in sources_data:
+            stale = _fcache.get(ticker, name, _fcache.stale_max_days())
+            if stale is not None:
+                sources_data[name] = stale
+                logger.info(f"Fundamentals: using stale cached {name} data for {ticker}")
+
     if not sources_data:
         logger.warning(f"No fundamental data available for {ticker}")
         # Return a neutral, non-crashing structure with explicit metadata

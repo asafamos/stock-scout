@@ -145,6 +145,18 @@ jobs:
         run: |
           mkdir -p data/scans
           mkdir -p logs
+          mkdir -p data/cache
+
+      # Fundamentals cache (2026-11-15): GitHub runners are ephemeral, so the per-(ticker, source) fundamentals cache
+      # (core/fundamentals_cache.py) is carried between runs with actions/cache. restore-keys picks the newest one.
+      - name: Restore fundamentals cache
+        if: steps.market_check.outputs.market_closed != 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: data/cache/fundamentals_cache.json
+          key: fund-cache-${{ github.run_id }}
+          restore-keys: |
+            fund-cache-
 
       - name: Run full scan
         if: steps.market_check.outputs.market_closed != 'true'
@@ -157,6 +169,13 @@ jobs:
           # pulls this scan file via `git merge origin/main` before trading.
           python scripts/run_full_scan.py
         continue-on-error: true
+
+      - name: Save fundamentals cache
+        if: always() && steps.market_check.outputs.market_closed != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: data/cache/fundamentals_cache.json
+          key: fund-cache-${{ github.run_id }}
 
       - name: Send alert on failure
         if: failure() && env.ALERT_WEBHOOK_URL != ''
