@@ -788,6 +788,16 @@ def run_check():
             pos = tracker.get_position(ticker)
             if not pos:
                 continue
+            # 2026-11-17: sub-$2k accounts cannot place a standalone SELL (IB Error 201) — the old sequence
+            # cancelled TRAIL+LMT, "sold" (a no-op), then tried to restore: PATH sat unprotected and alerted
+            # every cycle (6 times on 2026-11-17). Exit via the EXISTING trail instead; never cancel protection.
+            try:
+                _nl_td = float(client.get_net_liquidation() or 0)
+            except Exception:
+                _nl_td = 0.0
+            if ticker in ibkr_positions and 0 < _nl_td < 2000:
+                _target_date_exit_via_trail(ticker, pos, client, tracker, notify)
+                continue
             if ticker in ibkr_positions:
                 logger.info(
                     "Target date EXITING %s at MKT (in last-30-min close window)",
@@ -865,6 +875,28 @@ def run_check():
         notify.notify_error("Monitor", str(e))
     finally:
         client.disconnect()
+
+
+def _target_date_exit_via_trail(ticker, pos, client, tracker, notify) -> bool:
+    """Target-date exit for sub-$2k accounts: tighten the EXISTING trailing stop to ~market (force_exit_via_trail).
+
+    Never cancels protective orders. Returns True when the position was sold (and recorded), False while the
+    tightened trail is still waiting to fire (it stays protected the whole time)."""
+    logger.info("Target date EXITING %s via TRAIL-modify (sub-$2k tier: no standalone SELL)", ticker)
+    try:
+        result = client.force_exit_via_trail(ticker, aggressive=True)
+    except Exception as e:  # keep the existing protection untouched
+        logger.warning("Target-date exit %s: trail tighten failed: %s (protection unchanged)", ticker, e)
+        return False
+    exit_price = result.filled_price if getattr(result, "status", "") == "Filled" else 0.0
+    if exit_price > 0:
+        tracker.remove_position(ticker, exit_price, "target_date_exit")
+        pnl = (exit_price - pos["entry_price"]) * pos["quantity"]
+        notify.notify_sell(ticker, pos["quantity"], exit_price, "target_date_exit", pnl)
+        return True
+    logger.info("Target-date exit %s: trail tightened to market (%s) — waiting for it to fire", ticker,
+                getattr(result, "status", "?"))
+    return False
 
 
 def _earnings_exit_pass(tracker, client, ibkr_orders, notify):
