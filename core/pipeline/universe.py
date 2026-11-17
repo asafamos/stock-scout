@@ -36,6 +36,39 @@ def preflight_check() -> None:
         )
 
 
+def _universe_from_yfinance(limit: int, min_cap: int) -> list:
+    """Top US common stocks by market cap from yfinance's free screener (2026-11-17).
+
+    Replaces the FMP company-screener when FMP is unavailable (quota): without it the universe collapsed from ~2,000
+    names to the ~500-name local S&P 500 list and every scan shrank 4-5x (31-42 rows instead of 120-200).
+    Returns [] on any problem so the caller falls through to the next source.
+    """
+    try:
+        import yfinance as yf
+        from yfinance import EquityQuery
+
+        q = EquityQuery("and", [
+            EquityQuery("eq", ["region", "us"]),
+            EquityQuery("gt", ["intradaymarketcap", int(min_cap)]),
+            EquityQuery("is-in", ["exchange", "NMS", "NYQ", "NGM", "ASE"]),
+        ])
+        rows: list = []
+        off = 0
+        want = min(limit * 2, 6000)
+        while off < want:
+            r = yf.screen(q, sortField="intradaymarketcap", sortAsc=False, size=250, offset=off)
+            quotes = r.get("quotes", []) if isinstance(r, dict) else []
+            if not quotes:
+                break
+            rows.extend(quotes)
+            off += 250
+        syms = [x["symbol"] for x in rows if x.get("symbol") and x.get("quoteType", "EQUITY") == "EQUITY"]
+        return _normalize_symbols(syms[:limit])
+    except Exception as e:
+        logger.warning(f"yfinance screener universe failed: {e}")
+        return []
+
+
 def fetch_top_us_tickers_by_market_cap(limit: int = 3000) -> List[str]:
     """Fetch US tickers ordered by market cap with robust fallbacks.
 
@@ -102,6 +135,20 @@ def fetch_top_us_tickers_by_market_cap(limit: int = 3000) -> List[str]:
             logger.warning("FMP_API_KEY missing; skipping FMP universe fetch")
     except Exception as e:
         logger.warning(f"FMP universe fetch errored: {e}")
+
+    # --- Fallback 0 (2026-11-17): yfinance screener — full market-cap-sorted universe, free ---
+    if os.getenv("UNIVERSE_YFINANCE", "1") != "0":
+        try:
+            _min_cap = int(os.getenv("MIN_MCAP", "100000000"))
+        except (TypeError, ValueError):
+            _min_cap = 100_000_000
+        _yf_syms = _universe_from_yfinance(limit, _min_cap)
+        if len(_yf_syms) >= min(limit, 1000) * 0.6:   # sanity: a partial answer must not shrink the universe
+            logger.info(f"✓ Universe from yfinance screener: {len(_yf_syms)} tickers")
+            LAST_UNIVERSE_PROVIDER = "YFINANCE_SCREENER"
+            return _yf_syms
+        elif _yf_syms:
+            logger.warning(f"yfinance screener returned only {len(_yf_syms)} tickers — falling back further")
 
     # --- Fallback 1: Polygon (skipped — returns alphabetical list) ---
     logger.info(
