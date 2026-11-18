@@ -19,11 +19,23 @@ ASOF = date.fromisoformat(os.environ.get("F2_ASOF", rd.isoformat()))      # data
 FROM = (ASOF - timedelta(days=420)).isoformat(); TO = ASOF.isoformat()
 
 
+_N429 = [0]
+
+
 def get(q):
     for a in range(4):
         try:
             with urllib.request.urlopen(f"https://financialmodelingprep.com/stable/{q}&apikey={KEY}", timeout=40) as r: return json.loads(r.read())
         except Exception as e:
+            # 2026-11-18: with FMP's quota exhausted every call is HTTP 429. The old loop retried each call 4x for ~2,900
+            # candidates x 2 endpoints (31,175 calls in two days, hours of hanging, empty packs). A 429 is not transient:
+            # do not retry it, and abort the whole build fast once it is clearly systemic.
+            if getattr(e, "code", None) == 429:
+                _N429[0] += 1
+                if _N429[0] >= 25:
+                    print("FMP quota exhausted (HTTP 429 x25) — aborting the F2 build; no pool/pack was written", file=sys.stderr)
+                    os._exit(3)
+                return None
             time.sleep(1.5 * (a + 1))
     return None
 
