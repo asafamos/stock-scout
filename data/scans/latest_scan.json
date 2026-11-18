@@ -1,6 +1,6 @@
 {
-  "timestamp": "2026-11-17T19:35:45.801783Z",
-  "universe_size": 41,
+  "timestamp": "2026-11-18T19:28:43.730096Z",
+  "universe_size": 172,
   "universe_name": "default",
   "config_version": "unknown",
   "lookback_days": 250,
@@ -155,6 +155,10 @@
     "PS_Ratio",
     "PB_Ratio",
     "Sector",
+    "Industry",
+    "Vol_Avg",
+    "Dividend",
+    "Price",
     "Valuation",
     "Quality",
     "Leverage",
@@ -192,11 +196,11 @@
     "SignalStrength"
   ],
   "scan_type": "auto_github_actions",
-  "universe_count": 503,
+  "universe_count": 2000,
   "provider": "Unknown",
-  "results_count": 41,
-  "batches_ok": 3,
+  "results_count": 172,
+  "batches_ok": 10,
   "beta_filter_enabled": true,
   "fundamental_enabled": true,
-  "runtime_seconds": 3842.26
+  "runtime_seconds": 1610.04
 }
