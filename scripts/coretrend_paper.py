@@ -28,7 +28,7 @@ SWITCH_COST = 0.0005
 STATE = ROOT / "data" / "state" / "coretrend_paper.json"
 
 
-def fetch_daily(symbol: str, start: date = date(2004, 1, 1)) -> List[Tuple[date, float]]:
+def _fetch_daily_fmp(symbol: str, start: date) -> List[Tuple[date, float]]:
     key = os.getenv("FMP_API_KEY")
     if not key:
         raise RuntimeError("FMP_API_KEY missing")
@@ -36,7 +36,38 @@ def fetch_daily(symbol: str, start: date = date(2004, 1, 1)) -> List[Tuple[date,
            f"&from={start.isoformat()}&to={date.today().isoformat()}&apikey={key}")
     with urllib.request.urlopen(url, timeout=40) as r:
         rows = json.loads(r.read())
-    out = sorted((date.fromisoformat(x["date"]), float(x["price"])) for x in rows if x.get("price"))
+    return sorted((date.fromisoformat(x["date"]), float(x["price"])) for x in rows if x.get("price"))
+
+
+def _fetch_daily_yfinance(symbol: str, start: date) -> List[Tuple[date, float]]:
+    """Raw (non-adjusted) daily closes — the same basis as FMP's `light` prices, so the signal is unchanged."""
+    import yfinance as yf
+
+    df = yf.download(symbol, start=start.isoformat(), end=(date.today() + timedelta(days=1)).isoformat(),
+                     progress=False, auto_adjust=False, threads=False)
+    if df is None or df.empty:
+        return []
+    if getattr(df.columns, "nlevels", 1) > 1:
+        df.columns = df.columns.get_level_values(0)
+    ser = df["Close"].dropna()
+    return sorted((d.date(), float(v)) for d, v in ser.items())
+
+
+def fetch_daily(symbol: str, start: date = date(2004, 1, 1)) -> List[Tuple[date, float]]:
+    """Daily closes: FMP first (the basis the strategy was validated on), yfinance when FMP fails.
+
+    2026-11-18: FMP's quota ran out on 2026-11-13 and every CoreTrend run crashed on HTTP 429 from 11-16 on
+    (QQQ is the signal series, so the month-end decision would have been blind). FMP stays first so that nothing
+    changes while it works; any failure/empty answer falls through to yfinance."""
+    try:
+        out = _fetch_daily_fmp(symbol, start)
+        if out:
+            return out
+    except Exception as e:  # 429 / network / missing key
+        print(f"coretrend: FMP daily {symbol} failed ({type(e).__name__}); using yfinance", file=sys.stderr)
+    out = _fetch_daily_yfinance(symbol, start)
+    if not out:
+        raise RuntimeError(f"no daily prices for {symbol} from FMP or yfinance")
     return out
 
 
