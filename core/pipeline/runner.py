@@ -1132,20 +1132,33 @@ def _phase_enrich_fundamentals(ctx: _PipelineContext) -> None:
         ]
         winners_set = set(winners) if winners else set()
         fill_count = 0
+        # 2026-11-18: this loop was serial and each call could block ~10 s on a rate limiter (the scan spent 75% of its
+        # wall time here). Collect the rows first, fetch in parallel (4 workers), then apply.
+        _to_fill = []
         for idx, row in ctx.results.iterrows():
             tkr = row.get("Ticker")
             if not tkr or tkr not in winners_set:
                 continue
-            need_fill = any(pd.isna(row.get(c)) for c in ui_cols)
-            if not need_fill:
-                continue
-            safe = get_fundamentals_safe(str(tkr))
-            if not safe:
-                continue
-            fill_count += 1
-            for c in ui_cols:
-                if pd.isna(row.get(c)) and (c in safe):
-                    ctx.results.at[idx, c] = safe.get(c)
+            if any(pd.isna(row.get(c)) for c in ui_cols):
+                _to_fill.append((idx, str(tkr)))
+        if _to_fill:
+            from concurrent.futures import ThreadPoolExecutor
+
+            def _safe_one(item):
+                try:
+                    return item[0], get_fundamentals_safe(item[1])
+                except Exception:
+                    return item[0], None
+
+            with ThreadPoolExecutor(max_workers=4) as _ex:
+                _fetched = list(_ex.map(_safe_one, _to_fill))
+            for idx, safe in _fetched:
+                if not safe:
+                    continue
+                fill_count += 1
+                for c in ui_cols:
+                    if pd.isna(ctx.results.at[idx, c] if c in ctx.results.columns else float("nan")) and (c in safe):
+                        ctx.results.at[idx, c] = safe.get(c)
         if fill_count > 0:
             logger.debug("Filled missing fundamentals for %d winners", fill_count)
 

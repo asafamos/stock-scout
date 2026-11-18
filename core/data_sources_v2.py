@@ -625,6 +625,52 @@ def _get_provider_ranking() -> List[str]:
 # SAFE FUNDAMENTALS (FMP PROFILE + RATIOS TTM)
 # ============================================================================
 
+_FMP_SAFE_BLOCKED_UNTIL = [0.0]
+
+
+def _fundamentals_safe_fallback(tkr: str, cache_key: str) -> Optional[Dict]:
+    """Flat UI fundamentals (same keys as get_fundamentals_safe) from Finnhub + yfinance when FMP is unavailable."""
+    fh = None
+    yf_ = None
+    try:
+        fh = fetch_fundamentals_finnhub(tkr)
+    except Exception:
+        fh = None
+    try:
+        yf_ = fetch_fundamentals_yfinance(tkr)
+    except Exception:
+        yf_ = None
+    if not fh and not yf_:
+        return None
+
+    def pick(key_fh, key_yf=None):
+        for src, k in ((fh, key_fh), (yf_, key_yf or key_fh)):
+            v = (src or {}).get(k)
+            if v is not None:
+                return v
+        return None
+
+    out = {
+        "Market_Cap": pick("market_cap"),
+        "Beta": pick("beta"),
+        "PE_Ratio": pick("pe"),
+        "PEG_Ratio": (yf_ or {}).get("peg"),
+        "PB_Ratio": pick("pb"),
+        "Debt_to_Equity": pick("debt_equity"),
+        "ROE": pick("roe"),
+        "Vol_Avg": (yf_ or {}).get("vol_avg"),
+        "Dividend": (yf_ or {}).get("last_div"),
+        "Price": (yf_ or {}).get("price_backup"),
+        "Sector": (yf_ or {}).get("sector"),
+        "Industry": (yf_ or {}).get("industry"),
+    }
+    out = {k: v for k, v in out.items() if v is not None}
+    if not out:
+        return None
+    _put_in_cache(cache_key, out)
+    return out
+
+
 def get_fundamentals_safe(ticker: str) -> Optional[Dict]:
     """
     Robust, flat fundamentals fetch using FMP Profile and Ratios TTM.
@@ -654,13 +700,20 @@ def get_fundamentals_safe(ticker: str) -> Optional[Dict]:
     if cached:
         return cached
 
+    # FMP circuit (2026-11-18): after a quota/429 answer skip FMP for 10 minutes instead of paying two failed calls per ticker
+    if time.time() < _FMP_SAFE_BLOCKED_UNTIL[0]:
+        return _fundamentals_safe_fallback(tkr, cache_key)
+
     # Profile (best-effort; do not early-return on failure) - using stable API
     _rate_limit("fmp")
     prof_url = f"https://financialmodelingprep.com/stable/profile?symbol={tkr}"
     prof_params = {"apikey": (FMP_KEY_RUNTIME or FMP_API_KEY), "limit": 1}
     prof = None
+    _fmp_looks_blocked = False
     try:
         r = requests.get(prof_url, params=prof_params, timeout=4)
+        if r.status_code == 429:
+            _fmp_looks_blocked = True
         if r.status_code == 200:
             js = r.json()
             if js and isinstance(js, list) and js:
@@ -722,39 +775,12 @@ def get_fundamentals_safe(ticker: str) -> Optional[Dict]:
             "ROE": _f(ratios.get("returnOnEquityTTM")),
         })
 
-    # Fallback to Alpha Vantage OVERVIEW if both FMP calls failed
+    # Both FMP calls failed: block FMP briefly and use Finnhub + yfinance (Alpha OVERVIEW is premium for our key and its
+    # 12 s pacer made this serial per-winner loop take ~10 s per ticker — 75% of a scan's wall time on 2026-11-18).
     if not out:
-        ALPHA_KEY_RUNTIME = get_secret("ALPHA_VANTAGE_API_KEY", os.getenv("ALPHA_VANTAGE_API_KEY", "")) or os.getenv("ALPHAVANTAGE_API_KEY", "")
-        if ALPHA_KEY_RUNTIME or ALPHA_VANTAGE_API_KEY:
-            try:
-                _rate_limit("alpha")
-                url = "https://www.alphavantage.co/query"
-                params = {"function": "OVERVIEW", "symbol": tkr, "apikey": (ALPHA_KEY_RUNTIME or ALPHA_VANTAGE_API_KEY)}
-                data = _http_get_with_retry(url, params=params, timeout=4, provider="ALPHAVANTAGE", capability="fundamentals")
-            except (requests.RequestException, ValueError, KeyError):
-                data = None
-            if data and isinstance(data, dict):
-                def _fa(key: str) -> Optional[float]:
-                    try:
-                        v = data.get(key)
-                        if v in (None, "None", "-", "N/A", "null"):
-                            return None
-                        return float(v)
-                    except (TypeError, ValueError, KeyError):
-                        return None
-                out = {
-                    "Market_Cap": _fa("MarketCapitalization"),
-                    "PE_Ratio": _fa("PERatio"),
-                    "PEG_Ratio": _fa("PEGRatio"),
-                    "PB_Ratio": _fa("PriceToBookRatio"),
-                    "Debt_to_Equity": _fa("DebtToEquity"),
-                    "ROE": _fa("ReturnOnEquityTTM"),
-                    "Beta": _fa("Beta"),
-                    "Sector": data.get("Sector") or None,
-                }
-        # If still empty, return None
-        if not out:
-            return None
+        if _fmp_looks_blocked:
+            _FMP_SAFE_BLOCKED_UNTIL[0] = time.time() + 600
+        return _fundamentals_safe_fallback(tkr, cache_key)
 
     _put_in_cache(cache_key, out)
     return out
@@ -954,18 +980,27 @@ def fetch_fundamentals_finnhub(ticker: str, provider_status: Dict | None = None)
         except (TypeError, ValueError):
             _fh_mcap = None
 
+    def _pct_to_dec(v):
+        """Finnhub reports these in PERCENT (CAT roe 58.5); every other provider here uses decimals (0.58).
+        2026-11-18: with FMP gone, finnhub+yfinance are the only sources and their MEAN mixed units (roe 29.5,
+        margin 7.7 instead of ~0.57 / 0.15). Convert at ingestion, per provider (never by guessing from size)."""
+        try:
+            return None if v is None else float(v) / 100.0
+        except (TypeError, ValueError):
+            return None
+
     result = {
         "source": "finnhub",
         "pe": metric.get("peBasicExclExtraTTM"),
         "ps": metric.get("psAnnual"),
         "pb": metric.get("pbAnnual"),
-        "roe": metric.get("roeTTM"),
-        "margin": metric.get("netProfitMarginTTM"),
+        "roe": _pct_to_dec(metric.get("roeTTM")),
+        "margin": _pct_to_dec(metric.get("netProfitMarginTTM")),
         "market_cap": _fh_mcap,
         "beta": metric.get("beta"),
         "debt_equity": metric.get("totalDebt/totalEquityAnnual"),
-        "rev_yoy": metric.get("revenueGrowthTTMYoy"),
-        "eps_yoy": metric.get("epsGrowthTTMYoy"),
+        "rev_yoy": _pct_to_dec(metric.get("revenueGrowthTTMYoy")),
+        "eps_yoy": _pct_to_dec(metric.get("epsGrowthTTMYoy")),
         "timestamp": time.time()
     }
     _put_in_cache(cache_key, result)
@@ -1361,6 +1396,8 @@ def fetch_fundamentals_yfinance(ticker: str, provider_status: Dict | None = None
         "vol_avg": _f(info.get("averageVolume")),
         "last_div": _f(info.get("dividendYield")),
         "price_backup": _f(info.get("currentPrice")),
+        "sector": info.get("sector") or None,
+        "industry": info.get("industry") or None,
         "timestamp": time.time(),
     }
 
@@ -2225,6 +2262,20 @@ def clear_cache() -> None:
     logger.info("Cache cleared")
 
 
+def _apply_default_disabled_fundamentals() -> None:
+    """Providers whose FUNDAMENTALS are known to be unusable on our plans are off from the start (2026-11-18), so no
+    ticker ever waits for them: alpha (OVERVIEW is premium; 12 s pacer), eodhd (free plan = EOD prices only),
+    simfin (this module still calls the retired v2 API; v3 takes 22-25 s per call). Override with
+    FUND_DISABLED_DEFAULT="" (or a different comma list)."""
+    for p in os.getenv("FUND_DISABLED_DEFAULT", "alpha,eodhd,simfin").split(","):
+        p = p.strip().lower()
+        if p:
+            DISABLED_PROVIDERS.add(f"{p}:fundamentals")
+
+
+_apply_default_disabled_fundamentals()
+
+
 def reset_disabled_providers() -> None:
     """Reset all disabled providers to their default state.
 
@@ -2238,6 +2289,7 @@ def reset_disabled_providers() -> None:
         "fmp": False,
     }
     DISABLED_PROVIDERS.clear()
+    _apply_default_disabled_fundamentals()
     logger.info("Provider blacklists reset")
 
 

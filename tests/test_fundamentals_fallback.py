@@ -13,6 +13,11 @@ from core.data_sources_v2 import aggregate_fundamentals
 
 def test_per_field_fallback_order(monkeypatch):
     """When a preferred source is missing a field, other sources fill it in."""
+    # alpha/eodhd/simfin fundamentals are disabled by default since 2026-11-18; this test exercises the generic
+    # multi-source mechanism with ALL providers mocked, so enable them for the test.
+    monkeypatch.setenv("FUND_DISABLED_DEFAULT", "")
+    from core.data_sources_v2 import reset_disabled_providers
+    reset_disabled_providers()
     # Mock each provider's fetch function to return partial data
     fmp_data = {"pe": 15.0, "ps": 2.0, "market_cap": 1e9, "beta": 1.1}
     finnhub_data = {"roe": 0.18, "margin": 0.25, "debt_equity": 0.5}
