@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "last_updated": "2026-11-21T14:47:23.410855+00:00",
+  "broadcast_seq": 222454,
+  "pipeline": {
+    "state": "idle",
+    "last_fire": "18:30:00",
+    "last_complete": null,
+    "regime": null,
+    "candidates_passed": null,
+    "skips": [],
+    "today_buys": 0,
+    "today_closes": 0
+  },
+  "positions": [
+    {
+      "ticker": "SEZL",
+      "qty": 1,
+      "entry": 153.61,
+      "mkt": 136.41,
+      "pnl_pct": -11.2,
+      "pnl_abs": -17.2,
+      "peak_pct": 8.85,
+      "trail_pct": 20.0,
+      "target": 245.65,
+      "opened_at": "2026-11-11",
+      "earnings_date": "2026-11-04",
+      "days_to_earnings": -17
+    }
+  ],
+  "trade_log_today": [],
+  "ledger_summary": {
+    "today_realized": 0.0,
+    "lifetime_realized": null,
+    "trades_today": 0,
+    "reconciliation_delta": null,
+    "ledger_total": -136.95,
+    "pre_ledger_baseline": 0.0
+  },
+  "system_health": {
+    "stockscout-monitor": true,
+    "stockscout-pipeline.timer": true,
+    "stockscout-statusbot": true,
+    "stockscout-healthcheck.timer": true,
+    "stockscout-daily-summary.timer": true,
+    "stockscout-command-poller": true,
+    "ibgateway": true,
+    "all_active": true,
+    "scan_age_hours": 19.8,
+    "outcomes_age_days": 53,
+    "pipeline_next_fire": "2026-11-23T14:30:00+00:00"
+  },
+  "account": {
+    "net_liquidation": 704.34,
+    "cash": 65.53,
+    "tier": "sub_2k",
+    "snapshot_age_minutes": 0.9
+  },
+  "throttle": {
+    "active": false,
+    "level": "watch",
+    "mode": "alert",
+    "win_rate": null,
+    "size_multiplier": 1.0,
+    "trades_in_window": 28,
+    "mean_pct": -0.64,
+    "upper95_pct": 1.77
+  }
+}
