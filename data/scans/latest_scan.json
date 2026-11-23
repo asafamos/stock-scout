@@ -1,6 +1,6 @@
 {
-  "timestamp": "2026-11-23T14:43:05.412609Z",
-  "universe_size": 57,
+  "timestamp": "2026-11-23T16:29:07.814293Z",
+  "universe_size": 168,
   "universe_name": "default",
   "config_version": "unknown",
   "lookback_days": 250,
@@ -194,16 +194,14 @@
     "Target_Date",
     "No_Trade_Signal",
     "Market_Caution",
-    "SignalStrength",
-    "LowConfidence",
-    "LowConfidence_Reason"
+    "SignalStrength"
   ],
   "scan_type": "auto_github_actions",
-  "universe_count": 1990,
+  "universe_count": 1998,
   "provider": "Unknown",
-  "results_count": 57,
+  "results_count": 168,
   "batches_ok": 10,
   "beta_filter_enabled": true,
   "fundamental_enabled": true,
-  "runtime_seconds": 680.47
+  "runtime_seconds": 1649.12
 }
