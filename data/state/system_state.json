@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "last_updated": "2026-11-28T12:12:23.498926+00:00",
+  "broadcast_seq": 240265,
+  "pipeline": {
+    "state": "idle",
+    "last_fire": "18:30:03",
+    "last_complete": null,
+    "regime": "CORRECTION",
+    "candidates_passed": 0,
+    "skips": [],
+    "today_buys": 0,
+    "today_closes": 0
+  },
+  "positions": [],
+  "trade_log_today": [],
+  "ledger_summary": {
+    "today_realized": 0.0,
+    "lifetime_realized": null,
+    "trades_today": 0,
+    "reconciliation_delta": null,
+    "ledger_total": -158.11,
+    "pre_ledger_baseline": 0.0
+  },
+  "system_health": {
+    "stockscout-monitor": true,
+    "stockscout-pipeline.timer": true,
+    "stockscout-statusbot": true,
+    "stockscout-healthcheck.timer": true,
+    "stockscout-daily-summary.timer": true,
+    "stockscout-command-poller": true,
+    "ibgateway": true,
+    "all_active": true,
+    "scan_age_hours": 17.1,
+    "outcomes_age_days": 29,
+    "pipeline_next_fire": "2026-11-30T14:30:00+00:00"
+  },
+  "account": {
+    "net_liquidation": 731.8,
+    "cash": 198.33,
+    "tier": "sub_2k",
+    "snapshot_age_minutes": 0.7
+  },
+  "throttle": {
+    "active": false,
+    "level": "watch",
+    "mode": "alert",
+    "win_rate": null,
+    "size_multiplier": 1.0,
+    "trades_in_window": 29,
+    "mean_pct": -1.09,
+    "upper95_pct": 1.35
+  }
+}
